@@ -2,3 +2,4 @@
 (A) consider writing a project that uses cellular automata or swarm logic or some other logic (ask gpt for instruction) to visualise station and location designs that prevent bottlenecking
 (A) add other research materials, articles and reference proper ways to simulate human traffic flow
 (A) add more details later after learning about flock simulation and other things as needed
+(A) reference this https://eater.net/boids
