@@ -1,10 +1,20 @@
-> TODO add build badge here
+[![](https://img.shields.io/badge/chiyoda_1.0.0-passing-green)](https://github.com/gongahkia/chiyoda/releases/tag/1.0.0) 
 
-# `Chiyoda`
-
-## Rationale
+# `Chiyoda` 🚆
 
 > TODO add here
+
+Implemented in [4 hours and 17 minutes](https://github.com/gongahkia/chiyoda/commit/06ab35a1f475c393faf7a3e2412a90b8e2ef4bb6).
+
+## Usage
+
+```console
+$ https://github.com/gongahkia/chiyoda
+$ cd chiyoda
+$ make config
+```
+
+> TODO add the layout and the point of each file, similar to what i had in my internship
 
 ## GIFs
 
@@ -32,21 +42,9 @@
 
 ![](./asset/reference/path.gif)
 
-## Usage
-
-```console
-$ https://github.com/gongahkia/chiyoda
-$ cd chiyoda
-$ make config
-```
-
-## Layout
-
-> TODO add here the point of each file, similar to what i had in my internship
-
 ## Research
 
-> TODO add here
+> TODO add relevant research here
 
 ## Reference
 
