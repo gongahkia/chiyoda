@@ -2,7 +2,9 @@
 
 # `Chiyoda` 🚆
 
-[Simulate](#gifs) [commuter](https://dictionary.cambridge.org/dictionary/english/commuter) dynamics within a [static system](https://www.quora.com/What-is-the-difference-between-a-static-and-dynamic-system).
+[Simulating](#gifs) [commuter](https://dictionary.cambridge.org/dictionary/english/commuter) dynamics within a [static system](https://www.quora.com/What-is-the-difference-between-a-static-and-dynamic-system).
+
+Rendered with [Matplotlib](https://matplotlib.org/stable/)'s [animation API](https://matplotlib.org/stable/api/animation_api.html).
 
 Implemented in [4 hours and 17 minutes](https://github.com/gongahkia/chiyoda/commit/06ab35a1f475c393faf7a3e2412a90b8e2ef4bb6).
 
