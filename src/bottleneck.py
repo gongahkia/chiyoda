@@ -32,7 +32,7 @@ def identify_bottlenecks(layout):
     dilated = binary_dilation(binary_map, structure=struct, iterations=1)
     narrow_passages = dilated & ~binary_map
     bottlenecks = np.where(narrow_passages)
-    return list(zip(bottlenecks[1], height - 1 - bottlenecks[0]))  # Convert to (x, y) coordinates
+    return list(zip(bottlenecks[1], height - 1 - bottlenecks[0]))  
 
 def setup_simulation(layout):
     """

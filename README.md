@@ -6,13 +6,21 @@
 
 > TODO add here
 
-## Usage
-
-> TODO add here
-
 ## Screenshot
 
 > TODO add here
+
+## Usage
+
+```console
+$ https://github.com/gongahkia/chiyoda
+$ cd chiyoda
+$ make config
+```
+
+## Layout
+
+> TODO add here the point of each file, similar to what i had in my internship
 
 ## Research
 
