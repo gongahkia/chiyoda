@@ -20,8 +20,8 @@ $ python3 <relevant_file>.py
 | File / Folder name | Purpose |
 | :--- | :--- |
 | [generate.py](./src/generate.py) | Rule-based generator for sample layouts based on specified heuristics. |
-| [normal.py](./src/normal.py) | Simulation of **dynamic bodies**. |
-| [tweak.py](./src/tweak.py) | Simulation of **static bodies**. |
+| [normal.py](./src/normal.py) | Simulation of dynamic bodies. |
+| [tweak.py](./src/tweak.py) | Simulation of static bodies. |
 | [bottleneck.py](./src/bottleneck.py) | Visualisation of bottlenecks within a space. |
 | [los.py](./src/los.py) | Visualisation of line of sights within a space. |
 | [path_heatmap.py](./src/path_heatmap.py) | Path density visualisation with a heatmap. |
