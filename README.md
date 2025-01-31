@@ -6,9 +6,31 @@
 
 > TODO add here
 
-## Screenshot
+## GIFs
 
-> TODO add here
+1. Normal movement simulation
+
+![](./asset/reference/normal.gif)
+
+2. Static simulation
+
+![](./asset/reference/tweak.gif)
+
+3. Bottleneck simulation
+
+![](./asset/reference/bottleneck.gif)
+
+4. Line of sight simulation
+
+![](./asset/reference/los.gif)
+
+5. Population density heatmap simulation
+
+![](./asset/reference/population.gif)
+
+6. Path density heatmap simulation
+
+![](./asset/reference/path.gif)
 
 ## Usage
 
