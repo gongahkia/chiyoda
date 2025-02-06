@@ -1,5 +1,0 @@
-x (A) furnish the todo.txt with more concrete ideas of what i want this project to have
-x (A) consider writing a project that uses cellular automata or swarm logic or some other logic to visualise station and location designs that prevent bottlenecking
-x (A) add other research materials, articles and reference proper ways to simulate human traffic flow
-x (A) add more details later after learning about flock simulation and other things as needed
-x (A) reference this https://eater.net/boids
