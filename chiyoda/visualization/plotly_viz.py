@@ -18,8 +18,14 @@ class InteractiveVisualizer:
         h, w = simulation.layout.height, simulation.layout.width
         self._grid_shape = (h, w)
 
-        density = np.zeros((h, w))
-        scatter = go.Scatter(x=positions[:, 0] if len(positions) else [], y=positions[:, 1] if len(positions) else [], mode="markers", marker=dict(size=4, color="blue"), name="Agents")
+        density = np.zeros((h, w))  # initialized density grid
+        scatter = go.Scatter(
+            x=positions[:, 0] if len(positions) else [],
+            y=positions[:, 1] if len(positions) else [],
+            mode="markers",
+            marker=dict(size=4, color="blue"),
+            name="Agents",
+        )
         heatmap = go.Heatmap(z=density, colorscale="YlOrRd", opacity=0.6, name="Density")
 
         self.fig = go.Figure(data=[heatmap, scatter])
@@ -37,7 +43,10 @@ class InteractiveVisualizer:
             x, y = int(np.clip(np.round(p[0]), 0, w - 1)), int(np.clip(np.round(p[1]), 0, h - 1))
             density[y, x] += 1
         # Simple smoothing via convolution kernel
-        kernel = np.array([[0.05, 0.1, 0.05], [0.1, 0.4, 0.1], [0.05, 0.1, 0.05]])
+        # 3x3 smoothing kernel (heavier center weight)
+        kernel = np.array(
+            [[0.05, 0.1, 0.05], [0.1, 0.4, 0.1], [0.05, 0.1, 0.05]]
+        )
         from scipy.signal import convolve2d
 
         return convolve2d(density, kernel, mode="same", boundary="symm")
