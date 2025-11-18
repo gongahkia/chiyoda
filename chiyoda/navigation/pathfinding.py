@@ -8,7 +8,8 @@ import networkx as nx
 class SmartNavigator:
     """
     Build a grid graph from the layout and compute shortest paths.
-    Edge weights can be dynamically adjusted by a provided density function.
+    Edge weights can be dynamically adjusted by a provided density function
+    callable: density_fn((x, y)) -> float crowd penalty.
     """
 
     def __init__(self, layout, density_fn=None) -> None:
