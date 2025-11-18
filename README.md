@@ -1,23 +1,22 @@
-[![](https://img.shields.io/badge/chiyoda_2.0.0--alpha-building-blue)](#) 
+[![](https://img.shields.io/badge/chiyoda_1.0.0-passing-light_green)](https://github.com/gongahkia/chiyoda/releases/tag/1.0.0) 
+[![](https://img.shields.io/badge/chiyoda_2.0.0-passing-green)](https://github.com/gongahkia/chiyoda/releases/tag/2.0.0) 
 
 # `Chiyoda` 🚆
 
 [Simulating](#gifs) [commuter](https://dictionary.cambridge.org/dictionary/english/commuter) dynamics within a [static system](https://www.quora.com/What-is-the-difference-between-a-static-and-dynamic-system).
 
-Rendered with [Matplotlib](https://matplotlib.org/stable/)'s animation API in v1, and now with [Plotly](https://plotly.com/python/) interactive dashboards in v2.
+Rendered with [Matplotlib](https://matplotlib.org/stable/)'s [animation API](https://matplotlib.org/stable/api/animation_api.html) and [Plotly dashboards](https://plotly.com/python/).
 
-Originally implemented in [4 hours and 17 minutes](https://github.com/gongahkia/chiyoda/commit/06ab35a1f475c393faf7a3e2412a90b8e2ef4bb6); expanded for v2 with agent-based modeling, pathfinding, and analytics.
+Implemented in [4 hours and 17 minutes](https://github.com/gongahkia/chiyoda/commit/06ab35a1f475c393faf7a3e2412a90b8e2ef4bb6).
 
-## Usage (v2)
+## Usage
 
 ```console
-$ git clone https://github.com/gongahkia/chiyoda
-$ cd chiyoda
+$ https://github.com/gongahkia/chiyoda && cd chiyoda
 $ make config
 $ python -m chiyoda.cli run scenarios/example.yaml --headless -o out.html
 ```
-
-## Layout (v1 modules)
+## Layout
 
 | File / Folder name | Purpose |
 | :--- | :--- |
@@ -28,28 +27,6 @@ $ python -m chiyoda.cli run scenarios/example.yaml --headless -o out.html
 | [los.py](./src/los.py) | Visualisation of line of sights within a space. |
 | [path_heatmap.py](./src/path_heatmap.py) | Path density visualisation with a heatmap. |
 | [population_heatmap.py](./src/population_heatmap.py) | Population density visualisation with a heatmap. |
-
-## New modules (v2)
-
-- `chiyoda/core/simulation.py` – simulation runtime
-- `chiyoda/environment/` – layout parsing, exits, hazards
-- `chiyoda/agents/` – agent base, commuter, behaviors, groups
-- `chiyoda/navigation/` – A* pathfinding, KD-tree spatial index
-- `chiyoda/visualization/plotly_viz.py` – interactive visualization
-- `chiyoda/analysis/` – metrics and HTML report generation
-- `chiyoda/scenarios/manager.py` – scenario loader (YAML)
-- `chiyoda/cli.py` – command-line interface
-
-## Try it
-
-Generate dependencies and run the example scenario headlessly, exporting an interactive HTML plus a report:
-
-```bash
-make config
-python -m chiyoda.cli run scenarios/example.yaml --headless -o out.html
-```
-
-Open `out.html` and `out_report.html` in your browser.
 
 ## GIFs
 
