@@ -1,0 +1,16 @@
+scenario:
+  name: "Example Station"
+  layout:
+    file: "scenarios/layouts/example_layout.txt"
+  population:
+    total: 120
+  hazards:
+    - type: "GAS"
+      location: [10, 10]
+      radius: 0.0
+      severity: 0.5
+      spread_rate: 0.2
+  simulation:
+    max_steps: 600
+    dt: 0.1
+    random_seed: 42
