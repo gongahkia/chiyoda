@@ -23,7 +23,7 @@ class SmartNavigator:
             for x in range(w):
                 if layout.is_walkable((x, y)):
                     G.add_node((x, y))
-        # 4-neighbor connectivity
+    # 4-neighbor connectivity (Manhattan)
         for y in range(h):
             for x in range(w):
                 if not layout.is_walkable((x, y)):
@@ -56,7 +56,11 @@ class SmartNavigator:
                     heuristic=lambda a, b: abs(a[0] - b[0]) + abs(a[1] - b[1]),
                     weight=lambda u, v, attr: self._weight(u, v, attr),
                 )
-                length = nx.path_weight(self.graph, path, weight=lambda u, v, attr: self._weight(u, v, attr))
+                # Compute dynamic path length manually to support callable weights
+                length = 0.0
+                for u, v in zip(path[:-1], path[1:]):
+                    edge_attr = self.graph[u][v]
+                    length += self._weight(u, v, edge_attr)
                 if length < best_len:
                     best = path
                     best_len = length
