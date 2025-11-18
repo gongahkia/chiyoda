@@ -11,6 +11,7 @@ from chiyoda.analysis.reports import generate_report
 @click.group()
 def cli():
     """Chiyoda v2 - Commuter Dynamics Simulator"""
+    pass
 
 
 @cli.command()
