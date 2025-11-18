@@ -16,7 +16,7 @@ def cli():
 
 @cli.command()
 @click.argument("scenario_file")
-@click.option("--output", "output", default="simulation.html", help="Export HTML file")
+@click.option("-o", "--output", "output", default="simulation.html", help="Export HTML file")
 @click.option("--headless", is_flag=True, help="Run without interactive UI and export HTML")
 def run(scenario_file, output, headless):
     """Run a simulation from a scenario YAML file."""
