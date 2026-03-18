@@ -76,6 +76,8 @@ class Simulation:
             agent.id: [(float(agent.pos[0]), float(agent.pos[1]))] for agent in self.agents
         }
         self._telemetry_bootstrapped = False
+        self.navigation_replan_interval_steps = 6
+        self.navigation_density_reroute_threshold = 0.55
 
         self.navigator = None  # type: ignore
         self.spatial_index = None  # type: ignore
@@ -103,6 +105,10 @@ class Simulation:
                 agent.local_density = 0.0
             if not hasattr(agent, "travel_time_s"):
                 agent.travel_time_s = 0.0
+            if not hasattr(agent, "crowd_speed_factor"):
+                agent.crowd_speed_factor = 1.0
+            if not hasattr(agent, "last_navigation_step"):
+                agent.last_navigation_step = -9999
 
     def _update_spatial_index(self) -> None:
         if self.spatial_index is not None:
@@ -115,12 +121,14 @@ class Simulation:
                 if agent.has_evacuated:
                     continue
                 agent.local_density = 0.0
+                agent.crowd_speed_factor = 1.0
             return
 
         for agent in self.agents:
             if agent.has_evacuated:
                 continue
             agent.local_density = self.spatial_index.local_density(agent.pos, radius=1.5)
+            agent.crowd_speed_factor = max(0.25, 1.0 - (agent.local_density / 2.0))
 
     def _empty_bottleneck_metrics(self) -> Dict[str, BottleneckStepTelemetry]:
         return {

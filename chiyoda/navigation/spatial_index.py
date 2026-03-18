@@ -33,6 +33,16 @@ class SpatialIndex:
         area = float(np.pi * radius * radius)
         return max(0, count) / area
 
+    def neighbor_positions(self, pos: np.ndarray, radius: float = 1.0) -> np.ndarray:
+        if self.tree is None or self._positions is None or len(self._positions) == 0:
+            return np.zeros((0, 2), dtype=float)
+        idxs = self.find_neighbors(pos, radius=radius)
+        if not idxs:
+            return np.zeros((0, 2), dtype=float)
+        points = self._positions[idxs]
+        mask = np.linalg.norm(points - pos, axis=1) > 1e-6
+        return points[mask]
+
     def density_penalty_fn(self):
         def _pen(pos_tuple):
             if self.tree is None:
