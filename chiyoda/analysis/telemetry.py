@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Dict, Iterable, List, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 import numpy as np
 
@@ -52,6 +52,7 @@ class StepTelemetry:
     exit_flow_cumulative: Dict[str, int]
     exit_flow_step: Dict[str, int]
     bottlenecks: Dict[str, BottleneckStepTelemetry]
+    hazards: List[Dict[str, Any]]
     evacuated_total: int
     remaining: int
     mean_speed: float

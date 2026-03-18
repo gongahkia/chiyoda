@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 import click
 
 from chiyoda.scenarios.manager import ScenarioManager
@@ -23,17 +22,9 @@ def run(scenario_file, output, headless):
     sim = ScenarioManager().load_scenario(scenario_file)
     viz = InteractiveVisualizer()
     if headless:
-        for _ in range(sim.config.max_steps):
-            if all(a.has_evacuated for a in sim.agents):
-                break
-            sim.step()
-            viz.on_step(sim)
-        viz.export_html(output)
-        click.echo(f"Exported HTML to {output}")
-        # Also produce a report
-        report_path = os.path.splitext(output)[0] + "_report.html"
-        generate_report(sim, report_path)
-        click.echo(f"Report written to {report_path}")
+        sim.run()
+        generate_report(sim, output)
+        click.echo(f"Exported study dashboard to {output}")
     else:
         viz.init(sim)
         sim.run(visualize=True, visualizer=viz)

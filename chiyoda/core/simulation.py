@@ -234,6 +234,7 @@ class Simulation:
                     )
                     for zone_id, metrics in bottleneck_metrics.items()
                 },
+                hazards=[hazard.snapshot() for hazard in self.hazards],
                 evacuated_total=len(self.completed_agents),
                 remaining=len(living_agents),
                 mean_speed=mean_speed,
@@ -408,7 +409,7 @@ class Simulation:
             "exit_labels": dict(self.exit_labels),
             "exit_flow_cumulative": dict(latest.exit_flow_cumulative),
             "exit_flow_step": dict(latest.exit_flow_step),
-            "hazards": [h.snapshot() for h in self.hazards],
+            "hazards": list(latest.hazards),
             "density": latest.mean_density,
             "mean_speed": latest.mean_speed,
             "occupancy_grid": latest.occupancy_grid.copy(),
