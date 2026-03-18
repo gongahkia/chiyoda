@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import random
 from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
@@ -47,6 +48,7 @@ class Simulation:
         self.config = config or SimulationConfig()
 
         if self.config.random_seed is not None:
+            random.seed(self.config.random_seed)
             np.random.seed(self.config.random_seed)
 
         self.current_step: int = 0
@@ -293,6 +295,9 @@ class Simulation:
         return metrics
 
     def _bootstrap_telemetry(self) -> None:
+        if self.config.random_seed is not None:
+            random.seed(self.config.random_seed)
+            np.random.seed(self.config.random_seed)
         self._update_spatial_index()
         self._refresh_agent_context()
         self._seed_bottleneck_membership()

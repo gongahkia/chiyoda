@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import random
 from typing import List
 import yaml
 import numpy as np
@@ -28,6 +29,11 @@ class ScenarioManager:
             cfg = yaml.safe_load(f)
 
         sc = cfg.get("scenario", cfg)
+        simulation_cfg = sc.get("simulation", {})
+        random_seed = simulation_cfg.get("random_seed", 42)
+        if random_seed is not None:
+            random.seed(random_seed)
+            np.random.seed(random_seed)
         layout_path = sc["layout"]["file"]
         layout = Layout.from_file(layout_path)
 
@@ -63,9 +69,9 @@ class ScenarioManager:
 
         # Build simulation
         sim_cfg = SimulationConfig(
-            max_steps=int(sc.get("simulation", {}).get("max_steps", 500)),
-            dt=float(sc.get("simulation", {}).get("dt", 0.1)),
-            random_seed=sc.get("simulation", {}).get("random_seed", 42),
+            max_steps=int(simulation_cfg.get("max_steps", 500)),
+            dt=float(simulation_cfg.get("dt", 0.1)),
+            random_seed=random_seed,
         )
         sim = Simulation(layout=layout, agents=agents, exits=exits, hazards=hazards, config=sim_cfg)
 
