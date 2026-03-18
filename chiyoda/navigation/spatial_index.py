@@ -26,12 +26,28 @@ class SpatialIndex:
         idxs = self.tree.query_ball_point(pos, r=radius)
         return list(idxs)
 
+    def local_density(self, pos: np.ndarray, radius: float = 1.5) -> float:
+        if self.tree is None or self._positions is None or len(self._positions) == 0:
+            return 0.0
+        count = len(self.find_neighbors(pos, radius=radius)) - 1
+        area = float(np.pi * radius * radius)
+        return max(0, count) / area
+
+    def neighbor_positions(self, pos: np.ndarray, radius: float = 1.0) -> np.ndarray:
+        if self.tree is None or self._positions is None or len(self._positions) == 0:
+            return np.zeros((0, 2), dtype=float)
+        idxs = self.find_neighbors(pos, radius=radius)
+        if not idxs:
+            return np.zeros((0, 2), dtype=float)
+        points = self._positions[idxs]
+        mask = np.linalg.norm(points - pos, axis=1) > 1e-6
+        return points[mask]
+
     def density_penalty_fn(self):
         def _pen(pos_tuple):
             if self.tree is None:
                 return 0.0
             pos = np.array([pos_tuple[0] + 0.5, pos_tuple[1] + 0.5])
-            k = len(self.find_neighbors(pos, radius=1.0))
-            return max(0, k - 1) / 5.0
+            return min(2.0, self.local_density(pos, radius=1.0) * 2.0)
 
         return _pen

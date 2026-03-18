@@ -17,7 +17,7 @@ def adjusted_step(current_pos: np.ndarray, desired_step: np.ndarray, neighbors: 
             repulsion += (delta / dist) * (1.0 - dist)
 
     adjusted = desired_step + 0.5 * repulsion
-    max_step = 1.0 * dt  # cap displacement per tick
+    max_step = max(float(np.linalg.norm(desired_step)), 1.0 * dt)
     nrm = np.linalg.norm(adjusted)
     if nrm > max_step:
         adjusted = adjusted / nrm * max_step
