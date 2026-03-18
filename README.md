@@ -1,7 +1,7 @@
 [![](https://img.shields.io/badge/chiyoda_1.0.0-passing-light_green)](https://github.com/gongahkia/chiyoda/releases/tag/1.0.0) 
 [![](https://img.shields.io/badge/chiyoda_2.0.0-passing-green)](https://github.com/gongahkia/chiyoda/releases/tag/2.0.0) 
 
-# `Chiyoda` 🚆
+# `Chiyoda`
 
 [Simulating](#gifs) [commuter](https://dictionary.cambridge.org/dictionary/english/commuter) dynamics within a [static system](https://www.quora.com/What-is-the-difference-between-a-static-and-dynamic-system).
 
@@ -16,6 +16,7 @@ $ https://github.com/gongahkia/chiyoda && cd chiyoda
 $ make config
 $ python -m chiyoda.cli run scenarios/example.yaml --headless -o out.html
 ```
+
 ## Layout
 
 | File / Folder name | Purpose |
@@ -28,31 +29,36 @@ $ python -m chiyoda.cli run scenarios/example.yaml --headless -o out.html
 | [path_heatmap.py](./src/path_heatmap.py) | Path density visualisation with a heatmap. |
 | [population_heatmap.py](./src/population_heatmap.py) | Population density visualisation with a heatmap. |
 
+## Screenshots
+
+![](./asset/reference/v2/1.png)
+![](./asset/reference/v2/2.png)
+
 ## GIFs
 
 1. Normal movement simulation
 
-![](./asset/reference/normal.gif)
+![](./asset/reference/v1/normal.gif)
 
 2. Static simulation
 
-![](./asset/reference/tweak.gif)
+![](./asset/reference/v1/tweak.gif)
 
 3. Bottleneck simulation
 
-![](./asset/reference/bottleneck.gif)
+![](./asset/reference/v1/bottleneck.gif)
 
 4. Line of sight simulation
 
-![](./asset/reference/los.gif)
+![](./asset/reference/v1/los.gif)
 
 5. Path density heatmap simulation
 
-![](./asset/reference/path.gif)
+![](./asset/reference/v1/path.gif)
 
 6. Population density heatmap simulation
 
-![](./asset/reference/population.gif)
+![](./asset/reference/v1/population.gif)
 
 ## Reference
 
