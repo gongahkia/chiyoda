@@ -15,6 +15,8 @@ Implemented in [4 hours and 17 minutes](https://github.com/gongahkia/chiyoda/com
 $ git clone https://github.com/gongahkia/chiyoda && cd chiyoda
 $ make config
 $ python -m chiyoda.cli run scenarios/example.yaml --headless -o out.html
+$ python -m chiyoda.cli run scenarios/example.yaml -o dashboard.html
+$ python -m chiyoda.cli generate layouts/new_layout.txt --width 40 --height 30
 ```
 
 ## Screenshots
@@ -36,18 +38,18 @@ $ python -m chiyoda.cli run scenarios/example.yaml --headless -o out.html
 
 | File / Folder name | Purpose |
 | :--- | :--- |
-| [chiyoda/](./chiyoda) | Core Python package. |
-| [chiyoda/cli.py](./chiyoda/cli.py) | CLI entrypoint for running simulations. |
-| [chiyoda/agents/](./chiyoda/agents) | Agent models (commuter, groups, behaviors). |
-| [chiyoda/analysis/](./chiyoda/analysis) | Metrics, telemetry, and report generation. |
-| [chiyoda/core/](./chiyoda/core) | Simulation engine. |
-| [chiyoda/environment/](./chiyoda/environment) | Layout, obstacles, exits, and hazards. |
-| [chiyoda/navigation/](./chiyoda/navigation) | Pathfinding, social force, and spatial indexing. |
-| [chiyoda/scenarios/](./chiyoda/scenarios) | Scenario loading and management. |
-| [chiyoda/visualization/](./chiyoda/visualization) | Plotly dashboard visualisation. |
-| [src/](./src) | Standalone v1 Matplotlib scripts. |
-| [scenarios/](./scenarios) | YAML scenario definitions and sample layouts. |
-| [tests/](./tests) | Test suite. |
+| [`chiyoda/`](./chiyoda) | Core Python package. |
+| [`chiyoda/cli.py`](./chiyoda/cli.py) | CLI entrypoint for running simulations. |
+| [`chiyoda/agents/`](./chiyoda/agents) | Agent models (commuter, groups, behaviors). |
+| [`chiyoda/analysis/`](./chiyoda/analysis) | Metrics, telemetry, and report generation. |
+| [`chiyoda/core/`](./chiyoda/core) | Simulation engine. |
+| [`chiyoda/environment/`](./chiyoda/environment) | Layout, obstacles, exits, and hazards. |
+| [`chiyoda/navigation/`](./chiyoda/navigation) | Pathfinding, social force, and spatial indexing. |
+| [`chiyoda/scenarios/`](./chiyoda/scenarios) | Scenario loading and management. |
+| [`chiyoda/visualization/`](./chiyoda/visualization) | Plotly dashboard visualisation. |
+| [`src/`](./src) | Standalone v1 Matplotlib scripts. |
+| [`scenarios/`](./scenarios) | YAML scenario definitions and sample layouts. |
+| [`tests/`](./tests) | Test suite. |
 
 ## Reference
 
