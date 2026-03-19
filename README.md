@@ -12,22 +12,10 @@ Implemented in [4 hours and 17 minutes](https://github.com/gongahkia/chiyoda/com
 ## Usage
 
 ```console
-$ https://github.com/gongahkia/chiyoda && cd chiyoda
+$ git clone https://github.com/gongahkia/chiyoda && cd chiyoda
 $ make config
 $ python -m chiyoda.cli run scenarios/example.yaml --headless -o out.html
 ```
-
-## Layout
-
-| File / Folder name | Purpose |
-| :--- | :--- |
-| [generate.py](./src/generate.py) | Rule-based generator for sample layouts based on specified heuristics. |
-| [normal.py](./src/normal.py) | Simulation of dynamic bodies. |
-| [tweak.py](./src/tweak.py) | Simulation of static bodies. |
-| [bottleneck.py](./src/bottleneck.py) | Visualisation of bottlenecks within a space. |
-| [los.py](./src/los.py) | Visualisation of line of sights within a space. |
-| [path_heatmap.py](./src/path_heatmap.py) | Path density visualisation with a heatmap. |
-| [population_heatmap.py](./src/population_heatmap.py) | Population density visualisation with a heatmap. |
 
 ## Screenshots
 
@@ -36,29 +24,30 @@ $ python -m chiyoda.cli run scenarios/example.yaml --headless -o out.html
 
 ## GIFs
 
-1. Normal movement simulation
+| Normal movement | Static simulation |
+| :---: | :---: |
+| ![](./asset/reference/v1/normal.gif) | ![](./asset/reference/v1/tweak.gif) |
+| **Bottleneck simulation** | **Line of sight simulation** |
+| ![](./asset/reference/v1/bottleneck.gif) | ![](./asset/reference/v1/los.gif) |
+| **Path density heatmap** | **Population density heatmap** |
+| ![](./asset/reference/v1/path.gif) | ![](./asset/reference/v1/population.gif) |
 
-![](./asset/reference/v1/normal.gif)
+## Structure
 
-2. Static simulation
-
-![](./asset/reference/v1/tweak.gif)
-
-3. Bottleneck simulation
-
-![](./asset/reference/v1/bottleneck.gif)
-
-4. Line of sight simulation
-
-![](./asset/reference/v1/los.gif)
-
-5. Path density heatmap simulation
-
-![](./asset/reference/v1/path.gif)
-
-6. Population density heatmap simulation
-
-![](./asset/reference/v1/population.gif)
+| File / Folder name | Purpose |
+| :--- | :--- |
+| [chiyoda/](./chiyoda) | Core Python package. |
+| [chiyoda/cli.py](./chiyoda/cli.py) | CLI entrypoint for running simulations. |
+| [chiyoda/agents/](./chiyoda/agents) | Agent models (commuter, groups, behaviors). |
+| [chiyoda/analysis/](./chiyoda/analysis) | Metrics, telemetry, and report generation. |
+| [chiyoda/core/](./chiyoda/core) | Simulation engine. |
+| [chiyoda/environment/](./chiyoda/environment) | Layout, obstacles, exits, and hazards. |
+| [chiyoda/navigation/](./chiyoda/navigation) | Pathfinding, social force, and spatial indexing. |
+| [chiyoda/scenarios/](./chiyoda/scenarios) | Scenario loading and management. |
+| [chiyoda/visualization/](./chiyoda/visualization) | Plotly dashboard visualisation. |
+| [src/](./src) | Standalone v1 Matplotlib scripts. |
+| [scenarios/](./scenarios) | YAML scenario definitions and sample layouts. |
+| [tests/](./tests) | Test suite. |
 
 ## Reference
 
