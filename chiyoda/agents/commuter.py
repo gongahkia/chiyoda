@@ -18,3 +18,5 @@ class Commuter(AgentBase):
             self.base_speed *= 0.8
         elif self.personality == "INJURED":
             self.base_speed *= 0.4
+        elif self.personality == "HELPING":
+            self.base_speed *= 0.85

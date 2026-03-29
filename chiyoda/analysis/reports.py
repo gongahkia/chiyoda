@@ -1,591 +1,497 @@
 from __future__ import annotations
 
-from typing import Dict, Iterable, List, Optional
+from pathlib import Path
+from typing import Iterable, Sequence
 
+import matplotlib
+
+matplotlib.use("Agg")
+
+import matplotlib.pyplot as plt
+from matplotlib.patches import Circle, Rectangle
 import numpy as np
-import plotly.graph_objects as go
-from plotly.subplots import make_subplots
+import pandas as pd
+import seaborn as sns
 
-from chiyoda.visualization.plotly_viz import (
-    _agent_customdata,
-    _hazard_sizes,
-    _trail_arrays,
-    _wall_coordinates,
-)
+from chiyoda.analysis.metrics import SimulationAnalytics
+from chiyoda.studies.models import ComparisonResult, StudyBundle
+from chiyoda.studies.runner import _collect_run_tables
 
 
-def _step_agents(step) -> List[dict]:
-    return [
-        {
-            "id": agent.agent_id,
-            "position": agent.position,
-            "cell": agent.cell,
-            "state": agent.state,
-            "speed": agent.speed,
-            "local_density": agent.local_density,
-            "target_exit": agent.target_exit,
-            "trail": list(agent.trail),
-        }
-        for agent in step.agents
+def export_figures(
+    artifact: StudyBundle | ComparisonResult,
+    output_dir: str | Path | None = None,
+    profile: str = "paper",
+    formats: Sequence[str] = ("png", "svg", "pdf"),
+) -> list[Path]:
+    _apply_style(profile)
+
+    out = Path(output_dir or "figures")
+    out.mkdir(parents=True, exist_ok=True)
+    exported: list[Path] = []
+
+    if isinstance(artifact, ComparisonResult):
+        fig = _figure_comparison_result(artifact)
+        exported.extend(_save_figure(fig, out, "06_scenario_comparison", formats))
+        return exported
+
+    figures = [
+        ("01_layout_and_keyframes", _figure_layout_and_keyframes(artifact)),
+        ("02_occupancy_and_slowdown", _figure_occupancy_and_slowdown(artifact)),
+        ("03_bottleneck_dynamics", _figure_bottleneck_dynamics(artifact)),
+        ("04_exit_and_flow", _figure_exit_and_flow(artifact)),
+        ("05_distributions", _figure_distributions(artifact)),
+        ("06_scenario_comparison", _figure_bundle_comparison(artifact)),
     ]
 
-
-def _time_axis(history) -> List[float]:
-    return [step.time_s for step in history]
-
-
-def _bottleneck_targets(simulation) -> List[Optional[object]]:
-    return simulation.bottleneck_zones or [None]
+    for name, fig in figures:
+        exported.extend(_save_figure(fig, out, name, formats))
+    return exported
 
 
-def _bottleneck_label(zone) -> str:
-    return zone.zone_id if zone is not None else "No bottleneck"
+def generate_report(simulation, output_path: str | Path) -> list[Path]:
+    """Compatibility wrapper for older single-run workflows."""
+    analytics = SimulationAnalytics()
+    tables = _collect_run_tables(
+        simulation=simulation,
+        analytics=analytics,
+        study_name="legacy_run",
+        scenario_name="legacy_run",
+        variant_name="baseline",
+        seed=int(simulation.config.random_seed or 0),
+        run_id="legacy_run",
+    )
+    bundle = StudyBundle(
+        metadata={
+            "study_name": "legacy_run",
+            "scenario_name": "legacy_run",
+            "acceleration_backend": simulation.acceleration.name,
+            "requested_acceleration_backend": simulation.acceleration.requested_backend,
+            "layout_text": "\n".join("".join(row) for row in simulation.layout.grid),
+            "layout_width": simulation.layout.width,
+            "layout_height": simulation.layout.height,
+            "layout_origin_x": float(simulation.layout.origin[0]),
+            "layout_origin_y": float(simulation.layout.origin[1]),
+            "layout_cell_size": float(simulation.layout.cell_size),
+            "bottleneck_zones": [
+                {
+                    "zone_id": zone.zone_id,
+                    "cells": [list(cell) for cell in zone.cells],
+                    "orientation": zone.orientation,
+                    "centroid": list(zone.centroid),
+                }
+                for zone in simulation.bottleneck_zones
+            ],
+            "exit_labels": {
+                f"{cell[0]},{cell[1]}": label
+                for cell, label in simulation.exit_labels.items()
+            },
+            "runs": [{"run_id": "legacy_run", "variant_name": "baseline", "seed": simulation.config.random_seed}],
+            "representative_run_id": "legacy_run",
+        },
+        summary=tables["summary"],
+        steps=tables["steps"],
+        cells=tables["cells"],
+        agent_steps=tables["agent_steps"],
+        agents=tables["agents"],
+        bottlenecks=tables["bottlenecks"],
+        dwell_samples=tables["dwell_samples"],
+        exits=tables["exits"],
+        hazards=tables["hazards"],
+    )
+
+    output_dir = Path(output_path)
+    if output_dir.suffix:
+        output_dir = output_dir.with_suffix("")
+    output_dir.mkdir(parents=True, exist_ok=True)
+    return export_figures(bundle, output_dir=output_dir)
 
 
-def _bottleneck_series(history, zone, attribute: str) -> List[float]:
-    if zone is None:
-        return [0.0 for _ in history]
-    return [getattr(step.bottlenecks[zone.zone_id], attribute) for step in history]
-
-
-def _exit_series(history, label: str) -> List[int]:
-    return [step.exit_flow_cumulative.get(label, 0) for step in history]
-
-
-def _summary_cards(metrics: Dict[str, object]) -> str:
-    ordered = [
-        ("Total time (s)", f"{metrics['total_time_s']:.2f}"),
-        ("Evacuated", str(metrics["agents_evacuated"])),
-        ("Remaining", str(metrics["agents_remaining"])),
-        ("Mean travel (s)", f"{metrics['mean_travel_time_s']:.2f}"),
-        ("P95 travel (s)", f"{metrics['p95_travel_time_s']:.2f}"),
-        ("Peak mean density", f"{metrics['peak_mean_density']:.2f}"),
-        ("Peak cell occupancy", str(metrics["peak_cell_occupancy"])),
-        ("Peak bottleneck queue", str(metrics["peak_bottleneck_queue"])),
-        ("Peak throughput", str(metrics["peak_bottleneck_throughput"])),
-        ("Dominant exit", str(metrics["dominant_exit"])),
+def _figure_layout_and_keyframes(bundle: StudyBundle) -> plt.Figure:
+    run_id = _representative_run_id(bundle)
+    agent_steps = bundle.agent_steps[bundle.agent_steps["run_id"] == run_id].copy()
+    available_steps = sorted(agent_steps["step"].unique().tolist()) if not agent_steps.empty else [0]
+    keyframe_steps = [
+        available_steps[0],
+        available_steps[len(available_steps) // 2],
+        available_steps[-1],
     ]
-    cards = []
-    for label, value in ordered:
-        cards.append(
-            f"<div class='card'><div class='card-label'>{label}</div><div class='card-value'>{value}</div></div>"
-        )
-    return "".join(cards)
 
+    fig, axes = plt.subplots(2, 2, figsize=(14, 11), constrained_layout=True)
+    axes = axes.flatten()
+    _draw_layout(axes[0], bundle)
+    axes[0].set_title("Layout, exits, hazards, and bottleneck zones")
 
-def _build_dashboard_figure(simulation) -> go.Figure:
-    history = simulation.step_history
-    first = history[0]
-    first_agents = _step_agents(first)
-    wall_x, wall_y = _wall_coordinates(simulation.layout)
-    times = _time_axis(history)
-    exit_labels = list(simulation.exit_labels.values())
-    bottleneck_targets = _bottleneck_targets(simulation)
-    frame_stride = max(1, len(history) // 120)
-    frame_indices = list(range(0, len(history), frame_stride))
-    if frame_indices[-1] != len(history) - 1:
-        frame_indices.append(len(history) - 1)
-
-    fig = make_subplots(
-        rows=2,
-        cols=3,
-        specs=[
-            [{"type": "scatter"}, {"type": "heatmap"}, {"type": "heatmap"}],
-            [{"type": "xy"}, {"type": "xy"}, {"type": "xy"}],
-        ],
-        subplot_titles=(
-            "Replay",
-            "Occupancy Heatmap",
-            "Speed Heatmap",
-            "Bottleneck Queue / Throughput",
-            "Exit Usage / Evacuation",
-            "Density / Speed Timeline",
-        ),
-        horizontal_spacing=0.08,
-        vertical_spacing=0.12,
-    )
-
-    fig.add_trace(
-        go.Scatter(
-            x=wall_x,
-            y=wall_y,
-            mode="markers",
-            marker=dict(size=10, color="#20242a", symbol="square"),
-            name="Walls",
-            hoverinfo="skip",
-            showlegend=False,
-        ),
-        row=1,
-        col=1,
-    )
-    fig.add_trace(
-        go.Scatter(
-            x=[exit_[0] + 0.5 for exit_ in simulation.exit_labels],
-            y=[exit_[1] + 0.5 for exit_ in simulation.exit_labels],
-            mode="markers",
-            marker=dict(size=12, color="#1b9e77", symbol="star"),
-            name="Exits",
-        ),
-        row=1,
-        col=1,
-    )
-    fig.add_trace(
-        go.Scatter(
-            x=[zone.centroid[0] for zone in simulation.bottleneck_zones],
-            y=[zone.centroid[1] for zone in simulation.bottleneck_zones],
-            mode="markers",
-            marker=dict(
-                size=18,
-                color="rgba(0,0,0,0)",
-                line=dict(color="#e66101", width=2),
-                symbol="square-open",
-            ),
-            name="Bottlenecks",
-            text=[zone.zone_id for zone in simulation.bottleneck_zones],
-            hovertemplate="Bottleneck %{text}<extra></extra>",
-        ),
-        row=1,
-        col=1,
-    )
-    fig.add_trace(
-        go.Scatter(
-            x=[hazard["pos"][0] + 0.5 for hazard in first.hazards],
-            y=[hazard["pos"][1] + 0.5 for hazard in first.hazards],
-            mode="markers",
-            marker=dict(
-                size=_hazard_sizes(first.hazards),
-                color="rgba(214,39,40,0.18)",
-                line=dict(color="#d62728", width=2),
-            ),
-            name="Hazards",
-            customdata=[[hazard["radius"]] for hazard in first.hazards],
-            hovertemplate="Hazard radius=%{customdata[0]:.2f}<extra></extra>",
-        ),
-        row=1,
-        col=1,
-    )
-    trail_x, trail_y = _trail_arrays(first_agents)
-    fig.add_trace(
-        go.Scatter(
-            x=trail_x,
-            y=trail_y,
-            mode="lines",
-            line=dict(color="rgba(31,119,180,0.22)", width=1),
-            name="Trails",
-            hoverinfo="skip",
-            showlegend=False,
-        ),
-        row=1,
-        col=1,
-    )
-    fig.add_trace(
-        go.Scatter(
-            x=[agent["position"][0] for agent in first_agents],
-            y=[agent["position"][1] for agent in first_agents],
-            mode="markers",
-            marker=dict(
-                size=8,
-                color=[agent["speed"] for agent in first_agents],
-                colorscale="Turbo",
-                cmin=0,
-                cmax=max(1.5, max([agent["speed"] for agent in first_agents], default=1.5)),
-                colorbar=dict(title="Speed"),
-            ),
-            name="Agents",
-            customdata=_agent_customdata(first_agents),
-            hovertemplate=(
-                "Agent %{customdata[0]}<br>"
-                "State=%{customdata[1]}<br>"
-                "Speed=%{customdata[2]} m/s<br>"
-                "Density=%{customdata[3]} p/m²<br>"
-                "Target exit=%{customdata[4]}<extra></extra>"
-            ),
-        ),
-        row=1,
-        col=1,
-    )
-    fig.add_trace(
-        go.Heatmap(z=first.occupancy_grid, colorscale="YlOrRd", showscale=False, name="Occupancy"),
-        row=1,
-        col=2,
-    )
-    fig.add_trace(
-        go.Heatmap(z=first.speed_grid, colorscale="Blues", showscale=False, name="Speed"),
-        row=1,
-        col=3,
-    )
-
-    for zone in bottleneck_targets:
-        label = _bottleneck_label(zone)
-        fig.add_trace(
-            go.Scatter(
-                x=[times[0]],
-                y=[_bottleneck_series(history, zone, "queue_length")[0]],
-                mode="lines",
-                line=dict(width=2),
-                name=f"{label} queue",
-            ),
-            row=2,
-            col=1,
-        )
-    for zone in bottleneck_targets:
-        label = _bottleneck_label(zone)
-        fig.add_trace(
-            go.Scatter(
-                x=[times[0]],
-                y=[_bottleneck_series(history, zone, "outflow")[0]],
-                mode="lines",
-                line=dict(width=2, dash="dot"),
-                name=f"{label} throughput",
-            ),
-            row=2,
-            col=1,
-        )
-
-    for label in exit_labels:
-        fig.add_trace(
-            go.Scatter(
-                x=[times[0]],
-                y=[_exit_series(history, label)[0]],
-                mode="lines",
-                line=dict(width=2),
-                name=label,
-            ),
-            row=2,
-            col=2,
-        )
-
-    fig.add_trace(
-        go.Scatter(
-            x=[times[0]],
-            y=[first.evacuated_total],
-            mode="lines",
-            line=dict(color="#2ca02c", width=3, dash="dash"),
-            name="Evacuated total",
-        ),
-        row=2,
-        col=2,
-    )
-    fig.add_trace(
-        go.Scatter(
-            x=[times[0]],
-            y=[first.mean_density],
-            mode="lines",
-            line=dict(color="#d95f02", width=2),
-            name="Mean density",
-        ),
-        row=2,
-        col=3,
-    )
-    fig.add_trace(
-        go.Scatter(
-            x=[times[0]],
-            y=[first.mean_speed],
-            mode="lines",
-            line=dict(color="#1f78b4", width=2, dash="dot"),
-            name="Mean speed",
-        ),
-        row=2,
-        col=3,
-    )
-
-    dynamic_traces = list(range(3, len(fig.data)))
-    frames = []
-    for full_index in frame_indices:
-        step = history[full_index]
-        agents = _step_agents(step)
-        trail_x, trail_y = _trail_arrays(agents)
-        frame_data: List[go.BaseTraceType] = [
-            go.Scatter(
-                x=[hazard["pos"][0] + 0.5 for hazard in step.hazards],
-                y=[hazard["pos"][1] + 0.5 for hazard in step.hazards],
-                mode="markers",
-                marker=dict(
-                    size=_hazard_sizes(step.hazards),
-                    color="rgba(214,39,40,0.18)",
-                    line=dict(color="#d62728", width=2),
-                ),
-                customdata=[[hazard["radius"]] for hazard in step.hazards],
-            ),
-            go.Scatter(x=trail_x, y=trail_y, mode="lines"),
-            go.Scatter(
-                x=[agent["position"][0] for agent in agents],
-                y=[agent["position"][1] for agent in agents],
-                mode="markers",
-                marker=dict(
-                    size=8,
-                    color=[agent["speed"] for agent in agents],
-                    colorscale="Turbo",
-                    cmin=0,
-                    cmax=max(1.5, max([agent["speed"] for agent in agents], default=1.5)),
-                ),
-                customdata=_agent_customdata(agents),
-            ),
-            go.Heatmap(z=step.occupancy_grid, colorscale="YlOrRd", showscale=False),
-            go.Heatmap(z=step.speed_grid, colorscale="Blues", showscale=False),
-        ]
-
-        upto_times = times[: full_index + 1]
-        for zone in bottleneck_targets:
-            frame_data.append(
-                go.Scatter(
-                    x=upto_times,
-                    y=_bottleneck_series(history, zone, "queue_length")[: full_index + 1],
-                    mode="lines",
-                )
+    for axis, step in zip(axes[1:], keyframe_steps):
+        _draw_layout(axis, bundle, faint=True)
+        frame = agent_steps[agent_steps["step"] == step]
+        if not frame.empty:
+            scatter = axis.scatter(
+                frame["x"],
+                frame["y"],
+                c=frame["speed"],
+                cmap="magma",
+                s=22,
+                alpha=0.9,
+                edgecolors="none",
             )
-        for zone in bottleneck_targets:
-            frame_data.append(
-                go.Scatter(
-                    x=upto_times,
-                    y=_bottleneck_series(history, zone, "outflow")[: full_index + 1],
-                    mode="lines",
-                )
-            )
-        for label in exit_labels:
-            frame_data.append(
-                go.Scatter(
-                    x=upto_times,
-                    y=_exit_series(history, label)[: full_index + 1],
-                    mode="lines",
-                )
-            )
-        frame_data.append(
-            go.Scatter(
-                x=upto_times,
-                y=[item.evacuated_total for item in history[: full_index + 1]],
-                mode="lines",
-            )
-        )
-        frame_data.append(
-            go.Scatter(
-                x=upto_times,
-                y=[item.mean_density for item in history[: full_index + 1]],
-                mode="lines",
-            )
-        )
-        frame_data.append(
-            go.Scatter(
-                x=upto_times,
-                y=[item.mean_speed for item in history[: full_index + 1]],
-                mode="lines",
-            )
-        )
-        frames.append(
-            go.Frame(
-                name=str(step.step),
-                data=frame_data,
-                traces=dynamic_traces,
-            )
-        )
-
-    fig.frames = frames
-    fig.update_xaxes(range=[0, simulation.layout.width], row=1, col=1, title_text="X")
-    fig.update_yaxes(
-        range=[0, simulation.layout.height],
-        row=1,
-        col=1,
-        title_text="Y",
-        scaleanchor="x",
-        scaleratio=1,
-    )
-    fig.update_xaxes(title_text="X", row=1, col=2)
-    fig.update_yaxes(title_text="Y", row=1, col=2, scaleanchor="x2", scaleratio=1)
-    fig.update_xaxes(title_text="X", row=1, col=3)
-    fig.update_yaxes(title_text="Y", row=1, col=3, scaleanchor="x3", scaleratio=1)
-    fig.update_xaxes(title_text="Time (s)", row=2, col=1)
-    fig.update_yaxes(title_text="Queue / throughput", row=2, col=1)
-    fig.update_xaxes(title_text="Time (s)", row=2, col=2)
-    fig.update_yaxes(title_text="Count", row=2, col=2)
-    fig.update_xaxes(title_text="Time (s)", row=2, col=3)
-    fig.update_yaxes(title_text="Value", row=2, col=3)
-    fig.update_layout(
-        title="Chiyoda Congestion Study Dashboard",
-        height=920,
-        template="plotly_white",
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-        updatemenus=[
-            {
-                "type": "buttons",
-                "showactive": False,
-                "x": 0.02,
-                "y": 1.12,
-                "buttons": [
-                    {
-                        "label": "Play",
-                        "method": "animate",
-                        "args": [
-                            None,
-                            {
-                                "frame": {"duration": 80, "redraw": True},
-                                "transition": {"duration": 0},
-                                "fromcurrent": True,
-                            },
-                        ],
-                    },
-                    {
-                        "label": "Pause",
-                        "method": "animate",
-                        "args": [[None], {"frame": {"duration": 0, "redraw": False}, "mode": "immediate"}],
-                    },
-                ],
-            }
-        ],
-        sliders=[
-            {
-                "active": 0,
-                "currentvalue": {"prefix": "Step "},
-                "pad": {"t": 40},
-                "steps": [
-                    {
-                        "label": str(step.step),
-                        "method": "animate",
-                        "args": [
-                            [str(step.step)],
-                            {"frame": {"duration": 0, "redraw": True}, "mode": "immediate"},
-                        ],
-                    }
-                    for step in [history[index] for index in frame_indices]
-                ],
-            }
-        ],
-    )
+            fig.colorbar(scatter, ax=axis, fraction=0.046, pad=0.04, label="Speed (m/s)")
+        axis.set_title(f"Keyframe at step {step}")
+    fig.suptitle("01 Layout and Keyframes", fontsize=16, fontweight="bold")
     return fig
 
 
-def _build_distribution_figure(simulation) -> go.Figure:
-    dwell_samples = list(
-        np.concatenate(
-            [
-                np.array(samples, dtype=float)
-                for samples in simulation.bottleneck_dwell_samples.values()
-                if samples
-            ]
-        )
-    ) if any(simulation.bottleneck_dwell_samples.values()) else []
+def _figure_occupancy_and_slowdown(bundle: StudyBundle) -> plt.Figure:
+    run_id = _representative_run_id(bundle)
+    cells = bundle.cells[bundle.cells["run_id"] == run_id].copy()
+    width = int(bundle.metadata.get("layout_width", 1))
+    height = int(bundle.metadata.get("layout_height", 1))
 
-    fig = make_subplots(
-        rows=1,
-        cols=3,
-        specs=[[{"type": "heatmap"}, {"type": "xy"}, {"type": "xy"}]],
-        subplot_titles=(
-            "Cumulative Path Usage",
-            "Travel Time Distribution",
-            "Bottleneck Dwell Distribution",
-        ),
-        horizontal_spacing=0.08,
-    )
-    fig.add_trace(
-        go.Heatmap(
-            z=simulation.step_history[-1].path_usage_grid,
-            colorscale="Viridis",
-            name="Path usage",
-        ),
-        row=1,
-        col=1,
-    )
-    fig.add_trace(
-        go.Histogram(
-            x=simulation.travel_times_s or [0.0],
-            marker=dict(color="#2ca02c"),
-            name="Travel time",
-            nbinsx=20,
-        ),
-        row=1,
-        col=2,
-    )
-    fig.add_trace(
-        go.Histogram(
-            x=dwell_samples or [0.0],
-            marker=dict(color="#e66101"),
-            name="Dwell time",
-            nbinsx=20,
-        ),
-        row=1,
-        col=3,
-    )
-    fig.update_xaxes(title_text="X", row=1, col=1)
-    fig.update_yaxes(title_text="Y", row=1, col=1)
-    fig.update_xaxes(title_text="Seconds", row=1, col=2)
-    fig.update_yaxes(title_text="Agents", row=1, col=2)
-    fig.update_xaxes(title_text="Seconds", row=1, col=3)
-    fig.update_yaxes(title_text="Samples", row=1, col=3)
-    fig.update_layout(
-        height=360,
-        template="plotly_white",
-        bargap=0.1,
-        showlegend=False,
-    )
+    peak_occupancy = np.zeros((height, width), dtype=float)
+    slowdown = np.zeros((height, width), dtype=float)
+    slowdown_hits = np.zeros((height, width), dtype=float)
+
+    if not cells.empty:
+        for _, row in cells.iterrows():
+            x, y = int(row["x"]), int(row["y"])
+            peak_occupancy[y, x] = max(peak_occupancy[y, x], float(row["occupancy"]))
+            slowdown[y, x] += max(0.0, 1.5 - float(row["speed"]))
+            slowdown_hits[y, x] += 1.0
+        slowdown = np.divide(
+            slowdown,
+            slowdown_hits,
+            out=np.zeros_like(slowdown),
+            where=slowdown_hits > 0,
+        )
+
+    fig, axes = plt.subplots(1, 2, figsize=(13, 5), constrained_layout=True)
+    sns.heatmap(peak_occupancy, cmap="YlOrRd", ax=axes[0], cbar_kws={"label": "Peak occupancy"})
+    axes[0].invert_yaxis()
+    axes[0].set_title("Peak occupancy hotspot map")
+    axes[0].set_xlabel("X")
+    axes[0].set_ylabel("Y")
+
+    sns.heatmap(slowdown, cmap="rocket_r", ax=axes[1], cbar_kws={"label": "Slowdown index"})
+    axes[1].invert_yaxis()
+    axes[1].set_title("Mean slowdown map")
+    axes[1].set_xlabel("X")
+    axes[1].set_ylabel("Y")
+    fig.suptitle("02 Occupancy and Slowdown", fontsize=16, fontweight="bold")
     return fig
 
 
-def generate_report(simulation, output_path: str) -> None:
-    from .metrics import SimulationAnalytics
+def _figure_bottleneck_dynamics(bundle: StudyBundle) -> plt.Figure:
+    bottlenecks = bundle.bottlenecks.copy()
+    dwell = bundle.dwell_samples.copy()
 
-    metrics = SimulationAnalytics().calculate_performance_metrics(simulation)
-    dashboard = _build_dashboard_figure(simulation)
-    distributions = _build_distribution_figure(simulation)
+    fig, axes = plt.subplots(2, 2, figsize=(14, 10), constrained_layout=True)
+    if bottlenecks.empty:
+        for axis in axes.flatten():
+            axis.text(0.5, 0.5, "No bottleneck telemetry available", ha="center", va="center")
+            axis.axis("off")
+        return fig
 
-    html = f"""
-<html>
-  <head>
-    <title>Chiyoda Congestion Study Dashboard</title>
-    <style>
-      body {{
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-        background: #f5f7fb;
-        color: #16202a;
-        margin: 0;
-        padding: 24px;
-      }}
-      h1 {{
-        margin-bottom: 8px;
-      }}
-      p.lead {{
-        margin-top: 0;
-        color: #4a5563;
-      }}
-      .cards {{
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
-        gap: 12px;
-        margin: 20px 0 28px;
-      }}
-      .card {{
-        background: white;
-        border-radius: 12px;
-        padding: 14px 16px;
-        box-shadow: 0 8px 24px rgba(15, 23, 42, 0.06);
-      }}
-      .card-label {{
-        font-size: 12px;
-        color: #637083;
-        text-transform: uppercase;
-        letter-spacing: 0.04em;
-      }}
-      .card-value {{
-        margin-top: 6px;
-        font-size: 24px;
-        font-weight: 700;
-      }}
-      .panel {{
-        background: white;
-        border-radius: 16px;
-        padding: 12px;
-        box-shadow: 0 10px 28px rgba(15, 23, 42, 0.07);
-        margin-bottom: 18px;
-      }}
-    </style>
-  </head>
-  <body>
-    <h1>Chiyoda Congestion Study Dashboard</h1>
-    <p class="lead">Replay the run, inspect occupancy and speed heatmaps, and track bottleneck performance from the same simulation timeline.</p>
-    <div class="cards">{_summary_cards(metrics)}</div>
-    <div class="panel">{dashboard.to_html(full_html=False, include_plotlyjs='cdn')}</div>
-    <div class="panel">{distributions.to_html(full_html=False, include_plotlyjs=False)}</div>
-  </body>
-</html>
-"""
+    mean_ts = (
+        bottlenecks.groupby(["variant_name", "time_s"], as_index=False)[["queue_length", "outflow"]]
+        .mean()
+    )
+    for variant_name, frame in mean_ts.groupby("variant_name"):
+        axes[0, 0].plot(frame["time_s"], frame["queue_length"], label=variant_name)
+        axes[0, 1].plot(frame["time_s"], frame["outflow"], label=variant_name)
+    axes[0, 0].set_title("Queue length over time")
+    axes[0, 0].set_xlabel("Time (s)")
+    axes[0, 0].set_ylabel("Queue length")
+    axes[0, 1].set_title("Throughput over time")
+    axes[0, 1].set_xlabel("Time (s)")
+    axes[0, 1].set_ylabel("Throughput")
 
-    with open(output_path, "w") as handle:
-        handle.write(html)
+    dwell_by_zone = (
+        dwell.groupby(["variant_name", "zone_id"], as_index=False)["dwell_s"].mean()
+        if not dwell.empty
+        else pd.DataFrame(columns=["variant_name", "zone_id", "dwell_s"])
+    )
+    if not dwell_by_zone.empty:
+        sns.barplot(data=dwell_by_zone, x="zone_id", y="dwell_s", hue="variant_name", ax=axes[1, 0])
+        axes[1, 0].legend(loc="best")
+    else:
+        axes[1, 0].text(0.5, 0.5, "No dwell samples recorded", ha="center", va="center")
+    axes[1, 0].set_title("Mean bottleneck dwell by zone")
+    axes[1, 0].set_xlabel("Zone")
+    axes[1, 0].set_ylabel("Seconds")
+
+    peak_queue = (
+        bottlenecks.groupby(["variant_name", "zone_id"], as_index=False)["queue_length"].max()
+    )
+    sns.barplot(data=peak_queue, x="zone_id", y="queue_length", hue="variant_name", ax=axes[1, 1])
+    axes[1, 1].set_title("Peak queue by zone")
+    axes[1, 1].set_xlabel("Zone")
+    axes[1, 1].set_ylabel("Peak queue")
+    axes[1, 1].legend(loc="best")
+
+    for axis in axes[0]:
+        axis.legend(loc="best")
+    fig.suptitle("03 Bottleneck Dynamics", fontsize=16, fontweight="bold")
+    return fig
+
+
+def _figure_exit_and_flow(bundle: StudyBundle) -> plt.Figure:
+    steps = bundle.steps.copy()
+    exits = bundle.exits.copy()
+
+    fig, axes = plt.subplots(1, 3, figsize=(15, 5), constrained_layout=True)
+    evac = (
+        steps.groupby(["variant_name", "time_s"], as_index=False)["evacuated_total"].mean()
+        if not steps.empty
+        else pd.DataFrame(columns=["variant_name", "time_s", "evacuated_total"])
+    )
+    for variant_name, frame in evac.groupby("variant_name"):
+        axes[0].plot(frame["time_s"], frame["evacuated_total"], label=variant_name)
+    axes[0].set_title("Evacuation curve")
+    axes[0].set_xlabel("Time (s)")
+    axes[0].set_ylabel("Evacuated")
+    axes[0].legend(loc="best")
+
+    if not exits.empty:
+        final_exits = (
+            exits.sort_values(["run_id", "exit_label", "time_s"])
+            .groupby(["variant_name", "run_id", "exit_label"], as_index=False)
+            .tail(1)
+        )
+        mean_exits = (
+            final_exits.groupby(["variant_name", "exit_label"], as_index=False)["flow_cumulative"].mean()
+        )
+        sns.barplot(data=mean_exits, x="exit_label", y="flow_cumulative", hue="variant_name", ax=axes[1])
+        axes[1].tick_params(axis="x", rotation=25)
+        axes[1].legend(loc="best")
+
+        imbalance_rows = []
+        for (variant_name, run_id), frame in final_exits.groupby(["variant_name", "run_id"]):
+            total = float(frame["flow_cumulative"].sum())
+            share = 0.0 if total <= 0 else float(frame["flow_cumulative"].max()) / total
+            imbalance_rows.append({"variant_name": variant_name, "run_id": run_id, "dominant_share": share})
+        imbalance = pd.DataFrame(imbalance_rows)
+        sns.barplot(data=imbalance, x="variant_name", y="dominant_share", ax=axes[2], color="#4c72b0")
+    else:
+        axes[1].text(0.5, 0.5, "No exit telemetry available", ha="center", va="center")
+        axes[2].text(0.5, 0.5, "No route imbalance available", ha="center", va="center")
+    axes[1].set_title("Final exit usage")
+    axes[1].set_xlabel("Exit")
+    axes[1].set_ylabel("Agents")
+    axes[2].set_title("Route imbalance")
+    axes[2].set_xlabel("Variant")
+    axes[2].set_ylabel("Dominant exit share")
+    fig.suptitle("04 Exit and Flow", fontsize=16, fontweight="bold")
+    return fig
+
+
+def _figure_distributions(bundle: StudyBundle) -> plt.Figure:
+    fig, axes = plt.subplots(1, 3, figsize=(15, 5), constrained_layout=True)
+
+    if not bundle.agents.empty:
+        sns.histplot(
+            data=bundle.agents,
+            x="travel_time_s",
+            hue="variant_name",
+            element="step",
+            stat="count",
+            common_norm=False,
+            ax=axes[0],
+        )
+        sns.histplot(
+            data=bundle.agents,
+            x="hazard_exposure",
+            hue="variant_name",
+            element="step",
+            stat="count",
+            common_norm=False,
+            ax=axes[2],
+        )
+    else:
+        axes[0].text(0.5, 0.5, "No agent outcomes available", ha="center", va="center")
+        axes[2].text(0.5, 0.5, "No exposure outcomes available", ha="center", va="center")
+
+    if not bundle.dwell_samples.empty:
+        sns.histplot(
+            data=bundle.dwell_samples,
+            x="dwell_s",
+            hue="variant_name",
+            element="step",
+            stat="count",
+            common_norm=False,
+            ax=axes[1],
+        )
+    else:
+        axes[1].text(0.5, 0.5, "No dwell samples available", ha="center", va="center")
+
+    axes[0].set_title("Travel time distribution")
+    axes[0].set_xlabel("Seconds")
+    axes[1].set_title("Bottleneck dwell distribution")
+    axes[1].set_xlabel("Seconds")
+    axes[2].set_title("Hazard exposure distribution")
+    axes[2].set_xlabel("Exposure")
+    fig.suptitle("05 Distributions", fontsize=16, fontweight="bold")
+    return fig
+
+
+def _figure_bundle_comparison(bundle: StudyBundle) -> plt.Figure:
+    fig, axes = plt.subplots(1, 2, figsize=(13, 5), constrained_layout=True)
+    variant_rows = bundle.summary[bundle.summary["record_type"] == "variant_aggregate"].copy()
+    steps = bundle.steps.copy()
+
+    if variant_rows["variant_name"].nunique() <= 1:
+        axes[0].text(0.5, 0.5, "Only one variant available", ha="center", va="center")
+        axes[1].text(0.5, 0.5, "Run a sweep or add variants for comparison", ha="center", va="center")
+        for axis in axes:
+            axis.axis("off")
+        fig.suptitle("06 Scenario Comparison", fontsize=16, fontweight="bold")
+        return fig
+
+    baseline = variant_rows.iloc[0]
+    comparison_rows = []
+    for _, row in variant_rows.iterrows():
+        if row["variant_name"] == baseline["variant_name"]:
+            continue
+        comparison_rows.append(
+            {
+                "variant_name": row["variant_name"],
+                "travel_time_delta": float(row["mean_travel_time_s"]) - float(baseline["mean_travel_time_s"]),
+                "queue_delta": float(row["peak_bottleneck_queue"]) - float(baseline["peak_bottleneck_queue"]),
+                "exposure_delta": float(row["mean_hazard_exposure"]) - float(baseline["mean_hazard_exposure"]),
+            }
+        )
+    comparison = pd.DataFrame(comparison_rows)
+    comparison_plot = comparison.melt(id_vars="variant_name", var_name="metric", value_name="delta")
+    sns.barplot(data=comparison_plot, x="metric", y="delta", hue="variant_name", ax=axes[0])
+    axes[0].tick_params(axis="x", rotation=20)
+    axes[0].set_title(f"Delta vs {baseline['variant_name']}")
+    axes[0].set_xlabel("Metric")
+    axes[0].set_ylabel("Delta")
+    axes[0].legend(loc="best")
+
+    evac = steps.groupby(["variant_name", "time_s"], as_index=False)["evacuated_total"].mean()
+    for variant_name, frame in evac.groupby("variant_name"):
+        axes[1].plot(frame["time_s"], frame["evacuated_total"], label=variant_name)
+    axes[1].set_title("Evacuation curves by variant")
+    axes[1].set_xlabel("Time (s)")
+    axes[1].set_ylabel("Evacuated")
+    axes[1].legend(loc="best")
+    fig.suptitle("06 Scenario Comparison", fontsize=16, fontweight="bold")
+    return fig
+
+
+def _figure_comparison_result(result: ComparisonResult) -> plt.Figure:
+    fig, axes = plt.subplots(1, 2, figsize=(13, 5), constrained_layout=True)
+
+    if not result.metrics.empty:
+        top_metrics = result.metrics.sort_values("pct_change", key=np.abs, ascending=False).head(8)
+        sns.barplot(data=top_metrics, x="metric", y="pct_change", ax=axes[0], color="#55a868")
+        axes[0].tick_params(axis="x", rotation=25)
+        axes[0].set_title("Percentage change by metric")
+        axes[0].set_xlabel("Metric")
+        axes[0].set_ylabel("Percent change")
+    else:
+        axes[0].text(0.5, 0.5, "No comparison metrics available", ha="center", va="center")
+
+    if not result.timeseries.empty:
+        for series_name, frame in result.timeseries.groupby("series"):
+            axes[1].plot(frame["time_s"], frame["evacuated_total"], label=f"{series_name} evacuated")
+            axes[1].plot(frame["time_s"], frame["mean_speed"], linestyle="--", label=f"{series_name} speed")
+        axes[1].legend(loc="best")
+    else:
+        axes[1].text(0.5, 0.5, "No comparison timeseries available", ha="center", va="center")
+    axes[1].set_title("Study comparison timeline")
+    axes[1].set_xlabel("Time (s)")
+    axes[1].set_ylabel("Value")
+    fig.suptitle("06 Scenario Comparison", fontsize=16, fontweight="bold")
+    return fig
+
+
+def _draw_layout(axis, bundle: StudyBundle, faint: bool = False) -> None:
+    layout_text = str(bundle.metadata.get("layout_text", "")).splitlines()
+    if not layout_text:
+        axis.axis("off")
+        return
+
+    height = len(layout_text)
+    width = max(len(line) for line in layout_text)
+    alpha = 0.15 if faint else 0.9
+    for y, row in enumerate(layout_text):
+        for x, cell in enumerate(row):
+            if cell == "X":
+                axis.add_patch(Rectangle((x, y), 1, 1, facecolor="#1f2933", edgecolor="none", alpha=alpha))
+
+    for key, label in dict(bundle.metadata.get("exit_labels", {})).items():
+        x, y = [int(part) for part in key.split(",")]
+        axis.scatter(x + 0.5, y + 0.5, marker="*", s=120, c="#2a9d8f")
+        axis.text(x + 0.65, y + 0.55, label.split()[1], fontsize=8, color="#2a9d8f")
+
+    for zone in bundle.metadata.get("bottleneck_zones", []):
+        centroid = zone["centroid"]
+        axis.add_patch(
+            Rectangle(
+                (centroid[0] - 0.5, centroid[1] - 0.5),
+                1.0,
+                1.0,
+                fill=False,
+                edgecolor="#e76f51",
+                linewidth=1.8,
+            )
+        )
+
+    representative_run = _representative_run_id(bundle)
+    hazard_rows = bundle.hazards[bundle.hazards["run_id"] == representative_run]
+    if not hazard_rows.empty:
+        latest_hazards = hazard_rows.sort_values("time_s").groupby("hazard_id", as_index=False).tail(1)
+        for _, hazard in latest_hazards.iterrows():
+            axis.add_patch(
+                Circle(
+                    (float(hazard["x"]) + 0.5, float(hazard["y"]) + 0.5),
+                    radius=float(hazard["radius"]),
+                    fill=False,
+                    edgecolor="#d62828",
+                    linewidth=1.3,
+                    alpha=0.65,
+                )
+            )
+
+    axis.set_xlim(0, width)
+    axis.set_ylim(height, 0)
+    axis.set_aspect("equal")
+    axis.set_xlabel("X")
+    axis.set_ylabel("Y")
+
+
+def _representative_run_id(bundle: StudyBundle) -> str:
+    run_id = bundle.metadata.get("representative_run_id")
+    if run_id:
+        return str(run_id)
+    if not bundle.steps.empty:
+        return str(bundle.steps["run_id"].iloc[0])
+    return "run_1"
+
+
+def _save_figure(fig: plt.Figure, output_dir: Path, name: str, formats: Sequence[str]) -> list[Path]:
+    exported: list[Path] = []
+    for output_format in formats:
+        target = output_dir / f"{name}.{output_format}"
+        fig.savefig(target, dpi=200, bbox_inches="tight")
+        exported.append(target)
+    plt.close(fig)
+    return exported
+
+
+def _apply_style(profile: str) -> None:
+    sns.set_theme(style="whitegrid", palette="deep")
+    if profile == "paper":
+        plt.rcParams.update(
+            {
+                "figure.facecolor": "white",
+                "axes.facecolor": "white",
+                "axes.edgecolor": "#c5ced8",
+                "axes.titlesize": 12,
+                "axes.labelsize": 10,
+                "font.size": 10,
+                "legend.frameon": True,
+                "legend.facecolor": "white",
+            }
+        )

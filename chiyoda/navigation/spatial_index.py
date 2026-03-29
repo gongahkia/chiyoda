@@ -11,9 +11,11 @@ class SpatialIndex:
     def __init__(self) -> None:
         self.tree: cKDTree | None = None
         self._positions: np.ndarray | None = None
+        self._agents: List[object] = []
 
     def update(self, agents: List[object]) -> None:
-        coords = [a.pos for a in agents if not getattr(a, "has_evacuated", False)]
+        self._agents = [a for a in agents if not getattr(a, "has_evacuated", False)]
+        coords = [a.pos for a in self._agents]
         self._positions = np.array(coords) if coords else np.zeros((0, 2), dtype=float)
         if len(self._positions) > 0:
             self.tree = cKDTree(self._positions)
@@ -42,6 +44,17 @@ class SpatialIndex:
         points = self._positions[idxs]
         mask = np.linalg.norm(points - pos, axis=1) > 1e-6
         return points[mask]
+
+    def neighbor_agents(self, pos: np.ndarray, radius: float = 1.0) -> List[object]:
+        if self.tree is None or self._positions is None or len(self._positions) == 0:
+            return []
+        idxs = self.find_neighbors(pos, radius=radius)
+        neighbors = [self._agents[idx] for idx in idxs]
+        return [
+            agent
+            for agent in neighbors
+            if np.linalg.norm(np.array(agent.pos) - pos) > 1e-6
+        ]
 
     def density_penalty_fn(self):
         def _pen(pos_tuple):

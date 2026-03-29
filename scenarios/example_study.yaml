@@ -1,0 +1,38 @@
+study:
+  name: "Example Bottleneck Study"
+  description: "Baseline and intervention variants for notebook-first bottleneck analysis."
+  scenario_file: "example.yaml"
+  repetitions: 1
+  export:
+    profile: "paper"
+    formats: ["png", "svg", "pdf"]
+    table_formats: ["parquet", "csv"]
+  variants:
+    - name: "baseline"
+    - name: "exit_closed"
+      description: "Close the upper exit to test route imbalance and queue growth."
+      interventions:
+        - type: "exit_closure"
+          exits:
+            - [25, 7]
+    - name: "staggered_release"
+      description: "Delay a late-arriving surge cohort."
+      interventions:
+        - type: "demand_surge"
+          name: "late_surge"
+          count: 24
+          release_step: 90
+          personality: "NORMAL"
+          calmness: 0.75
+          base_speed_multiplier: 1.0
+          spawn_cells:
+            - [4, 17]
+            - [6, 17]
+    - name: "narrowed_corridor"
+      description: "Block corridor cells to amplify bottleneck pressure."
+      interventions:
+        - type: "corridor_narrowing"
+          cells:
+            - [10, 10]
+            - [10, 11]
+            - [10, 12]

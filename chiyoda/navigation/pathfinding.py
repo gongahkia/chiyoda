@@ -12,10 +12,11 @@ class SmartNavigator:
     callable: density_fn((x, y)) -> float crowd penalty.
     """
 
-    def __init__(self, layout, density_fn=None) -> None:
+    def __init__(self, layout, density_fn=None, hazard_fn=None) -> None:
         self.layout = layout
         self.graph = self._build_graph(layout)
         self.density_fn = density_fn  # callable(pos_tuple) -> float crowd penalty
+        self.hazard_fn = hazard_fn  # callable(pos_tuple) -> float hazard penalty
 
     def _build_graph(self, layout) -> nx.Graph:
         G = nx.Graph()
@@ -37,11 +38,13 @@ class SmartNavigator:
 
     def _weight(self, u: Tuple[int, int], v: Tuple[int, int], attr: dict) -> float:
         base = attr.get("weight", 1.0)
-        if self.density_fn is None:
-            return base
-        # Penalize edges leading into high-density nodes
-        penalty = self.density_fn(v)
-        return base + 0.5 * penalty
+        penalty = 0.0
+        if self.density_fn is not None:
+            # Penalize edges leading into high-density nodes
+            penalty += 0.5 * self.density_fn(v)
+        if self.hazard_fn is not None:
+            penalty += self.hazard_fn(v)
+        return base + penalty
 
     def find_optimal_path(self, start: Tuple[int, int], goals: List[Tuple[int, int]]) -> Optional[List[Tuple[int, int]]]:
         best = None

@@ -14,6 +14,11 @@ class AgentBase:
     pos: np.ndarray  # [x, y] float coordinates
     base_speed: float = 1.34  # m/s typical walking speed
     has_evacuated: bool = False
+    release_step: int = 0
+    cohort_name: str = "baseline"
+    group_id: Optional[int] = None
+    leader_id: Optional[int] = None
+    assisted_agent_id: Optional[int] = None
 
     current_path: List[Tuple[int, int]] = field(default_factory=list)
     path_index: int = 0
@@ -26,13 +31,26 @@ class AgentBase:
     local_density: float = 0.0
     travel_time_s: float = 0.0
     last_navigation_step: int = -9999
+    hazard_exposure: float = 0.0
+    current_hazard_load: float = 0.0
+    hazard_speed_factor: float = 1.0
+    hazard_risk: float = 0.0
+    evacuated_via: Optional[str] = None
 
     def speed(self) -> float:
-        return self.base_speed * self.speed_multiplier * self.crowd_speed_factor
+        return (
+            self.base_speed
+            * self.speed_multiplier
+            * self.crowd_speed_factor
+            * self.hazard_speed_factor
+        )
+
+    def is_released(self, simulation) -> bool:
+        return simulation.current_step >= self.release_step
 
     def update_navigation(self, navigator, simulation) -> None:
         """Refresh navigation path periodically or when congestion rises."""
-        if self.has_evacuated:
+        if self.has_evacuated or not self.is_released(simulation):
             return
 
         needs_path = (not self.current_path) or (self.path_index >= len(self.current_path))
@@ -59,7 +77,7 @@ class AgentBase:
             self.last_navigation_step = simulation.current_step
 
     def step(self, dt: float, simulation) -> None:
-        if self.has_evacuated:
+        if self.has_evacuated or not self.is_released(simulation):
             return
 
         waypoint = None
@@ -78,6 +96,25 @@ class AgentBase:
             dist = np.linalg.norm(direction)
             if dist > 1e-6:
                 direction = direction / dist
+
+            if self.leader_id is not None:
+                leader = simulation.agent_lookup.get(self.leader_id)
+                if leader is not None and leader.is_released(simulation) and not leader.has_evacuated:
+                    leader_delta = leader.pos - self.pos
+                    leader_dist = np.linalg.norm(leader_delta)
+                    if leader_dist > 1.5:
+                        direction = 0.65 * direction + 0.35 * (leader_delta / leader_dist)
+                        dir_norm = np.linalg.norm(direction)
+                        if dir_norm > 1e-6:
+                            direction = direction / dir_norm
+
+            if self.assisted_agent_id is not None:
+                partner = simulation.agent_lookup.get(self.assisted_agent_id)
+                if partner is not None and partner.is_released(simulation) and not partner.has_evacuated:
+                    partner_delta = partner.pos - self.pos
+                    partner_dist = np.linalg.norm(partner_delta)
+                    if partner_dist > 2.5:
+                        direction = partner_delta / max(partner_dist, 1e-6)
 
             desired_step = direction * self.speed() * dt
             neighbors = (

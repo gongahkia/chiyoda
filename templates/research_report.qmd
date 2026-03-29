@@ -1,0 +1,39 @@
+---
+title: "Chiyoda Study Report"
+format:
+  html:
+    toc: true
+execute:
+  echo: true
+  warning: false
+---
+
+```{python}
+from pathlib import Path
+import pandas as pd
+
+from chiyoda.studies.models import StudyBundle
+
+STUDY_DIR = Path("out/study")
+bundle = StudyBundle.load(STUDY_DIR)
+summary = bundle.summary[bundle.summary["record_type"] == "variant_aggregate"].copy()
+summary
+```
+
+## Study Summary
+
+Use the exported tables in `tables/` for exact values and the exported figures in `figures/` for paper-ready visuals.
+
+## Core Figures
+
+![](figures/01_layout_and_keyframes.png)
+
+![](figures/02_occupancy_and_slowdown.png)
+
+![](figures/03_bottleneck_dynamics.png)
+
+![](figures/04_exit_and_flow.png)
+
+![](figures/05_distributions.png)
+
+![](figures/06_scenario_comparison.png)

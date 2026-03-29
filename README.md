@@ -17,11 +17,6 @@ $ python -m chiyoda.cli run scenarios/example.yaml -o dashboard.html
 $ python -m chiyoda.cli generate layouts/new_layout.txt --width 40 --height 30
 ```
 
-## Screenshots
-
-![](./asset/reference/v2/1.png)
-![](./asset/reference/v2/2.png)
-
 ## GIFs
 
 | Normal movement | Static simulation |

@@ -2,7 +2,9 @@ matplotlib
 scipy
 numpy
 networkx
-plotly
-dash
 pyyaml
 click
+pandas
+pyarrow
+pydantic
+seaborn

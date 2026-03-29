@@ -6,6 +6,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 
+from chiyoda.acceleration import create_acceleration_backend
 from chiyoda.analysis.telemetry import (
     AgentStepTelemetry,
     BottleneckStepTelemetry,
@@ -21,11 +22,13 @@ class SimulationConfig:
     max_steps: int = 500
     dt: float = 0.1
     random_seed: Optional[int] = 42
+    hazard_avoidance_weight: float = 1.25
+    acceleration_backend: str = "auto"
 
 
 class Simulation:
     """
-    Chiyoda v2 Simulation runtime
+    Chiyoda v2 Simulation runtime.
 
     Responsibilities:
     - Hold references to environment, agents, and systems
@@ -43,9 +46,11 @@ class Simulation:
     ) -> None:
         self.layout = layout
         self.agents = agents
+        self.agent_lookup = {agent.id: agent for agent in agents}
         self.exits = exits
         self.hazards = hazards or []
         self.config = config or SimulationConfig()
+        self.acceleration = create_acceleration_backend(self.config.acceleration_backend)
 
         if self.config.random_seed is not None:
             random.seed(self.config.random_seed)
@@ -99,6 +104,19 @@ class Simulation:
         y = int(np.clip(round(float(pos[1])), 0, self.layout.height - 1))
         return (x, y)
 
+    def _released_agents(self) -> List["AgentBase"]:
+        return [agent for agent in self.agents if agent.is_released(self)]
+
+    def _active_agents(self) -> List["AgentBase"]:
+        return [
+            agent for agent in self.agents if agent.is_released(self) and not agent.has_evacuated
+        ]
+
+    def _pending_agents(self) -> List["AgentBase"]:
+        return [
+            agent for agent in self.agents if not agent.has_evacuated and not agent.is_released(self)
+        ]
+
     def _ensure_agent_runtime_fields(self) -> None:
         for agent in self.agents:
             if not hasattr(agent, "current_speed"):
@@ -111,26 +129,86 @@ class Simulation:
                 agent.crowd_speed_factor = 1.0
             if not hasattr(agent, "last_navigation_step"):
                 agent.last_navigation_step = -9999
+            if not hasattr(agent, "hazard_exposure"):
+                agent.hazard_exposure = 0.0
+            if not hasattr(agent, "current_hazard_load"):
+                agent.current_hazard_load = 0.0
+            if not hasattr(agent, "hazard_speed_factor"):
+                agent.hazard_speed_factor = 1.0
+            if not hasattr(agent, "hazard_risk"):
+                agent.hazard_risk = 0.0
+            if not hasattr(agent, "evacuated_via"):
+                agent.evacuated_via = None
+
+    def hazard_intensity_at(self, point: np.ndarray | Tuple[float, float]) -> float:
+        pos = np.array(point, dtype=float)
+        intensity = 0.0
+        for hazard in self.hazards:
+            radius = max(float(hazard.radius), 0.0)
+            distance = float(np.linalg.norm(pos - np.array(hazard.pos, dtype=float)))
+            if radius <= 1e-6:
+                if distance <= 0.75:
+                    intensity += float(hazard.severity)
+                continue
+            if distance <= radius:
+                intensity += float(hazard.severity) * max(0.0, 1.0 - (distance / radius))
+        return intensity
+
+    def hazard_penalty_at_cell(self, cell: Tuple[int, int]) -> float:
+        point = np.array([cell[0] + 0.5, cell[1] + 0.5], dtype=float)
+        return self.config.hazard_avoidance_weight * self.hazard_intensity_at(point)
 
     def _update_spatial_index(self) -> None:
         if self.spatial_index is not None:
-            self.spatial_index.update(self.agents)
+            self.spatial_index.update(self._active_agents())
 
     def _refresh_agent_context(self) -> None:
         self._ensure_agent_runtime_fields()
-        if self.spatial_index is None:
-            for agent in self.agents:
-                if agent.has_evacuated:
-                    continue
-                agent.local_density = 0.0
-                agent.crowd_speed_factor = 1.0
-            return
+        active_agents = self._active_agents()
+        active_ids = {agent.id for agent in active_agents}
+        active_lookup = {agent.id: index for index, agent in enumerate(active_agents)}
+        positions = (
+            np.array([agent.pos for agent in active_agents], dtype=float)
+            if active_agents
+            else np.zeros((0, 2), dtype=float)
+        )
+        hazard_positions = (
+            np.array([hazard.pos for hazard in self.hazards], dtype=float)
+            if self.hazards
+            else np.zeros((0, 2), dtype=float)
+        )
+        radii = (
+            np.array([float(hazard.radius) for hazard in self.hazards], dtype=float)
+            if self.hazards
+            else np.zeros((0,), dtype=float)
+        )
+        severities = (
+            np.array([float(hazard.severity) for hazard in self.hazards], dtype=float)
+            if self.hazards
+            else np.zeros((0,), dtype=float)
+        )
+        hazard_loads = self.acceleration.hazard_intensities(
+            positions,
+            hazard_positions,
+            radii,
+            severities,
+        )
 
         for agent in self.agents:
-            if agent.has_evacuated:
+            if agent.has_evacuated or agent.id not in active_ids:
+                agent.local_density = 0.0
+                agent.crowd_speed_factor = 1.0
+                agent.current_hazard_load = 0.0
+                agent.hazard_speed_factor = 1.0
                 continue
-            agent.local_density = self.spatial_index.local_density(agent.pos, radius=1.5)
+
+            if self.spatial_index is None:
+                agent.local_density = 0.0
+            else:
+                agent.local_density = self.spatial_index.local_density(agent.pos, radius=1.5)
             agent.crowd_speed_factor = max(0.25, 1.0 - (agent.local_density / 2.0))
+            agent.current_hazard_load = float(hazard_loads[active_lookup[agent.id]])
+            agent.hazard_speed_factor = max(0.45, 1.0 - (agent.current_hazard_load * 0.35))
 
     def _empty_bottleneck_metrics(self) -> Dict[str, BottleneckStepTelemetry]:
         return {
@@ -141,7 +219,7 @@ class Simulation:
         self.agent_zone_membership = {}
         self.agent_zone_entry_step = {}
         for agent in self.agents:
-            if agent.has_evacuated:
+            if agent.has_evacuated or not agent.is_released(self):
                 self.agent_zone_membership[agent.id] = None
                 continue
             zone_id = self.bottleneck_lookup.get(self._grid_cell(agent.pos))
@@ -150,38 +228,34 @@ class Simulation:
                 self.agent_zone_entry_step[(agent.id, zone_id)] = self.current_step
 
     def _update_path_usage(self) -> None:
-        for agent in self.agents:
-            if agent.has_evacuated:
-                continue
+        for agent in self._active_agents():
             x, y = self._grid_cell(agent.pos)
             self.path_usage_grid[y, x] += 1
 
     def _build_step_grids(self) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-        occupancy = np.zeros((self.layout.height, self.layout.width), dtype=int)
-        density_sum = np.zeros((self.layout.height, self.layout.width), dtype=float)
-        speed_sum = np.zeros((self.layout.height, self.layout.width), dtype=float)
-
-        for agent in self.agents:
-            if agent.has_evacuated:
-                continue
-            x, y = self._grid_cell(agent.pos)
-            occupancy[y, x] += 1
-            density_sum[y, x] += float(agent.local_density)
-            speed_sum[y, x] += float(agent.current_speed)
-
-        density_grid = np.divide(
-            density_sum,
-            occupancy,
-            out=np.zeros_like(density_sum),
-            where=occupancy > 0,
+        active_agents = self._active_agents()
+        positions = (
+            np.array([agent.pos for agent in active_agents], dtype=float)
+            if active_agents
+            else np.zeros((0, 2), dtype=float)
         )
-        speed_grid = np.divide(
-            speed_sum,
-            occupancy,
-            out=np.zeros_like(speed_sum),
-            where=occupancy > 0,
+        densities = (
+            np.array([float(agent.local_density) for agent in active_agents], dtype=float)
+            if active_agents
+            else np.zeros((0,), dtype=float)
         )
-        return occupancy, density_grid, speed_grid
+        speeds = (
+            np.array([float(agent.current_speed) for agent in active_agents], dtype=float)
+            if active_agents
+            else np.zeros((0,), dtype=float)
+        )
+        return self.acceleration.aggregate_step_grids(
+            self.layout.width,
+            self.layout.height,
+            positions,
+            densities,
+            speeds,
+        )
 
     def _capture_step_telemetry(
         self,
@@ -192,10 +266,16 @@ class Simulation:
         self._update_path_usage()
         occupancy_grid, density_grid, speed_grid = self._build_step_grids()
 
-        living_agents = [agent for agent in self.agents if not agent.has_evacuated]
-        mean_speed = float(np.mean([agent.current_speed for agent in living_agents])) if living_agents else 0.0
+        living_agents = self._active_agents()
+        mean_speed = (
+            float(np.mean([agent.current_speed for agent in living_agents]))
+            if living_agents
+            else 0.0
+        )
         mean_density = (
-            float(np.mean([agent.local_density for agent in living_agents])) if living_agents else 0.0
+            float(np.mean([agent.local_density for agent in living_agents]))
+            if living_agents
+            else 0.0
         )
         self.density_history.append(mean_density)
 
@@ -208,6 +288,11 @@ class Simulation:
                 speed=float(agent.current_speed),
                 local_density=float(agent.local_density),
                 target_exit=tuple(agent.target_exit) if agent.target_exit is not None else None,
+                cohort_name=str(agent.cohort_name),
+                group_id=agent.group_id,
+                leader_id=agent.leader_id,
+                hazard_exposure=float(agent.hazard_exposure),
+                hazard_load=float(agent.current_hazard_load),
                 trail=tuple(self.agent_traces.get(agent.id, [])[-8:]),
             )
             for agent in living_agents
@@ -239,6 +324,7 @@ class Simulation:
                 hazards=[hazard.snapshot() for hazard in self.hazards],
                 evacuated_total=len(self.completed_agents),
                 remaining=len(living_agents),
+                pending_release=len(self._pending_agents()),
                 mean_speed=mean_speed,
                 mean_density=mean_density,
             )
@@ -246,11 +332,14 @@ class Simulation:
 
     def _update_bottleneck_metrics(self) -> Dict[str, BottleneckStepTelemetry]:
         metrics = self._empty_bottleneck_metrics()
-        active_agents = [agent for agent in self.agents if not agent.has_evacuated]
+        active_agents = self._active_agents()
+        active_ids = {agent.id for agent in active_agents}
         current_membership: Dict[int, Optional[str]] = {}
 
         for agent in self.agents:
-            zone_id = None if agent.has_evacuated else self.bottleneck_lookup.get(self._grid_cell(agent.pos))
+            zone_id = None
+            if agent.id in active_ids:
+                zone_id = self.bottleneck_lookup.get(self._grid_cell(agent.pos))
             current_membership[agent.id] = zone_id
             previous_zone = self.agent_zone_membership.get(agent.id)
 
@@ -259,7 +348,9 @@ class Simulation:
 
             if previous_zone is not None:
                 metrics[previous_zone].outflow += 1
-                enter_step = self.agent_zone_entry_step.pop((agent.id, previous_zone), self.current_step)
+                enter_step = self.agent_zone_entry_step.pop(
+                    (agent.id, previous_zone), self.current_step
+                )
                 dwell_s = max((self.current_step - enter_step) * self.config.dt, self.config.dt)
                 self.bottleneck_dwell_samples[previous_zone].append(dwell_s)
 
@@ -277,10 +368,14 @@ class Simulation:
             ]
             metrics[zone.zone_id].occupancy = len(zone_agents)
             metrics[zone.zone_id].mean_speed = (
-                float(np.mean([agent.current_speed for agent in zone_agents])) if zone_agents else 0.0
+                float(np.mean([agent.current_speed for agent in zone_agents]))
+                if zone_agents
+                else 0.0
             )
             metrics[zone.zone_id].mean_density = (
-                float(np.mean([agent.local_density for agent in zone_agents])) if zone_agents else 0.0
+                float(np.mean([agent.local_density for agent in zone_agents]))
+                if zone_agents
+                else 0.0
             )
             samples = self.bottleneck_dwell_samples[zone.zone_id]
             metrics[zone.zone_id].mean_dwell_s = float(np.mean(samples)) if samples else 0.0
@@ -323,10 +418,7 @@ class Simulation:
 
         exit_flow_step = {label: 0 for label in self.exit_flow_cumulative}
 
-        for agent in list(self.agents):
-            if agent.has_evacuated:
-                continue
-
+        for agent in list(self._active_agents()):
             if self.behavior_model is not None:
                 self.behavior_model.update_agent(agent, self)
 
@@ -337,6 +429,18 @@ class Simulation:
             agent.step(dt, self)
             agent.current_speed = float(np.linalg.norm(agent.pos - previous_pos) / dt)
             agent.travel_time_s = self.time_s + dt
+            agent.current_hazard_load = self.hazard_intensity_at(agent.pos)
+            agent.hazard_exposure += agent.current_hazard_load * dt
+            agent.hazard_risk = max(float(agent.hazard_risk), float(agent.current_hazard_load))
+            if agent.current_hazard_load > 0.05:
+                self.risk_events.append(
+                    {
+                        "step": self.current_step,
+                        "time_s": self.time_s,
+                        "agent_id": agent.id,
+                        "hazard_load": float(agent.current_hazard_load),
+                    }
+                )
             self.agent_traces.setdefault(agent.id, []).append(
                 (float(agent.pos[0]), float(agent.pos[1]))
             )
@@ -354,6 +458,7 @@ class Simulation:
                             label = known_label
                             break
                 if label is not None:
+                    agent.evacuated_via = label
                     self.exit_flow_cumulative[label] += 1
                     exit_flow_step[label] += 1
 
@@ -406,6 +511,11 @@ class Simulation:
                     "speed": agent.speed,
                     "local_density": agent.local_density,
                     "target_exit": agent.target_exit,
+                    "cohort_name": agent.cohort_name,
+                    "group_id": agent.group_id,
+                    "leader_id": agent.leader_id,
+                    "hazard_exposure": agent.hazard_exposure,
+                    "hazard_load": agent.hazard_load,
                     "trail": list(agent.trail),
                 }
                 for agent in latest.agents
@@ -433,4 +543,7 @@ class Simulation:
             ],
             "evacuated": latest.evacuated_total,
             "remaining": latest.remaining,
+            "pending_release": latest.pending_release,
+            "acceleration_backend": self.acceleration.name,
+            "requested_acceleration_backend": self.acceleration.requested_backend,
         }

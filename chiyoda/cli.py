@@ -1,34 +1,187 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import click
 
-from chiyoda.scenarios.manager import ScenarioManager
-from chiyoda.visualization.plotly_viz import InteractiveVisualizer
-from chiyoda.analysis.reports import generate_report
+from chiyoda.analysis.reports import export_figures
+from chiyoda.studies import StudyBundle, compare_studies, load_study_config, run_study
 
 
 @click.group()
 def cli():
-    """Chiyoda v2 - Commuter Dynamics Simulator"""
+    """Chiyoda - notebook-first pedestrian bottleneck research toolkit."""
     pass
+
+
+def _normalized_values(values: tuple[str, ...], fallback: tuple[str, ...]) -> tuple[str, ...]:
+    if values:
+        return tuple(dict.fromkeys(value.lower() for value in values))
+    return fallback
+
+
+def _bundle_export_settings(
+    bundle: StudyBundle,
+    figure_formats: tuple[str, ...] = (),
+    table_formats: tuple[str, ...] = (),
+    profile: str | None = None,
+) -> tuple[tuple[str, ...], tuple[str, ...], str, bool]:
+    export_config = bundle.metadata.get("export_config", {})
+    default_figures = tuple(export_config.get("formats", ("png", "svg", "pdf")))
+    default_tables = tuple(export_config.get("table_formats", ("parquet", "csv")))
+    default_profile = str(export_config.get("profile", "paper"))
+    include_figures = bool(export_config.get("include_figures", True))
+
+    resolved_figures = _normalized_values(figure_formats, default_figures)
+    resolved_tables = _normalized_values(table_formats, default_tables)
+    resolved_profile = profile or default_profile
+    should_export_figures = include_figures or bool(figure_formats)
+
+    return resolved_figures, resolved_tables, resolved_profile, should_export_figures
+
+
+def _export_bundle(
+    bundle: StudyBundle,
+    out_dir: str,
+    figure_formats: tuple[str, ...] = (),
+    table_formats: tuple[str, ...] = (),
+    profile: str | None = None,
+) -> None:
+    output_dir = Path(out_dir)
+    resolved_figures, resolved_tables, resolved_profile, should_export_figures = (
+        _bundle_export_settings(bundle, figure_formats, table_formats, profile)
+    )
+    bundle.export(output_dir, table_formats=resolved_tables)
+    if should_export_figures and resolved_figures:
+        export_figures(
+            bundle,
+            output_dir=output_dir / "figures",
+            profile=resolved_profile,
+            formats=resolved_figures,
+        )
 
 
 @cli.command()
 @click.argument("scenario_file")
-@click.option("-o", "--output", "output", default="simulation.html", help="Export HTML file")
-@click.option("--headless", is_flag=True, help="Run without interactive UI and export HTML")
-def run(scenario_file, output, headless):
-    """Run a simulation from a scenario YAML file."""
-    sim = ScenarioManager().load_scenario(scenario_file)
-    viz = InteractiveVisualizer()
-    if headless:
-        sim.run()
-        generate_report(sim, output)
-        click.echo(f"Exported study dashboard to {output}")
-    else:
-        viz.init(sim)
-        sim.run(visualize=True, visualizer=viz)
-        viz.show()
+@click.option("-o", "--out", "out_dir", required=True, help="Output study directory")
+@click.option(
+    "--format",
+    "figure_formats",
+    multiple=True,
+    default=(),
+    help="Figure format(s) to export",
+)
+@click.option(
+    "--table-format",
+    "table_formats",
+    multiple=True,
+    default=(),
+    help="Table format(s) to export",
+)
+@click.option("--profile", default=None, help="Export profile")
+def run(scenario_file, out_dir, figure_formats, table_formats, profile):
+    """Run a single scenario and export a structured study bundle."""
+    bundle = run_study(scenario_file)
+    _export_bundle(bundle, out_dir, tuple(figure_formats), tuple(table_formats), profile)
+    click.echo(f"Exported study bundle to {out_dir}")
+
+
+@cli.command()
+@click.argument("study_file")
+@click.option("-o", "--out", "out_dir", required=True, help="Output study directory")
+@click.option(
+    "--format",
+    "figure_formats",
+    multiple=True,
+    default=(),
+    help="Figure format(s) to export",
+)
+@click.option(
+    "--table-format",
+    "table_formats",
+    multiple=True,
+    default=(),
+    help="Table format(s) to export",
+)
+@click.option("--profile", default=None, help="Export profile")
+def sweep(study_file, out_dir, figure_formats, table_formats, profile):
+    """Run a study definition with repeated seeds, variants, and sweeps."""
+    config = load_study_config(study_file)
+    bundle = run_study(config)
+    _export_bundle(bundle, out_dir, tuple(figure_formats), tuple(table_formats), profile)
+    click.echo(f"Exported sweep study to {out_dir}")
+
+
+@cli.command()
+@click.argument("baseline")
+@click.argument("variant")
+@click.option("-o", "--out", "out_dir", required=True, help="Output comparison directory")
+@click.option(
+    "--format",
+    "figure_formats",
+    multiple=True,
+    default=(),
+    help="Figure format(s) to export",
+)
+@click.option(
+    "--table-format",
+    "table_formats",
+    multiple=True,
+    default=(),
+    help="Table format(s) to export",
+)
+@click.option("--profile", default=None, help="Export profile")
+def compare(baseline, variant, out_dir, figure_formats, table_formats, profile):
+    """Compare two exported studies and emit comparison tables and figures."""
+    baseline_bundle = StudyBundle.load(baseline)
+    result = compare_studies(baseline_bundle, variant)
+    output_dir = Path(out_dir)
+    resolved_figures, resolved_tables, resolved_profile, should_export_figures = (
+        _bundle_export_settings(
+            baseline_bundle,
+            tuple(figure_formats),
+            tuple(table_formats),
+            profile,
+        )
+    )
+    result.export(output_dir, table_formats=resolved_tables)
+    if should_export_figures and resolved_figures:
+        export_figures(
+            result,
+            output_dir=output_dir / "figures",
+            profile=resolved_profile,
+            formats=resolved_figures,
+        )
+    click.echo(f"Exported study comparison to {out_dir}")
+
+
+@cli.command("export-figures")
+@click.argument("study_dir")
+@click.option(
+    "--format",
+    "figure_formats",
+    multiple=True,
+    default=(),
+    help="Figure format(s) to export",
+)
+@click.option("--profile", default=None, help="Export profile")
+def export_figures_command(study_dir, figure_formats, profile):
+    """Re-export research figures from an existing study directory."""
+    bundle = StudyBundle.load(study_dir)
+    export_dir = Path(study_dir) / "figures"
+    resolved_figures, _, resolved_profile, should_export_figures = _bundle_export_settings(
+        bundle,
+        tuple(figure_formats),
+        profile=profile,
+    )
+    if should_export_figures and resolved_figures:
+        export_figures(
+            bundle,
+            output_dir=export_dir,
+            profile=resolved_profile,
+            formats=resolved_figures,
+        )
+    click.echo(f"Exported figures to {export_dir}")
 
 
 @cli.command()
@@ -38,21 +191,19 @@ def run(scenario_file, output, headless):
 def generate(layout_output, width, height):
     """Generate a random text layout and save to file."""
     try:
-        # Prefer local generator if available
         from src.generate import generate_layout, save_layout  # type: ignore
 
         layout = generate_layout(width, height)
         save_layout(layout, layout_output)
         click.echo(f"Generated layout saved to {layout_output}")
     except Exception:
-        # Fallback: write a simple empty room with exits
         lines = ["X" * width]
         for _ in range(height - 2):
             lines.append("X" + "." * (width - 2) + "X")
         lines.append("X" * width)
         lines[-1] = lines[-1][: width // 2] + "E" + lines[-1][width // 2 + 1 :]
-        with open(layout_output, "w") as f:
-            f.write("\n".join(lines) + "\n")
+        with open(layout_output, "w") as handle:
+            handle.write("\n".join(lines) + "\n")
         click.echo(f"Generated basic layout saved to {layout_output}")
 
 

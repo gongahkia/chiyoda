@@ -37,6 +37,11 @@ class AgentStepTelemetry:
     speed: float
     local_density: float
     target_exit: Optional[Cell]
+    cohort_name: str
+    group_id: Optional[int]
+    leader_id: Optional[int]
+    hazard_exposure: float
+    hazard_load: float
     trail: Tuple[Tuple[float, float], ...] = field(default_factory=tuple)
 
 
@@ -55,6 +60,7 @@ class StepTelemetry:
     hazards: List[Dict[str, Any]]
     evacuated_total: int
     remaining: int
+    pending_release: int
     mean_speed: float
     mean_density: float
 

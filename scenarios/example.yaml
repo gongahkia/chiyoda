@@ -3,7 +3,7 @@ scenario:
   layout:
     file: "scenarios/layouts/example_layout.txt"
   population:
-    total: 120
+    total: 72
   hazards:
     - type: "GAS"
       location: [10, 10]
@@ -11,6 +11,6 @@ scenario:
       severity: 0.5
       spread_rate: 0.2
   simulation:
-    max_steps: 600
+    max_steps: 220
     dt: 0.1
     random_seed: 42
