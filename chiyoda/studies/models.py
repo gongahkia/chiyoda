@@ -46,6 +46,7 @@ class StudyBundle:
     hazards: pd.DataFrame
     measurements: pd.DataFrame = field(default_factory=_empty_frame)
     gossip: pd.DataFrame = field(default_factory=_empty_frame)
+    interventions: pd.DataFrame = field(default_factory=_empty_frame)
 
     def export(self, output_dir: str | Path, table_formats: tuple[str, ...] = ("parquet", "csv")) -> Path:
         out = Path(output_dir)
@@ -76,6 +77,7 @@ class StudyBundle:
             "hazards": self.hazards,
             "measurements": self.measurements,
             "gossip": self.gossip,
+            "interventions": self.interventions,
         }
 
     @classmethod
@@ -96,6 +98,7 @@ class StudyBundle:
             hazards=_read_table(tables_dir, "hazards"),
             measurements=_read_table(tables_dir, "measurements"),
             gossip=_read_table(tables_dir, "gossip"),
+            interventions=_read_table(tables_dir, "interventions"),
         )
 
 
