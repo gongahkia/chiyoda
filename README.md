@@ -15,6 +15,7 @@ Domain-agnostic at its core — models entities navigating spatial environments 
 | **Hazards** | Multi-kind (GAS/SMOKE/FIRE/CRUSH), advection-diffusion spread, visibility reduction |
 | **Navigation** | Helbing-Molnar social force model, belief-weighted A* pathfinding, counter-flow friction |
 | **Responders** | Counter-flow first responders with PPE, high-credibility information injection |
+| **Interventions** | Static, global, responder, entropy-targeted, density-aware, exposure-aware, and bottleneck-avoidance broadcasts |
 | **Analysis** | Fundamental diagram extraction, entropy metrics, incapacitation tracking |
 | **Studies** | YAML-driven multi-seed, multi-variant sweeps with Parquet/CSV/figure export |
 
@@ -26,6 +27,7 @@ $ make config
 $ python -m chiyoda.cli run scenarios/station_baseline.yaml -o out/baseline
 $ python -m chiyoda.cli run scenarios/station_sarin.yaml -o out/sarin
 $ python -m chiyoda.cli sweep scenarios/study_ited_full.yaml -o out/ited_study
+$ python -m chiyoda.cli sweep scenarios/study_information_control.yaml -o out/information_control
 $ python -m chiyoda.cli compare out/baseline out/sarin -o out/comparison
 ```
 
@@ -59,6 +61,30 @@ The included `study_ited_full.yaml` defines 9 experimental variants:
 | `no_responder` | No responders — tests organic info spread |
 | `high_decay` | Fast belief decay (5× baseline) |
 | `no_beacons` | Disabled PA/signage system |
+
+## Entropy-Guided Information Control
+
+Chiyoda now treats emergency communication as a first-class intervention
+instead of a fixed background assumption. Scenario files can opt into an
+`interventions` block that schedules static signage/PA broadcasts, global
+announcements, responder relays, or adaptive policies that target high-entropy
+agents, dense clusters, high-exposure agents, or active bottlenecks.
+
+The core research question is whether reducing uncertainty always improves
+evacuation outcomes, or whether poorly timed and poorly targeted information
+can create harmful convergence, exit imbalance, bottleneck queues, or hazard
+exposure. The exported study bundles include an `interventions` table plus
+summary metrics such as `information_safety_efficiency`,
+`harmful_convergence_index`, `intervention_entropy_reduction`, and
+`intervention_accuracy_gain`.
+
+Included study definitions:
+
+| Study | Purpose |
+|:------|:--------|
+| `study_information_control.yaml` | Compare no intervention, static/global broadcasts, responder relay, and adaptive targeting policies |
+| `study_intervention_ablation.yaml` | Ablate intervention timing, budget, and adaptive target choice |
+| `study_message_quality.yaml` | Stress-test message credibility, delay, and frequency |
 
 ## Reference
 

@@ -1,0 +1,50 @@
+\section{Evaluation}
+\label{sec:evaluation}
+
+The primary evaluation will run \texttt{study\_information\_control.yaml}, a
+multi-seed comparison of no intervention, static beacon broadcast, global
+broadcast, responder relay, entropy-targeted communication, density-aware
+communication, exposure-aware communication, and bottleneck-avoidance
+communication. The generated paper stats currently point at \statStudyName{}
+with \statVariantCount{} variants, \statRunCount{} runs, and
+\statInterventionEvents{} recorded intervention events.
+
+\subsection{Outcome Measures}
+\label{subsec:outcomes}
+
+We evaluate physical outcomes, information outcomes, and coupled tradeoffs.
+Physical outcomes include evacuation count, mean and p95 travel time, peak
+mean density, peak bottleneck queue, mean hazard exposure, p95 exposure, and
+incapacitation count. Information outcomes include initial/final/mean entropy,
+entropy reduction, belief accuracy, intervention reach, and accuracy gain.
+Coupled outcomes include information-safety efficiency, harmful convergence,
+and exit imbalance.
+
+\subsection{Planned Hypotheses}
+\label{subsec:hypotheses}
+
+\begin{description}
+\item[H1:] Adaptive targeting improves information-safety efficiency compared
+with global broadcast because it reduces uncertainty where it is decision
+critical rather than synchronizing the full crowd.
+\item[H2:] Global broadcast reduces entropy fastest but can increase exit
+imbalance and bottleneck pressure.
+\item[H3:] Exposure-aware targeting reduces mean hazard exposure more than
+entropy-targeted communication in high-severity hazard regimes.
+\item[H4:] Responder relay is robust but delayed; its value depends strongly
+on release time and responder reach.
+\end{description}
+
+\subsection{Current Status}
+\label{subsec:current-status}
+
+The code path for intervention studies is implemented and smoke-tested. The
+next empirical step is to run the full study, inspect confidence intervals,
+and decide which variants need larger seed counts. At PhD-paper quality, the
+study should use substantially more than the default five seeds and should
+include a sensitivity analysis over hazard severity, population familiarity,
+message credibility, and intervention timing.
+
+\todo{Replace this status subsection with full tables, confidence intervals,
+effect sizes, and the final information-safety frontier after running the full
+study.}

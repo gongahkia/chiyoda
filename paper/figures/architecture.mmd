@@ -1,0 +1,12 @@
+flowchart LR
+  A["Scenario YAML"] --> B["ScenarioManager"]
+  B --> C["Simulation Runtime"]
+  C --> D["Hazard Physics"]
+  C --> E["Information Field"]
+  C --> F["Agents and BDI State"]
+  C --> G["Navigation and Social Force"]
+  E --> H["Intervention Policies"]
+  H --> E
+  C --> I["Telemetry Tables"]
+  I --> J["StudyBundle Export"]
+  J --> K["Paper Figures and stats.tex"]

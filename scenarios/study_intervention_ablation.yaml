@@ -1,0 +1,65 @@
+study:
+  name: "Information Intervention Ablation Study"
+  description: "Ablates timing, targeting budget, and targeting policy for entropy-guided evacuation communication."
+  scenario_file: "station_sarin.yaml"
+  repetitions: 5
+  seeds: [42, 137, 256, 512, 1024]
+  export:
+    profile: "paper"
+    formats: ["png", "svg", "pdf"]
+    table_formats: ["parquet", "csv"]
+  variants:
+    - name: "no_intervention"
+      scenario_overrides:
+        interventions:
+          policy: "none"
+
+    - name: "entropy_early_low_budget"
+      scenario_overrides:
+        interventions:
+          policy: "entropy_targeted"
+          start_step: 20
+          interval_steps: 30
+          budget_per_interval: 1
+          message_radius: 6.0
+          credibility: 0.9
+
+    - name: "entropy_early_high_budget"
+      scenario_overrides:
+        interventions:
+          policy: "entropy_targeted"
+          start_step: 20
+          interval_steps: 30
+          budget_per_interval: 5
+          message_radius: 6.0
+          credibility: 0.9
+
+    - name: "entropy_late_high_budget"
+      scenario_overrides:
+        interventions:
+          policy: "entropy_targeted"
+          start_step: 120
+          interval_steps: 30
+          budget_per_interval: 5
+          message_radius: 6.0
+          credibility: 0.9
+
+    - name: "bottleneck_early"
+      scenario_overrides:
+        interventions:
+          policy: "bottleneck_avoidance"
+          start_step: 20
+          interval_steps: 30
+          budget_per_interval: 3
+          message_radius: 7.0
+          credibility: 0.9
+
+    - name: "bottleneck_late"
+      scenario_overrides:
+        interventions:
+          policy: "bottleneck_avoidance"
+          start_step: 120
+          interval_steps: 30
+          budget_per_interval: 3
+          message_radius: 7.0
+          credibility: 0.9

@@ -1,0 +1,22 @@
+\section{Limitations}
+\label{sec:limitations}
+
+Chiyoda is currently a stylized research simulator, not an operational
+evacuation planner. The station layouts are simplified grids unless imported
+from richer geometry. Hazard physics are intentionally lightweight and should
+not be read as validated CBRN dispersion models. Physiological impairment uses
+piecewise exposure curves that are useful for comparative simulation but not
+medical prediction.
+
+The behavioral model is also a hypothesis generator rather than a calibrated
+description of a specific crowd. Agents use simplified BDI-style intentions,
+local gossip, panic/anxiety states, and familiarity cohorts. These mechanisms
+are valuable because they make assumptions inspectable, but the paper must not
+claim real-world predictive validity without calibration against evacuation
+drills, incident records, controlled VR experiments, or pedestrian trajectory
+data.
+
+Finally, entropy is not equivalent to safety. The point of the paper is
+precisely that uncertainty reduction can be harmful when it produces synchronized
+movement. The proposed information-safety metrics are therefore comparative
+diagnostics, not universal welfare functions.

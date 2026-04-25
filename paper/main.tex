@@ -1,0 +1,71 @@
+% !TEX program = lualatex
+% Chiyoda -- research paper. arXiv preprint, attributed.
+% Build with: make paper
+
+\documentclass[sigconf,nonacm,screen]{acmart}
+
+\newcommand{\todo}[1]{{\color{red}\textbf{[TODO]}\ \emph{#1}}}
+
+\title{Chiyoda: Entropy-Guided Information Control for Hazard-Coupled Pedestrian Evacuation}
+\subtitle{A Simulation Framework for Measuring When Emergency Communication Helps or Harms}
+
+\author{\href{https://gabrielongzm.com}{Gabriel Ong Zhe Mian}}
+\affiliation{%
+  \institution{Independent}
+  \country{Singapore}
+}
+\email{gabrielzmong@gmail.com}
+
+\IfFileExists{stats.tex}{\input{stats}}{%
+  \newcommand{\statStudyName}{TBD}%
+  \newcommand{\statVariantCount}{0}%
+  \newcommand{\statRunCount}{0}%
+  \newcommand{\statInterventionEvents}{0}%
+  \newcommand{\statBestPolicy}{TBD}%
+  \newcommand{\statBestEfficiency}{TBD}%
+  \newcommand{\statPeakHarmfulConvergence}{TBD}%
+}
+
+\begin{abstract}
+Emergency evacuation is usually modeled as a physical routing problem, with
+information appearing as a fixed assumption: agents either know exits, observe
+hazards, hear a warning, or do not. We present \emph{Chiyoda}, an
+Information-Theoretic Evacuation Dynamics framework that treats emergency
+communication as a controllable intervention in a coupled physical-information
+system. Agents carry probabilistic beliefs over exits and hazards, exchange
+distorted information through local gossip, receive beacon and responder
+messages, suffer physiological impairment under CBRN-like hazards, and choose
+routes through belief-weighted path planning under social-force crowd
+dynamics. Chiyoda adds explicit information policies -- static, global,
+responder-relay, entropy-targeted, density-aware, exposure-aware, and
+bottleneck-avoidance -- and evaluates them with telemetry that links belief
+entropy, belief accuracy, exposure, queueing, exit imbalance, and evacuation
+time. In the default study scaffold, \statVariantCount{} variants and
+\statRunCount{} runs generate \statInterventionEvents{} intervention events;
+the current best information-safety efficiency is \statBestEfficiency{} for
+\statBestPolicy{}. The central claim is not that more information is always
+better, but that emergency communication has measurable safety tradeoffs:
+rapid uncertainty reduction can improve local decision-making while also
+synchronizing crowds into harmful convergence when timing, credibility, or
+spatial targeting are wrong.
+\end{abstract}
+
+\keywords{evacuation simulation, pedestrian dynamics, information theory,
+agent-based modeling, emergency communication, CBRN, entropy}
+
+\begin{document}
+\maketitle
+
+\input{sections/introduction}
+\input{sections/background}
+\input{sections/design}
+\input{sections/implementation}
+\input{sections/evaluation}
+\input{sections/related}
+\input{sections/limitations}
+\input{sections/conclusion}
+
+\bibliographystyle{ACM-Reference-Format}
+\bibliography{references}
+
+\end{document}

@@ -426,10 +426,11 @@ def _update_agent_beliefs(agent, message: InterventionMessage, current_step: int
                 )
             )
 
-    agent.beliefs.general_danger_level = max(
-        float(agent.beliefs.general_danger_level),
-        min(1.0, 0.4 + 0.4 * len(message.hazards)),
-    )
+    if message.hazards:
+        agent.beliefs.general_danger_level = max(
+            float(agent.beliefs.general_danger_level),
+            min(1.0, 0.4 + 0.4 * len(message.hazards)),
+        )
     agent.beliefs.information_age_s = 0.0
     agent.beliefs.last_update_step = current_step
 

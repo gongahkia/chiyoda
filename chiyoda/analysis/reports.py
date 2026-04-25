@@ -702,3 +702,97 @@ def _figure_info_flow_network(bundle: StudyBundle) -> plt.Figure:
     axis.set_title("11 Information Flow Network (Gossip Transfers)")
     
     return fig
+
+
+def _figure_intervention_timeline(bundle: StudyBundle) -> plt.Figure:
+    fig, axes = plt.subplots(2, 1, figsize=(11, 8), constrained_layout=True)
+
+    interventions = getattr(bundle, "interventions", pd.DataFrame()).copy()
+    steps = bundle.steps.copy()
+    if interventions.empty:
+        for axis in axes:
+            axis.text(0.5, 0.5, "No intervention telemetry available", ha="center", va="center")
+            axis.axis("off")
+        fig.suptitle("12 Intervention Timeline", fontsize=16, fontweight="bold")
+        return fig
+
+    policy_ts = (
+        interventions.groupby(["variant_name", "time_s"], as_index=False)
+        .agg(
+            recipients=("recipients", "sum"),
+            entropy_reduction=("entropy_delta", lambda s: float((-s).clip(lower=0).sum())),
+            accuracy_gain=("accuracy_delta", lambda s: float(s.clip(lower=0).sum())),
+        )
+    )
+    for variant_name, frame in policy_ts.groupby("variant_name"):
+        axes[0].plot(frame["time_s"], frame["recipients"], marker="o", label=f"{variant_name} reach")
+        axes[1].plot(frame["time_s"], frame["entropy_reduction"], marker="o", label=f"{variant_name} entropy")
+
+    if not steps.empty:
+        entropy_ts = steps.groupby(["variant_name", "time_s"], as_index=False)["global_entropy"].mean()
+        for variant_name, frame in entropy_ts.groupby("variant_name"):
+            axes[1].plot(frame["time_s"], frame["global_entropy"], linestyle="--", alpha=0.65, label=f"{variant_name} H")
+
+    axes[0].set_title("Intervention reach over time")
+    axes[0].set_xlabel("Time (s)")
+    axes[0].set_ylabel("Recipients")
+    axes[0].legend(loc="best")
+    axes[1].set_title("Entropy effect and global entropy")
+    axes[1].set_xlabel("Time (s)")
+    axes[1].set_ylabel("Entropy / reduction")
+    axes[1].legend(loc="best")
+    fig.suptitle("12 Intervention Timeline", fontsize=16, fontweight="bold")
+    return fig
+
+
+def _figure_information_safety_frontier(bundle: StudyBundle) -> plt.Figure:
+    fig, axes = plt.subplots(1, 2, figsize=(14, 5), constrained_layout=True)
+    summary = bundle.summary[bundle.summary["record_type"] == "variant_aggregate"].copy()
+
+    required = {"intervention_entropy_reduction", "mean_hazard_exposure", "peak_bottleneck_queue"}
+    if summary.empty or not required.issubset(summary.columns):
+        for axis in axes:
+            axis.text(0.5, 0.5, "No intervention summary metrics available", ha="center", va="center")
+            axis.axis("off")
+        fig.suptitle("13 Information Safety Frontier", fontsize=16, fontweight="bold")
+        return fig
+
+    scatter = axes[0].scatter(
+        summary["intervention_entropy_reduction"],
+        summary["mean_hazard_exposure"],
+        s=80 + 10 * summary.get("peak_bottleneck_queue", 0),
+        c=summary.get("information_safety_efficiency", 0),
+        cmap="viridis",
+        alpha=0.9,
+    )
+    for _, row in summary.iterrows():
+        axes[0].annotate(str(row["variant_name"]), (row["intervention_entropy_reduction"], row["mean_hazard_exposure"]), fontsize=8)
+    fig.colorbar(scatter, ax=axes[0], label="Information safety efficiency")
+    axes[0].set_title("Entropy reduction vs. exposure")
+    axes[0].set_xlabel("Intervention entropy reduction")
+    axes[0].set_ylabel("Mean hazard exposure")
+
+    plot_cols = [
+        col for col in [
+            "information_safety_efficiency",
+            "harmful_convergence_index",
+            "exit_imbalance",
+        ]
+        if col in summary.columns
+    ]
+    frontier = summary[["variant_name", *plot_cols]].melt(
+        id_vars="variant_name",
+        var_name="metric",
+        value_name="value",
+    )
+    if not frontier.empty:
+        sns.barplot(data=frontier, x="variant_name", y="value", hue="metric", ax=axes[1])
+        axes[1].tick_params(axis="x", rotation=25)
+        axes[1].legend(loc="best")
+    else:
+        axes[1].text(0.5, 0.5, "No frontier metrics available", ha="center", va="center")
+    axes[1].set_title("Safety tradeoff metrics")
+    axes[1].set_xlabel("Variant")
+    axes[1].set_ylabel("Value")
+    fig.suptitle("13 Information Safety Frontier", fontsize=16, fontweight="bold")
+    return fig

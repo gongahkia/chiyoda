@@ -18,6 +18,7 @@ from chiyoda.navigation.pathfinding import SmartNavigator
 from chiyoda.navigation.spatial_index import SpatialIndex
 from chiyoda.navigation.social_force import adjusted_step, social_force_step
 from chiyoda.information.field import InformationField, BeliefVector
+from chiyoda.information.interventions import create_intervention_policy
 from chiyoda.information.propagation import GossipModel, GossipConfig
 from chiyoda.information.entropy import agent_entropy, global_entropy, belief_accuracy, information_efficiency
 
@@ -94,6 +95,52 @@ class TestGossipModel:
         result = gossip.exchange(sender, receiver, 0.9, 0.8, "CALM", 1.0)
         # may or may not transfer depending on RNG — just test it doesn't crash
         assert isinstance(result, bool)
+
+
+class TestInformationInterventions:
+    def _make_intervention_sim(self, policy="global_broadcast"):
+        layout = Layout.from_text(
+            "XXXXXXXXXXXX\n"
+            "X..@@@....EX\n"
+            "X..........X\n"
+            "X..........X\n"
+            "XXXXXXXXXXXX\n"
+        )
+        exits = [Exit(pos=p) for p in layout.exit_positions()]
+        agents = [
+            Commuter(id=i, pos=np.array([x + 0.5, y + 0.5], dtype=float), familiarity=0.0)
+            for i, (x, y) in enumerate(layout.people_positions())
+        ]
+        config = SimulationConfig(max_steps=3, dt=0.1, random_seed=42, information_mode="none")
+        sim = Simulation(layout=layout, agents=agents, exits=exits, config=config)
+        spatial = SpatialIndex()
+        sim.attach_spatial_index(spatial)
+        nav = SmartNavigator(layout, density_fn=spatial.density_penalty_fn(), hazard_fn=sim.hazard_penalty_at_cell)
+        sim.attach_navigation(nav)
+        sim.attach_behavior_model(BehaviorModel())
+        sim.attach_intervention_policy(create_intervention_policy({
+            "policy": policy,
+            "start_step": 0,
+            "interval_steps": 1,
+            "budget_per_interval": 1,
+            "message_radius": 20.0,
+            "credibility": 0.95,
+        }))
+        return sim
+
+    def test_global_broadcast_updates_beliefs_and_records_event(self):
+        sim = self._make_intervention_sim("global_broadcast")
+        sim.run()
+        assert len(sim.intervention_events) > 0
+        assert sim.intervention_events[0].recipients == len(sim.agents)
+        assert all(len(agent.beliefs.known_exits()) > 0 for agent in sim.agents)
+
+    def test_entropy_targeted_policy_selects_recipients(self):
+        sim = self._make_intervention_sim("entropy_targeted")
+        sim.run()
+        assert len(sim.intervention_events) > 0
+        assert sim.intervention_events[0].selected_reason == "highest_agent_entropy"
+        assert sim.intervention_events[0].entropy_after <= sim.intervention_events[0].entropy_before
 
 
 # -- Agent Tests --

@@ -1,0 +1,65 @@
+study:
+  name: "Emergency Message Quality Study"
+  description: "Stress-tests the credibility and timing of route guidance under hazard-coupled evacuation."
+  scenario_file: "station_sarin.yaml"
+  repetitions: 5
+  seeds: [42, 137, 256, 512, 1024]
+  export:
+    profile: "paper"
+    formats: ["png", "svg", "pdf"]
+    table_formats: ["parquet", "csv"]
+  variants:
+    - name: "no_intervention"
+      scenario_overrides:
+        interventions:
+          policy: "none"
+
+    - name: "high_credibility_global"
+      scenario_overrides:
+        interventions:
+          policy: "global_broadcast"
+          start_step: 30
+          interval_steps: 30
+          budget_per_interval: 1
+          credibility: 0.95
+          message_type: "route_guidance"
+
+    - name: "medium_credibility_global"
+      scenario_overrides:
+        interventions:
+          policy: "global_broadcast"
+          start_step: 30
+          interval_steps: 30
+          budget_per_interval: 1
+          credibility: 0.65
+          message_type: "route_guidance"
+
+    - name: "low_credibility_global"
+      scenario_overrides:
+        interventions:
+          policy: "global_broadcast"
+          start_step: 30
+          interval_steps: 30
+          budget_per_interval: 1
+          credibility: 0.35
+          message_type: "route_guidance"
+
+    - name: "delayed_high_credibility"
+      scenario_overrides:
+        interventions:
+          policy: "global_broadcast"
+          start_step: 160
+          interval_steps: 30
+          budget_per_interval: 1
+          credibility: 0.95
+          message_type: "route_guidance"
+
+    - name: "frequent_low_credibility"
+      scenario_overrides:
+        interventions:
+          policy: "global_broadcast"
+          start_step: 30
+          interval_steps: 10
+          budget_per_interval: 1
+          credibility: 0.35
+          message_type: "route_guidance"

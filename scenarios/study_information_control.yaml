@@ -1,0 +1,104 @@
+study:
+  name: "Entropy-Guided Information Control Study"
+  description: "Compares static, global, responder, and adaptive information policies for hazard-coupled evacuation."
+  scenario_file: "station_sarin.yaml"
+  repetitions: 5
+  seeds: [42, 137, 256, 512, 1024]
+  export:
+    profile: "paper"
+    formats: ["png", "svg", "pdf"]
+    table_formats: ["parquet", "csv"]
+  variants:
+    - name: "no_intervention"
+      description: "Default asymmetric information with no deliberate emergency communication."
+      scenario_overrides:
+        interventions:
+          policy: "none"
+
+    - name: "static_beacon"
+      description: "Periodic local broadcast from existing signage/PA beacon locations."
+      scenario_overrides:
+        interventions:
+          policy: "static_beacon"
+          start_step: 30
+          interval_steps: 30
+          budget_per_interval: 2
+          message_radius: 8.0
+          credibility: 0.9
+          message_type: "route_guidance"
+
+    - name: "global_broadcast"
+      description: "High-reach PA broadcast to the full station."
+      scenario_overrides:
+        interventions:
+          policy: "global_broadcast"
+          start_step: 30
+          interval_steps: 30
+          budget_per_interval: 1
+          message_radius: 100.0
+          credibility: 0.9
+          message_type: "route_guidance"
+
+    - name: "responder_relay"
+      description: "Responders act as high-credibility mobile information sources."
+      scenario_overrides:
+        interventions:
+          policy: "responder_relay"
+          start_step: 120
+          interval_steps: 20
+          budget_per_interval: 3
+          message_radius: 7.0
+          credibility: 1.0
+          message_type: "route_guidance"
+
+    - name: "entropy_targeted"
+      description: "Interventions target agents with the highest individual belief entropy."
+      scenario_overrides:
+        interventions:
+          policy: "entropy_targeted"
+          start_step: 30
+          interval_steps: 20
+          budget_per_interval: 3
+          message_radius: 6.0
+          credibility: 0.9
+          message_type: "route_guidance"
+          objective: "reduce_entropy_without_bottlenecking"
+
+    - name: "density_aware"
+      description: "Interventions target dense local clusters to redirect converging traffic."
+      scenario_overrides:
+        interventions:
+          policy: "density_aware"
+          start_step: 30
+          interval_steps: 20
+          budget_per_interval: 3
+          message_radius: 6.0
+          credibility: 0.85
+          message_type: "route_guidance"
+          objective: "reduce_density_and_uncertainty"
+
+    - name: "exposure_aware"
+      description: "Interventions target agents under the highest hazard exposure pressure."
+      scenario_overrides:
+        interventions:
+          policy: "exposure_aware"
+          start_step: 30
+          interval_steps: 20
+          budget_per_interval: 3
+          message_radius: 6.0
+          credibility: 0.9
+          message_type: "hazard_warning"
+          objective: "reduce_hazard_exposure"
+
+    - name: "bottleneck_avoidance"
+      description: "Interventions target active bottleneck zones to reduce harmful convergence."
+      scenario_overrides:
+        interventions:
+          policy: "bottleneck_avoidance"
+          start_step: 40
+          interval_steps: 20
+          budget_per_interval: 2
+          message_radius: 7.0
+          credibility: 0.9
+          message_type: "route_guidance"
+          objective: "avoid_bottleneck_convergence"

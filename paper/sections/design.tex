@@ -1,0 +1,87 @@
+\section{Design}
+\label{sec:design}
+
+Chiyoda models evacuation as a feedback loop between physical state,
+information state, and action. At each step, hazards evolve; agents observe
+nearby exits and hazards; beacons, responders, gossip, and intervention
+policies update beliefs; agents revise intentions; belief-weighted navigation
+selects paths; social-force dynamics move agents; and telemetry records the
+macroscopic outcome.
+
+\subsection{Belief State}
+\label{subsec:beliefs}
+
+Each agent carries a belief vector over exits, hazards, and general danger.
+Exit beliefs store existence probability, congestion estimate, freshness,
+source credibility, and gossip hop count. Hazard beliefs store position,
+severity estimate, radius estimate, freshness, credibility, and hop count.
+Agents do not route through the ground truth environment directly; they route
+through the subset of exits and hazards represented in their beliefs.
+
+\subsection{Communication Channels}
+\label{subsec:channels}
+
+The baseline ITED channels are direct observation, beacon broadcast, and
+agent-to-agent gossip. Observation is range-limited by visibility and
+physiological impairment. Beacons provide high-credibility exit knowledge
+within a fixed radius. Gossip is local, probabilistic, and distorted by hop
+count and panic state.
+
+\subsection{Intervention Policies}
+\label{subsec:policies}
+
+The new contribution is an intervention policy interface. Every policy decides
+whether to fire, selects one or more spatial targets, builds a message, applies
+it to recipients inside a radius, and emits telemetry. Chiyoda currently
+implements seven policies:
+
+\begin{itemize}
+\item \textbf{Static beacon}: periodic local messages from existing signage
+or PA beacon locations.
+\item \textbf{Global broadcast}: station-wide high-reach communication.
+\item \textbf{Responder relay}: mobile high-credibility messages emitted by
+released responders.
+\item \textbf{Entropy-targeted}: targets agents with highest belief entropy.
+\item \textbf{Density-aware}: targets dense local clusters.
+\item \textbf{Exposure-aware}: targets agents under high current or cumulative
+hazard pressure.
+\item \textbf{Bottleneck-avoidance}: targets active bottleneck zones.
+\end{itemize}
+
+Figure~\ref{fig:policy-taxonomy} summarizes the policy space. Figure~\ref{fig:intervention-loop}
+shows where the intervention hook sits in the simulation loop.
+
+\begin{figure}[!t]
+  \centering
+  \includegraphics[width=\linewidth]{figures/policy-taxonomy.pdf}
+  \caption{Information intervention policy taxonomy. Policies differ by
+  source, target signal, spatial reach, and safety objective.}
+  \label{fig:policy-taxonomy}
+\end{figure}
+
+\begin{figure}[!t]
+  \centering
+  \includegraphics[width=\linewidth]{figures/intervention-loop.pdf}
+  \caption{Intervention hook in the ITED simulation loop. Policies read the
+  current physical-information state, update recipient beliefs, and emit
+  before/after telemetry before navigation.}
+  \label{fig:intervention-loop}
+\end{figure}
+
+\subsection{Information-Safety Metrics}
+\label{subsec:metrics}
+
+The core metric is information-safety efficiency:
+
+\[
+\eta_{safe} =
+\frac{\Delta H^{+} + \Delta A^{+}}
+     {1 + P_{exposure} + P_{queue}},
+\]
+
+where $\Delta H^{+}$ is positive entropy reduction, $\Delta A^{+}$ is positive
+belief-accuracy gain, $P_{exposure}$ is recipient-weighted hazard-load
+pressure, and $P_{queue}$ is bottleneck pressure observed at intervention
+time. Chiyoda also records intervention reach, exit imbalance, and a harmful
+convergence index that rises when entropy reduction coincides with concentrated
+exit usage, queueing, and exposure.

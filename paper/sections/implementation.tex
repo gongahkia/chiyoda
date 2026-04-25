@@ -1,0 +1,30 @@
+\section{Implementation}
+\label{sec:implementation}
+
+Chiyoda is implemented as a Python research toolkit. Scenario YAML files define
+layouts, cohorts, hazards, responders, information parameters, intervention
+policies, seeds, and variants. The scenario manager builds a simulation by
+loading the layout, constructing agents, hazards, exits, responders,
+navigation, spatial indexing, behavior state machines, and optional
+intervention policies.
+
+The core implementation lives in \texttt{chiyoda/core/simulation.py}. The
+simulation loop records step telemetry, agent telemetry, cell-level maps,
+exit flow, bottleneck dynamics, hazard state, gossip events, and intervention
+events. Study execution lives in \texttt{chiyoda/studies/runner.py}; it
+materializes variants, runs each seed, aggregates tables, and exports study
+bundles. Analysis and figure export live in \texttt{chiyoda/analysis/}.
+
+The information intervention layer lives in
+\texttt{chiyoda/information/interventions.py}. It is deliberately small:
+policies produce target points and messages, while the shared executor applies
+messages to recipients and computes before/after entropy and accuracy. This
+keeps policy design separate from belief mutation and telemetry.
+
+The paper pipeline mirrors the code pipeline. Running
+\texttt{python3 -m chiyoda.cli sweep scenarios/study\_information\_control.yaml}
+emits tables and figures; \texttt{paper/scripts/gen\_stats.py} converts the
+exported bundle into \texttt{stats.tex}; and the LaTeX build injects those
+values into the abstract and evaluation.
+
+\todo{Add an architecture figure once the first full study bundle has been generated.}

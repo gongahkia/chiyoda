@@ -1,0 +1,60 @@
+\section{Introduction}
+\label{sec:intro}
+
+Emergency communication is usually treated as a benign input to evacuation:
+give people better information and their decisions should improve. That
+assumption is plausible at the individual level, but it is not obviously true
+at the crowd level. A warning that reduces uncertainty for everyone at once can
+also synchronize route choice, push agents toward the same exit, amplify a
+bottleneck, or move people through a contaminated region before the physical
+hazard has dissipated. The question is therefore not simply whether information
+helps, but when, where, and for whom it helps.
+
+This paper studies evacuation as a coupled physical-information system. The
+physical side includes layout geometry, social-force movement, bottleneck
+dynamics, hazard spread, and physiological impairment. The information side
+includes partial exit knowledge, hazard beliefs, signage and PA broadcasts,
+responder credibility, local gossip, message decay, and distortion. Chiyoda
+connects these layers by making agents plan through their believed world rather
+than the ground truth world. They may avoid a hazard they have heard about,
+miss an exit they do not know, herd when uncertainty is high, or follow a
+stale route because the belief has not yet decayed.
+
+\paragraph{Research question.} We ask whether entropy-guided communication
+can improve evacuation outcomes without creating harmful convergence. More
+concretely: which intervention policies reduce belief entropy and improve
+belief accuracy per unit of induced exposure, queueing, and exit imbalance?
+The current study scaffold compares static signage, global broadcasts,
+responder relay, entropy-targeted broadcasts, density-aware targeting,
+exposure-aware targeting, and bottleneck-avoidance targeting.
+
+\paragraph{Contributions.} This paper makes four contributions.
+
+\begin{enumerate}
+\item \textbf{A controllable information-intervention layer.} Chiyoda turns
+emergency communication into a first-class policy object rather than a fixed
+scenario assumption. Policies can be static, authority-driven, or adaptive to
+entropy, density, exposure, and bottleneck pressure.
+
+\item \textbf{A coupled ITED simulation loop.} Agents carry probabilistic
+beliefs over exits and hazards, update them through observation, beacon
+broadcast, responder relay, and gossip, then route through belief-weighted
+costs under social-force dynamics and hazard impairment.
+
+\item \textbf{Information-safety metrics.} We introduce study outputs that
+jointly measure entropy reduction, belief accuracy gain, intervention reach,
+hazard exposure pressure, queue pressure, exit imbalance, and a harmful
+convergence index.
+
+\item \textbf{A reproducible paper pipeline.} YAML study definitions generate
+multi-seed bundles with Parquet/CSV tables and paper figures. The LaTeX paper
+ingests generated study statistics through \texttt{stats.tex}.
+\end{enumerate}
+
+\paragraph{Roadmap.} \S\ref{sec:background} positions the work against
+pedestrian dynamics, information-aware evacuation, and ABM validation work.
+\S\ref{sec:design} describes Chiyoda's model and intervention policies.
+\S\ref{sec:implementation} explains the software pipeline. \S\ref{sec:evaluation}
+lays out the planned empirical study. \S\ref{sec:related} sharpens the
+distinction from prior work. \S\ref{sec:limitations} states the current
+threats to validity, and \S\ref{sec:conclusion} concludes.

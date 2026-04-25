@@ -40,10 +40,18 @@ Use the exported tables in `tables/` for exact values and the exported figures i
 
 ## ITED Figures
 
-![](figures/07_entropy_evolution.png)
+![](figures/07_entropy_heatmap.png)
 
 ![](figures/08_fundamental_diagram.png)
 
-![](figures/09_belief_accuracy.png)
+![](figures/09_belief_survival.png)
 
-![](figures/10_responder_effect.png)
+![](figures/10_responder_timing.png)
+
+## Information Control Figures
+
+![](figures/11_info_flow_network.png)
+
+![](figures/12_intervention_timeline.png)
+
+![](figures/13_information_safety_frontier.png)
