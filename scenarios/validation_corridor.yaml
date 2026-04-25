@@ -1,0 +1,20 @@
+scenario:
+  name: "FD Validation Corridor"
+  layout:
+    file: "scenarios/layouts/corridor_layout.txt"
+  population:
+    total: 60
+    cohorts:
+      - name: "pedestrians"
+        count: 60
+        personality: "NORMAL"
+        calmness: 1.0
+        familiarity: 1.0
+        group_size: 1
+        base_speed_multiplier: 1.0
+  information:
+    mode: "perfect"
+  simulation:
+    max_steps: 300
+    dt: 0.1
+    random_seed: 42
