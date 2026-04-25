@@ -14,6 +14,7 @@ import pandas as pd
 import seaborn as sns
 
 from chiyoda.analysis.metrics import SimulationAnalytics
+from chiyoda.analysis.fundamental_diagram import weidmann_speed
 from chiyoda.studies.models import ComparisonResult, StudyBundle
 from chiyoda.studies.runner import _collect_run_tables
 
@@ -42,6 +43,11 @@ def export_figures(
         ("04_exit_and_flow", _figure_exit_and_flow(artifact)),
         ("05_distributions", _figure_distributions(artifact)),
         ("06_scenario_comparison", _figure_bundle_comparison(artifact)),
+        ("07_entropy_heatmap", _figure_entropy_heatmap_series(artifact)),
+        ("08_fundamental_diagram", _figure_fundamental_diagram(artifact)),
+        ("09_belief_survival", _figure_belief_survival(artifact)),
+        ("10_responder_timing", _figure_responder_timing(artifact)),
+        ("11_info_flow_network", _figure_info_flow_network(artifact)),
     ]
 
     for name, fig in figures:
@@ -495,3 +501,202 @@ def _apply_style(profile: str) -> None:
                 "legend.facecolor": "white",
             }
         )
+
+def _figure_entropy_heatmap_series(bundle: StudyBundle) -> plt.Figure:
+    run_id = _representative_run_id(bundle)
+    agent_steps = bundle.agent_steps[bundle.agent_steps["run_id"] == run_id].copy()
+    available_steps = sorted(agent_steps["step"].unique().tolist()) if not agent_steps.empty else [0]
+    
+    if len(available_steps) < 3:
+        keyframe_steps = available_steps * 3
+    else:
+        keyframe_steps = [
+            available_steps[0],
+            available_steps[len(available_steps) // 2],
+            available_steps[-1],
+        ]
+
+    fig, axes = plt.subplots(1, 3, figsize=(18, 5), constrained_layout=True)
+    
+    for axis, step in zip(axes, keyframe_steps):
+        _draw_layout(axis, bundle, faint=True)
+        frame = agent_steps[agent_steps["step"] == step]
+        if not frame.empty and "entropy" in frame.columns:
+            scatter = axis.scatter(
+                frame["x"],
+                frame["y"],
+                c=frame["entropy"],
+                cmap="viridis",
+                s=25,
+                alpha=0.8,
+                edgecolors="none",
+                vmin=0.0,
+                vmax=1.0,
+            )
+            if step == keyframe_steps[-1]:
+                fig.colorbar(scatter, ax=axis, fraction=0.046, pad=0.04, label="Information Entropy (nats)")
+        axis.set_title(f"Entropy at step {step}")
+        
+    fig.suptitle("07 Entropy Heatmap Time-Series", fontsize=16, fontweight="bold")
+    return fig
+
+
+def _figure_fundamental_diagram(bundle: StudyBundle) -> plt.Figure:
+    fig, axis = plt.subplots(1, 1, figsize=(8, 6), constrained_layout=True)
+    
+    if not hasattr(bundle, 'measurements') or bundle.measurements.empty:
+        axis.text(0.5, 0.5, "No MeasurementLine telemetry available", ha="center", va="center")
+        axis.axis("off")
+        return fig
+
+    measurements = bundle.measurements.copy()
+    run_id = _representative_run_id(bundle)
+    m_run = measurements[measurements["run_id"] == run_id]
+    
+    if m_run.empty:
+        axis.text(0.5, 0.5, "No MeasurementLine telemetry for representative run", ha="center", va="center")
+        axis.axis("off")
+        return fig
+        
+    m_run = m_run[(m_run["density"] > 0.05) & (m_run["n_in_region"] >= 2)]
+    
+    axis.scatter(
+        m_run["density"], 
+        m_run["speed"], 
+        alpha=0.5, 
+        c="steelblue",
+        label="Simulated (Measurement Line)"
+    )
+    
+    if not m_run.empty:
+        densities = np.linspace(0.01, min(6.0, m_run["density"].max() * 1.5), 100)
+        speeds = weidmann_speed(densities)
+        axis.plot(densities, speeds, "r--", linewidth=2, label="Weidmann (1993) Theoretical")
+        
+    axis.set_xlabel("Density (ped/m²)")
+    axis.set_ylabel("Speed (m/s)")
+    axis.set_title("08 Fundamental Diagram Overlay")
+    axis.legend()
+    axis.grid(True, linestyle=":", alpha=0.6)
+    
+    return fig
+
+
+def _figure_belief_survival(bundle: StudyBundle) -> plt.Figure:
+    fig, axis = plt.subplots(1, 1, figsize=(8, 6), constrained_layout=True)
+    
+    agents = bundle.agents.copy()
+    agent_steps = bundle.agent_steps.copy()
+    
+    if agents.empty or agent_steps.empty or "belief_accuracy" not in agent_steps.columns:
+        axis.text(0.5, 0.5, "No belief accuracy telemetry available", ha="center", va="center")
+        axis.axis("off")
+        return fig
+        
+    run_id = _representative_run_id(bundle)
+    a_run = agents[agents["run_id"] == run_id]
+    s_run = agent_steps[agent_steps["run_id"] == run_id]
+    
+    mean_accuracy = s_run.groupby("agent_id")["belief_accuracy"].mean().reset_index()
+    merged = a_run.merge(mean_accuracy, on="agent_id", how="left")
+    
+    evacuated = merged[merged["evacuated"] == True]
+    incapacitated = merged[merged["evacuated"] == False]
+    
+    axis.hist(
+        evacuated["belief_accuracy"].dropna(), 
+        bins=20, 
+        alpha=0.5, 
+        label="Evacuated (Survived)",
+        color="green",
+        density=True
+    )
+    if not incapacitated.empty:
+        axis.hist(
+            incapacitated["belief_accuracy"].dropna(), 
+            bins=20, 
+            alpha=0.5, 
+            label="Incapacitated",
+            color="red",
+            density=True
+        )
+        
+    axis.set_xlabel("Mean Belief Accuracy")
+    axis.set_ylabel("Density")
+    axis.set_title("09 Belief Accuracy vs. Survival")
+    axis.legend()
+    
+    return fig
+
+
+def _figure_responder_timing(bundle: StudyBundle) -> plt.Figure:
+    fig, axis = plt.subplots(1, 1, figsize=(8, 6), constrained_layout=True)
+    
+    steps = bundle.steps.copy()
+    if steps.empty or "global_entropy" not in steps.columns:
+        axis.text(0.5, 0.5, "No global entropy telemetry available", ha="center", va="center")
+        axis.axis("off")
+        return fig
+        
+    run_id = _representative_run_id(bundle)
+    st = steps[steps["run_id"] == run_id].sort_values("time_s")
+    
+    axis.plot(st["time_s"], st["global_entropy"], linewidth=2, color="purple", label="Global Entropy")
+    
+    agent_steps = bundle.agent_steps.copy()
+    if not agent_steps.empty:
+        # Find responder insertion time (when agent with cohort_name 'responders' first appears)
+        s_run = agent_steps[agent_steps["run_id"] == run_id]
+        if "cohort_name" in s_run.columns:
+            responders = s_run[s_run["cohort_name"].str.contains("responder", case=False, na=False)]
+            if not responders.empty:
+                first_t = responders["time_s"].min()
+                axis.axvline(first_t, color="red", linestyle="--", label=f"Responder Insertion (t={first_t}s)")
+                
+    axis.set_xlabel("Time (s)")
+    axis.set_ylabel("Global Information Entropy (nats)")
+    axis.set_title("10 Responder Timing & Entropy Cascade")
+    axis.legend()
+    axis.grid(True, linestyle=":", alpha=0.6)
+    
+    return fig
+
+
+def _figure_info_flow_network(bundle: StudyBundle) -> plt.Figure:
+    fig, axis = plt.subplots(1, 1, figsize=(10, 8), constrained_layout=True)
+    
+    if not hasattr(bundle, 'gossip') or bundle.gossip.empty:
+        axis.text(0.5, 0.5, "No Gossip telemetry available", ha="center", va="center")
+        axis.axis("off")
+        return fig
+        
+    gossip = bundle.gossip.copy()
+    run_id = _representative_run_id(bundle)
+    g_run = gossip[gossip["run_id"] == run_id]
+    
+    _draw_layout(axis, bundle, faint=True)
+    
+    agent_steps = bundle.agent_steps.copy()
+    s_run = agent_steps[agent_steps["run_id"] == run_id]
+    
+    if not g_run.empty and not s_run.empty:
+        # Plot only a sample to avoid extreme clutter (e.g., first 500 events)
+        sample = g_run.head(500)
+        
+        for _, row in sample.iterrows():
+            t = row["time_s"]
+            sender_id = row["sender_id"]
+            receiver_id = row["receiver_id"]
+            
+            s_pos = s_run[(s_run["agent_id"] == sender_id) & (np.isclose(s_run["time_s"], t, atol=0.5))]
+            r_pos = s_run[(s_run["agent_id"] == receiver_id) & (np.isclose(s_run["time_s"], t, atol=0.5))]
+            
+            if not s_pos.empty and not r_pos.empty:
+                sx, sy = s_pos.iloc[0]["x"], s_pos.iloc[0]["y"]
+                rx, ry = r_pos.iloc[0]["x"], r_pos.iloc[0]["y"]
+                
+                axis.plot([sx, rx], [sy, ry], color="orange", alpha=0.3, linewidth=1)
+                
+    axis.set_title("11 Information Flow Network (Gossip Transfers)")
+    
+    return fig
