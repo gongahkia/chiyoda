@@ -16,6 +16,7 @@ from chiyoda.core.simulation import Simulation, SimulationConfig
 from chiyoda.agents.commuter import Commuter
 from chiyoda.agents.responder import FirstResponder
 from chiyoda.agents.behaviors import BehaviorModel, BehaviorConfig
+from chiyoda.information.interventions import create_intervention_policy
 from chiyoda.navigation.pathfinding import SmartNavigator
 from chiyoda.navigation.spatial_index import SpatialIndex
 
@@ -96,6 +97,9 @@ class ScenarioManager:
             entropy_anxiety_weight=float(behavior_cfg.get("entropy_anxiety_weight", 0.25)),
         )
         sim.attach_behavior_model(BehaviorModel(bconfig))
+        policy = create_intervention_policy(sc.get("interventions"))
+        if policy is not None:
+            sim.attach_intervention_policy(policy)
         return sim
 
     def _build_layout(self, scenario: Dict[str, Any]) -> Layout:

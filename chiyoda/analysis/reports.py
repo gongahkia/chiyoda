@@ -48,6 +48,8 @@ def export_figures(
         ("09_belief_survival", _figure_belief_survival(artifact)),
         ("10_responder_timing", _figure_responder_timing(artifact)),
         ("11_info_flow_network", _figure_info_flow_network(artifact)),
+        ("12_intervention_timeline", _figure_intervention_timeline(artifact)),
+        ("13_information_safety_frontier", _figure_information_safety_frontier(artifact)),
     ]
 
     for name, fig in figures:

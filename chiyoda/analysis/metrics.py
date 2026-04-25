@@ -25,8 +25,12 @@ class SimulationAnalytics:
                     peak_throughput = max(peak_throughput, m.outflow)
 
         dominant_exit = None
+        exit_imbalance = 0.0
         if exit_usage:
             dominant_exit = max(exit_usage.items(), key=lambda x: x[1])[0]
+            total_exit_flow = float(sum(exit_usage.values()))
+            if total_exit_flow > 0:
+                exit_imbalance = float(max(exit_usage.values()) / total_exit_flow)
 
         # ITED: information metrics
         entropy_series = getattr(simulation, 'entropy_history', [])
@@ -62,6 +66,37 @@ class SimulationAnalytics:
         mean_fd_speed = float(np.mean(fd_speeds)) if fd_speeds else 0.0
         mean_fd_density = float(np.mean(fd_densities)) if fd_densities else 0.0
 
+        interventions = list(getattr(simulation, "intervention_events", []))
+        intervention_count = len(interventions)
+        intervention_recipients = int(sum(event.recipients for event in interventions))
+        intervention_entropy_reduction = float(
+            sum(max(0.0, event.entropy_before - event.entropy_after) for event in interventions)
+        )
+        intervention_accuracy_gain = float(
+            sum(max(0.0, event.accuracy_after - event.accuracy_before) for event in interventions)
+        )
+        intervention_exposure_pressure = float(
+            sum(event.mean_hazard_load * max(1, event.recipients) for event in interventions)
+        )
+        intervention_queue_pressure = float(
+            sum(event.peak_queue_length for event in interventions)
+        )
+        information_safety_efficiency = (
+            (intervention_entropy_reduction + intervention_accuracy_gain)
+            / (1.0 + intervention_exposure_pressure + intervention_queue_pressure)
+            if intervention_count > 0
+            else 0.0
+        )
+        harmful_convergence_index = 0.0
+        if intervention_entropy_reduction > 0:
+            exposure_factor = 1.0 + (float(np.mean(exposures)) if exposures else 0.0)
+            harmful_convergence_index = float(
+                exit_imbalance
+                * (1.0 + peak_queue)
+                * exposure_factor
+                / (1.0 + intervention_entropy_reduction)
+            )
+
         return {
             "total_time_s": simulation.time_s,
             "agents_total": len(simulation.agents),
@@ -76,6 +111,7 @@ class SimulationAnalytics:
             "peak_bottleneck_queue": peak_queue,
             "peak_bottleneck_throughput": peak_throughput,
             "dominant_exit": dominant_exit or "n/a",
+            "exit_imbalance": exit_imbalance,
             "mean_hazard_exposure": float(np.mean(exposures)) if exposures else 0.0,
             "p95_hazard_exposure": float(np.percentile(exposures, 95)) if exposures else 0.0,
             "peak_hazard_risk": float(max(risk_scores)) if risk_scores else 0.0,
@@ -89,4 +125,12 @@ class SimulationAnalytics:
             "correct_route_fraction": correct_route,
             "mean_fd_speed": mean_fd_speed,
             "mean_fd_density": mean_fd_density,
+            "intervention_count": intervention_count,
+            "intervention_recipients": intervention_recipients,
+            "intervention_entropy_reduction": intervention_entropy_reduction,
+            "intervention_accuracy_gain": intervention_accuracy_gain,
+            "intervention_exposure_pressure": intervention_exposure_pressure,
+            "intervention_queue_pressure": intervention_queue_pressure,
+            "information_safety_efficiency": information_safety_efficiency,
+            "harmful_convergence_index": harmful_convergence_index,
         }

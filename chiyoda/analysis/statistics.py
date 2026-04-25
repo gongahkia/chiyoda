@@ -99,7 +99,9 @@ def compare_variants(
     if metrics is None:
         metrics = [
             "mean_travel_time_s", "agents_evacuated", "agents_incapacitated",
-            "mean_entropy", "entropy_reduction", "peak_mean_density"
+            "mean_entropy", "entropy_reduction", "peak_mean_density",
+            "information_safety_efficiency", "harmful_convergence_index",
+            "intervention_entropy_reduction", "intervention_accuracy_gain",
         ]
         
     summary = bundle.summary

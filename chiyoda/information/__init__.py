@@ -13,6 +13,13 @@ from chiyoda.information.entropy import (
     belief_accuracy,
     information_efficiency,
 )
+from chiyoda.information.interventions import (
+    InformationInterventionConfig,
+    InterventionEvent,
+    InterventionMessage,
+    InterventionPolicy,
+    create_intervention_policy,
+)
 
 __all__ = [
     "BeliefVector",
@@ -22,4 +29,9 @@ __all__ = [
     "global_entropy",
     "belief_accuracy",
     "information_efficiency",
+    "InformationInterventionConfig",
+    "InterventionEvent",
+    "InterventionMessage",
+    "InterventionPolicy",
+    "create_intervention_policy",
 ]

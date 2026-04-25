@@ -103,6 +103,8 @@ class Simulation:
         self.behavior_model = None
         self.measurement_lines: List[MeasurementLine] = []
         self._prev_positions: Dict[int, np.ndarray] = {}
+        self.intervention_policy = None
+        self.intervention_events: List[Any] = []
 
         # ITED: information layer
         self.info_field = InformationField(
@@ -129,6 +131,9 @@ class Simulation:
 
     def attach_measurement_lines(self, lines: List[MeasurementLine]) -> None:
         self.measurement_lines = list(lines)
+
+    def attach_intervention_policy(self, policy) -> None:
+        self.intervention_policy = policy
 
     def setup_information(self) -> None:
         """Initialize information field and seed agent beliefs."""
@@ -492,6 +497,8 @@ class Simulation:
 
         # ITED: information propagation
         self._step_information()
+        if self.intervention_policy is not None:
+            self.intervention_events.extend(self.intervention_policy.execute(self))
 
         exit_flow_step = {l: 0 for l in self.exit_flow_cumulative}
 
@@ -608,6 +615,7 @@ class Simulation:
             "evacuated": latest.evacuated_total,
             "remaining": latest.remaining,
             "pending_release": latest.pending_release,
+            "intervention_events": list(self.intervention_events),
             "acceleration_backend": self.acceleration.name,
             "requested_acceleration_backend": self.acceleration.requested_backend,
         }

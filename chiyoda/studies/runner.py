@@ -44,6 +44,7 @@ def run_study(study: str | Path | StudyConfig) -> StudyBundle:
     hazards_frames: List[pd.DataFrame] = []
     measurements_frames: List[pd.DataFrame] = []
     gossip_frames: List[pd.DataFrame] = []
+    intervention_frames: List[pd.DataFrame] = []
     runs_manifest: List[Dict[str, Any]] = []
 
     first_layout_text = None
@@ -99,6 +100,7 @@ def run_study(study: str | Path | StudyConfig) -> StudyBundle:
             hazards_frames.append(tables["hazards"])
             measurements_frames.append(tables["measurements"])
             gossip_frames.append(tables["gossip"])
+            intervention_frames.append(tables["interventions"])
             runs_manifest.append(
                 {
                     "run_id": run_id,
@@ -151,6 +153,7 @@ def run_study(study: str | Path | StudyConfig) -> StudyBundle:
         hazards=_concat(hazards_frames),
         measurements=_concat(measurements_frames),
         gossip=_concat(gossip_frames),
+        interventions=_concat(intervention_frames),
     )
 
 
@@ -395,6 +398,7 @@ def _collect_run_tables(
     dwell_rows: List[Dict[str, Any]] = []
     measurement_rows: List[Dict[str, Any]] = []
     gossip_rows: List[Dict[str, Any]] = []
+    intervention_rows: List[Dict[str, Any]] = []
 
     for step in simulation.step_history:
         steps_rows.append(
@@ -628,6 +632,37 @@ def _collect_run_tables(
             }
         )
 
+    for event in getattr(simulation, 'intervention_events', []):
+        intervention_rows.append(
+            {
+                "study_name": study_name,
+                "scenario_name": scenario_name,
+                "variant_name": variant_name,
+                "seed": seed,
+                "run_id": run_id,
+                "step": event.step,
+                "time_s": event.time_s,
+                "policy": event.policy,
+                "message_type": event.message_type,
+                "target_x": event.target_x,
+                "target_y": event.target_y,
+                "radius": event.radius,
+                "recipients": event.recipients,
+                "entropy_before": event.entropy_before,
+                "entropy_after": event.entropy_after,
+                "entropy_delta": event.entropy_after - event.entropy_before,
+                "accuracy_before": event.accuracy_before,
+                "accuracy_after": event.accuracy_after,
+                "accuracy_delta": event.accuracy_after - event.accuracy_before,
+                "mean_local_density": event.mean_local_density,
+                "mean_hazard_load": event.mean_hazard_load,
+                "peak_queue_length": event.peak_queue_length,
+                "selected_reason": event.selected_reason,
+                "target_score": event.target_score,
+                "objective": event.objective,
+            }
+        )
+
     return {
         "summary": summary_row,
         "steps": pd.DataFrame(steps_rows),
@@ -640,6 +675,7 @@ def _collect_run_tables(
         "hazards": pd.DataFrame(hazard_rows),
         "measurements": pd.DataFrame(measurement_rows),
         "gossip": pd.DataFrame(gossip_rows),
+        "interventions": pd.DataFrame(intervention_rows),
     }
 
 

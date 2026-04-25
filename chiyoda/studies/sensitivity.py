@@ -92,7 +92,8 @@ class SensitivitySweep:
         self.metric_names = metric_names or [
             "mean_travel_time_s", "agents_evacuated", "agents_incapacitated",
             "mean_entropy", "entropy_reduction", "peak_mean_density",
-            "mean_fd_speed",
+            "mean_fd_speed", "information_safety_efficiency",
+            "harmful_convergence_index",
         ]
         self._mgr = ScenarioManager()
         self._analytics = SimulationAnalytics()
