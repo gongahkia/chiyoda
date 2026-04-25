@@ -1,0 +1,46 @@
+scenario:
+  name: "Station CBRN Sarin"
+  layout:
+    file: "scenarios/layouts/station_layout.txt"
+  population:
+    total: 120
+    cohorts:
+      - name: "regular_commuters"
+        count: 80
+        personality: "NORMAL"
+        calmness: 0.8
+        familiarity: 0.7
+        group_size: 1
+      - name: "tourists"
+        count: 40
+        personality: "NORMAL"
+        calmness: 0.6
+        familiarity: 0.1
+        group_size: 2
+  hazards:
+    - type: "GAS"
+      location: [20, 10]
+      radius: 0.5
+      severity: 0.7
+      spread_rate: 0.15
+      diffusion_rate: 0.08
+      wind_vector: [0.1, 0.0]
+      visibility_reduction: 0.3
+  responders:
+    - count: 3
+      release_step: 120
+      ppe_factor: 0.1
+      spawn_cells:
+        - [37, 11]
+        - [37, 16]
+      mission_target: [20, 10]
+  information:
+    mode: "asymmetric"
+    decay_rate: 0.01
+    observation_radius: 5.0
+    gossip_radius: 2.0
+    beacon_radius: 8.0
+  simulation:
+    max_steps: 500
+    dt: 0.1
+    random_seed: 42

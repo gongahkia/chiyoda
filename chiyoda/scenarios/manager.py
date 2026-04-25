@@ -1,20 +1,21 @@
+"""
+Scenario manager — wires up ITED information layer, responders, and multi-hazard system.
+"""
 from __future__ import annotations
-
 from dataclasses import dataclass
 from pathlib import Path
 import random
 from typing import Any, Dict, List, Optional
-
 import numpy as np
 import yaml
-
-from chiyoda.environment.layout import EMPTY, EXIT, Layout, WALL
+from chiyoda.environment.layout import EMPTY, EXIT, Layout, WALL, BEACON, RESPONDER_ENTRY
 from chiyoda.environment.obstacles import apply_obstacles_to_grid, obstacles_from_config
 from chiyoda.environment.exits import Exit
 from chiyoda.environment.hazards import Hazard
 from chiyoda.core.simulation import Simulation, SimulationConfig
 from chiyoda.agents.commuter import Commuter
-from chiyoda.agents.behaviors import BehaviorModel
+from chiyoda.agents.responder import FirstResponder
+from chiyoda.agents.behaviors import BehaviorModel, BehaviorConfig
 from chiyoda.navigation.pathfinding import SmartNavigator
 from chiyoda.navigation.spatial_index import SpatialIndex
 
@@ -35,13 +36,7 @@ class ScenarioManager:
         scenario["_source_file"] = str(path)
         return scenario
 
-    def load_scenario(
-        self,
-        scenario_file: str,
-        *,
-        overrides: Optional[Dict[str, Any]] = None,
-        random_seed: Optional[int] = None,
-    ) -> Simulation:
+    def load_scenario(self, scenario_file: str, *, overrides=None, random_seed=None) -> Simulation:
         scenario = self.load_config(scenario_file)
         if overrides:
             scenario = self._deep_merge(scenario, overrides)
@@ -59,19 +54,27 @@ class ScenarioManager:
             np.random.seed(random_seed)
 
         layout = self._build_layout(sc)
-
         exits = [Exit(pos=tuple(p)) for p in layout.exit_positions()]
         hazards = self._build_hazards(sc.get("hazards", []) or [])
         agents = self._build_agents(layout, sc.get("population", {}) or {})
 
+        # build responders if specified
+        responders = self._build_responders(layout, sc.get("responders", []) or [], len(agents))
+        agents.extend(responders)
+
+        # ITED config
+        info_cfg = sc.get("information", {}) or {}
         sim_cfg = SimulationConfig(
             max_steps=int(simulation_cfg.get("max_steps", 500)),
             dt=float(simulation_cfg.get("dt", 0.1)),
             random_seed=random_seed,
-            hazard_avoidance_weight=float(
-                simulation_cfg.get("hazard_avoidance_weight", 1.25)
-            ),
+            hazard_avoidance_weight=float(simulation_cfg.get("hazard_avoidance_weight", 1.25)),
             acceleration_backend=str(simulation_cfg.get("acceleration_backend", "auto")),
+            information_mode=str(info_cfg.get("mode", "asymmetric")),
+            info_decay_rate=float(info_cfg.get("decay_rate", 0.01)),
+            observation_radius=float(info_cfg.get("observation_radius", 5.0)),
+            gossip_radius=float(info_cfg.get("gossip_radius", 2.0)),
+            beacon_radius=float(info_cfg.get("beacon_radius", 8.0)),
         )
         sim = Simulation(layout=layout, agents=agents, exits=exits, hazards=hazards, config=sim_cfg)
 
@@ -83,13 +86,21 @@ class ScenarioManager:
             hazard_fn=sim.hazard_penalty_at_cell,
         )
         sim.attach_navigation(navigator)
-        sim.attach_behavior_model(BehaviorModel())
+
+        # behavior config
+        behavior_cfg = sc.get("behavior", {}) or {}
+        bconfig = BehaviorConfig(
+            density_panic_weight=float(behavior_cfg.get("density_panic_weight", 0.2)),
+            neighbor_panic_weight=float(behavior_cfg.get("neighbor_panic_weight", 0.1)),
+            hazard_panic_weight=float(behavior_cfg.get("hazard_panic_weight", 0.15)),
+            entropy_anxiety_weight=float(behavior_cfg.get("entropy_anxiety_weight", 0.25)),
+        )
+        sim.attach_behavior_model(BehaviorModel(bconfig))
         return sim
 
     def _build_layout(self, scenario: Dict[str, Any]) -> Layout:
         layout_cfg = scenario.get("layout", {}) or {}
         source_file = scenario.get("_source_file")
-
         layout: Layout
         if "geojson" in layout_cfg:
             layout = self._build_geojson_layout(layout_cfg["geojson"], source_file)
@@ -118,14 +129,11 @@ class ScenarioManager:
             raise ValueError(
                 "Scenario layout must define one of layout.file, layout.text, layout.grid, layout.geojson, or layout.cad"
             )
-
         obstacle_cfgs = list(layout_cfg.get("obstacles", []) or [])
         if obstacle_cfgs:
             layout.grid = apply_obstacles_to_grid(
-                layout.grid,
-                obstacles_from_config(obstacle_cfgs),
-                origin=tuple(layout.origin),
-                cell_size=float(layout.cell_size),
+                layout.grid, obstacles_from_config(obstacle_cfgs),
+                origin=tuple(layout.origin), cell_size=float(layout.cell_size),
             )
         return layout
 
@@ -134,16 +142,13 @@ class ScenarioManager:
             geojson_cfg = {"file": geojson_cfg}
         if not isinstance(geojson_cfg, dict):
             raise ValueError("layout.geojson must be a mapping or file path")
-
         source = geojson_cfg.get("data")
         if source is None:
             if "file" not in geojson_cfg:
                 raise ValueError("layout.geojson requires either file or data")
             source = self._resolve_relative_path(str(geojson_cfg["file"]), source_file)
-
         return Layout.from_geojson(
-            source,
-            cell_size=float(geojson_cfg.get("cell_size", 1.0)),
+            source, cell_size=float(geojson_cfg.get("cell_size", 1.0)),
             padding=int(geojson_cfg.get("padding", 1)),
             role_property=str(geojson_cfg.get("role_property", "role")),
             default_token=geojson_cfg.get("default_token"),
@@ -155,20 +160,16 @@ class ScenarioManager:
             cad_cfg = {"file": cad_cfg}
         if not isinstance(cad_cfg, dict):
             raise ValueError("layout.cad must be a mapping or file path")
-
         source = cad_cfg.get("data")
         if source is None:
             if "file" not in cad_cfg:
                 raise ValueError("layout.cad requires either file or data")
             source = self._resolve_relative_path(str(cad_cfg["file"]), source_file)
-
         cad_format = str(cad_cfg.get("format", "dxf")).lower()
         if cad_format != "dxf":
             raise ValueError("Only DXF CAD ingestion is currently supported")
-
         return Layout.from_cad(
-            source,
-            cell_size=float(cad_cfg.get("cell_size", 1.0)),
+            source, cell_size=float(cad_cfg.get("cell_size", 1.0)),
             padding=int(cad_cfg.get("padding", 1)),
             role_layers=cad_cfg.get("role_layers"),
             default_role=str(cad_cfg.get("default_role", "obstacle")),
@@ -179,17 +180,57 @@ class ScenarioManager:
 
     def _build_hazards(self, hazards_cfg: List[Dict[str, Any]]) -> List[Hazard]:
         hazards: List[Hazard] = []
-        for hazard_cfg in hazards_cfg:
-            hazards.append(
-                Hazard(
-                    pos=tuple(hazard_cfg.get("location", [0, 0])),
-                    kind=hazard_cfg.get("type", "GAS"),
-                    radius=float(hazard_cfg.get("radius", 0.0)),
-                    severity=float(hazard_cfg.get("severity", 0.5)),
-                    spread_rate=float(hazard_cfg.get("spread_rate", 0.0)),
-                )
-            )
+        for hc in hazards_cfg:
+            wind = hc.get("wind_vector", [0.0, 0.0])
+            hazards.append(Hazard(
+                pos=tuple(hc.get("location", [0, 0])),
+                kind=hc.get("type", "GAS"),
+                radius=float(hc.get("radius", 0.0)),
+                severity=float(hc.get("severity", 0.5)),
+                spread_rate=float(hc.get("spread_rate", 0.0)),
+                wind_vector=(float(wind[0]), float(wind[1])),
+                diffusion_rate=float(hc.get("diffusion_rate", 0.1)),
+                visibility_reduction=float(hc.get("visibility_reduction", 0.0)),
+            ))
         return hazards
+
+    def _build_responders(self, layout: Layout, responders_cfg: List[Dict[str, Any]], agent_offset: int) -> List[FirstResponder]:
+        responders: List[FirstResponder] = []
+        # find responder entry points from layout
+        entry_points = []
+        for y in range(layout.height):
+            for x in range(layout.width):
+                if layout.grid[y, x] == RESPONDER_ENTRY:
+                    entry_points.append((x, y))
+                    layout.grid[y, x] = EMPTY # make it walkable
+
+        for i, rc in enumerate(responders_cfg):
+            count = int(rc.get("count", 1))
+            release_step = int(rc.get("release_step", 0))
+            ppe_factor = float(rc.get("ppe_factor", 0.1))
+            spawn_cells = rc.get("spawn_cells", [])
+            mission_target = rc.get("mission_target", None)
+            if mission_target:
+                mission_target = (float(mission_target[0]), float(mission_target[1]))
+
+            for j in range(count):
+                if spawn_cells:
+                    sx, sy = spawn_cells[j % len(spawn_cells)]
+                elif entry_points:
+                    sx, sy = entry_points[j % len(entry_points)]
+                else:
+                    sx, sy = layout.random_walkable_position()
+                pos = np.array([float(sx) + 0.5, float(sy) + 0.5], dtype=float)
+                r = FirstResponder(
+                    id=agent_offset + len(responders),
+                    pos=pos,
+                    release_step=release_step,
+                    cohort_name=f"responder_{i+1}",
+                    ppe_factor=ppe_factor,
+                    mission_target=mission_target,
+                )
+                responders.append(r)
+        return responders
 
     def _build_agents(self, layout: Layout, population_cfg: Dict[str, Any]) -> List[Commuter]:
         layout_positions = [
@@ -200,98 +241,85 @@ class ScenarioManager:
 
         if not cohorts_cfg:
             default_total = total or len(layout_positions) or 100
-            cohorts_cfg = [
-                {
-                    "name": "baseline",
-                    "count": default_total,
-                    "personality": "NORMAL",
-                    "calmness": 0.8,
-                    "base_speed_multiplier": 1.0,
-                    "release_step": 0,
-                    "group_size": 1,
-                }
-            ]
+            cohorts_cfg = [{
+                "name": "baseline", "count": default_total,
+                "personality": "NORMAL", "calmness": 0.8,
+                "base_speed_multiplier": 1.0, "release_step": 0,
+                "group_size": 1, "familiarity": 0.5,
+            }]
 
-        cohort_total = sum(int(cohort.get("count", 0)) for cohort in cohorts_cfg)
+        cohort_total = sum(int(c.get("count", 0)) for c in cohorts_cfg)
         if total and cohort_total < total:
-            cohorts_cfg.append(
-                {
-                    "name": "supplemental",
-                    "count": total - cohort_total,
-                    "personality": "NORMAL",
-                    "calmness": 0.8,
-                    "base_speed_multiplier": 1.0,
-                    "release_step": 0,
-                    "group_size": 1,
-                }
-            )
+            cohorts_cfg.append({
+                "name": "supplemental", "count": total - cohort_total,
+                "personality": "NORMAL", "calmness": 0.8,
+                "base_speed_multiplier": 1.0, "release_step": 0,
+                "group_size": 1, "familiarity": 0.5,
+            })
 
-        required_agents = sum(int(cohort.get("count", 0)) for cohort in cohorts_cfg)
+        required = sum(int(c.get("count", 0)) for c in cohorts_cfg)
         positions = list(layout_positions)
-        while len(positions) < required_agents:
+        while len(positions) < required:
             x, y = layout.random_walkable_position()
             positions.append(np.array([x + 0.5, y + 0.5], dtype=float))
 
         agents: List[Commuter] = []
-        position_index = 0
+        pos_idx = 0
         group_counter = 0
         cohort_agents: Dict[str, List[Commuter]] = {}
         helper_specs: List[Dict[str, Any]] = []
 
         for cohort_cfg in cohorts_cfg:
-            cohort_name = str(cohort_cfg.get("name", f"cohort_{len(cohort_agents) + 1}"))
+            cohort_name = str(cohort_cfg.get("name", f"cohort_{len(cohort_agents)+1}"))
             count = int(cohort_cfg.get("count", 0))
             personality = str(cohort_cfg.get("personality", "NORMAL"))
             calmness = float(cohort_cfg.get("calmness", 0.8))
-            base_speed_multiplier = float(cohort_cfg.get("base_speed_multiplier", 1.0))
+            base_speed_mult = float(cohort_cfg.get("base_speed_multiplier", 1.0))
             release_step = int(cohort_cfg.get("release_step", 0))
             group_size = max(1, int(cohort_cfg.get("group_size", 1)))
             spawn_cells = list(cohort_cfg.get("spawn_cells", []) or [])
+            familiarity = float(cohort_cfg.get("familiarity", 0.5))
 
-            cohort_members: List[Commuter] = []
+            members: List[Commuter] = []
             for _ in range(count):
                 if spawn_cells:
-                    x, y = spawn_cells[(len(cohort_members)) % len(spawn_cells)]
-                    position = np.array([float(x) + 0.5, float(y) + 0.5], dtype=float)
+                    sx, sy = spawn_cells[len(members) % len(spawn_cells)]
+                    position = np.array([float(sx) + 0.5, float(sy) + 0.5], dtype=float)
                 else:
-                    position = np.array(positions[position_index], copy=True)
-                    position_index += 1
+                    position = np.array(positions[pos_idx], copy=True)
+                    pos_idx += 1
                 agent = Commuter(
-                    id=len(agents),
-                    pos=position,
-                    base_speed=1.34 * base_speed_multiplier,
-                    personality=personality,
-                    calmness=calmness,
-                    release_step=release_step,
-                    cohort_name=cohort_name,
+                    id=len(agents), pos=position,
+                    base_speed=1.34 * base_speed_mult,
+                    personality=personality, calmness=calmness,
+                    release_step=release_step, cohort_name=cohort_name,
+                    familiarity=familiarity,
                 )
                 agents.append(agent)
-                cohort_members.append(agent)
+                members.append(agent)
 
             if group_size > 1:
-                for start in range(0, len(cohort_members), group_size):
-                    members = cohort_members[start : start + group_size]
-                    if len(members) <= 1:
+                for start in range(0, len(members), group_size):
+                    grp = members[start:start+group_size]
+                    if len(grp) <= 1:
                         break
-                    leader = members[0]
+                    leader = grp[0]
                     group_counter += 1
                     leader.group_id = group_counter
-                    for follower in members[1:]:
+                    for follower in grp[1:]:
                         follower.group_id = group_counter
                         follower.leader_id = leader.id
 
-            cohort_agents[cohort_name] = cohort_members
+            cohort_agents[cohort_name] = members
             if cohort_cfg.get("assist_to_cohort"):
-                helper_specs.append(
-                    {
-                        "helper_cohort": cohort_name,
-                        "dependent_cohort": str(cohort_cfg["assist_to_cohort"]),
-                    }
-                )
+                helper_specs.append({
+                    "helper_cohort": cohort_name,
+                    "dependent_cohort": str(cohort_cfg["assist_to_cohort"]),
+                })
 
-        for helper_spec in helper_specs:
-            helpers = cohort_agents.get(helper_spec["helper_cohort"], [])
-            dependents = cohort_agents.get(helper_spec["dependent_cohort"], [])
+        for hs in helper_specs:
+            helpers = cohort_agents.get(hs["helper_cohort"], [])
+            dependents = cohort_agents.get(hs["dependent_cohort"], [])
             for helper, dependent in zip(helpers, dependents):
                 group_counter += 1
                 helper.group_id = group_counter
@@ -305,29 +333,16 @@ class ScenarioManager:
     def _deep_merge(self, base: Dict[str, Any], overrides: Dict[str, Any]) -> Dict[str, Any]:
         merged = dict(base)
         for key, value in overrides.items():
-            if (
-                key in merged
-                and isinstance(merged[key], dict)
-                and isinstance(value, dict)
-            ):
+            if key in merged and isinstance(merged[key], dict) and isinstance(value, dict):
                 merged[key] = self._deep_merge(merged[key], value)
             else:
                 merged[key] = value
         return merged
 
     def serialize_layout(self, layout: Layout) -> str:
-        lines: List[str] = []
-        for row in layout.grid:
-            lines.append("".join(str(cell) for cell in row))
-        return "\n".join(lines)
+        return "\n".join("".join(str(c) for c in row) for row in layout.grid)
 
-    def apply_layout_cells(
-        self,
-        scenario: Dict[str, Any],
-        *,
-        cells: List[List[int]] | List[tuple[int, int]],
-        fill: str,
-    ) -> Dict[str, Any]:
+    def apply_layout_cells(self, scenario, *, cells, fill) -> Dict[str, Any]:
         layout = self._build_layout(scenario)
         for x, y in cells:
             if 0 <= y < layout.height and 0 <= x < layout.width:

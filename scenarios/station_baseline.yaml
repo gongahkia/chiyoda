@@ -1,0 +1,29 @@
+scenario:
+  name: "Station Baseline"
+  layout:
+    file: "scenarios/layouts/station_layout.txt"
+  population:
+    total: 120
+    cohorts:
+      - name: "regular_commuters"
+        count: 80
+        personality: "NORMAL"
+        calmness: 0.8
+        familiarity: 0.7
+        group_size: 1
+      - name: "tourists"
+        count: 40
+        personality: "NORMAL"
+        calmness: 0.6
+        familiarity: 0.1
+        group_size: 2
+  information:
+    mode: "asymmetric"
+    decay_rate: 0.01
+    observation_radius: 5.0
+    gossip_radius: 2.0
+    beacon_radius: 8.0
+  simulation:
+    max_steps: 400
+    dt: 0.1
+    random_seed: 42

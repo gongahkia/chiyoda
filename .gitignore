@@ -1,5 +1,10 @@
 myenv
 .venv
 __pycache__
-layout.txt
-out.html
+*.egg-info
+.eggs
+dist/
+build/
+out/
+*.pyc
+.DS_Store

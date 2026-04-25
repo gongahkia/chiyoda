@@ -1,13 +1,15 @@
-from __future__ import annotations
+"""
+Telemetry data structures for ITED framework.
 
+Includes per-step agent telemetry with entropy, belief accuracy,
+impairment, and decision mode fields.
+"""
+from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Dict, Iterable, List, Optional, Tuple
-
 import numpy as np
 
-
 Cell = Tuple[int, int]
-
 
 @dataclass(frozen=True)
 class BottleneckZone:
@@ -15,7 +17,6 @@ class BottleneckZone:
     cells: Tuple[Cell, ...]
     orientation: str
     centroid: Tuple[float, float]
-
 
 @dataclass
 class BottleneckStepTelemetry:
@@ -26,7 +27,6 @@ class BottleneckStepTelemetry:
     mean_dwell_s: float = 0.0
     mean_speed: float = 0.0
     mean_density: float = 0.0
-
 
 @dataclass
 class AgentStepTelemetry:
@@ -43,7 +43,11 @@ class AgentStepTelemetry:
     hazard_exposure: float
     hazard_load: float
     trail: Tuple[Tuple[float, float], ...] = field(default_factory=tuple)
-
+    # ITED fields
+    entropy: float = 0.0
+    belief_accuracy: float = 1.0
+    impairment: float = 0.0
+    decision_mode: str = "EVACUATE"
 
 @dataclass
 class StepTelemetry:
@@ -63,6 +67,8 @@ class StepTelemetry:
     pending_release: int
     mean_speed: float
     mean_density: float
+    # ITED fields
+    global_entropy: float = 0.0
 
 
 def _walkable_neighbors(layout, cell: Cell) -> List[Cell]:
@@ -73,7 +79,6 @@ def _walkable_neighbors(layout, cell: Cell) -> List[Cell]:
         if layout.is_walkable((nx, ny)):
             neighbors.append((nx, ny))
     return neighbors
-
 
 def _local_openness(layout, cell: Cell) -> int:
     x, y = cell
@@ -86,7 +91,6 @@ def _local_openness(layout, cell: Cell) -> int:
                 openness += 1
     return openness
 
-
 def _corridor_orientation(neighbors: List[Cell], cell: Cell) -> Optional[str]:
     x, y = cell
     if len(neighbors) == 1:
@@ -94,7 +98,6 @@ def _corridor_orientation(neighbors: List[Cell], cell: Cell) -> Optional[str]:
         return "horizontal" if nx != x else "vertical"
     if len(neighbors) != 2:
         return None
-
     xs = {n[0] for n in neighbors}
     ys = {n[1] for n in neighbors}
     if len(xs) == 2 and len(ys) == 1 and y in ys:
@@ -103,11 +106,9 @@ def _corridor_orientation(neighbors: List[Cell], cell: Cell) -> Optional[str]:
         return "vertical"
     return None
 
-
 def detect_bottleneck_zones(layout) -> List[BottleneckZone]:
     candidates: List[Tuple[Cell, str]] = []
     exit_cells = set(layout.exit_positions())
-
     for y in range(layout.height):
         for x in range(layout.width):
             cell = (x, y)
@@ -120,46 +121,34 @@ def detect_bottleneck_zones(layout) -> List[BottleneckZone]:
             if _local_openness(layout, cell) > 4:
                 continue
             candidates.append((cell, orientation))
-
     if not candidates:
         return []
-
-    orientation_by_cell = {cell: orientation for cell, orientation in candidates}
+    orientation_by_cell = {cell: o for cell, o in candidates}
     remaining = {cell for cell, _ in candidates}
     zones: List[BottleneckZone] = []
-
     while remaining:
         start = min(remaining)
         stack = [start]
         group: List[Cell] = []
         orientation = orientation_by_cell[start]
         remaining.remove(start)
-
         while stack:
             cell = stack.pop()
             group.append(cell)
-            neighbors = _walkable_neighbors(layout, cell)
-            for neighbor in neighbors:
+            for neighbor in _walkable_neighbors(layout, cell):
                 if neighbor in remaining and orientation_by_cell[neighbor] == orientation:
                     remaining.remove(neighbor)
                     stack.append(neighbor)
-
         cells = tuple(sorted(group))
         centroid = (
-            float(np.mean([cell[0] + 0.5 for cell in cells])),
-            float(np.mean([cell[1] + 0.5 for cell in cells])),
+            float(np.mean([c[0] + 0.5 for c in cells])),
+            float(np.mean([c[1] + 0.5 for c in cells])),
         )
-        zones.append(
-            BottleneckZone(
-                zone_id=f"bn_{len(zones) + 1}",
-                cells=cells,
-                orientation=orientation,
-                centroid=centroid,
-            )
-        )
-
+        zones.append(BottleneckZone(
+            zone_id=f"bn_{len(zones) + 1}", cells=cells,
+            orientation=orientation, centroid=centroid,
+        ))
     return zones
-
 
 def zone_lookup(zones: Iterable[BottleneckZone]) -> Dict[Cell, str]:
     lookup: Dict[Cell, str] = {}
@@ -167,7 +156,6 @@ def zone_lookup(zones: Iterable[BottleneckZone]) -> Dict[Cell, str]:
         for cell in zone.cells:
             lookup[cell] = zone.zone_id
     return lookup
-
 
 def zone_distance(cell: Cell, zone: BottleneckZone) -> int:
     return min(abs(cell[0] - zx) + abs(cell[1] - zy) for zx, zy in zone.cells)

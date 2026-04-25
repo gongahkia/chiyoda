@@ -404,6 +404,7 @@ def _collect_run_tables(
                 "mean_speed": step.mean_speed,
                 "mean_density": step.mean_density,
                 "peak_cell_occupancy": int(step.occupancy_grid.max()) if step.occupancy_grid.size else 0,
+                "global_entropy": float(getattr(step, 'global_entropy', 0.0)),
             }
         )
 
@@ -459,6 +460,10 @@ def _collect_run_tables(
                     "leader_id": agent.leader_id,
                     "hazard_exposure": float(agent.hazard_exposure),
                     "hazard_load": float(agent.hazard_load),
+                    "entropy": float(getattr(agent, 'entropy', 0.0)),
+                    "belief_accuracy": float(getattr(agent, 'belief_accuracy', 1.0)),
+                    "impairment": float(getattr(agent, 'impairment', 0.0)),
+                    "decision_mode": str(getattr(agent, 'decision_mode', 'EVACUATE')),
                 }
             )
 

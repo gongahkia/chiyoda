@@ -10,7 +10,7 @@ from chiyoda.studies import StudyBundle, compare_studies, load_study_config, run
 
 @click.group()
 def cli():
-    """Chiyoda - notebook-first pedestrian bottleneck research toolkit."""
+    """Chiyoda v3 — ITED crowd dynamics simulation and research toolkit."""
     pass
 
 

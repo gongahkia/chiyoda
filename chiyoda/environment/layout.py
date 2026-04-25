@@ -9,6 +9,9 @@ WALL = "X"
 PERSON = "@"
 EXIT = "E"
 EMPTY = "."
+BEACON = "S"  # signage / PA system
+VENTILATION = "V"  # ventilation source (affects hazard advection)
+RESPONDER_ENTRY = "R"  # first responder entry point
 
 
 @dataclass

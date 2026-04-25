@@ -1,5 +1,5 @@
 ---
-title: "Chiyoda Study Report"
+title: "Chiyoda ITED Study Report"
 format:
   html:
     toc: true
@@ -37,3 +37,13 @@ Use the exported tables in `tables/` for exact values and the exported figures i
 ![](figures/05_distributions.png)
 
 ![](figures/06_scenario_comparison.png)
+
+## ITED Figures
+
+![](figures/07_entropy_evolution.png)
+
+![](figures/08_fundamental_diagram.png)
+
+![](figures/09_belief_accuracy.png)
+
+![](figures/10_responder_effect.png)

@@ -1,17 +1,20 @@
 """
-Chiyoda v2 package
+Chiyoda v3 — Information-Theoretic Evacuation Dynamics (ITED)
 
-High-level modules for crowd dynamics simulation and research analysis.
+A computational framework for studying how heterogeneous information
+propagation, coupled hazard dynamics, and bounded-rational decision-making
+interact to shape evacuation outcomes in spatial environments.
 
 Subpackages:
-- core: Simulation orchestration and runtime
-- agents: Agent definitions and behaviors
-- environment: Layouts, obstacles, exits, hazards
-- navigation: Pathfinding, social forces, spatial indexing
-- acceleration: Python and optional Julia runtime backends
-- analysis: Metrics and offline report exporters
-- studies: Study schemas, bundle models, and comparison workflows
-- scenarios: Scenario loading and management
+    core           Simulation engine and runtime loop
+    agents         CognitiveAgent (BDI), Commuter, FirstResponder
+    information    InformationField, GossipModel, Shannon entropy metrics
+    environment    Layout, multi-hazard physics, exits, obstacles
+    navigation     Social Force Model, belief-weighted pathfinding, spatial index
+    acceleration   Python and optional Julia compute backends
+    analysis       Metrics, telemetry, report/figure generation
+    studies        Study schemas, bundle persistence, comparison workflows
+    scenarios      YAML scenario loading and management
 """
 
 from .__version__ import __version__
