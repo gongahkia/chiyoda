@@ -42,8 +42,10 @@ def run_study(study: str | Path | StudyConfig) -> StudyBundle:
     dwell_frames: List[pd.DataFrame] = []
     exits_frames: List[pd.DataFrame] = []
     hazards_frames: List[pd.DataFrame] = []
-
+    measurements_frames: List[pd.DataFrame] = []
+    gossip_frames: List[pd.DataFrame] = []
     runs_manifest: List[Dict[str, Any]] = []
+
     first_layout_text = None
     first_bottlenecks: List[Dict[str, Any]] = []
     first_exit_labels: Dict[str, str] = {}
@@ -95,6 +97,8 @@ def run_study(study: str | Path | StudyConfig) -> StudyBundle:
             dwell_frames.append(tables["dwell_samples"])
             exits_frames.append(tables["exits"])
             hazards_frames.append(tables["hazards"])
+            measurements_frames.append(tables["measurements"])
+            gossip_frames.append(tables["gossip"])
             runs_manifest.append(
                 {
                     "run_id": run_id,
@@ -145,6 +149,8 @@ def run_study(study: str | Path | StudyConfig) -> StudyBundle:
         dwell_samples=_concat(dwell_frames),
         exits=_concat(exits_frames),
         hazards=_concat(hazards_frames),
+        measurements=_concat(measurements_frames),
+        gossip=_concat(gossip_frames),
     )
 
 
@@ -387,6 +393,8 @@ def _collect_run_tables(
     hazard_rows: List[Dict[str, Any]] = []
     agent_rows: List[Dict[str, Any]] = []
     dwell_rows: List[Dict[str, Any]] = []
+    measurement_rows: List[Dict[str, Any]] = []
+    gossip_rows: List[Dict[str, Any]] = []
 
     for step in simulation.step_history:
         steps_rows.append(
@@ -584,6 +592,42 @@ def _collect_run_tables(
         ]
     )
 
+    for ml in getattr(simulation, 'measurement_lines', []):
+        for rec in ml.records:
+            measurement_rows.append(
+                {
+                    "study_name": study_name,
+                    "scenario_name": scenario_name,
+                    "variant_name": variant_name,
+                    "seed": seed,
+                    "run_id": run_id,
+                    "line_name": ml.name,
+                    "step": rec.step,
+                    "time_s": rec.time_s,
+                    "flow": rec.flow,
+                    "density": rec.density,
+                    "speed": rec.speed,
+                    "n_crossing": rec.n_crossing,
+                    "n_in_region": rec.n_in_region,
+                }
+            )
+
+    for event in getattr(simulation, 'gossip_events', []):
+        gossip_rows.append(
+            {
+                "study_name": study_name,
+                "scenario_name": scenario_name,
+                "variant_name": variant_name,
+                "seed": seed,
+                "run_id": run_id,
+                "step": event["step"],
+                "time_s": event["time_s"],
+                "sender_id": event["sender_id"],
+                "receiver_id": event["receiver_id"],
+                "distance": event["distance"],
+            }
+        )
+
     return {
         "summary": summary_row,
         "steps": pd.DataFrame(steps_rows),
@@ -594,6 +638,8 @@ def _collect_run_tables(
         "dwell_samples": pd.DataFrame(dwell_rows),
         "exits": pd.DataFrame(exit_rows),
         "hazards": pd.DataFrame(hazard_rows),
+        "measurements": pd.DataFrame(measurement_rows),
+        "gossip": pd.DataFrame(gossip_rows),
     }
 
 

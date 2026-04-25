@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import json
 from pathlib import Path
 from typing import Dict
@@ -44,6 +44,8 @@ class StudyBundle:
     dwell_samples: pd.DataFrame
     exits: pd.DataFrame
     hazards: pd.DataFrame
+    measurements: pd.DataFrame = field(default_factory=_empty_frame)
+    gossip: pd.DataFrame = field(default_factory=_empty_frame)
 
     def export(self, output_dir: str | Path, table_formats: tuple[str, ...] = ("parquet", "csv")) -> Path:
         out = Path(output_dir)
@@ -72,6 +74,8 @@ class StudyBundle:
             "dwell_samples": self.dwell_samples,
             "exits": self.exits,
             "hazards": self.hazards,
+            "measurements": self.measurements,
+            "gossip": self.gossip,
         }
 
     @classmethod
@@ -90,6 +94,8 @@ class StudyBundle:
             dwell_samples=_read_table(tables_dir, "dwell_samples"),
             exits=_read_table(tables_dir, "exits"),
             hazards=_read_table(tables_dir, "hazards"),
+            measurements=_read_table(tables_dir, "measurements"),
+            gossip=_read_table(tables_dir, "gossip"),
         )
 
 

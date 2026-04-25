@@ -116,6 +116,7 @@ class Simulation:
         self.gossip_model = GossipModel(GossipConfig(gossip_radius=self.config.gossip_radius))
         self.entropy_history: List[float] = []
         self.accuracy_history: List[float] = []
+        self.gossip_events: List[Dict[str, Any]] = []
 
     def attach_navigation(self, navigator) -> None:
         self.navigator = navigator
@@ -307,7 +308,7 @@ class Simulation:
                     if not hasattr(other, 'beliefs'):
                         continue
                     dist = float(np.linalg.norm(agent.pos - np.array(other.pos)))
-                    self.gossip_model.exchange(
+                    transferred = self.gossip_model.exchange(
                         sender_beliefs=agent.beliefs,
                         receiver_beliefs=other.beliefs,
                         sender_credibility=getattr(agent, 'credibility', 0.5),
@@ -315,6 +316,14 @@ class Simulation:
                         sender_state=agent.state,
                         distance=dist,
                     )
+                    if transferred and (self.current_step % 10 == 0):
+                        self.gossip_events.append({
+                            "step": self.current_step,
+                            "time_s": self.time_s,
+                            "sender_id": agent.id,
+                            "receiver_id": other.id,
+                            "distance": dist,
+                        })
 
     def _empty_bottleneck_metrics(self) -> Dict[str, BottleneckStepTelemetry]:
         return {zone.zone_id: BottleneckStepTelemetry() for zone in self.bottleneck_zones}
