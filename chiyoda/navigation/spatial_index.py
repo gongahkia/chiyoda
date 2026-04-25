@@ -12,9 +12,11 @@ class SpatialIndex:
         self.tree: cKDTree | None = None
         self._positions: np.ndarray | None = None
         self._agents: List[object] = []
+        self._density_penalty_cache: dict[tuple[int, int], float] = {}
 
     def update(self, agents: List[object]) -> None:
         self._agents = [a for a in agents if not getattr(a, "has_evacuated", False)]
+        self._density_penalty_cache.clear()
         coords = [a.pos for a in self._agents]
         self._positions = np.array(coords) if coords else np.zeros((0, 2), dtype=float)
         if len(self._positions) > 0:
@@ -60,7 +62,13 @@ class SpatialIndex:
         def _pen(pos_tuple):
             if self.tree is None:
                 return 0.0
-            pos = np.array([pos_tuple[0] + 0.5, pos_tuple[1] + 0.5])
-            return min(2.0, self.local_density(pos, radius=1.0) * 2.0)
+            cell = (int(pos_tuple[0]), int(pos_tuple[1]))
+            cached = self._density_penalty_cache.get(cell)
+            if cached is not None:
+                return cached
+            pos = np.array([cell[0] + 0.5, cell[1] + 0.5])
+            value = min(2.0, self.local_density(pos, radius=1.0) * 2.0)
+            self._density_penalty_cache[cell] = value
+            return value
 
         return _pen

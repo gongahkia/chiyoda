@@ -9,7 +9,6 @@ Exploration mode: random walk with wall-following heuristic.
 from __future__ import annotations
 from typing import List, Optional, Tuple
 import networkx as nx
-import numpy as np
 
 
 class SmartNavigator:
@@ -28,6 +27,13 @@ class SmartNavigator:
         self.graph = self._build_graph(layout)
         self.density_fn = density_fn
         self.hazard_fn = hazard_fn
+        self._path_cache: dict[tuple, Optional[List[Tuple[int, int]]]] = {}
+        self._weight_cache: dict[tuple, float] = {}
+
+    def clear_cache(self) -> None:
+        """Clear per-step path cache after density or hazard state changes."""
+        self._path_cache.clear()
+        self._weight_cache.clear()
 
     def _build_graph(self, layout) -> nx.Graph:
         G = nx.Graph()
@@ -63,17 +69,33 @@ class SmartNavigator:
         hazard_beliefs: list,
     ) -> float:
         """Edge weight using agent's hazard beliefs instead of ground truth."""
+        hazard_sig = self._hazard_signature(hazard_beliefs)
+        cache_key = (v, hazard_sig)
+        cached = self._weight_cache.get(cache_key)
+        if cached is not None:
+            return cached
+
         base = attr.get("weight", 1.0)
         penalty = 0.0
         if self.density_fn is not None:
             penalty += 0.5 * self.density_fn(v)
         # use believed hazard info
-        point = np.array([v[0] + 0.5, v[1] + 0.5])
+        px = v[0] + 0.5
+        py = v[1] + 0.5
         for hb in hazard_beliefs:
-            dist = np.sqrt((point[0] - hb.position[0])**2 + (point[1] - hb.position[1])**2)
-            if hb.radius_est > 0 and dist <= hb.radius_est:
-                penalty += 1.25 * hb.severity_est * max(0.0, 1.0 - dist / hb.radius_est)
-        return base + penalty
+            radius = float(hb.radius_est)
+            if radius <= 0:
+                continue
+            dx = px - hb.position[0]
+            dy = py - hb.position[1]
+            dist_sq = dx * dx + dy * dy
+            radius_sq = radius * radius
+            if dist_sq <= radius_sq:
+                dist = dist_sq ** 0.5
+                penalty += 1.25 * hb.severity_est * max(0.0, 1.0 - dist / radius)
+        value = base + penalty
+        self._weight_cache[cache_key] = value
+        return value
 
     def find_optimal_path(
         self,
@@ -87,6 +109,15 @@ class SmartNavigator:
         If hazard_beliefs is provided, uses belief-weighted costs.
         Otherwise falls back to ground-truth hazard function.
         """
+        cache_key = (
+            tuple(start),
+            tuple(sorted(tuple(goal) for goal in goals)),
+            self._hazard_signature(hazard_beliefs),
+        )
+        if cache_key in self._path_cache:
+            cached = self._path_cache[cache_key]
+            return list(cached) if cached is not None else None
+
         best = None
         best_len = float("inf")
         for goal in goals:
@@ -117,4 +148,18 @@ class SmartNavigator:
                     best_len = length
             except nx.NetworkXNoPath:
                 continue
+        self._path_cache[cache_key] = list(best) if best is not None else None
         return best
+
+    def _hazard_signature(self, hazard_beliefs: Optional[list]) -> tuple:
+        if hazard_beliefs is None:
+            return ()
+        return tuple(
+            (
+                round(float(hb.position[0]), 2),
+                round(float(hb.position[1]), 2),
+                round(float(hb.severity_est), 3),
+                round(float(hb.radius_est), 3),
+            )
+            for hb in hazard_beliefs
+        )

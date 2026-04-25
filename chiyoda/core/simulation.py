@@ -194,14 +194,29 @@ class Simulation:
                     setattr(agent, attr, default)
 
     def hazard_intensity_at(self, point) -> float:
-        pos = np.array(point, dtype=float)
+        px = float(point[0])
+        py = float(point[1])
         intensity = 0.0
         for hazard in self.hazards:
             if hasattr(hazard, 'intensity_at'):
-                intensity += hazard.intensity_at(pos)
+                hx = float(hazard.pos[0])
+                hy = float(hazard.pos[1])
+                dx = px - hx
+                dy = py - hy
+                radius = float(hazard.radius)
+                severity = float(hazard.severity)
+                if radius <= 1e-6:
+                    if dx * dx + dy * dy <= 0.75 * 0.75:
+                        intensity += severity
+                else:
+                    dist_sq = dx * dx + dy * dy
+                    if dist_sq <= radius * radius:
+                        intensity += severity * max(0.0, 1.0 - ((dist_sq ** 0.5) / radius))
             else:
                 radius = max(float(hazard.radius), 0.0)
-                distance = float(np.linalg.norm(pos - np.array(hazard.pos, dtype=float)))
+                dx = px - float(hazard.pos[0])
+                dy = py - float(hazard.pos[1])
+                distance = float((dx * dx + dy * dy) ** 0.5)
                 if radius <= 1e-6:
                     if distance <= 0.75:
                         intensity += float(hazard.severity)
@@ -501,6 +516,9 @@ class Simulation:
             self.intervention_events.extend(self.intervention_policy.execute(self))
 
         exit_flow_step = {l: 0 for l in self.exit_flow_cumulative}
+
+        if self.navigator is not None and hasattr(self.navigator, "clear_cache"):
+            self.navigator.clear_cache()
 
         for agent in list(self._active_agents()):
             if self.behavior_model is not None:

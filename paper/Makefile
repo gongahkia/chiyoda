@@ -13,6 +13,7 @@ BUILD_DIR   ?= build
 STUDY_DIR   ?= ../out/information_control
 STATS_TEX    = stats.tex
 LATEXMK     ?= latexmk
+PYTHON      ?= python3
 LATEXMK_FLAGS = -lualatex -interaction=nonstopmode -halt-on-error \
                 -output-directory=$(BUILD_DIR) -shell-escape
 
@@ -38,7 +39,7 @@ smoke: stats $(FIGURES_PDF) | $(BUILD_DIR)
 stats: $(STATS_TEX)
 
 $(STATS_TEX): scripts/gen_stats.py
-	python3 scripts/gen_stats.py $(STUDY_DIR) > $(STATS_TEX)
+	$(PYTHON) scripts/gen_stats.py $(STUDY_DIR) > $(STATS_TEX)
 
 figures: $(FIGURES_PDF)
 

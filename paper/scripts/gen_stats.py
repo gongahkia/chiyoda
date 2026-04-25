@@ -19,7 +19,12 @@ def _read_table(root: Path, name: str) -> pd.DataFrame:
     parquet = tables / f"{name}.parquet"
     csv = tables / f"{name}.csv"
     if parquet.exists():
-        return pd.read_parquet(parquet)
+        try:
+            return pd.read_parquet(parquet)
+        except ImportError:
+            if csv.exists():
+                return pd.read_csv(csv)
+            raise
     if csv.exists():
         return pd.read_csv(csv)
     return pd.DataFrame()

@@ -21,10 +21,22 @@ policies produce target points and messages, while the shared executor applies
 messages to recipients and computes before/after entropy and accuracy. This
 keeps policy design separate from belief mutation and telemetry.
 
+Two implementation details matter for reproducibility. First, A* pathfinding
+uses per-step caches for density penalties, edge weights, and identical
+start/goal/belief queries. These caches are cleared whenever the simulation
+advances to a new navigation phase, so they do not change the cost function;
+they only avoid recomputing identical values during the same step. Second,
+gossip reports about the same physical hazard are merged into an existing
+hazard belief rather than appended as duplicate rumors. This is both a
+performance requirement and a modeling requirement: repeated reports should
+update credibility, freshness, severity, and radius estimates for the same
+hazard, not create an unbounded list of separate hazards.
+
 The paper pipeline mirrors the code pipeline. Running
 \texttt{python3 -m chiyoda.cli sweep scenarios/study\_information\_control.yaml}
 emits tables and figures; \texttt{paper/scripts/gen\_stats.py} converts the
 exported bundle into \texttt{stats.tex}; and the LaTeX build injects those
 values into the abstract and evaluation.
 
-\todo{Add an architecture figure once the first full study bundle has been generated.}
+\todo{Replace this implementation sketch with line-referenced architecture
+details once the model stabilizes.}

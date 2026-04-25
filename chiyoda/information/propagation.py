@@ -114,39 +114,50 @@ class GossipModel:
                 continue
 
             # check if receiver already knows about this hazard
-            already_known = False
+            matching_belief = None
             for receiver_hb in receiver_beliefs.hazard_beliefs:
                 dist = np.sqrt(
                     (sender_hb.position[0] - receiver_hb.position[0]) ** 2
                     + (sender_hb.position[1] - receiver_hb.position[1]) ** 2
                 )
-                if dist < 3.0 and receiver_hb.source_credibility >= sender_credibility:
-                    already_known = True
+                if dist < 3.0:
+                    matching_belief = receiver_hb
                     break
 
-            if not already_known:
-                distorted_severity = max(
-                    0.0,
-                    min(
-                        1.0,
-                        sender_hb.severity_est + np.random.normal(0, distortion),
-                    ),
+            distorted_severity = max(
+                0.0,
+                min(
+                    1.0,
+                    sender_hb.severity_est + np.random.normal(0, distortion),
+                ),
+            )
+            distorted_radius = max(
+                0.0,
+                sender_hb.radius_est * (1.0 + np.random.normal(0, distortion * 3)),
+            )
+            transferred_credibility = max(0.0, sender_credibility * (1.0 - distortion))
+
+            if matching_belief is not None:
+                if transferred_credibility > matching_belief.source_credibility:
+                    matching_belief.severity_est = distorted_severity
+                    matching_belief.radius_est = distorted_radius
+                    matching_belief.freshness = min(matching_belief.freshness, sender_hb.freshness + 0.05)
+                    matching_belief.source_credibility = transferred_credibility
+                    matching_belief.hop_count = min(matching_belief.hop_count, sender_hb.hop_count + 1)
+                    transferred = True
+                continue
+
+            receiver_beliefs.hazard_beliefs.append(
+                HazardBelief(
+                    position=sender_hb.position,
+                    severity_est=distorted_severity,
+                    radius_est=distorted_radius,
+                    freshness=sender_hb.freshness + 0.05,
+                    source_credibility=transferred_credibility,
+                    hop_count=sender_hb.hop_count + 1,
                 )
-                distorted_radius = max(
-                    0.0,
-                    sender_hb.radius_est * (1.0 + np.random.normal(0, distortion * 3)),
-                )
-                receiver_beliefs.hazard_beliefs.append(
-                    HazardBelief(
-                        position=sender_hb.position,
-                        severity_est=distorted_severity,
-                        radius_est=distorted_radius,
-                        freshness=sender_hb.freshness + 0.05,
-                        source_credibility=max(0.0, sender_credibility * (1.0 - distortion)),
-                        hop_count=sender_hb.hop_count + 1,
-                    )
-                )
-                transferred = True
+            )
+            transferred = True
 
         # transfer general danger level (emotional contagion)
         if sender_beliefs.general_danger_level > receiver_beliefs.general_danger_level + 0.1:

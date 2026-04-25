@@ -1,50 +1,162 @@
 \section{Evaluation}
 \label{sec:evaluation}
 
-The primary evaluation will run \texttt{study\_information\_control.yaml}, a
-multi-seed comparison of no intervention, static beacon broadcast, global
-broadcast, responder relay, entropy-targeted communication, density-aware
-communication, exposure-aware communication, and bottleneck-avoidance
-communication. The generated paper stats currently point at \statStudyName{}
-with \statVariantCount{} variants, \statRunCount{} runs, and
-\statInterventionEvents{} recorded intervention events.
+We evaluate Chiyoda on \texttt{study\_information\_control.yaml}, a
+five-seed comparison of eight emergency communication regimes: no deliberate
+intervention, static beacon broadcast, global PA broadcast, responder relay,
+entropy-targeted communication, density-aware communication, exposure-aware
+communication, and bottleneck-avoidance communication. The exported bundle
+contains \statRunCount{} runs, \statVariantCount{} variant aggregates, and
+\statInterventionEvents{} intervention events. Each run uses the same
+station-sarin scenario, a 120-agent commuter/tourist population, asymmetric
+initial information, gossip, beacon infrastructure, three delayed responders,
+and a 500-step horizon.
 
 \subsection{Outcome Measures}
 \label{subsec:outcomes}
 
-We evaluate physical outcomes, information outcomes, and coupled tradeoffs.
-Physical outcomes include evacuation count, mean and p95 travel time, peak
-mean density, peak bottleneck queue, mean hazard exposure, p95 exposure, and
-incapacitation count. Information outcomes include initial/final/mean entropy,
-entropy reduction, belief accuracy, intervention reach, and accuracy gain.
-Coupled outcomes include information-safety efficiency, harmful convergence,
-and exit imbalance.
+We report three classes of outcome. Physical outcomes include evacuated agents,
+mean travel time, incapacitation count, mean hazard exposure, peak bottleneck
+queue, and exit imbalance. Information outcomes include mean entropy, entropy
+reduction, intervention reach, entropy reduction attributable to interventions,
+and belief-accuracy gain. Coupled outcomes include information-safety
+efficiency and harmful convergence. These coupled metrics are the main object
+of the paper: they ask whether a policy buys useful belief improvement without
+creating exposure or queueing pressure.
 
-\subsection{Planned Hypotheses}
-\label{subsec:hypotheses}
+\begin{figure*}[!t]
+  \centering
+  \includegraphics[width=\textwidth]{../out/information_control/figures/13_information_safety_frontier.pdf}
+  \caption{Information-safety frontier across communication policies. Static
+  beacons produce the highest current information-safety efficiency, while
+  entropy-targeted communication produces larger belief gains but the highest
+  harmful-convergence index.}
+  \label{fig:safety-frontier}
+\end{figure*}
 
-\begin{description}
-\item[H1:] Adaptive targeting improves information-safety efficiency compared
-with global broadcast because it reduces uncertainty where it is decision
-critical rather than synchronizing the full crowd.
-\item[H2:] Global broadcast reduces entropy fastest but can increase exit
-imbalance and bottleneck pressure.
-\item[H3:] Exposure-aware targeting reduces mean hazard exposure more than
-entropy-targeted communication in high-severity hazard regimes.
-\item[H4:] Responder relay is robust but delayed; its value depends strongly
-on release time and responder reach.
-\end{description}
+\begin{figure*}[!t]
+  \centering
+  \includegraphics[width=\textwidth]{../out/information_control/figures/12_intervention_timeline.pdf}
+  \caption{Intervention reach and entropy effects over time. Global broadcast
+  reaches the most recipients, but wide reach is not equivalent to efficient
+  safety improvement.}
+  \label{fig:intervention-timeline}
+\end{figure*}
 
-\subsection{Current Status}
-\label{subsec:current-status}
+\subsection{Aggregate Findings}
+\label{subsec:aggregate-findings}
 
-The code path for intervention studies is implemented and smoke-tested. The
-next empirical step is to run the full study, inspect confidence intervals,
-and decide which variants need larger seed counts. At PhD-paper quality, the
-study should use substantially more than the default five seeds and should
-include a sensitivity analysis over hazard severity, population familiarity,
-message credibility, and intervention timing.
+Table~\ref{tab:aggregate} summarizes the variant aggregates. The first result
+is negative but important: no intervention policy dominates the baseline across
+physical evacuation outcomes at this seed count. The no-intervention baseline
+evacuates 11.8 agents on average, while static beacons evacuate 12.4, responder
+relay evacuates 11.4, and the other adaptive policies evacuate between 9.4 and
+10.6. Mann--Whitney tests against the baseline do not show significant
+improvement in evacuated count, travel time, incapacitation, or exposure for
+any policy at $n=5$ seeds. This is exactly why the paper cannot simply claim
+``more information improves evacuation.''
 
-\todo{Replace this status subsection with full tables, confidence intervals,
-effect sizes, and the final information-safety frontier after running the full
-study.}
+\begin{table*}[!t]
+\centering
+\caption{Variant aggregates from the full information-control study. Values are
+means across five seeds. ISE denotes information-safety efficiency; HCI denotes
+harmful-convergence index.}
+\label{tab:aggregate}
+\begin{tabular}{lrrrrrr}
+\toprule
+Policy & Evac. & Travel (s) & Exposure & Queue & ISE & HCI \\
+\midrule
+No intervention & 11.8 & 12.17 & 3.147 & 2.2 & 0.000 & 0.000 \\
+Static beacon & 12.4 & 11.89 & 3.147 & 2.0 & 0.0177 & 6.31 \\
+Responder relay & 11.4 & 11.81 & 3.050 & 2.4 & 0.0140 & 5.41 \\
+Bottleneck avoidance & 10.0 & 11.48 & 3.142 & 2.4 & 0.0145 & 7.48 \\
+Density-aware & 10.6 & 9.86 & 3.244 & 2.0 & 0.0082 & 7.94 \\
+Entropy-targeted & 9.4 & 10.43 & 3.196 & 3.6 & 0.0078 & 8.62 \\
+Global broadcast & 10.6 & 11.33 & 3.199 & 2.6 & 0.0057 & 7.22 \\
+Exposure-aware & 10.6 & 10.83 & 3.140 & 2.0 & 0.0025 & 5.85 \\
+\bottomrule
+\end{tabular}
+\end{table*}
+
+The second result is that communication policy matters even when physical
+outcomes remain noisy. Static beacons have the highest information-safety
+efficiency in this study, \statBestEfficiency{}, and are the current best
+policy by that metric (\statBestPolicy{}). They produce a modest evacuation
+increase over baseline (+0.6 agents), a small travel-time reduction (-0.29s),
+and lower peak queue (2.0 vs.\ 2.2), but the effect is not statistically
+decisive. Their strength is efficiency: local, repeated, high-credibility
+messages produce belief improvement without the full synchronization cost of
+global broadcast.
+
+The third result is that wide reach is not the same as useful reach. Global
+broadcast reaches 1823.6 recipients on average across intervention events, far
+more than static beacons (492.6), but its information-safety efficiency is only
+0.0057. It also has the lowest entropy reduction among intervention policies
+(0.044 aggregate entropy reduction versus 0.195 in the baseline trajectory).
+The model interpretation is that a broad message can homogenize beliefs without
+necessarily producing safer route allocations.
+
+The fourth result is the clearest support for the paper's thesis:
+entropy-targeted communication improves belief accuracy strongly but can
+backfire at the system level. It produces the largest intervention accuracy
+gain (1.713), but also the highest peak bottleneck queue (3.6), the fewest
+evacuated agents (9.4), and the highest harmful-convergence index (8.62). The
+Mann--Whitney comparison against no intervention finds the queue increase
+borderline at $p=0.048$ with a large effect size ($d=1.57$). This is not a
+final causal proof, but it is a useful warning: reducing the uncertainty of
+the most uncertain agents can synchronize newly informed agents into the same
+capacity-constrained routes.
+
+\subsection{Hypotheses Revisited}
+\label{subsec:hypotheses-results}
+
+H1 predicted that adaptive targeting would improve information-safety
+efficiency over global broadcast. The result is mixed. Entropy-targeted,
+density-aware, exposure-aware, and bottleneck-avoidance policies all have
+nonzero efficiency, but only bottleneck avoidance exceeds global broadcast by a
+substantial margin; entropy targeting and density targeting improve some
+information measures while increasing harmful convergence.
+
+H2 predicted that global broadcast would reduce entropy quickly but risk route
+synchronization. The data support the second half more than the first. Global
+broadcast has high reach and high harmful convergence, but its aggregate
+entropy reduction is low. In this model, broadcast reach is partly wasted when
+messages arrive after agents have already converged or when congestion
+information is insufficiently differentiated.
+
+H3 predicted that exposure-aware targeting would reduce hazard exposure.
+Exposure-aware policy has the lowest mean hazard exposure among intervention
+policies (3.140), slightly below baseline (3.147), but the difference is small
+and not significant. The result suggests exposure targeting is directionally
+reasonable but underpowered in the current scenario.
+
+H4 predicted that responder relay would be robust but delayed. This is the
+strongest supported hypothesis: responder relay has the lowest mean hazard
+exposure among the high-efficiency policies (3.050), the lowest harmful
+convergence among intervention policies except exposure-aware targeting, and
+the second-best information-safety efficiency. Its limitation is timing:
+responders enter after the evacuation process has already begun.
+
+\subsection{Interpretation}
+\label{subsec:interpretation}
+
+The study supports the paper's central framing rather than a single winning
+policy. Information interventions should be evaluated as safety-control
+actions, not as monotonic entropy minimizers. A policy can reach many agents
+and still have low safety efficiency; another can improve belief accuracy and
+still worsen bottleneck pressure. The promising direction is therefore not
+``broadcast more,'' but ``broadcast locally, credibly, and with awareness of
+capacity and exposure.'' Static beacon and responder relay policies currently
+look safest under this scenario; entropy targeting is scientifically
+interesting precisely because it exposes a failure mode.
+
+\subsection{Threats to Evaluation}
+\label{subsec:evaluation-threats}
+
+These results are preliminary. Five seeds are enough to reveal qualitative
+tradeoffs and obvious failure modes, but not enough for final PhD-level claims
+about policy superiority. The next study should increase seed count, vary
+hazard severity and population familiarity, and add calibrated geometries. The
+current metrics also depend on the chosen harmful-convergence formula; future
+work should test alternative normalizations and compare them against
+trajectory-level bottleneck events.
