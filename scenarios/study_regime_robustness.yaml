@@ -1,0 +1,290 @@
+hazard_low: &hazard_low
+  hazards:
+    - type: "GAS"
+      location: [20, 10]
+      radius: 0.5
+      severity: 0.45
+      spread_rate: 0.10
+      diffusion_rate: 0.05
+      wind_vector: [0.1, 0.0]
+      visibility_reduction: 0.20
+
+hazard_medium: &hazard_medium
+  hazards:
+    - type: "GAS"
+      location: [20, 10]
+      radius: 0.5
+      severity: 0.70
+      spread_rate: 0.15
+      diffusion_rate: 0.08
+      wind_vector: [0.1, 0.0]
+      visibility_reduction: 0.30
+
+hazard_high: &hazard_high
+  hazards:
+    - type: "GAS"
+      location: [20, 10]
+      radius: 0.5
+      severity: 0.90
+      spread_rate: 0.22
+      diffusion_rate: 0.12
+      wind_vector: [0.1, 0.0]
+      visibility_reduction: 0.45
+
+population_low: &population_low
+  population:
+    total: 120
+    cohorts:
+      - name: "limited_regulars"
+        count: 40
+        personality: "NORMAL"
+        calmness: 0.75
+        familiarity: 0.30
+        group_size: 1
+      - name: "unfamiliar_visitors"
+        count: 80
+        personality: "NORMAL"
+        calmness: 0.60
+        familiarity: 0.05
+        group_size: 2
+
+population_mixed: &population_mixed
+  population:
+    total: 120
+    cohorts:
+      - name: "regular_commuters"
+        count: 80
+        personality: "NORMAL"
+        calmness: 0.80
+        familiarity: 0.70
+        group_size: 1
+      - name: "tourists"
+        count: 40
+        personality: "NORMAL"
+        calmness: 0.60
+        familiarity: 0.10
+        group_size: 2
+
+population_high: &population_high
+  population:
+    total: 120
+    cohorts:
+      - name: "high_familiarity_commuters"
+        count: 100
+        personality: "NORMAL"
+        calmness: 0.82
+        familiarity: 0.90
+        group_size: 1
+      - name: "semi_familiar_visitors"
+        count: 20
+        personality: "NORMAL"
+        calmness: 0.68
+        familiarity: 0.40
+        group_size: 2
+
+policy_none: &policy_none
+  interventions:
+    policy: "none"
+
+policy_static_beacon: &policy_static_beacon
+  interventions:
+    policy: "static_beacon"
+    start_step: 30
+    interval_steps: 30
+    budget_per_interval: 2
+    message_radius: 8.0
+    credibility: 0.9
+    message_type: "route_guidance"
+
+policy_global_broadcast: &policy_global_broadcast
+  interventions:
+    policy: "global_broadcast"
+    start_step: 30
+    interval_steps: 30
+    budget_per_interval: 1
+    message_radius: 100.0
+    credibility: 0.9
+    message_type: "route_guidance"
+
+policy_entropy_targeted: &policy_entropy_targeted
+  interventions:
+    policy: "entropy_targeted"
+    start_step: 30
+    interval_steps: 20
+    budget_per_interval: 3
+    message_radius: 6.0
+    credibility: 0.9
+    message_type: "route_guidance"
+    objective: "reduce_entropy_without_bottlenecking"
+
+policy_bottleneck_avoidance: &policy_bottleneck_avoidance
+  interventions:
+    policy: "bottleneck_avoidance"
+    start_step: 40
+    interval_steps: 20
+    budget_per_interval: 2
+    message_radius: 7.0
+    credibility: 0.9
+    message_type: "route_guidance"
+    objective: "avoid_bottleneck_convergence"
+
+study:
+  name: "Regime Robustness Study"
+  description: "Full-factorial external-validity grid over hazard severity/spread, population familiarity, and representative information-control policies."
+  scenario_file: "station_sarin.yaml"
+  repetitions: 20
+  seeds: [42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61]
+  export:
+    profile: "paper"
+    include_figures: false
+    formats: []
+    table_formats: ["parquet"]
+  variants:
+    - name: "hazard_low__familiarity_low__no_intervention"
+      description: "Low hazard, low familiarity, no deliberate communication."
+      scenario_overrides:
+        <<: [*hazard_low, *population_low, *policy_none]
+    - name: "hazard_low__familiarity_low__static_beacon"
+      description: "Low hazard, low familiarity, local static beacon communication."
+      scenario_overrides:
+        <<: [*hazard_low, *population_low, *policy_static_beacon]
+    - name: "hazard_low__familiarity_low__global_broadcast"
+      description: "Low hazard, low familiarity, station-wide global broadcast."
+      scenario_overrides:
+        <<: [*hazard_low, *population_low, *policy_global_broadcast]
+    - name: "hazard_low__familiarity_low__entropy_targeted"
+      description: "Low hazard, low familiarity, entropy-targeted adaptive communication."
+      scenario_overrides:
+        <<: [*hazard_low, *population_low, *policy_entropy_targeted]
+    - name: "hazard_low__familiarity_low__bottleneck_avoidance"
+      description: "Low hazard, low familiarity, bottleneck-aware adaptive communication."
+      scenario_overrides:
+        <<: [*hazard_low, *population_low, *policy_bottleneck_avoidance]
+
+    - name: "hazard_low__familiarity_mixed__no_intervention"
+      scenario_overrides:
+        <<: [*hazard_low, *population_mixed, *policy_none]
+    - name: "hazard_low__familiarity_mixed__static_beacon"
+      scenario_overrides:
+        <<: [*hazard_low, *population_mixed, *policy_static_beacon]
+    - name: "hazard_low__familiarity_mixed__global_broadcast"
+      scenario_overrides:
+        <<: [*hazard_low, *population_mixed, *policy_global_broadcast]
+    - name: "hazard_low__familiarity_mixed__entropy_targeted"
+      scenario_overrides:
+        <<: [*hazard_low, *population_mixed, *policy_entropy_targeted]
+    - name: "hazard_low__familiarity_mixed__bottleneck_avoidance"
+      scenario_overrides:
+        <<: [*hazard_low, *population_mixed, *policy_bottleneck_avoidance]
+
+    - name: "hazard_low__familiarity_high__no_intervention"
+      scenario_overrides:
+        <<: [*hazard_low, *population_high, *policy_none]
+    - name: "hazard_low__familiarity_high__static_beacon"
+      scenario_overrides:
+        <<: [*hazard_low, *population_high, *policy_static_beacon]
+    - name: "hazard_low__familiarity_high__global_broadcast"
+      scenario_overrides:
+        <<: [*hazard_low, *population_high, *policy_global_broadcast]
+    - name: "hazard_low__familiarity_high__entropy_targeted"
+      scenario_overrides:
+        <<: [*hazard_low, *population_high, *policy_entropy_targeted]
+    - name: "hazard_low__familiarity_high__bottleneck_avoidance"
+      scenario_overrides:
+        <<: [*hazard_low, *population_high, *policy_bottleneck_avoidance]
+
+    - name: "hazard_medium__familiarity_low__no_intervention"
+      scenario_overrides:
+        <<: [*hazard_medium, *population_low, *policy_none]
+    - name: "hazard_medium__familiarity_low__static_beacon"
+      scenario_overrides:
+        <<: [*hazard_medium, *population_low, *policy_static_beacon]
+    - name: "hazard_medium__familiarity_low__global_broadcast"
+      scenario_overrides:
+        <<: [*hazard_medium, *population_low, *policy_global_broadcast]
+    - name: "hazard_medium__familiarity_low__entropy_targeted"
+      scenario_overrides:
+        <<: [*hazard_medium, *population_low, *policy_entropy_targeted]
+    - name: "hazard_medium__familiarity_low__bottleneck_avoidance"
+      scenario_overrides:
+        <<: [*hazard_medium, *population_low, *policy_bottleneck_avoidance]
+
+    - name: "hazard_medium__familiarity_mixed__no_intervention"
+      scenario_overrides:
+        <<: [*hazard_medium, *population_mixed, *policy_none]
+    - name: "hazard_medium__familiarity_mixed__static_beacon"
+      scenario_overrides:
+        <<: [*hazard_medium, *population_mixed, *policy_static_beacon]
+    - name: "hazard_medium__familiarity_mixed__global_broadcast"
+      scenario_overrides:
+        <<: [*hazard_medium, *population_mixed, *policy_global_broadcast]
+    - name: "hazard_medium__familiarity_mixed__entropy_targeted"
+      scenario_overrides:
+        <<: [*hazard_medium, *population_mixed, *policy_entropy_targeted]
+    - name: "hazard_medium__familiarity_mixed__bottleneck_avoidance"
+      scenario_overrides:
+        <<: [*hazard_medium, *population_mixed, *policy_bottleneck_avoidance]
+
+    - name: "hazard_medium__familiarity_high__no_intervention"
+      scenario_overrides:
+        <<: [*hazard_medium, *population_high, *policy_none]
+    - name: "hazard_medium__familiarity_high__static_beacon"
+      scenario_overrides:
+        <<: [*hazard_medium, *population_high, *policy_static_beacon]
+    - name: "hazard_medium__familiarity_high__global_broadcast"
+      scenario_overrides:
+        <<: [*hazard_medium, *population_high, *policy_global_broadcast]
+    - name: "hazard_medium__familiarity_high__entropy_targeted"
+      scenario_overrides:
+        <<: [*hazard_medium, *population_high, *policy_entropy_targeted]
+    - name: "hazard_medium__familiarity_high__bottleneck_avoidance"
+      scenario_overrides:
+        <<: [*hazard_medium, *population_high, *policy_bottleneck_avoidance]
+
+    - name: "hazard_high__familiarity_low__no_intervention"
+      scenario_overrides:
+        <<: [*hazard_high, *population_low, *policy_none]
+    - name: "hazard_high__familiarity_low__static_beacon"
+      scenario_overrides:
+        <<: [*hazard_high, *population_low, *policy_static_beacon]
+    - name: "hazard_high__familiarity_low__global_broadcast"
+      scenario_overrides:
+        <<: [*hazard_high, *population_low, *policy_global_broadcast]
+    - name: "hazard_high__familiarity_low__entropy_targeted"
+      scenario_overrides:
+        <<: [*hazard_high, *population_low, *policy_entropy_targeted]
+    - name: "hazard_high__familiarity_low__bottleneck_avoidance"
+      scenario_overrides:
+        <<: [*hazard_high, *population_low, *policy_bottleneck_avoidance]
+
+    - name: "hazard_high__familiarity_mixed__no_intervention"
+      scenario_overrides:
+        <<: [*hazard_high, *population_mixed, *policy_none]
+    - name: "hazard_high__familiarity_mixed__static_beacon"
+      scenario_overrides:
+        <<: [*hazard_high, *population_mixed, *policy_static_beacon]
+    - name: "hazard_high__familiarity_mixed__global_broadcast"
+      scenario_overrides:
+        <<: [*hazard_high, *population_mixed, *policy_global_broadcast]
+    - name: "hazard_high__familiarity_mixed__entropy_targeted"
+      scenario_overrides:
+        <<: [*hazard_high, *population_mixed, *policy_entropy_targeted]
+    - name: "hazard_high__familiarity_mixed__bottleneck_avoidance"
+      scenario_overrides:
+        <<: [*hazard_high, *population_mixed, *policy_bottleneck_avoidance]
+
+    - name: "hazard_high__familiarity_high__no_intervention"
+      scenario_overrides:
+        <<: [*hazard_high, *population_high, *policy_none]
+    - name: "hazard_high__familiarity_high__static_beacon"
+      scenario_overrides:
+        <<: [*hazard_high, *population_high, *policy_static_beacon]
+    - name: "hazard_high__familiarity_high__global_broadcast"
+      scenario_overrides:
+        <<: [*hazard_high, *population_high, *policy_global_broadcast]
+    - name: "hazard_high__familiarity_high__entropy_targeted"
+      scenario_overrides:
+        <<: [*hazard_high, *population_high, *policy_entropy_targeted]
+    - name: "hazard_high__familiarity_high__bottleneck_avoidance"
+      scenario_overrides:
+        <<: [*hazard_high, *population_high, *policy_bottleneck_avoidance]

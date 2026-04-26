@@ -85,6 +85,7 @@ Included study definitions:
 | `study_information_control.yaml` | Compare no intervention, static/global broadcasts, responder relay, and adaptive targeting policies |
 | `study_intervention_ablation.yaml` | Ablate intervention timing, budget, and adaptive target choice |
 | `study_message_quality.yaml` | Stress-test message credibility, delay, and frequency |
+| `study_regime_robustness.yaml` | Full 3x3x5 robustness grid over hazard regime, familiarity regime, and representative communication policy |
 
 The current paper artifact is documented in
 [`paper/REPRODUCIBILITY.md`](./paper/REPRODUCIBILITY.md), including the exact

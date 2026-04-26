@@ -45,9 +45,29 @@ PYTHONPATH=. .venv/bin/python scripts/run_study_progress.py \
   --seed-count 30
 ```
 
+The external-validity robustness study is the 900-run regime grid:
+
+```sh
+PYTHONPATH=. .venv/bin/python scripts/run_study_progress.py \
+  scenarios/study_regime_robustness.yaml \
+  -o out/regime_robustness_900
+```
+
 If an output directory already exists, move it aside or remove it before
 rerunning a study. The exported CSV trajectory tables are large, so keep enough
 free disk space for the full artifact package.
+
+The robustness study intentionally exports Parquet tables only and skips the
+default figure bundle. That does not change simulation semantics or study
+results; it only avoids writing very large CSV files and unreadable 45-variant
+overview figures.
+
+After the robustness run finishes, generate a compact regime summary with:
+
+```sh
+PYTHONPATH=. .venv/bin/python scripts/summarize_regime_robustness.py \
+  out/regime_robustness_900
+```
 
 ## Artifact Index
 
