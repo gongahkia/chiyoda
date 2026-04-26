@@ -20,3 +20,12 @@ Finally, entropy is not equivalent to safety. The point of the paper is
 precisely that uncertainty reduction can be harmful when it produces synchronized
 movement. The proposed information-safety metrics are therefore comparative
 diagnostics, not universal welfare functions.
+
+A natural extension is adaptive message generation, including learned or
+language-model-mediated guidance. That extension should not be evaluated by
+message fluency alone. Under this paper's framing, any generated message is a
+safety-control action: it must be replayable, validated against the simulated
+state, prevented from inventing unavailable exits or stale hazard claims, and
+measured by downstream exposure, queueing, exit balance, and evacuation
+outcomes. Without those controls, richer language could make a policy more
+persuasive while also amplifying harmful convergence.

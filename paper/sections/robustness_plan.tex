@@ -22,7 +22,7 @@ adaptive control.
 \caption{Planned regime robustness matrix. The full factorial design contains
 $3 \times 3 \times 5 \times 20 = 900$ seeded runs.}
 \label{tab:robustness-matrix}
-\begin{tabular}{lll}
+\begin{tabular}{p{0.18\textwidth}p{0.34\textwidth}p{0.38\textwidth}}
 \toprule
 Axis & Levels & Purpose \\
 \midrule
@@ -43,3 +43,50 @@ control, and when bottleneck-aware messaging is most valuable. If the main
 claim is correct, the robustness grid should show that the sign and magnitude
 of information-safety efficiency depend on hazard pressure and prior
 familiarity, while broad reach remains an unreliable proxy for safe control.
+
+\subsection{Interpretation Protocol}
+\label{subsec:robustness-interpretation}
+
+The robustness grid will be interpreted as a claim filter rather than as a
+leaderboard. A policy will be treated as \emph{globally robust} only if its
+information-safety efficiency remains positive and competitive across most
+hazard--familiarity cells without producing consistently high harmful
+convergence. A policy will be treated as \emph{regime dependent} if it performs
+well only under particular hazard severity or familiarity conditions. A policy
+will be treated as \emph{unsafe or inefficient under this model} if it improves
+belief state while repeatedly increasing exposure, queue pressure, or exit
+concentration.
+
+This protocol matters because the paper's main contribution is a measurement
+framework, not a universal evacuation prescription. For example, static beacons
+may remain the strongest conservative controller when hazards are mild and
+prior familiarity is low, while bottleneck-aware messaging may become more
+valuable under higher crowd synchronization or stronger hazard pressure.
+Similarly, entropy targeting may be scientifically important even when it is
+not operationally dominant, because it reveals when uncertainty reduction
+turns into synchronized route choice. The final paper will therefore report
+both policy rankings and regime-specific failure modes.
+
+\subsection{Decision Criteria for the Final Paper}
+\label{subsec:robustness-decision-criteria}
+
+The completed robustness study will update the claim matrix in
+\S\ref{sec:claims}. If static beacons or bottleneck-aware messaging retain
+positive ISE across most regimes, the paper can claim that local or
+capacity-aware information control is a robust baseline for this simulator
+family. If global broadcast remains lower-efficiency despite broad reach, the
+paper can strengthen the claim that communication reach is not an adequate
+surrogate for safety. If entropy targeting performs well only in limited cells,
+the paper should frame it as a diagnostic control mechanism rather than as a
+deployment recommendation. If policy ordering changes sharply across the grid,
+the paper should emphasize operating envelopes and avoid any single-policy
+conclusion.
+
+The study can also falsify parts of the current interpretation. If broad
+broadcast becomes consistently high-efficiency under high hazard severity, the
+paper must narrow the ``reach is not enough'' claim to lower-pressure or
+capacity-constrained settings. If exposure-aware or entropy-targeted control
+unexpectedly dominates the grid, the negative result from the primary study
+should be presented as scenario-specific. These are useful outcomes: they would
+make the paper stronger by showing where the information-safety framework
+changes conclusions as the physical and informational regime changes.
