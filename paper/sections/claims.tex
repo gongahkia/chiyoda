@@ -12,7 +12,8 @@ evacuation.
 \centering
 \caption{Claim matrix for the current Chiyoda paper. The primary evidence is
 the 50-seed information-control study, with the 30-seed ablation and
-message-quality studies used as supporting stress tests.}
+message-quality studies and the 900-run regime robustness grid used as
+supporting stress tests.}
 \label{tab:claim-matrix}
 \begin{tabular}{p{0.18\textwidth}p{0.18\textwidth}p{0.34\textwidth}p{0.20\textwidth}}
 \toprule
@@ -43,18 +44,23 @@ Exposure-aware targeting is close to baseline exposure and is not the lowest
 exposure policy in the 50-seed main comparison. & Negative result; avoid
 overclaiming. \\
 \addlinespace
-The policy ordering generalizes across layouts, hazards, and population mixes.
-& Open & The completed studies use one station geometry, one CBRN-like hazard
-scenario, one population size, and fixed horizon settings. & Motivation for
-the next robustness experiment. \\
+Static/local messaging is robust by information-safety efficiency across
+hazard severity and familiarity regimes. & Supported & In the 900-run regime
+grid, static beacons have the highest ISE in every hazard--familiarity cell. &
+External-validity support for the main positive result. \\
+\addlinespace
+The policy that maximizes completed evacuations is stable across regimes. &
+Not supported & The best evacuation-count policy changes across the
+robustness grid, including static beacons, global broadcast, entropy targeting,
+and no intervention. & Separates safety-efficiency claims from operational
+winner claims. \\
 \bottomrule
 \end{tabular}
 \end{table*}
 
-The final row is deliberately open. The regime robustness study in
-\S\ref{sec:robustness-plan} is designed to decide whether the primary policy
-ordering is a stable property of the simulator or a property of the initial
-station--hazard--population regime. Until that grid is complete, the paper
-should make strong claims about the existence and measurability of
-information-safety tradeoffs, but only conditional claims about which policy
-should be preferred operationally.
+The final two rows are deliberately separate. The robustness grid strengthens
+the static-beacon result for information-safety efficiency, but it does not
+make a universal operational prescription. Completed evacuations remain noisy
+and regime dependent, which is consistent with the paper's central claim:
+information control must be evaluated by coupled belief and safety effects
+rather than by a single aggregate endpoint.
