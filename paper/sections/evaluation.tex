@@ -32,6 +32,14 @@ efficiency (ISE) and harmful convergence index (HCI). These coupled metrics are
 the main object of the paper: they ask whether a policy buys useful belief
 improvement without creating exposure or queueing pressure.
 
+Variant tables report means across seeds. Pairwise comparisons against the
+no-intervention baseline use two-sided Mann--Whitney tests over run-level
+summary rows, with effect sizes used as descriptive support rather than as
+standalone proof of operational superiority. This choice is conservative for
+the current stage: the simulator is stochastic and stylized, so the evaluation
+focuses on robust tradeoff patterns rather than on declaring a universal
+winner.
+
 \begin{figure*}[!t]
   \centering
   \includegraphics[width=\textwidth]{../out/information_control_50/figures/13_information_safety_frontier.pdf}

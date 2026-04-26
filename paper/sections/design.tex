@@ -1,4 +1,4 @@
-\section{Design}
+\section{Model and Method}
 \label{sec:design}
 
 Chiyoda models evacuation as a feedback loop between physical state,
@@ -7,6 +7,28 @@ nearby exits and hazards; beacons, responders, gossip, and intervention
 policies update beliefs; agents revise intentions; belief-weighted navigation
 selects paths; social-force dynamics move agents; and telemetry records the
 macroscopic outcome.
+
+\subsection{Simulation State and Timing}
+\label{subsec:state-timing}
+
+The simulation state contains a grid layout, exits, hazards, responders,
+beacons, pedestrian agents, spatial indexes, and telemetry collectors. Each run
+is seeded and executes a fixed discrete-time horizon. Within a step, Chiyoda
+updates hazards before information propagation, then applies interventions
+before navigation. This ordering treats communication as a control action that
+can change the next route choice rather than as an after-the-fact label on the
+trajectory.
+
+\subsection{Agent Decision Loop}
+\label{subsec:agent-loop}
+
+Agents are heterogeneous in exit familiarity, information confidence,
+susceptibility to gossip, and physiological response. An agent observes local
+state, receives messages, updates exit and hazard beliefs, chooses an
+intention, plans a route through its believed environment, and moves under a
+social-force update. The model therefore separates ground truth from perceived
+truth: two agents at the same location can choose different paths because they
+carry different exit knowledge, hazard beliefs, and message histories.
 
 \subsection{Belief State}
 \label{subsec:beliefs}
@@ -27,13 +49,19 @@ physiological impairment. Beacons provide high-credibility exit knowledge
 within a fixed radius. Gossip is local, probabilistic, and distorted by hop
 count and panic state.
 
+Messages are not treated as perfect state synchronization. Each message carries
+source credibility, spatial reach, freshness, and content type. Recipients
+combine the message with their existing beliefs, which means communication can
+increase confidence, correct stale hazard estimates, or reinforce a route that
+later becomes congested.
+
 \subsection{Intervention Policies}
 \label{subsec:policies}
 
-The new contribution is an intervention policy interface. Every policy decides
-whether to fire, selects one or more spatial targets, builds a message, applies
-it to recipients inside a radius, and emits telemetry. Chiyoda currently
-implements seven policies:
+The intervention policy interface is the experimental control surface. Every
+policy decides whether to fire, selects one or more spatial targets, builds a
+message, applies it to recipients inside a radius, and emits telemetry. Chiyoda
+currently implements seven policies:
 
 \begin{itemize}
 \item \textbf{Static beacon}: periodic local messages from existing signage
@@ -71,7 +99,7 @@ shows where the intervention hook sits in the simulation loop.
 \subsection{Information-Safety Metrics}
 \label{subsec:metrics}
 
-The core metric is information-safety efficiency:
+The core coupled metric is information-safety efficiency:
 
 \[
 \eta_{safe} =
@@ -82,6 +110,14 @@ The core metric is information-safety efficiency:
 where $\Delta H^{+}$ is positive entropy reduction, $\Delta A^{+}$ is positive
 belief-accuracy gain, $P_{exposure}$ is recipient-weighted hazard-load
 pressure, and $P_{queue}$ is bottleneck pressure observed at intervention
-time. Chiyoda also records intervention reach, exit imbalance, and a harmful
-convergence index that rises when entropy reduction coincides with concentrated
-exit usage, queueing, and exposure.
+time. ISE is deliberately not a utility function for all evacuation outcomes.
+It is a diagnostic for whether a communication policy purchases useful belief
+change cheaply in safety terms.
+
+The complementary diagnostic is harmful convergence. HCI rises when entropy
+reduction coincides with concentrated exit usage, queueing, and exposure. A
+policy can therefore score well on ordinary information outcomes while scoring
+poorly on HCI if it makes agents more certain about the same constrained route.
+This is the main measurement distinction in the paper: Chiyoda evaluates
+communication by its coupled physical-information consequences, not by reach or
+entropy reduction alone.

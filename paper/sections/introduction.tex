@@ -20,13 +20,14 @@ than the ground truth world. They may avoid a hazard they have heard about,
 miss an exit they do not know, herd when uncertainty is high, or follow a
 stale route because the belief has not yet decayed.
 
-\paragraph{Research question.} We ask whether entropy-guided communication
-can improve evacuation outcomes without creating harmful convergence. More
-concretely: which intervention policies reduce belief entropy and improve
-belief accuracy per unit of induced exposure, queueing, and exit imbalance?
-The current study scaffold compares static signage, global broadcasts,
-responder relay, entropy-targeted broadcasts, density-aware targeting,
-exposure-aware targeting, and bottleneck-avoidance targeting.
+\paragraph{Research question.} We ask when entropy-guided communication
+improves evacuation outcomes and when it creates harmful convergence. More
+concretely: which intervention policies improve belief accuracy and reduce
+uncertainty per unit of induced exposure, queueing, and exit imbalance? The
+completed study package compares static signage, global broadcasts, responder
+relay, entropy-targeted broadcasts, density-aware targeting, exposure-aware
+targeting, and bottleneck-avoidance targeting, then stress-tests timing,
+budget, credibility, and repetition.
 
 \paragraph{Contributions.} This paper makes four contributions.
 
@@ -43,18 +44,20 @@ costs under social-force dynamics and hazard impairment.
 
 \item \textbf{Information-safety metrics.} We introduce study outputs that
 jointly measure entropy reduction, belief accuracy gain, intervention reach,
-hazard exposure pressure, queue pressure, exit imbalance, and a harmful
-convergence index.
+hazard exposure pressure, queue pressure, exit imbalance, information-safety
+efficiency, and harmful convergence.
 
-\item \textbf{A reproducible paper pipeline.} YAML study definitions generate
-multi-seed bundles with Parquet/CSV tables and paper figures. The LaTeX paper
-ingests generated study statistics through \texttt{stats.tex}.
+\item \textbf{A reproducible empirical package.} YAML study definitions
+generate multi-seed bundles with Parquet/CSV tables and paper figures. The
+current paper is backed by a 50-seed primary study and two 30-seed supporting
+studies, with generated statistics ingested through \texttt{stats.tex}.
 \end{enumerate}
 
 \paragraph{Roadmap.} \S\ref{sec:background} positions the work against
 pedestrian dynamics, information-aware evacuation, and ABM validation work.
+\S\ref{sec:claims} states the claims supported by the current evidence.
 \S\ref{sec:design} describes Chiyoda's model and intervention policies.
 \S\ref{sec:implementation} explains the software pipeline. \S\ref{sec:evaluation}
-lays out the planned empirical study. \S\ref{sec:related} sharpens the
-distinction from prior work. \S\ref{sec:limitations} states the current
-threats to validity, and \S\ref{sec:conclusion} concludes.
+presents the empirical results. \S\ref{sec:related} sharpens the distinction
+from prior work. \S\ref{sec:limitations} states the current threats to
+validity, and \S\ref{sec:conclusion} concludes.

@@ -28,26 +28,26 @@
 
 \begin{abstract}
 Emergency evacuation is usually modeled as a physical routing problem, with
-information appearing as a fixed assumption: agents either know exits, observe
-hazards, hear a warning, or do not. We present \emph{Chiyoda}, an
+information appearing as a fixed scenario assumption: agents either know exits,
+observe hazards, hear a warning, or do not. We present \emph{Chiyoda}, an
 Information-Theoretic Evacuation Dynamics framework that treats emergency
 communication as a controllable intervention in a coupled physical-information
 system. Agents carry probabilistic beliefs over exits and hazards, exchange
 distorted information through local gossip, receive beacon and responder
 messages, suffer physiological impairment under CBRN-like hazards, and choose
 routes through belief-weighted path planning under social-force crowd
-dynamics. Chiyoda adds explicit information policies -- static, global,
-responder-relay, entropy-targeted, density-aware, exposure-aware, and
-bottleneck-avoidance -- and evaluates them with telemetry that links belief
-entropy, belief accuracy, exposure, queueing, exit imbalance, and evacuation
-time. In the default study scaffold, \statVariantCount{} variants and
-\statRunCount{} runs generate \statInterventionEvents{} intervention events;
-the current best information-safety efficiency is \statBestEfficiency{} for
-\statBestPolicy{}. The central claim is not that more information is always
-better, but that emergency communication has measurable safety tradeoffs:
-rapid uncertainty reduction can improve local decision-making while also
-synchronizing crowds into harmful convergence when timing, credibility, or
-spatial targeting are wrong.
+dynamics. Chiyoda compares static, global, responder-relay, entropy-targeted,
+density-aware, exposure-aware, and bottleneck-avoidance policies using
+telemetry that links belief entropy, belief accuracy, exposure, queueing, exit
+imbalance, and evacuation time. In a 50-seed primary study with
+\statRunCount{} runs and \statInterventionEvents{} intervention events,
+\statBestPolicy{} achieves the highest information-safety efficiency
+(\statBestEfficiency{}), while global and adaptive policies reveal that broad
+reach and entropy reduction are not sufficient safety objectives. The central
+claim is not that more information is always better, but that emergency
+communication has measurable safety tradeoffs: rapid uncertainty reduction can
+improve local decision-making while also synchronizing crowds into harmful
+convergence when timing, credibility, or spatial targeting are wrong.
 \end{abstract}
 
 \keywords{evacuation simulation, pedestrian dynamics, information theory,
