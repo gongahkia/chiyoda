@@ -2,22 +2,42 @@
 \label{sec:related}
 
 Chiyoda sits between pedestrian dynamics, hazard-coupled evacuation, and
-information-aware decision models. Social-force and cellular automata models
-provide the physical base for movement and congestion
-\cite{helbing1995social,burstedde2001simulation}. Toxic-gas evacuation work
-already shows that information perception and transmission affect evacuation
-outcomes under spreading hazards~\cite{makmul2020cellular,liu2021toxicgas}.
-Bayesian and game-theoretic models study incomplete information and route
-choice under congestion~\cite{wang2023bayesian}. Social-group ABM surveys
-emphasize communication and collective behavior while documenting gaps in
-behavioral realism and validation~\cite{templeton2023social,senanayake2024agent}.
+information-aware decision models. Social-force models represent pedestrians
+as self-driven particles whose movement emerges from goal attraction,
+repulsion, and contact forces~\cite{helbing1995social}. Cellular automata
+models instead discretize space and update movement through local transition
+rules~\cite{burstedde2001simulation}. Both traditions are useful for evacuation
+because physical failure is often a capacity problem: exit flow, bottlenecks,
+counterflow, and density-dependent slowdown can dominate individual intent.
+Chiyoda uses this physical tradition as the substrate, but the paper's novelty
+does not rest on a new crowd-force law.
 
-The distinction is that Chiyoda treats communication as an experimental control
-surface. It does not only ask whether agents possess information; it asks how
-an emergency system should allocate limited communication budget under
-uncertainty. This makes message timing, targeting, credibility, and spatial
-reach comparable interventions with measurable safety tradeoffs.
+Hazard-coupled evacuation models add a time-varying environment. Toxic-gas and
+gaseous-material simulations show that contaminant spread, perception, and
+information transmission can change route choice and evacuation
+outcomes~\cite{makmul2020cellular,liu2021toxicgas}. This line of work is
+closest to Chiyoda's CBRN-like setting. The difference is experimental focus:
+prior models often include information perception as a behavioral factor,
+whereas Chiyoda makes emergency communication itself the object of controlled
+comparison. Policies are not merely scenario settings; they are interventions
+that can be timed, targeted, budgeted, and evaluated.
 
-\todo{Expand this section after the final bibliography pass. In particular,
-separate empirical evacuation studies, ABM method papers, CBRN-specific
-evacuation papers, and information/control-theoretic routing papers.}
+Incomplete-information evacuation models provide the decision-theoretic
+counterpart. Bayesian and game-theoretic formulations study route choice under
+uncertainty and congestion~\cite{wang2023bayesian}, while social-group ABM
+surveys emphasize communication, affiliation, and collective behavior as
+central modeling concerns~\cite{templeton2023social,senanayake2024agent}.
+Chiyoda builds on this direction by making uncertainty observable as telemetry.
+Belief entropy, belief accuracy, intervention reach, exposure, queueing, and
+exit imbalance are exported together, which lets the paper ask whether a
+belief improvement is also a safety improvement.
+
+The resulting distinction is methodological. Chiyoda treats communication as
+an experimental control surface rather than a binary assumption about whether
+agents know enough. It asks how an emergency system should allocate limited
+communication budget under uncertainty, and it measures the side effects of
+that allocation. This makes message timing, targeting, credibility, and
+spatial reach comparable interventions with measurable safety tradeoffs. The
+contribution is therefore not a claim that Chiyoda is more realistic than all
+prior evacuation models; it is a claim that information interventions can and
+should be evaluated as safety-control actions.
