@@ -50,7 +50,9 @@ The external-validity robustness study is the 900-run regime grid:
 ```sh
 PYTHONPATH=. .venv/bin/python scripts/run_study_progress.py \
   scenarios/study_regime_robustness.yaml \
-  -o out/regime_robustness_900
+  -o out/regime_robustness_900 \
+  --checkpoint-dir out/regime_robustness_900.checkpoints \
+  --resume
 ```
 
 If an output directory already exists, move it aside or remove it before
@@ -60,7 +62,9 @@ free disk space for the full artifact package.
 The robustness study intentionally exports Parquet tables only and skips the
 default figure bundle. That does not change simulation semantics or study
 results; it only avoids writing very large CSV files and unreadable 45-variant
-overview figures.
+overview figures. The checkpoint directory stores per-run Parquet outputs so a
+terminated terminal session can be resumed without changing the study design or
+rerunning completed seeds.
 
 After the robustness run finishes, generate a compact regime summary with:
 

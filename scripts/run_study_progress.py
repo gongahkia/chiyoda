@@ -8,6 +8,8 @@ into variant/seed progress.
 from __future__ import annotations
 
 import argparse
+import json
+import shutil
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -15,7 +17,6 @@ from pathlib import Path
 import pandas as pd
 
 from chiyoda.analysis.metrics import SimulationAnalytics
-from chiyoda.analysis.reports import export_figures
 from chiyoda.scenarios.manager import ScenarioManager
 from chiyoda.studies.models import StudyBundle
 from chiyoda.studies.runner import (
@@ -36,6 +37,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--seed-count", type=int, default=None)
     parser.add_argument("--seed-start", type=int, default=42)
     parser.add_argument("--no-figures", action="store_true")
+    parser.add_argument(
+        "--checkpoint-dir",
+        default=None,
+        help="Optional directory for per-run checkpoints. Defaults to <out>.checkpoints when --resume is used.",
+    )
+    parser.add_argument(
+        "--resume",
+        action="store_true",
+        help="Reuse completed per-run checkpoints and skip those simulations.",
+    )
     return parser.parse_args()
 
 
@@ -43,16 +54,8 @@ def seed_sequence(count: int, start: int) -> list[int]:
     return [start + index for index in range(count)]
 
 
-def main() -> int:
-    args = parse_args()
-    config = load_study_config(args.study_file)
-    if args.seed_count is not None:
-        config = config.model_copy(update={"seeds": seed_sequence(args.seed_count, args.seed_start)})
-
-    manager = ScenarioManager()
-    analytics = SimulationAnalytics()
-    variants = _materialize_variants(config)
-    frame_names = [
+def frame_names() -> list[str]:
+    return [
         "summary",
         "steps",
         "cells",
@@ -66,12 +69,83 @@ def main() -> int:
         "gossip",
         "interventions",
     ]
-    frames = {name: [] for name in frame_names}
+
+
+def checkpoint_root(args: argparse.Namespace) -> Path | None:
+    if args.checkpoint_dir:
+        return Path(args.checkpoint_dir)
+    if args.resume:
+        return Path(f"{args.out}.checkpoints")
+    return None
+
+
+def run_checkpoint_dir(root: Path, run_index: int) -> Path:
+    return root / "runs" / f"{run_index:05d}"
+
+
+def run_checkpoint_manifest(root: Path, run_index: int) -> Path:
+    return run_checkpoint_dir(root, run_index) / "manifest.json"
+
+
+def checkpoint_complete(root: Path | None, run_index: int) -> bool:
+    return root is not None and run_checkpoint_manifest(root, run_index).exists()
+
+
+def write_run_checkpoint(
+    root: Path,
+    run_index: int,
+    tables: dict[str, pd.DataFrame],
+    manifest: dict[str, object],
+) -> None:
+    final_dir = run_checkpoint_dir(root, run_index)
+    if final_dir.exists() and (final_dir / "manifest.json").exists():
+        return
+    if final_dir.exists():
+        shutil.rmtree(final_dir)
+
+    tmp_dir = root / "runs" / f".{run_index:05d}.tmp"
+    if tmp_dir.exists():
+        shutil.rmtree(tmp_dir)
+    tmp_dir.mkdir(parents=True, exist_ok=True)
+
+    for table_name, frame in tables.items():
+        frame.to_parquet(tmp_dir / f"{table_name}.parquet", index=False)
+    (tmp_dir / "manifest.json").write_text(json.dumps(manifest, indent=2, default=str) + "\n")
+    tmp_dir.replace(final_dir)
+
+
+def load_run_checkpoint(root: Path, run_index: int) -> tuple[dict[str, pd.DataFrame], dict[str, object]]:
+    run_dir = run_checkpoint_dir(root, run_index)
+    manifest = json.loads((run_dir / "manifest.json").read_text())
+    tables = {
+        table_name: pd.read_parquet(run_dir / f"{table_name}.parquet")
+        if (run_dir / f"{table_name}.parquet").exists()
+        else pd.DataFrame()
+        for table_name in frame_names()
+    }
+    return tables, manifest
+
+
+def main() -> int:
+    args = parse_args()
+    config = load_study_config(args.study_file)
+    if args.seed_count is not None:
+        config = config.model_copy(update={"seeds": seed_sequence(args.seed_count, args.seed_start)})
+
+    manager = ScenarioManager()
+    analytics = SimulationAnalytics()
+    variants = _materialize_variants(config)
+    names = frame_names()
+    frames = {name: [] for name in names}
     runs_manifest = []
     first_layout_text = None
     first_bottlenecks = []
     first_exit_labels = {}
     scenario_name = None
+    ckpt_root = checkpoint_root(args)
+    if ckpt_root is not None:
+        ckpt_root.mkdir(parents=True, exist_ok=True)
+        (ckpt_root / "study_file.txt").write_text(str(Path(args.study_file).resolve()) + "\n")
 
     total = sum(len(_resolve_seeds(config, variant)) for variant in variants)
     run_index = 0
@@ -81,7 +155,27 @@ def main() -> int:
         for seed in _resolve_seeds(config, variant):
             run_index += 1
             run_start = time.perf_counter()
+            run_id = f"{variant.name}__seed_{seed}__run_{run_index}"
             print(f"[{run_index}/{total}] {variant.name} seed={seed}", flush=True)
+
+            if args.resume and checkpoint_complete(ckpt_root, run_index):
+                tables, manifest = load_run_checkpoint(ckpt_root, run_index)
+                for table_name, frame in tables.items():
+                    frames[table_name].append(frame)
+                runs_manifest.append(dict(manifest["run"]))
+                context = manifest.get("context", {})
+                if first_layout_text is None:
+                    first_layout_text = str(context.get("layout_text", ""))
+                    first_bottlenecks = list(context.get("bottleneck_zones", []))
+                    first_exit_labels = dict(context.get("exit_labels", {}))
+                    scenario_name = str(context.get("scenario_name", Path(config.scenario_file).stem))
+                elapsed = time.perf_counter() - run_start
+                print(
+                    f"  checkpoint hit in {elapsed:.1f}s; interventions={manifest.get('interventions', 0)} "
+                    f"evacuated={manifest.get('agents_evacuated', 0)}",
+                    flush=True,
+                )
+                continue
 
             prepared = _prepare_scenario(manager, config.scenario_file, variant, seed)
             simulation = manager.build_simulation(prepared)
@@ -104,7 +198,6 @@ def main() -> int:
                     for cell, label in simulation.exit_labels.items()
                 }
 
-            run_id = f"{variant.name}__seed_{seed}__run_{run_index}"
             tables = _collect_run_tables(
                 simulation=simulation,
                 analytics=analytics,
@@ -117,17 +210,33 @@ def main() -> int:
             for table_name, frame in tables.items():
                 frames[table_name].append(frame)
 
-            runs_manifest.append(
-                {
-                    "run_id": run_id,
-                    "variant_name": variant.name,
-                    "seed": seed,
-                    "acceleration_backend": simulation.acceleration.name,
-                    "requested_acceleration_backend": simulation.acceleration.requested_backend,
-                    "agents_total": len(simulation.agents),
-                    "agents_evacuated": len(simulation.completed_agents),
-                }
-            )
+            run_manifest = {
+                "run_id": run_id,
+                "variant_name": variant.name,
+                "seed": seed,
+                "acceleration_backend": simulation.acceleration.name,
+                "requested_acceleration_backend": simulation.acceleration.requested_backend,
+                "agents_total": len(simulation.agents),
+                "agents_evacuated": len(simulation.completed_agents),
+            }
+            runs_manifest.append(run_manifest)
+            if ckpt_root is not None:
+                write_run_checkpoint(
+                    ckpt_root,
+                    run_index,
+                    tables,
+                    {
+                        "run": run_manifest,
+                        "context": {
+                            "scenario_name": scenario_name or Path(config.scenario_file).stem,
+                            "layout_text": first_layout_text or "",
+                            "bottleneck_zones": first_bottlenecks,
+                            "exit_labels": first_exit_labels,
+                        },
+                        "interventions": len(simulation.intervention_events),
+                        "agents_evacuated": len(simulation.completed_agents),
+                    },
+                )
             elapsed = time.perf_counter() - run_start
             print(
                 f"  done in {elapsed:.1f}s; interventions={len(simulation.intervention_events)} "
@@ -180,6 +289,8 @@ def main() -> int:
     bundle.export(out, table_formats=tuple(config.export.table_formats))
     if not args.no_figures and config.export.include_figures:
         print("exporting figures...", flush=True)
+        from chiyoda.analysis.reports import export_figures
+
         export_figures(
             bundle,
             output_dir=out / "figures",
