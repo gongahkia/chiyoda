@@ -121,3 +121,19 @@ poorly on HCI if it makes agents more certain about the same constrained route.
 This is the main measurement distinction in the paper: Chiyoda evaluates
 communication by its coupled physical-information consequences, not by reach or
 entropy reduction alone.
+
+In the current implementation, harmful convergence is computed as
+
+\[
+\chi_{harm} =
+\frac{B_{exit}(1 + Q_{peak})(1 + \bar{E})}
+     {1 + \Delta H_{int}^{+}},
+\]
+
+where $B_{exit}$ is the final dominant-exit share, $Q_{peak}$ is the peak
+bottleneck queue length, $\bar{E}$ is mean cumulative hazard exposure, and
+$\Delta H_{int}^{+}$ is the positive entropy reduction attributable to
+interventions. The denominator prevents ordinary information gain from being
+mistaken for harm, while the numerator raises the score when a population
+converges on a dominant exit under queueing and exposure pressure. Like ISE,
+HCI is a comparative study metric rather than a universal safety law.
