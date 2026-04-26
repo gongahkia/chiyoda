@@ -23,6 +23,7 @@ paper/
     design.tex
     implementation.tex
     evaluation.tex
+    robustness_plan.tex
     related.tex
     limitations.tex
     conclusion.tex

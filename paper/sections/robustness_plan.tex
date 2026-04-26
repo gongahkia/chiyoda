@@ -1,0 +1,45 @@
+\section{Regime Robustness Study}
+\label{sec:robustness-plan}
+
+The primary evaluation uses one station layout, one CBRN-like hazard placement,
+one mixed-familiarity population, and a fixed evacuation horizon. That is enough
+to identify the information-safety tradeoff, but not enough to claim that the
+observed policy ordering generalizes. The next empirical package therefore
+treats external validity as the object of study.
+
+The robustness study asks where each communication policy becomes safe,
+inefficient, or harmful. It varies three hazard regimes, three population
+familiarity regimes, and five representative communication policies over 20
+seeds, yielding 900 runs. The policy set is intentionally smaller than the main
+study: no intervention, static beacons, global broadcast, entropy-targeted
+communication, and bottleneck-avoidance communication. These policies span the
+main theoretical contrast between no control, local fixed control, global
+high-reach control, uncertainty-driven adaptive control, and capacity-aware
+adaptive control.
+
+\begin{table*}[!t]
+\centering
+\caption{Planned regime robustness matrix. The full factorial design contains
+$3 \times 3 \times 5 \times 20 = 900$ seeded runs.}
+\label{tab:robustness-matrix}
+\begin{tabular}{lll}
+\toprule
+Axis & Levels & Purpose \\
+\midrule
+Hazard regime & Low, medium, high severity/spread & Tests whether information
+control changes under stronger physical threat. \\
+Population familiarity & Low, mixed, high exit familiarity & Tests whether
+communication helps unfamiliar crowds and whether familiar crowds synchronize. \\
+Communication policy & None, static, global, entropy, bottleneck & Tests the
+core safety-control frontier without diluting the study with every policy. \\
+\bottomrule
+\end{tabular}
+\end{table*}
+
+This study is not designed to maximize a single score. Its role is to estimate
+an operating envelope: when local communication remains efficient, when global
+broadcast becomes wasteful or risky, when entropy targeting needs budget
+control, and when bottleneck-aware messaging is most valuable. If the main
+claim is correct, the robustness grid should show that the sign and magnitude
+of information-safety efficiency depend on hazard pressure and prior
+familiarity, while broad reach remains an unreliable proxy for safe control.
