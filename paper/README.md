@@ -12,6 +12,7 @@ paper/
   main_smoke.tex        # article-class fallback build
   references.bib        # seeded citations
   stats.tex             # generated from an exported study bundle
+  REPRODUCIBILITY.md    # exact study commands and artifact index
   Makefile              # paper / smoke / stats / figures / arxiv / clean
   scripts/
     gen_stats.py        # study bundle -> stats.tex
@@ -35,18 +36,22 @@ paper/
 
 ```sh
 cd paper
-make stats STUDY_DIR=../out/information_control
+make stats STUDY_DIR=../out/information_control_50 PYTHON=../.venv/bin/python
 make figures
 make paper
 make smoke
 ```
 
-The default `STUDY_DIR` is `../out/information_control`. Generate it from the
-repo root with:
+The default `STUDY_DIR` is `../out/information_control_50`. Generate the
+primary paper artifact from the repo root with:
 
 ```sh
-PYTHONPATH=. python3 -m chiyoda.cli sweep scenarios/study_information_control.yaml -o out/information_control
+PYTHONPATH=. .venv/bin/python scripts/run_study_progress.py scenarios/study_information_control.yaml -o out/information_control_50 --seed-count 50
 ```
+
+See [`REPRODUCIBILITY.md`](./REPRODUCIBILITY.md) for the complete 50-seed
+primary study, 30-seed support studies, artifact index, and regeneration
+commands.
 
 ## Current Thesis
 

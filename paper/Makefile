@@ -10,7 +10,7 @@
 
 PAPER       ?= main
 BUILD_DIR   ?= build
-STUDY_DIR   ?= ../out/information_control
+STUDY_DIR   ?= ../out/information_control_50
 STATS_TEX    = stats.tex
 LATEXMK     ?= latexmk
 PYTHON      ?= python3
@@ -36,9 +36,7 @@ smoke: stats $(FIGURES_PDF) | $(BUILD_DIR)
 	@cp $(BUILD_DIR)/main_smoke.pdf ./main_smoke.pdf
 	@echo "Built main_smoke.pdf"
 
-stats: $(STATS_TEX)
-
-$(STATS_TEX): scripts/gen_stats.py
+stats:
 	$(PYTHON) scripts/gen_stats.py $(STUDY_DIR) > $(STATS_TEX)
 
 figures: $(FIGURES_PDF)

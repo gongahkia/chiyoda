@@ -86,6 +86,11 @@ Included study definitions:
 | `study_intervention_ablation.yaml` | Ablate intervention timing, budget, and adaptive target choice |
 | `study_message_quality.yaml` | Stress-test message credibility, delay, and frequency |
 
+The current paper artifact is documented in
+[`paper/REPRODUCIBILITY.md`](./paper/REPRODUCIBILITY.md), including the exact
+50-seed primary study command, the two 30-seed support-study commands, and the
+artifact index used by the LaTeX build.
+
 ## Reference
 
 The name `Chiyoda` references the [Chiyoda Line](https://en.wikipedia.org/wiki/Tokyo_Metro_Chiyoda_Line) of the [Tokyo Metro](https://www.tokyometro.jp/en/index.html), where sarin gas was released on 20 March 1995 as part of the [Tokyo subway sarin attacks](https://en.wikipedia.org/wiki/Tokyo_subway_sarin_attack).
