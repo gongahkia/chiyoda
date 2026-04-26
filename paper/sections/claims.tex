@@ -1,0 +1,52 @@
+\section{Claim Matrix}
+\label{sec:claims}
+
+The paper's claims are intentionally narrower than the simulator's design
+space. Table~\ref{tab:claim-matrix} separates claims already supported by the
+current empirical package from hypotheses that are unsupported or still open.
+This keeps the contribution focused on the observed information-safety
+tradeoff rather than on a generic claim that communication always improves
+evacuation.
+
+\begin{table*}[!t]
+\centering
+\caption{Claim matrix for the current Chiyoda paper. The primary evidence is
+the 50-seed information-control study, with the 30-seed ablation and
+message-quality studies used as supporting stress tests.}
+\label{tab:claim-matrix}
+\begin{tabular}{p{0.18\textwidth}p{0.18\textwidth}p{0.34\textwidth}p{0.20\textwidth}}
+\toprule
+Claim & Status & Evidence & Paper role \\
+\midrule
+Emergency communication is a safety-control action, not merely an
+entropy-reduction input. & Supported & Active policies change belief accuracy,
+entropy, exposure pressure, queue pressure, and harmful convergence in
+different directions. & Central thesis and framing. \\
+\addlinespace
+Static/local messaging has the best information-safety efficiency in the
+main study. & Supported & Static beacons rank first by ISE in the 50-seed
+main comparison, ahead of global broadcast and all adaptive policies. & Main
+positive result. \\
+\addlinespace
+Broad reach is not equivalent to useful safety effect. & Supported & Global
+broadcast reaches many agents and slightly improves some physical aggregates,
+but ranks below local and capacity-aware policies by ISE. & Distinguishes the
+paper from broadcast-more baselines. \\
+\addlinespace
+Entropy or accuracy gains can create harmful convergence. & Supported & The
+main and ablation studies show that stronger belief improvement can coexist
+with queue pressure, exit concentration, and weak evacuation-count gains. &
+Mechanistic contribution and reviewer-facing caution. \\
+\addlinespace
+Exposure-aware targeting clearly reduces hazard exposure. & Not supported &
+Exposure-aware targeting is close to baseline exposure and is not the lowest
+exposure policy in the 50-seed main comparison. & Negative result; avoid
+overclaiming. \\
+\addlinespace
+The policy ordering generalizes across layouts, hazards, and population mixes.
+& Open & The completed studies use one station geometry, one CBRN-like hazard
+scenario, one population size, and fixed horizon settings. & Motivation for
+the next robustness experiment. \\
+\bottomrule
+\end{tabular}
+\end{table*}

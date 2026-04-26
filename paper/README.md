@@ -17,6 +17,7 @@ paper/
     gen_stats.py        # study bundle -> stats.tex
   sections/
     introduction.tex
+    claims.tex
     background.tex
     design.tex
     implementation.tex
