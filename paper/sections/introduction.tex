@@ -29,6 +29,15 @@ relay, entropy-targeted broadcasts, density-aware targeting, exposure-aware
 targeting, and bottleneck-avoidance targeting, then stress-tests timing,
 budget, credibility, and repetition.
 
+The paper's core insight is that emergency communication should be evaluated
+as a safety-control action, not as a monotonic information-delivery mechanism.
+This view changes both the simulator design and the evaluation standard:
+messages are judged by coupled belief and safety effects, and a policy can be
+useful even if it does not maximize raw evacuation count. It also gives a
+natural standard for generated-language guidance: an LLM message is only useful
+if it remains bounded, replayable, validated, and beneficial under the same ISE
+and HCI diagnostics as deterministic messages.
+
 \paragraph{Contributions.} This paper makes five contributions.
 
 \begin{enumerate}

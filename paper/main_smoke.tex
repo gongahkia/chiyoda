@@ -39,26 +39,24 @@
 \maketitle
 
 \begin{abstract}
-Emergency evacuation is usually modeled as a physical routing problem, with
-information appearing as a fixed assumption. We present \emph{Chiyoda}, an
+Emergency evacuation is often treated as a physical routing problem in which
+warnings simply provide better information. The harder control problem is that
+the same message can improve local beliefs while synchronizing many agents
+toward a hazardous or capacity-constrained route. We present \emph{Chiyoda}, an
 Information-Theoretic Evacuation Dynamics framework that treats emergency
-communication as a controllable intervention in a coupled physical-information
-system. Agents carry probabilistic beliefs, exchange distorted information
-through local gossip, receive beacon and responder messages, suffer
-physiological impairment under hazards, and choose routes through
-belief-weighted path planning. In a 50-seed primary study with
-\statRunCount{} runs and \statInterventionEvents{} intervention events,
-\statBestPolicy{} achieves the highest information-safety efficiency
-(\statBestEfficiency{}), while global and adaptive policies show that broad
-reach and entropy reduction are not sufficient safety objectives. A 900-run
-robustness grid further shows that static local messaging remains the most
-information-safety-efficient policy in every tested hazard and familiarity
-regime, even though the best evacuation-count policy varies. A bounded LLM
-extension shows that validated sparse generated guidance can be highly
-information-efficient, but equal-budget generated guidance weakens that
-advantage. The central claim is not that more information or richer language
-is always better, but that emergency communication has measurable safety
-tradeoffs.
+communication as a controllable safety action in a coupled
+physical-information system. In a 50-seed primary study with \statRunCount{}
+runs and \statInterventionEvents{} intervention events, \statBestPolicy{}
+achieves the highest information-safety efficiency (\statBestEfficiency{}),
+while global and adaptive policies show that broad reach and entropy reduction
+are not sufficient safety objectives. A 900-run robustness grid further shows
+that static local messaging remains the most information-safety-efficient
+policy in every tested hazard and familiarity regime. A bounded LLM extension
+shows that validated sparse generated guidance can be highly efficient, but
+equal-budget generated guidance weakens that advantage and does not eliminate
+harmful convergence. The central claim is therefore not that more information
+or richer language is always better, but that emergency communication must be
+evaluated by coupled belief and safety effects.
 \end{abstract}
 
 \input{sections/introduction}
