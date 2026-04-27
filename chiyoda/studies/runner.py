@@ -666,6 +666,7 @@ def _collect_run_tables(
                 "validation_status": event.validation_status,
                 "validation_reasons": event.validation_reasons,
                 "cache_key": event.cache_key,
+                "cache_status": event.cache_status,
             }
         )
 

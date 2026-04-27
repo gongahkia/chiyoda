@@ -25,6 +25,7 @@ from chiyoda.information.llm import (
     OpenAIResponsesGenerator,
     ReplayOnlyGenerator,
     TemplateLLMGenerator,
+    ValidationResult,
     validate_generated_message,
 )
 
@@ -48,6 +49,7 @@ class InformationInterventionConfig:
     llm_provider: str = "template"
     llm_model: str = "template"
     llm_cache_path: Optional[str] = None
+    llm_cache_mode: str = "cache_first"
     llm_store_cache: bool = True
     llm_max_radius: Optional[float] = None
 
@@ -70,6 +72,7 @@ class InformationInterventionConfig:
             llm_cache_path=None
             if data.get("llm_cache_path") is None
             else str(data.get("llm_cache_path")),
+            llm_cache_mode=str(data.get("llm_cache_mode", "cache_first")),
             llm_store_cache=bool(data.get("llm_store_cache", True)),
             llm_max_radius=None
             if data.get("llm_max_radius") is None
@@ -100,6 +103,7 @@ class InterventionMessage:
     validation_status: str = "not_applicable"
     validation_reasons: Sequence[str] = field(default_factory=list)
     cache_key: str = ""
+    cache_status: str = ""
 
 
 @dataclass
@@ -128,6 +132,7 @@ class InterventionEvent:
     validation_status: str = "not_applicable"
     validation_reasons: str = ""
     cache_key: str = ""
+    cache_status: str = ""
 
 
 class InterventionPolicy:
@@ -347,6 +352,7 @@ class LLMGuidancePolicy(EntropyTargetedPolicy):
         elif config.llm_provider == "replay":
             if self.cache is None:
                 raise ValueError("llm_guidance with llm_provider='replay' requires llm_cache_path")
+            config.llm_cache_mode = "replay_only"
             self.generator = ReplayOnlyGenerator(self.cache)
         elif config.llm_provider == "openai":
             model = (
@@ -370,7 +376,7 @@ class LLMGuidancePolicy(EntropyTargetedPolicy):
         congested = self._congested_exits(simulation)
         request = self._build_request(simulation, target, congested)
         cache_key = self.cache.key_for(request) if self.cache is not None else ""
-        generated = self.generator.generate(request, cache_key)
+        generated, cached_validation, cache_status = self._generate_message(request, cache_key)
         validation = validate_generated_message(
             generated,
             known_exits=[tuple(exit_.pos) for exit_ in simulation.exits],
@@ -379,6 +385,8 @@ class LLMGuidancePolicy(EntropyTargetedPolicy):
             max_radius=self._max_radius(simulation),
             base_credibility=self.config.credibility,
         )
+        if cached_validation is not None and validation.reasons == cached_validation.reasons:
+            validation = cached_validation
 
         if validation.accepted:
             effective = generated
@@ -389,6 +397,7 @@ class LLMGuidancePolicy(EntropyTargetedPolicy):
             self.cache is not None
             and self.config.llm_store_cache
             and self.config.llm_provider != "replay"
+            and cache_status != "hit"
         ):
             self.cache.store(
                 LLMGenerationRecord(
@@ -414,7 +423,25 @@ class LLMGuidancePolicy(EntropyTargetedPolicy):
             validation_status=validation.status,
             validation_reasons=validation.reasons,
             cache_key=cache_key,
+            cache_status=cache_status,
         )
+
+    def _generate_message(
+        self,
+        request: LLMMessageRequest,
+        cache_key: str,
+    ) -> Tuple[GeneratedEvacuationMessage, Optional[ValidationResult], str]:
+        if self.cache is None:
+            return self.generator.generate(request, cache_key), None, "disabled"
+
+        cached = self.cache.load(cache_key)
+        if cached is not None and self.config.llm_cache_mode in {"cache_first", "replay_only"}:
+            return cached.message, cached.validation, "hit"
+
+        if self.config.llm_cache_mode == "replay_only":
+            return self.generator.generate(request, cache_key), None, "miss"
+
+        return self.generator.generate(request, cache_key), None, "miss"
 
     def _build_request(
         self,
@@ -550,6 +577,7 @@ def _apply_message(
         validation_status=message.validation_status,
         validation_reasons=";".join(message.validation_reasons),
         cache_key=message.cache_key,
+        cache_status=message.cache_status,
     )
 
 

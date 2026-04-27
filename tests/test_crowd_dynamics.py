@@ -159,7 +159,29 @@ class TestInformationInterventions:
         assert event.generation_model == "template"
         assert event.validation_status == "accepted"
         assert event.cache_key
+        assert event.cache_status == "miss"
         assert list(tmp_path.glob("*.json"))
+
+    def test_llm_guidance_uses_cache_first_without_regeneration(self, tmp_path):
+        first = self._make_intervention_sim(
+            "llm_guidance",
+            llm_provider="template",
+            llm_cache_path=str(tmp_path),
+        )
+        first.run()
+
+        replay = self._make_intervention_sim(
+            "llm_guidance",
+            llm_provider="openai",
+            llm_cache_path=str(tmp_path),
+            llm_cache_mode="cache_first",
+        )
+        replay.run()
+
+        assert len(replay.intervention_events) > 0
+        event = replay.intervention_events[0]
+        assert event.cache_status == "hit"
+        assert event.generation_provider == "deterministic"
 
     def test_llm_guidance_replay_requires_cache_path(self):
         with pytest.raises(ValueError):
