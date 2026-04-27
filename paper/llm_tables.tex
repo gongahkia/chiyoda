@@ -97,3 +97,80 @@ extension has higher harmful convergence.}
 \label{tab:llm-regime-comparison}
 \end{table}
 }
+
+\newcommand{\llmPromptObjectiveTable}{%
+\begin{table}[t]
+\centering
+\small
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{lrrrr}
+\toprule
+Policy & Evacuated & ISE & HCI & Recipients \\
+\midrule
+Static beacon & 11.0 & 0.0145 & 6.81 & 503.7 \\
+Entropy targeted & 9.2 & 0.0079 & 8.10 & 1064.3 \\
+Bottleneck avoidance & 9.4 & 0.0124 & 7.55 & 585.7 \\
+OpenAI safety & 9.1 & 0.0444 & 8.37 & 130.9 \\
+OpenAI hazard avoidance & 9.6 & 0.0426 & 7.83 & 133.1 \\
+OpenAI anti-convergence & 9.3 & 0.0409 & 8.72 & 129.6 \\
+OpenAI urgency & 9.7 & 0.0398 & 8.30 & 124.2 \\
+\bottomrule
+\end{tabular}
+}
+\caption{Live OpenAI prompt-objective ablation. Target selection, validator,
+cadence, radius, budget, provider, and model are held fixed for the generated
+guidance variants.}
+\label{tab:llm-prompt-objective}
+\end{table}
+}
+
+\newcommand{\llmBudgetEquivalenceTable}{%
+\begin{table}[t]
+\centering
+\small
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{lrrrr}
+\toprule
+Policy & Evacuated & ISE & HCI & Recipients \\
+\midrule
+Static beacon & 12.4 & 0.0177 & 6.31 & 492.6 \\
+Entropy targeted & 9.4 & 0.0078 & 8.62 & 1016.8 \\
+Bottleneck avoidance & 10.0 & 0.0145 & 7.48 & 551.0 \\
+OpenAI sparse & 11.2 & 0.0449 & 8.82 & 122.0 \\
+OpenAI static-equivalent & 10.2 & 0.0116 & 8.16 & 732.0 \\
+OpenAI entropy-equivalent & 10.4 & 0.0086 & 7.78 & 978.4 \\
+\bottomrule
+\end{tabular}
+}
+\caption{Live OpenAI budget-equivalence sweep. Sparse generated guidance is
+compared with generated guidance using static-beacon and entropy-targeted
+intervention budgets.}
+\label{tab:llm-budget-equivalence}
+\end{table}
+}
+
+\newcommand{\llmClaimStatisticsTable}{%
+\begin{table}[t]
+\centering
+\small
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{lrrrr}
+\toprule
+Claim & ISE $\Delta$ & ISE $p$ & HCI $\Delta$ & HCI $p$ \\
+\midrule
+Sparse safety vs static & +0.0299 & 0.0002 & +1.55 & 0.3447 \\
+Sparse safety vs entropy & +0.0365 & 0.0002 & +0.27 & 0.9097 \\
+Sparse safety vs bottleneck & +0.0320 & 0.0002 & +0.82 & 0.6232 \\
+Hazard prompt vs safety prompt & -0.0018 & 0.7913 & -0.54 & 0.8501 \\
+Anti-convergence vs safety prompt & -0.0035 & 0.4274 & +0.35 & 0.8205 \\
+Static budget vs sparse LLM & -0.0332 & 0.0079 & -0.67 & 1.0000 \\
+Entropy budget vs sparse LLM & -0.0363 & 0.0079 & -1.05 & 0.4206 \\
+\bottomrule
+\end{tabular}
+}
+\caption{Seed-level Mann--Whitney comparisons for the main LLM extension
+claims. Positive ISE deltas favor the test variant; negative HCI deltas favor
+the test variant.}
+\label{tab:llm-claim-statistics}
+\end{table}
+}

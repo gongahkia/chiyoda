@@ -30,8 +30,39 @@ TARGET_LABELS = {
     "llm_target_exposure": "Exposure",
 }
 
+PROMPT_LABELS = {
+    "static_beacon": "Static beacon",
+    "entropy_targeted": "Entropy targeted",
+    "bottleneck_avoidance": "Bottleneck avoidance",
+    "llm_openai_safety": "OpenAI safety",
+    "llm_openai_hazard_avoidance": "OpenAI hazard avoidance",
+    "llm_openai_anti_convergence": "OpenAI anti-convergence",
+    "llm_openai_urgency": "OpenAI urgency",
+}
+
+BUDGET_LABELS = {
+    "static_beacon": "Static beacon",
+    "entropy_targeted": "Entropy targeted",
+    "bottleneck_avoidance": "Bottleneck avoidance",
+    "llm_openai_sparse": "OpenAI sparse",
+    "llm_openai_static_equivalent": "OpenAI static-equivalent",
+    "llm_openai_entropy_equivalent": "OpenAI entropy-equivalent",
+}
+
+CLAIM_LABELS = {
+    "sparse_safety_vs_static": "Sparse safety vs static",
+    "sparse_safety_vs_entropy": "Sparse safety vs entropy",
+    "sparse_safety_vs_bottleneck": "Sparse safety vs bottleneck",
+    "hazard_prompt_vs_safety_prompt": "Hazard prompt vs safety prompt",
+    "anti_convergence_prompt_vs_safety_prompt": "Anti-convergence vs safety prompt",
+    "static_budget_vs_sparse_llm": "Static budget vs sparse LLM",
+    "entropy_budget_vs_sparse_llm": "Entropy budget vs sparse LLM",
+}
+
 MEDIUM_ORDER = list(MEDIUM_LABELS)
 TARGET_ORDER = list(TARGET_LABELS)
+PROMPT_ORDER = list(PROMPT_LABELS)
+BUDGET_ORDER = list(BUDGET_LABELS)
 HAZARD_ORDER = ["low", "medium", "high"]
 HAZARD_LABELS = {"low": "Low", "medium": "Medium", "high": "High"}
 
@@ -58,6 +89,21 @@ def parse_args() -> argparse.Namespace:
         default="../out/regime_robustness_900/tables/regime_summary.csv",
         help="Deterministic regime robustness summary CSV.",
     )
+    parser.add_argument(
+        "--prompt-objective",
+        default="../out/llm_prompt_objective_ablation/tables/llm_policy_comparison.csv",
+        help="Prompt-objective LLM policy comparison CSV.",
+    )
+    parser.add_argument(
+        "--budget-equivalence",
+        default="../out/llm_budget_equivalence/tables/llm_policy_comparison.csv",
+        help="Budget-equivalence LLM policy comparison CSV.",
+    )
+    parser.add_argument(
+        "--claim-stats",
+        default="../out/llm_synthesis/llm_claim_statistics.csv",
+        help="Seed-level LLM claim statistics CSV.",
+    )
     parser.add_argument("-o", "--output", default="llm_tables.tex")
     return parser.parse_args()
 
@@ -68,6 +114,9 @@ def main() -> int:
     target = pd.read_csv(args.target)
     llm_regime = pd.read_csv(args.llm_regime)
     det_regime = pd.read_csv(args.det_regime)
+    prompt_objective = pd.read_csv(args.prompt_objective)
+    budget_equivalence = pd.read_csv(args.budget_equivalence)
+    claim_stats = pd.read_csv(args.claim_stats)
 
     output = "\n\n".join(
         [
@@ -76,6 +125,9 @@ def main() -> int:
             _target_table(target),
             _llm_regime_table(llm_regime),
             _regime_comparison_table(det_regime, llm_regime),
+            _prompt_objective_table(prompt_objective),
+            _budget_equivalence_table(budget_equivalence),
+            _claim_statistics_table(claim_stats),
         ]
     )
     Path(args.output).write_text(output + "\n", encoding="utf-8")
@@ -266,11 +318,126 @@ extension has higher harmful convergence.}}
 }}"""
 
 
+def _prompt_objective_table(frame: pd.DataFrame) -> str:
+    rows = _ordered_rows(frame, PROMPT_ORDER)
+    body = _policy_rows(rows, PROMPT_LABELS)
+    return rf"""\newcommand{{\llmPromptObjectiveTable}}{{%
+\begin{{table}}[t]
+\centering
+\small
+\resizebox{{\columnwidth}}{{!}}{{%
+\begin{{tabular}}{{lrrrr}}
+\toprule
+Policy & Evacuated & ISE & HCI & Recipients \\
+\midrule
+{body}
+\bottomrule
+\end{{tabular}}
+}}
+\caption{{Live OpenAI prompt-objective ablation. Target selection, validator,
+cadence, radius, budget, provider, and model are held fixed for the generated
+guidance variants.}}
+\label{{tab:llm-prompt-objective}}
+\end{{table}}
+}}"""
+
+
+def _budget_equivalence_table(frame: pd.DataFrame) -> str:
+    rows = _ordered_rows(frame, BUDGET_ORDER)
+    body = _policy_rows(rows, BUDGET_LABELS)
+    return rf"""\newcommand{{\llmBudgetEquivalenceTable}}{{%
+\begin{{table}}[t]
+\centering
+\small
+\resizebox{{\columnwidth}}{{!}}{{%
+\begin{{tabular}}{{lrrrr}}
+\toprule
+Policy & Evacuated & ISE & HCI & Recipients \\
+\midrule
+{body}
+\bottomrule
+\end{{tabular}}
+}}
+\caption{{Live OpenAI budget-equivalence sweep. Sparse generated guidance is
+compared with generated guidance using static-beacon and entropy-targeted
+intervention budgets.}}
+\label{{tab:llm-budget-equivalence}}
+\end{{table}}
+}}"""
+
+
+def _claim_statistics_table(frame: pd.DataFrame) -> str:
+    metrics = frame[frame["metric"].isin(["information_safety_efficiency", "harmful_convergence_index"])]
+    claims = metrics[metrics["claim"].isin(CLAIM_LABELS)]
+    rows = []
+    for claim in CLAIM_LABELS:
+        group = claims[claims["claim"] == claim]
+        ise = _metric_row(group, "information_safety_efficiency")
+        hci = _metric_row(group, "harmful_convergence_index")
+        if ise is None or hci is None:
+            continue
+        rows.append(
+            [
+                CLAIM_LABELS[claim],
+                _signed(ise["delta"], 4),
+                _fmt(ise["mann_whitney_p"], 4),
+                _signed(hci["delta"], 2),
+                _fmt(hci["mann_whitney_p"], 4),
+            ]
+        )
+    body = _rows(rows)
+    return rf"""\newcommand{{\llmClaimStatisticsTable}}{{%
+\begin{{table}}[t]
+\centering
+\small
+\resizebox{{\columnwidth}}{{!}}{{%
+\begin{{tabular}}{{lrrrr}}
+\toprule
+Claim & ISE $\Delta$ & ISE $p$ & HCI $\Delta$ & HCI $p$ \\
+\midrule
+{body}
+\bottomrule
+\end{{tabular}}
+}}
+\caption{{Seed-level Mann--Whitney comparisons for the main LLM extension
+claims. Positive ISE deltas favor the test variant; negative HCI deltas favor
+the test variant.}}
+\label{{tab:llm-claim-statistics}}
+\end{{table}}
+}}"""
+
+
 def _ordered_rows(frame: pd.DataFrame, order: list[str]) -> pd.DataFrame:
     ordered = frame.copy()
     ordered["_order"] = ordered["variant_name"].map({name: index for index, name in enumerate(order)})
     ordered = ordered.dropna(subset=["_order"]).sort_values("_order")
     return ordered.drop(columns=["_order"])
+
+
+def _policy_rows(rows: pd.DataFrame, labels: dict[str, str]) -> str:
+    return _rows(
+        [
+            [
+                labels[row.variant_name],
+                _fmt(row.agents_evacuated, 1),
+                _fmt(row.information_safety_efficiency, 4),
+                _fmt(row.harmful_convergence_index, 2),
+                _fmt(row.intervention_recipients, 1),
+            ]
+            for row in rows.itertuples()
+        ]
+    )
+
+
+def _metric_row(frame: pd.DataFrame, metric: str) -> dict[str, float] | None:
+    rows = frame[frame["metric"] == metric]
+    if rows.empty:
+        return None
+    row = rows.iloc[0]
+    return {
+        "delta": float(row["delta"]),
+        "mann_whitney_p": float(row["mann_whitney_p"]),
+    }
 
 
 def _parse_llm_regime(frame: pd.DataFrame) -> pd.DataFrame:

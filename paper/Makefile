@@ -17,6 +17,9 @@ LLM_MEDIUM_CSV ?= ../out/llm_medium/tables/llm_policy_comparison.csv
 LLM_TARGET_CSV ?= ../out/llm_target_selection_ablation/tables/llm_policy_comparison.csv
 LLM_REGIME_CSV ?= ../out/llm_regime_robustness/tables/llm_policy_comparison.csv
 DET_REGIME_CSV ?= ../out/regime_robustness_900/tables/regime_summary.csv
+LLM_PROMPT_CSV ?= ../out/llm_prompt_objective_ablation/tables/llm_policy_comparison.csv
+LLM_BUDGET_CSV ?= ../out/llm_budget_equivalence/tables/llm_policy_comparison.csv
+LLM_CLAIM_STATS_CSV ?= ../out/llm_synthesis/llm_claim_statistics.csv
 LATEXMK     ?= latexmk
 PYTHON      ?= python3
 LATEXMK_FLAGS = -lualatex -interaction=nonstopmode -halt-on-error \
@@ -50,6 +53,9 @@ llm-tables:
 	  --target $(LLM_TARGET_CSV) \
 	  --llm-regime $(LLM_REGIME_CSV) \
 	  --det-regime $(DET_REGIME_CSV) \
+	  --prompt-objective $(LLM_PROMPT_CSV) \
+	  --budget-equivalence $(LLM_BUDGET_CSV) \
+	  --claim-stats $(LLM_CLAIM_STATS_CSV) \
 	  -o $(LLM_TABLES_TEX)
 
 figures: $(FIGURES_PDF)
