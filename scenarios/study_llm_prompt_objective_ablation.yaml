@@ -1,0 +1,147 @@
+llm_openai: &llm_openai
+  policy: "llm_guidance"
+  start_step: 30
+  interval_steps: 60
+  budget_per_interval: 1
+  message_radius: 6.0
+  credibility: 0.9
+  message_type: "route_guidance"
+  objective: "generated_guidance_prompt_objective_ablation"
+  llm_provider: "openai"
+  llm_model: "gpt-5.4-mini"
+  llm_cache_mode: "cache_first"
+  llm_store_cache: true
+  llm_validator_profile: "strict"
+  llm_target_policy: "entropy_targeted"
+  llm_max_radius: 8.0
+
+llm_replay: &llm_replay
+  policy: "llm_guidance"
+  start_step: 30
+  interval_steps: 60
+  budget_per_interval: 1
+  message_radius: 6.0
+  credibility: 0.9
+  message_type: "route_guidance"
+  objective: "generated_guidance_prompt_objective_ablation"
+  llm_provider: "replay"
+  llm_model: "gpt-5.4-mini"
+  llm_cache_mode: "replay_only"
+  llm_store_cache: false
+  llm_validator_profile: "strict"
+  llm_target_policy: "entropy_targeted"
+  llm_max_radius: 8.0
+
+study:
+  name: "LLM Prompt Objective Ablation"
+  description: "Tests whether generated evacuation guidance changes downstream safety outcomes when only the prompt control objective changes. Target selection, validator, cadence, radius, budget, provider, and model are held fixed."
+  scenario_file: "station_sarin.yaml"
+  repetitions: 1
+  seeds: [42, 137, 256, 512, 1024, 2048, 4096, 8192, 10007, 20011]
+  export:
+    profile: "paper"
+    formats: []
+    table_formats: ["parquet", "csv"]
+    include_figures: false
+  variants:
+    - name: "static_beacon"
+      description: "Conservative local deterministic communication baseline."
+      scenario_overrides:
+        interventions:
+          policy: "static_beacon"
+          start_step: 30
+          interval_steps: 30
+          budget_per_interval: 2
+          message_radius: 8.0
+          credibility: 0.9
+          message_type: "route_guidance"
+
+    - name: "entropy_targeted"
+      description: "Deterministic entropy-targeted adaptive baseline."
+      scenario_overrides:
+        interventions:
+          policy: "entropy_targeted"
+          start_step: 30
+          interval_steps: 20
+          budget_per_interval: 3
+          message_radius: 6.0
+          credibility: 0.9
+          message_type: "route_guidance"
+          objective: "reduce_entropy_without_bottlenecking"
+
+    - name: "bottleneck_avoidance"
+      description: "Capacity-aware deterministic adaptive baseline."
+      scenario_overrides:
+        interventions:
+          policy: "bottleneck_avoidance"
+          start_step: 40
+          interval_steps: 20
+          budget_per_interval: 2
+          message_radius: 7.0
+          credibility: 0.9
+          message_type: "route_guidance"
+          objective: "avoid_bottleneck_convergence"
+
+    - name: "llm_openai_safety"
+      description: "Safety-control prompt focused on exposure, queue pressure, and route convergence."
+      scenario_overrides:
+        interventions:
+          <<: *llm_openai
+          llm_cache_path: "out/llm_cache/prompt_objective_openai_safety"
+          llm_prompt_style: "safety"
+
+    - name: "llm_openai_anti_convergence"
+      description: "Safety-control prompt explicitly discouraging herding and synchronized single-exit guidance."
+      scenario_overrides:
+        interventions:
+          <<: *llm_openai
+          llm_cache_path: "out/llm_cache/prompt_objective_openai_anti_convergence"
+          llm_prompt_style: "anti_convergence"
+
+    - name: "llm_openai_hazard_avoidance"
+      description: "Safety-control prompt prioritizing distance from hazard load over directness."
+      scenario_overrides:
+        interventions:
+          <<: *llm_openai
+          llm_cache_path: "out/llm_cache/prompt_objective_openai_hazard_avoidance"
+          llm_prompt_style: "hazard_avoidance"
+
+    - name: "llm_openai_urgency"
+      description: "Urgency-framed prompt prioritizing direct evacuation speed."
+      scenario_overrides:
+        interventions:
+          <<: *llm_openai
+          llm_cache_path: "out/llm_cache/prompt_objective_openai_urgency"
+          llm_prompt_style: "urgency"
+
+    - name: "llm_replay_safety"
+      description: "Replay-only verification for the safety prompt cache."
+      scenario_overrides:
+        interventions:
+          <<: *llm_replay
+          llm_cache_path: "out/llm_cache/prompt_objective_openai_safety"
+          llm_prompt_style: "safety"
+
+    - name: "llm_replay_anti_convergence"
+      description: "Replay-only verification for the anti-convergence prompt cache."
+      scenario_overrides:
+        interventions:
+          <<: *llm_replay
+          llm_cache_path: "out/llm_cache/prompt_objective_openai_anti_convergence"
+          llm_prompt_style: "anti_convergence"
+
+    - name: "llm_replay_hazard_avoidance"
+      description: "Replay-only verification for the hazard-avoidance prompt cache."
+      scenario_overrides:
+        interventions:
+          <<: *llm_replay
+          llm_cache_path: "out/llm_cache/prompt_objective_openai_hazard_avoidance"
+          llm_prompt_style: "hazard_avoidance"
+
+    - name: "llm_replay_urgency"
+      description: "Replay-only verification for the urgency prompt cache."
+      scenario_overrides:
+        interventions:
+          <<: *llm_replay
+          llm_cache_path: "out/llm_cache/prompt_objective_openai_urgency"
+          llm_prompt_style: "urgency"

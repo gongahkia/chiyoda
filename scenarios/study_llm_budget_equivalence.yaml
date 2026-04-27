@@ -1,0 +1,137 @@
+llm_openai: &llm_openai
+  policy: "llm_guidance"
+  start_step: 30
+  message_radius: 6.0
+  credibility: 0.9
+  message_type: "route_guidance"
+  objective: "generated_guidance_budget_equivalence"
+  llm_provider: "openai"
+  llm_model: "gpt-5.4-mini"
+  llm_cache_mode: "cache_first"
+  llm_store_cache: true
+  llm_prompt_style: "anti_convergence"
+  llm_validator_profile: "strict"
+  llm_target_policy: "entropy_targeted"
+  llm_max_radius: 8.0
+
+llm_replay: &llm_replay
+  policy: "llm_guidance"
+  start_step: 30
+  message_radius: 6.0
+  credibility: 0.9
+  message_type: "route_guidance"
+  objective: "generated_guidance_budget_equivalence"
+  llm_provider: "replay"
+  llm_model: "gpt-5.4-mini"
+  llm_cache_mode: "replay_only"
+  llm_store_cache: false
+  llm_prompt_style: "anti_convergence"
+  llm_validator_profile: "strict"
+  llm_target_policy: "entropy_targeted"
+  llm_max_radius: 8.0
+
+study:
+  name: "LLM Budget-Equivalence Sweep"
+  description: "Tests whether the LLM advantage survives when generated guidance receives intervention budgets comparable to deterministic policies. Use as a second-stage live run after prompt-objective ablation."
+  scenario_file: "station_sarin.yaml"
+  repetitions: 1
+  seeds: [42, 137, 256, 512, 1024]
+  export:
+    profile: "paper"
+    formats: []
+    table_formats: ["parquet", "csv"]
+    include_figures: false
+  variants:
+    - name: "static_beacon"
+      description: "Conservative local deterministic communication baseline."
+      scenario_overrides:
+        interventions:
+          policy: "static_beacon"
+          start_step: 30
+          interval_steps: 30
+          budget_per_interval: 2
+          message_radius: 8.0
+          credibility: 0.9
+          message_type: "route_guidance"
+
+    - name: "entropy_targeted"
+      description: "Deterministic entropy-targeted adaptive baseline."
+      scenario_overrides:
+        interventions:
+          policy: "entropy_targeted"
+          start_step: 30
+          interval_steps: 20
+          budget_per_interval: 3
+          message_radius: 6.0
+          credibility: 0.9
+          message_type: "route_guidance"
+          objective: "reduce_entropy_without_bottlenecking"
+
+    - name: "bottleneck_avoidance"
+      description: "Capacity-aware deterministic adaptive baseline."
+      scenario_overrides:
+        interventions:
+          policy: "bottleneck_avoidance"
+          start_step: 40
+          interval_steps: 20
+          budget_per_interval: 2
+          message_radius: 7.0
+          credibility: 0.9
+          message_type: "route_guidance"
+          objective: "avoid_bottleneck_convergence"
+
+    - name: "llm_openai_sparse"
+      description: "Current sparse LLM cadence: one generated intervention every 60 steps."
+      scenario_overrides:
+        interventions:
+          <<: *llm_openai
+          interval_steps: 60
+          budget_per_interval: 1
+          llm_cache_path: "out/llm_cache/budget_openai_sparse"
+
+    - name: "llm_openai_static_equivalent"
+      description: "LLM guidance with static-beacon cadence and local budget."
+      scenario_overrides:
+        interventions:
+          <<: *llm_openai
+          interval_steps: 30
+          budget_per_interval: 2
+          message_radius: 8.0
+          llm_cache_path: "out/llm_cache/budget_openai_static_equivalent"
+
+    - name: "llm_openai_entropy_equivalent"
+      description: "LLM guidance with entropy-targeted cadence and budget."
+      scenario_overrides:
+        interventions:
+          <<: *llm_openai
+          interval_steps: 20
+          budget_per_interval: 3
+          llm_cache_path: "out/llm_cache/budget_openai_entropy_equivalent"
+
+    - name: "llm_replay_sparse"
+      description: "Replay-only verification for sparse LLM cache."
+      scenario_overrides:
+        interventions:
+          <<: *llm_replay
+          interval_steps: 60
+          budget_per_interval: 1
+          llm_cache_path: "out/llm_cache/budget_openai_sparse"
+
+    - name: "llm_replay_static_equivalent"
+      description: "Replay-only verification for static-equivalent LLM cache."
+      scenario_overrides:
+        interventions:
+          <<: *llm_replay
+          interval_steps: 30
+          budget_per_interval: 2
+          message_radius: 8.0
+          llm_cache_path: "out/llm_cache/budget_openai_static_equivalent"
+
+    - name: "llm_replay_entropy_equivalent"
+      description: "Replay-only verification for entropy-equivalent LLM cache."
+      scenario_overrides:
+        interventions:
+          <<: *llm_replay
+          interval_steps: 20
+          budget_per_interval: 3
+          llm_cache_path: "out/llm_cache/budget_openai_entropy_equivalent"

@@ -92,6 +92,16 @@ def test_prompt_style_changes_cache_key_and_instructions():
     assert "smallest possible instruction" in build_prompt_instructions("minimal")
 
 
+def test_prompt_objective_styles_are_available():
+    anti_convergence = build_prompt_instructions("anti_convergence")
+    hazard_avoidance = build_prompt_instructions("hazard_avoidance")
+    urgency = build_prompt_instructions("urgency")
+
+    assert "preventing herding" in anti_convergence
+    assert "away from listed hazard positions" in hazard_avoidance
+    assert "immediate evacuation speed" in urgency
+
+
 def test_validator_rejects_invented_exit_and_hazard():
     message = GeneratedEvacuationMessage(
         recommended_exits=[(99, 99)],

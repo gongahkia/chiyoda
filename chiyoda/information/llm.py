@@ -392,6 +392,22 @@ def build_prompt_instructions(prompt_style: str) -> str:
             "Prioritize reducing hazard exposure, queue pressure, and route "
             "convergence. Prefer clear local guidance over broad synchronized movement."
         ),
+        "anti_convergence": (
+            "Prioritize preventing herding and synchronized route convergence. "
+            "If multiple listed exits are safe and not congested, recommend more "
+            "than one exit so recipients can distribute across routes. Avoid "
+            "single-exit instructions unless only one safe exit remains."
+        ),
+        "hazard_avoidance": (
+            "Prioritize keeping recipients away from listed hazard positions and "
+            "high hazard load, even when that means a less direct route. Avoid "
+            "exits near hazards or congestion when safer listed exits exist."
+        ),
+        "urgency": (
+            "Prioritize immediate evacuation speed and decisive action. Give a "
+            "short directive to the most appropriate listed exit while still "
+            "avoiding invented exits, known hazards, and congested exits."
+        ),
         "entropy": (
             "Prioritize reducing uncertainty for recipients while avoiding "
             "unsafe convergence or invented information."
@@ -419,6 +435,22 @@ def _prompt_payload(request: LLMMessageRequest) -> Dict[str, Any]:
             "recipients_estimate": payload["recipients_estimate"],
             "mean_local_density": payload["mean_local_density"],
             "mean_hazard_load": payload["mean_hazard_load"],
+        }
+    if request.prompt_style in {"anti_convergence", "hazard_avoidance", "urgency"}:
+        return {
+            "prompt_style": request.prompt_style,
+            "policy": payload["policy"],
+            "step": payload["step"],
+            "target": payload["target"],
+            "selected_reason": payload["selected_reason"],
+            "objective": payload["objective"],
+            "exits": payload["exits"],
+            "hazards": payload["hazards"],
+            "congested_exits": payload["congested_exits"],
+            "recipients_estimate": payload["recipients_estimate"],
+            "mean_local_density": payload["mean_local_density"],
+            "mean_hazard_load": payload["mean_hazard_load"],
+            "control_objective": request.prompt_style,
         }
     return payload
 

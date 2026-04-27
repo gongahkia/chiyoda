@@ -29,6 +29,13 @@ replacement for the deterministic safety-control evidence. Remaining decision:
 
 1. Decide whether LLM results belong in the main paper as an extension section
    or should be held for a follow-on paper after robustness is complete.
+2. Run prompt-objective ablations before editing the paper. The key question is
+   whether safety, anti-convergence, hazard-avoidance, and urgency prompts
+   produce materially different ISE/HCI under fixed target selection, validator,
+   cadence, radius, budget, provider, and model.
+3. Run the budget-equivalence sweep only after prompt-objective ablations. This
+   tests whether LLM guidance still helps when its intervention budget is no
+   longer much smaller than deterministic baselines.
 
 ## Paper hardening checklist
 
