@@ -25,9 +25,11 @@ from chiyoda.information.llm import (
     LLMGenerationRecord,
     LLMMessageCache,
     LLMMessageRequest,
+    OpenAIResponsesGenerator,
     ReplayOnlyGenerator,
     TemplateLLMGenerator,
     ValidationResult,
+    load_openai_api_key,
     validate_generated_message,
 )
 
@@ -48,8 +50,10 @@ __all__ = [
     "LLMGenerationRecord",
     "LLMMessageCache",
     "LLMMessageRequest",
+    "OpenAIResponsesGenerator",
     "ReplayOnlyGenerator",
     "TemplateLLMGenerator",
     "ValidationResult",
+    "load_openai_api_key",
     "validate_generated_message",
 ]

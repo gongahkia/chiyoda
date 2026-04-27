@@ -11,7 +11,10 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 import hashlib
 import json
+import os
 from pathlib import Path
+from urllib import request as urlrequest
+from urllib.error import HTTPError, URLError
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 
@@ -206,6 +209,99 @@ class TemplateLLMGenerator(LLMMessageGenerator):
         )
 
 
+class OpenAIResponsesGenerator(LLMMessageGenerator):
+    """Live OpenAI Responses API generator with a structured JSON prompt."""
+
+    provider = "openai"
+
+    def __init__(
+        self,
+        model: str = "gpt-5.4-mini",
+        *,
+        api_key: Optional[str] = None,
+        timeout_s: float = 30.0,
+        endpoint: str = "https://api.openai.com/v1/responses",
+    ) -> None:
+        self.model = model
+        self.api_key = api_key or load_openai_api_key()
+        self.timeout_s = float(timeout_s)
+        self.endpoint = endpoint
+
+    def generate(self, request: LLMMessageRequest, cache_key: str) -> GeneratedEvacuationMessage:
+        if not self.api_key:
+            return GeneratedEvacuationMessage(
+                text="OpenAI API key is not configured.",
+                abstain=True,
+                provider=self.provider,
+                model=self.model,
+                raw_response={"error": "missing_api_key"},
+            )
+
+        payload = {
+            "model": self.model,
+            "store": False,
+            "max_output_tokens": 500,
+            "instructions": (
+                "You are proposing emergency evacuation guidance for a research "
+                "simulator. Return only valid JSON with keys: text, "
+                "recommended_exits, avoid_exits, hazard_positions, confidence, "
+                "abstain. recommended_exits and avoid_exits must use only exits "
+                "from the provided state. hazard_positions must use only listed "
+                "hazard positions. Abstain if no safe bounded message is possible."
+            ),
+            "input": json.dumps(_to_jsonable(request), sort_keys=True),
+        }
+        api_request = urlrequest.Request(
+            self.endpoint,
+            data=json.dumps(payload).encode("utf-8"),
+            headers={
+                "Authorization": f"Bearer {self.api_key}",
+                "Content-Type": "application/json",
+            },
+            method="POST",
+        )
+        try:
+            with urlrequest.urlopen(api_request, timeout=self.timeout_s) as response:
+                response_payload = json.loads(response.read().decode("utf-8"))
+        except HTTPError as exc:
+            return self._error_message(f"http_{exc.code}")
+        except (URLError, TimeoutError) as exc:
+            return self._error_message(type(exc).__name__)
+
+        text = _extract_response_text(response_payload)
+        parsed = _parse_json_object(text)
+        if parsed is None:
+            return GeneratedEvacuationMessage(
+                text=text,
+                abstain=True,
+                provider=self.provider,
+                model=self.model,
+                raw_response={"unparsed_response": response_payload},
+            )
+
+        return GeneratedEvacuationMessage(
+            message_type="route_guidance",
+            text=str(parsed.get("text", "")),
+            recommended_exits=_parse_cells(parsed.get("recommended_exits", [])),
+            avoid_exits=_parse_cells(parsed.get("avoid_exits", [])),
+            hazard_positions=_parse_points(parsed.get("hazard_positions", [])),
+            confidence=float(parsed.get("confidence", 0.0) or 0.0),
+            abstain=bool(parsed.get("abstain", False)),
+            provider=self.provider,
+            model=self.model,
+            raw_response={"id": response_payload.get("id"), "usage": response_payload.get("usage")},
+        )
+
+    def _error_message(self, error: str) -> GeneratedEvacuationMessage:
+        return GeneratedEvacuationMessage(
+            text="OpenAI generation failed; abstaining.",
+            abstain=True,
+            provider=self.provider,
+            model=self.model,
+            raw_response={"error": error},
+        )
+
+
 def validate_generated_message(
     message: GeneratedEvacuationMessage,
     *,
@@ -241,6 +337,29 @@ def validate_generated_message(
         reasons.append("no_recommended_exit")
 
     return ValidationResult(accepted=not reasons, reasons=reasons)
+
+
+def load_openai_api_key(env_path: Path | str = ".env") -> Optional[str]:
+    names = ("OPENAI_API_KEY", "OPENAI-API-KEY", "OPEN-AI-API-KEY")
+    for name in names:
+        value = os.environ.get(name)
+        if value:
+            return value
+
+    path = Path(env_path)
+    if not path.exists():
+        return None
+    for line in path.read_text().splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#") or "=" not in stripped:
+            continue
+        key, value = stripped.split("=", 1)
+        key = key.strip()
+        if key.startswith("export "):
+            key = key.removeprefix("export ").strip()
+        if key in names:
+            return value.strip().strip('"').strip("'")
+    return None
 
 
 def build_llm_request(simulation, target, objective: str, policy: str) -> LLMMessageRequest:
@@ -282,6 +401,60 @@ def _to_jsonable(value: Any) -> Any:
     if isinstance(value, dict):
         return {str(key): _to_jsonable(item) for key, item in value.items()}
     return value
+
+
+def _extract_response_text(payload: Dict[str, Any]) -> str:
+    if isinstance(payload.get("output_text"), str):
+        return payload["output_text"]
+    chunks: List[str] = []
+    for item in payload.get("output", []):
+        for content in item.get("content", []):
+            if isinstance(content.get("text"), str):
+                chunks.append(content["text"])
+    return "\n".join(chunks)
+
+
+def _parse_json_object(text: str) -> Optional[Dict[str, Any]]:
+    stripped = text.strip()
+    if stripped.startswith("```"):
+        stripped = stripped.strip("`")
+        if stripped.startswith("json"):
+            stripped = stripped[4:].strip()
+    try:
+        payload = json.loads(stripped)
+    except json.JSONDecodeError:
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def _parse_cells(value: Any) -> List[Cell]:
+    cells: List[Cell] = []
+    if not isinstance(value, list):
+        return cells
+    for item in value:
+        if isinstance(item, dict):
+            item = [item.get("x"), item.get("y")]
+        if isinstance(item, (list, tuple)) and len(item) >= 2:
+            try:
+                cells.append((int(item[0]), int(item[1])))
+            except (TypeError, ValueError):
+                continue
+    return cells
+
+
+def _parse_points(value: Any) -> List[Point]:
+    points: List[Point] = []
+    if not isinstance(value, list):
+        return points
+    for item in value:
+        if isinstance(item, dict):
+            item = [item.get("x"), item.get("y")]
+        if isinstance(item, (list, tuple)) and len(item) >= 2:
+            try:
+                points.append((float(item[0]), float(item[1])))
+            except (TypeError, ValueError):
+                continue
+    return points
 
 
 def _near_any(point: Point, candidates: Sequence[Point], tolerance: float) -> bool:

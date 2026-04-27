@@ -6,8 +6,10 @@ from chiyoda.information.llm import (
     LLMGenerationRecord,
     LLMMessageCache,
     LLMMessageRequest,
+    OpenAIResponsesGenerator,
     TemplateLLMGenerator,
     ValidationResult,
+    load_openai_api_key,
     validate_generated_message,
 )
 
@@ -100,3 +102,49 @@ def test_validator_rejects_overconfident_message():
 
     assert not result.accepted
     assert "unsafe_credibility:1.0" in result.reasons
+
+
+def test_openai_api_key_loader_accepts_hyphenated_env_file(tmp_path, monkeypatch):
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("OPENAI-API-KEY", raising=False)
+    monkeypatch.delenv("OPEN-AI-API-KEY", raising=False)
+    env_file = tmp_path / ".env"
+    env_file.write_text("OPENAI-API-KEY='test-key'\n")
+
+    assert load_openai_api_key(env_file) == "test-key"
+
+
+def test_openai_generator_parses_mocked_responses(monkeypatch):
+    class FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self):
+            return (
+                b'{"id":"resp_test","output":[{"content":[{"text":"{'
+                b'\\"text\\":\\"Use exit\\",'
+                b'\\"recommended_exits\\":[[10,1]],'
+                b'\\"avoid_exits\\":[[1,1]],'
+                b'\\"hazard_positions\\":[[3.0,3.0]],'
+                b'\\"confidence\\":0.7,'
+                b'\\"abstain\\":false}"}]}]}'
+            )
+
+    def fake_urlopen(api_request, timeout):
+        assert api_request.headers["Authorization"].endswith("test-key")
+        return FakeResponse()
+
+    monkeypatch.setattr("chiyoda.information.llm.urlrequest.urlopen", fake_urlopen)
+    message = OpenAIResponsesGenerator(model="test-model", api_key="test-key").generate(
+        _request(),
+        "cache-key",
+    )
+
+    assert message.provider == "openai"
+    assert message.model == "test-model"
+    assert message.text == "Use exit"
+    assert message.recommended_exits == [(10, 1)]
+    assert message.avoid_exits == [(1, 1)]

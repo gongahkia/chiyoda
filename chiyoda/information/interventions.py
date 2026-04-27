@@ -22,6 +22,7 @@ from chiyoda.information.llm import (
     LLMGenerationRecord,
     LLMMessageCache,
     LLMMessageRequest,
+    OpenAIResponsesGenerator,
     ReplayOnlyGenerator,
     TemplateLLMGenerator,
     validate_generated_message,
@@ -347,9 +348,16 @@ class LLMGuidancePolicy(EntropyTargetedPolicy):
             if self.cache is None:
                 raise ValueError("llm_guidance with llm_provider='replay' requires llm_cache_path")
             self.generator = ReplayOnlyGenerator(self.cache)
+        elif config.llm_provider == "openai":
+            model = (
+                config.llm_model
+                if config.llm_model and config.llm_model != "template"
+                else "gpt-5.4-mini"
+            )
+            self.generator = OpenAIResponsesGenerator(model=model)
         else:
             raise ValueError(
-                "Unsupported llm_provider. Use 'template' or 'replay' for reproducible studies."
+                "Unsupported llm_provider. Use 'template', 'replay', or 'openai'."
             )
 
     def select_targets(self, simulation) -> List[InterventionTarget]:

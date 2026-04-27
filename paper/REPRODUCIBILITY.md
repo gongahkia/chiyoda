@@ -100,6 +100,12 @@ validation status, validation reasons, and cache keys in the intervention
 table. Live-provider implementations must preserve deterministic replay from
 cache before their outputs can be used in paper comparisons.
 
+For live OpenAI smoke tests, place the API key in `.env` as
+`OPENAI_API_KEY=...`. The loader also accepts the legacy local spellings
+`OPENAI-API-KEY` and `OPEN-AI-API-KEY`. Set `OPENAI_MODEL` externally or set
+`llm_model` in the scenario if a specific model is required; otherwise the
+OpenAI provider uses a small default model for bounded smoke tests.
+
 ## Artifact Index
 
 Each study directory has the same structure:

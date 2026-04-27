@@ -94,7 +94,7 @@ Possible implementation path:
    - Store prompts, model metadata, response text, validation status, and cache
      keys as artifacts.
    - Do not require live API keys for tests or baseline reproduction.
-   - Status: initial replay/template interface implemented.
+   - Status: replay, template, and OpenAI Responses API providers implemented.
 
 2. Add a simulator-state-to-message prompt layer.
    - Inputs should include hazard state, congestion, exits, policy budget, and
@@ -103,8 +103,8 @@ Possible implementation path:
      and confidence or abstention fields.
    - Keep state exposure controlled so language is the experimental factor, not
      hidden extra sensor access.
-   - Status: structured request/message schema implemented; live-provider
-     prompt adapters remain open.
+   - Status: structured request/message schema implemented; OpenAI prompt
+     adapter implemented; provider-comparison prompts remain open.
 
 3. Add safety validators before any generated message affects agents.
    - Reject invented exits, impossible routes, stale hazard claims, and
