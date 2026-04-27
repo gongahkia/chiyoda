@@ -72,6 +72,15 @@ class ValidationResult:
         return "accepted" if self.accepted else "rejected"
 
 
+@dataclass(frozen=True)
+class ValidatorSettings:
+    profile: str = "standard"
+    reject_congested_recommendations: bool = True
+    reject_vague_guidance: bool = True
+    reject_low_confidence: bool = True
+    min_confidence: float = 0.2
+
+
 @dataclass
 class LLMGenerationRecord:
     cache_key: str
@@ -306,8 +315,9 @@ def validate_generated_message(
     max_radius: float,
     base_credibility: float,
     congested_exits: Sequence[Cell] = (),
-    min_confidence: float = 0.2,
+    settings: Optional[ValidatorSettings] = None,
 ) -> ValidationResult:
+    settings = settings or ValidatorSettings()
     reasons: List[str] = []
     known_exit_set = {tuple(exit_) for exit_ in known_exits}
     recommended_set = {tuple(exit_) for exit_ in message.recommended_exits}
@@ -324,8 +334,9 @@ def validate_generated_message(
             reasons.append(f"invented_avoid_exit:{tuple(exit_)}")
     for exit_ in sorted(recommended_set & avoid_set):
         reasons.append(f"conflicting_exit:{exit_}")
-    for exit_ in sorted(recommended_set & congested_set):
-        reasons.append(f"congested_recommendation:{exit_}")
+    if settings.reject_congested_recommendations:
+        for exit_ in sorted(recommended_set & congested_set):
+            reasons.append(f"congested_recommendation:{exit_}")
 
     known_hazard_positions = [hazard.position for hazard in known_hazards]
     for hazard_pos in message.hazard_positions:
@@ -341,12 +352,28 @@ def validate_generated_message(
         reasons.append("no_recommended_exit")
     if not message.text.strip() and not message.abstain:
         reasons.append("empty_guidance")
-    if _is_vague_guidance(message.text) and not message.abstain:
+    if settings.reject_vague_guidance and _is_vague_guidance(message.text) and not message.abstain:
         reasons.append("vague_guidance")
-    if message.confidence < min_confidence and not message.abstain:
+    if settings.reject_low_confidence and message.confidence < settings.min_confidence and not message.abstain:
         reasons.append(f"low_confidence:{message.confidence:.2f}")
 
     return ValidationResult(accepted=not reasons, reasons=reasons)
+
+
+def validator_settings(profile: str) -> ValidatorSettings:
+    if profile == "strict":
+        return ValidatorSettings(profile=profile, min_confidence=0.5)
+    if profile == "lenient":
+        return ValidatorSettings(
+            profile=profile,
+            reject_congested_recommendations=False,
+            reject_vague_guidance=False,
+            reject_low_confidence=False,
+            min_confidence=0.0,
+        )
+    if profile == "standard":
+        return ValidatorSettings(profile=profile)
+    raise ValueError(f"Unsupported LLM validator profile: {profile}")
 
 
 def build_prompt_instructions(prompt_style: str) -> str:

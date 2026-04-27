@@ -12,6 +12,7 @@ from chiyoda.information.llm import (
     build_prompt_instructions,
     load_openai_api_key,
     validate_generated_message,
+    validator_settings,
 )
 
 
@@ -169,6 +170,46 @@ def test_validator_rejects_vague_and_low_confidence_guidance():
     assert not result.accepted
     assert "vague_guidance" in result.reasons
     assert "low_confidence:0.10" in result.reasons
+
+
+def test_lenient_validator_allows_vague_low_confidence_congested_guidance():
+    message = GeneratedEvacuationMessage(
+        text="Stay calm",
+        recommended_exits=[(10, 1)],
+        confidence=0.1,
+    )
+    result = validate_generated_message(
+        message,
+        known_exits=[(10, 1)],
+        known_hazards=[],
+        base_radius=8.0,
+        max_radius=20.0,
+        base_credibility=0.9,
+        congested_exits=[(10, 1)],
+        settings=validator_settings("lenient"),
+    )
+
+    assert result.accepted
+
+
+def test_strict_validator_raises_confidence_threshold():
+    message = GeneratedEvacuationMessage(
+        text="Use exit 10 1.",
+        recommended_exits=[(10, 1)],
+        confidence=0.3,
+    )
+    result = validate_generated_message(
+        message,
+        known_exits=[(10, 1)],
+        known_hazards=[],
+        base_radius=8.0,
+        max_radius=20.0,
+        base_credibility=0.9,
+        settings=validator_settings("strict"),
+    )
+
+    assert not result.accepted
+    assert "low_confidence:0.30" in result.reasons
 
 
 def test_openai_api_key_loader_accepts_hyphenated_env_file(tmp_path, monkeypatch):

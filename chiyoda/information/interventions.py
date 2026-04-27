@@ -27,6 +27,7 @@ from chiyoda.information.llm import (
     TemplateLLMGenerator,
     ValidationResult,
     validate_generated_message,
+    validator_settings,
 )
 
 
@@ -53,6 +54,7 @@ class InformationInterventionConfig:
     llm_store_cache: bool = True
     llm_max_radius: Optional[float] = None
     llm_prompt_style: str = "safety"
+    llm_validator_profile: str = "standard"
 
     @classmethod
     def from_mapping(cls, payload: Optional[Dict[str, Any]]) -> "InformationInterventionConfig":
@@ -79,6 +81,7 @@ class InformationInterventionConfig:
             if data.get("llm_max_radius") is None
             else float(data.get("llm_max_radius")),
             llm_prompt_style=str(data.get("llm_prompt_style", "safety")),
+            llm_validator_profile=str(data.get("llm_validator_profile", "standard")),
         )
 
 
@@ -387,6 +390,7 @@ class LLMGuidancePolicy(EntropyTargetedPolicy):
             max_radius=self._max_radius(simulation),
             base_credibility=self.config.credibility,
             congested_exits=congested,
+            settings=validator_settings(self.config.llm_validator_profile),
         )
         if cached_validation is not None and validation.reasons == cached_validation.reasons:
             validation = cached_validation
