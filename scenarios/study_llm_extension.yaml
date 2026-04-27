@@ -1,0 +1,60 @@
+study:
+  name: "LLM Safety-Control Extension Pilot"
+  description: "Optional controlled pilot for generated evacuation messaging as a safety-control policy."
+  scenario_file: "station_sarin.yaml"
+  repetitions: 1
+  seeds: [42, 137, 256]
+  export:
+    profile: "paper"
+    formats: ["png", "svg", "pdf"]
+    table_formats: ["parquet", "csv"]
+    include_figures: false
+  variants:
+    - name: "no_intervention"
+      description: "Default asymmetric information with no deliberate emergency communication."
+      scenario_overrides:
+        interventions:
+          policy: "none"
+
+    - name: "static_beacon"
+      description: "Conservative local deterministic communication baseline."
+      scenario_overrides:
+        interventions:
+          policy: "static_beacon"
+          start_step: 30
+          interval_steps: 30
+          budget_per_interval: 2
+          message_radius: 8.0
+          credibility: 0.9
+          message_type: "route_guidance"
+
+    - name: "entropy_targeted"
+      description: "Deterministic adaptive targeting baseline with the same target-selection family as LLM guidance."
+      scenario_overrides:
+        interventions:
+          policy: "entropy_targeted"
+          start_step: 30
+          interval_steps: 20
+          budget_per_interval: 3
+          message_radius: 6.0
+          credibility: 0.9
+          message_type: "route_guidance"
+          objective: "reduce_entropy_without_bottlenecking"
+
+    - name: "llm_template_guidance"
+      description: "Replayable generated-message policy using the deterministic template provider."
+      scenario_overrides:
+        interventions:
+          policy: "llm_guidance"
+          start_step: 30
+          interval_steps: 20
+          budget_per_interval: 3
+          message_radius: 6.0
+          credibility: 0.9
+          message_type: "route_guidance"
+          objective: "generated_guidance_under_safety_validation"
+          llm_provider: "template"
+          llm_model: "template"
+          llm_cache_path: "out/llm_cache/template"
+          llm_store_cache: true
+          llm_max_radius: 8.0

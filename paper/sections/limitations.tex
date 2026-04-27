@@ -29,3 +29,25 @@ state, prevented from inventing unavailable exits or stale hazard claims, and
 measured by downstream exposure, queueing, exit balance, and evacuation
 outcomes. Without those controls, richer language could make a policy more
 persuasive while also amplifying harmful convergence.
+
+\subsection{LLM Extension Protocol}
+\label{subsec:llm-extension-protocol}
+
+The repository now includes an optional LLM-guidance policy scaffold, but it is
+not part of the completed empirical claims in this paper. Its purpose is to
+support a controlled follow-on question: whether generated evacuation messages
+add safety value beyond deterministic static, global, entropy-targeted, and
+bottleneck-aware baselines. The protocol deliberately treats an LLM as a
+bounded message proposer. The simulator exposes a structured state summary,
+requires a structured message containing recommended exits, avoided exits,
+hazard references, confidence, and optional abstention, and validates the
+proposal before it can affect agent beliefs.
+
+This design keeps the extension compatible with the core contribution. A live
+API call is not allowed to be the experimental evidence by itself. Paper runs
+must use cached or deterministic replay, record the prompt-relevant state and
+model metadata, and report rejected messages separately from accepted
+interventions. The correct comparison is therefore not whether LLM text sounds
+more natural, but whether a validated generated-message policy improves ISE or
+reduces HCI under the same information budget and target-selection constraints
+as deterministic baselines.

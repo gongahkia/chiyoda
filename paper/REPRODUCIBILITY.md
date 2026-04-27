@@ -82,6 +82,24 @@ cd paper
   -o figures/regime-robustness-heatmap.pdf
 ```
 
+## Optional LLM Extension Pilot
+
+The LLM extension is not part of the completed baseline evidence. It exists as
+a controlled, replayable pilot for future paper work. The default pilot uses a
+deterministic template provider and writes generated-message cache artifacts
+without requiring live API keys:
+
+```sh
+PYTHONPATH=. .venv/bin/python scripts/run_study_progress.py \
+  scenarios/study_llm_extension.yaml \
+  -o out/llm_extension_pilot
+```
+
+The `llm_guidance` policy records generated text, provider/model metadata,
+validation status, validation reasons, and cache keys in the intervention
+table. Live-provider implementations must preserve deterministic replay from
+cache before their outputs can be used in paper comparisons.
+
 ## Artifact Index
 
 Each study directory has the same structure:

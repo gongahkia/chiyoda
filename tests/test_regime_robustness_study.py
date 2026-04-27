@@ -52,3 +52,20 @@ def test_regime_robustness_variants_build_scenarios():
             "entropy_targeted",
             "bottleneck_avoidance",
         }
+
+
+def test_llm_extension_pilot_is_optional_and_replayable():
+    config = load_study_config("scenarios/study_llm_extension.yaml")
+    variants = _materialize_variants(config)
+    manager = ScenarioManager()
+
+    assert len(variants) == 4
+    assert len(config.seeds) == 3
+    assert config.export.include_figures is False
+
+    scenario = _prepare_scenario(manager, config.scenario_file, variants[-1], seed=42)
+    interventions = scenario["interventions"]
+    assert interventions["policy"] == "llm_guidance"
+    assert interventions["llm_provider"] == "template"
+    assert interventions["llm_cache_path"] == "out/llm_cache/template"
+    assert interventions["llm_max_radius"] == 8.0
