@@ -75,6 +75,17 @@ High & High & 0.0097 & 0.28 & Entropy-targeted \\
 \end{tabular}
 \end{table*}
 
+\begin{figure*}[!t]
+  \centering
+  \includegraphics[width=0.92\textwidth]{figures/regime-robustness-heatmap.pdf}
+  \caption{Robustness heatmap from the 900-run grid. Static beacon ISE remains
+  positive across all hazard and familiarity regimes, while the global/static
+  ISE ratio stays below one in every cell. Broad broadcast reach therefore
+  remains less safety-efficient than local static messaging even in regimes
+  where global broadcast wins raw evacuation count.}
+  \label{fig:regime-robustness-heatmap}
+\end{figure*}
+
 Averaged across the nine regimes, static beacons have the highest ISE
 (0.0128), followed by bottleneck avoidance (0.0100), entropy targeting
 (0.0090), and global broadcast (0.0063). The global/static ISE ratio ranges

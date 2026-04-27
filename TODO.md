@@ -5,25 +5,7 @@ study and paper stable before starting extension work.
 
 ## Active baseline work
 
-1. Resume and finish the regime robustness study.
-   - Continue from the checkpointed run data in
-     `out/regime_robustness_900.checkpoints`.
-   - Resume command:
-
-     ```bash
-     PYTHONPATH=. .venv/bin/python scripts/run_study_progress.py scenarios/study_regime_robustness.yaml -o out/regime_robustness_900 --checkpoint-dir out/regime_robustness_900.checkpoints --resume
-     ```
-
-   - Preserve the full planned design: 3 hazard regimes, 3 familiarity regimes,
-     5 policies, 20 seeds per condition.
-
-2. Summarize the completed robustness study.
-   - Run `scripts/summarize_regime_robustness.py` once the 900-run study
-     finishes.
-   - Identify which claims generalize across hazard severity and population
-     familiarity, and which claims remain conditional.
-
-3. Finish the current paper draft around the deterministic safety-control result.
+1. Finish the current paper draft around the deterministic safety-control result.
    - Treat information interventions as safety-control actions, not only
      entropy-reduction mechanisms.
    - Keep the empirical claims tied to the completed studies:
@@ -33,10 +15,20 @@ study and paper stable before starting extension work.
      - Cases where entropy or accuracy gains can worsen exposure.
    - Update the LaTeX sections after the robustness summary is available.
 
-4. Run core verification before treating the baseline package as paper-ready.
+2. Run core verification before treating the baseline package as paper-ready.
    - Run the Python test suite.
    - Run the paper smoke build.
    - Confirm reproduction commands and artifact paths in `paper/REPRODUCIBILITY.md`.
+
+## Completed baseline work
+
+- Completed the full 900-run regime robustness study:
+  3 hazard regimes, 3 familiarity regimes, 5 policies, and 20 seeds per
+  condition.
+- Summarized the robustness grid with
+  `scripts/summarize_regime_robustness.py`.
+- Integrated the completed robustness result into the LaTeX paper, including
+  the regime summary table and heatmap.
 
 ## Deferred LLM extension
 

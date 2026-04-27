@@ -73,6 +73,15 @@ PYTHONPATH=. .venv/bin/python scripts/summarize_regime_robustness.py \
   out/regime_robustness_900
 ```
 
+Then regenerate the paper robustness heatmap:
+
+```sh
+cd paper
+../.venv/bin/python scripts/plot_regime_robustness.py \
+  ../out/regime_robustness_900/tables/regime_summary.csv \
+  -o figures/regime-robustness-heatmap.pdf
+```
+
 ## Artifact Index
 
 Each study directory has the same structure:
@@ -118,6 +127,7 @@ out/information_control_50/tables/summary.parquet
 out/information_control_50/tables/interventions.parquet
 out/information_control_50/figures/12_intervention_timeline.pdf
 out/information_control_50/figures/13_information_safety_frontier.pdf
+paper/figures/regime-robustness-heatmap.pdf
 ```
 
 The ablation and message-quality studies provide the support-study aggregate

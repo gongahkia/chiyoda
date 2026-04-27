@@ -16,6 +16,7 @@ paper/
   Makefile              # paper / smoke / stats / figures / arxiv / clean
   scripts/
     gen_stats.py        # study bundle -> stats.tex
+    plot_regime_robustness.py # robustness summary -> heatmap PDF
   sections/
     introduction.tex
     claims.tex
@@ -31,6 +32,7 @@ paper/
     architecture.mmd
     intervention-loop.mmd
     policy-taxonomy.mmd
+    regime-robustness-heatmap.pdf
 ```
 
 ## Build

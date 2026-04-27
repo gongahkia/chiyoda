@@ -239,6 +239,32 @@ policies currently look like conservative baselines, while entropy targeting is
 scientifically valuable because it exposes the failure mode created by
 overconfident, synchronized route choice.
 
+\subsection{What the Evidence Supports}
+\label{subsec:evidence-boundary}
+
+The empirical package supports four paper-level claims. First, emergency
+communication behaves as a safety-control action: changing who receives a
+message, when they receive it, and how credible it is changes exposure,
+queueing, exit concentration, and belief state jointly. Second, local static
+messaging is the strongest conservative baseline by information-safety
+efficiency in both the 50-seed main comparison and the 900-run robustness
+grid. Third, broad reach is not equivalent to safety-efficient reach; global
+broadcast can improve completed evacuations in some regimes while still
+delivering less belief improvement per unit of exposure and queue pressure.
+Fourth, entropy and belief-accuracy gains are not sufficient objectives,
+because they can coordinate many agents toward the same constrained route.
+
+The same evidence rules out stronger claims. The experiments do not show that
+static beacons are a universal operational optimum, because the
+evacuation-count winner changes across hazard and familiarity regimes. They
+do not establish real-world predictive validity, because the current simulator
+has not been calibrated against evacuation drills, sensor traces, or station
+incident records. They also do not show that generative or personalized
+messages are safe by default. Any future LLM-mediated messaging layer should
+therefore be evaluated as a constrained control policy with bounded action
+space, auditable message templates, and the same ISE and HCI tests used here,
+not as an unconstrained source of evacuation advice.
+
 \subsection{Threats to Evaluation}
 \label{subsec:evaluation-threats}
 
