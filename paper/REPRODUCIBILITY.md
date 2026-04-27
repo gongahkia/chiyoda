@@ -187,6 +187,73 @@ bottleneck targeting (0.0450), followed by entropy targeting (0.0422), density
 targeting (0.0391), and static targeting (0.0354). Global and exposure
 targeting were much weaker under the same generated-message budget.
 
+The live prompt-objective ablation tests whether safety, hazard-avoidance,
+anti-convergence, and urgency prompt framings change downstream outcomes while
+holding target selection, validator, cadence, radius, budget, provider, and
+model fixed:
+
+```sh
+PYTHONPATH=. .venv/bin/python scripts/run_study_progress.py \
+  scenarios/study_llm_prompt_objective_ablation.yaml \
+  -o out/llm_prompt_objective_ablation \
+  --checkpoint-dir out/llm_prompt_objective_ablation.checkpoints \
+  --resume \
+  --no-figures
+PYTHONPATH=. .venv/bin/python scripts/summarize_llm_interventions.py \
+  out/llm_prompt_objective_ablation
+```
+
+The current run contains 110 completed runs. The four live OpenAI prompt
+variants produced 320 generated-message events, all accepted by validation,
+with exact replay agreement. Safety prompting has the highest generated-policy
+ISE, hazard-avoidance prompting has the lowest generated-policy HCI, and the
+explicit anti-convergence prompt does not lower HCI in this scenario.
+
+The live budget-equivalence sweep tests whether the sparse LLM efficiency
+advantage survives when generated guidance receives static-beacon or
+entropy-targeted intervention budgets:
+
+```sh
+PYTHONPATH=. .venv/bin/python scripts/run_study_progress.py \
+  scenarios/study_llm_budget_equivalence.yaml \
+  -o out/llm_budget_equivalence \
+  --checkpoint-dir out/llm_budget_equivalence.checkpoints \
+  --resume \
+  --no-figures
+PYTHONPATH=. .venv/bin/python scripts/summarize_llm_interventions.py \
+  out/llm_budget_equivalence
+```
+
+The current run contains 45 completed runs. Sparse OpenAI guidance remains
+highly efficient, but static-equivalent and entropy-equivalent generated
+budgets substantially reduce ISE. The equal-budget variants descriptively lower
+HCI relative to sparse LLM guidance, but they do not dominate the conservative
+deterministic baselines.
+
+After the LLM studies have been summarized, regenerate the combined synthesis,
+seed-level statistical comparisons, and cache-usage audit:
+
+```sh
+PYTHONPATH=. .venv/bin/python scripts/synthesize_llm_results.py \
+  -o out/llm_synthesis
+PYTHONPATH=. .venv/bin/python scripts/compare_llm_claims.py \
+  -o out/llm_synthesis
+PYTHONPATH=. .venv/bin/python scripts/audit_llm_cache_usage.py \
+  --cache-root out/llm_cache \
+  -o out/llm_synthesis
+```
+
+The audit script also accepts optional pricing parameters if cost estimates are
+needed:
+
+```sh
+PYTHONPATH=. .venv/bin/python scripts/audit_llm_cache_usage.py \
+  --cache-root out/llm_cache \
+  -o out/llm_synthesis \
+  --input-usd-per-mtok <input price> \
+  --output-usd-per-mtok <output price>
+```
+
 Regenerate the LaTeX tables used by the LLM extension section with:
 
 ```sh
@@ -195,9 +262,10 @@ cd paper
 ```
 
 This reads the medium LLM, target-selection, LLM regime robustness, and
-deterministic regime robustness CSV artifacts. The generated
-`llm_tables.tex` includes the direct static-beacon versus LLM regime comparison
-used in `paper/sections/limitations.tex`.
+deterministic regime robustness CSV artifacts, plus the prompt-objective,
+budget-equivalence, and seed-level claim-statistics artifacts. The generated
+`llm_tables.tex` includes all LLM tables used in
+`paper/sections/limitations.tex`.
 
 ## Artifact Index
 

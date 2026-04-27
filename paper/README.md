@@ -16,6 +16,7 @@ paper/
   Makefile              # paper / smoke / stats / figures / arxiv / clean
   scripts/
     gen_stats.py        # study bundle -> stats.tex
+    gen_llm_tables.py   # LLM study artifacts -> llm_tables.tex
     plot_regime_robustness.py # robustness summary -> heatmap PDF
   sections/
     introduction.tex
@@ -41,6 +42,7 @@ paper/
 cd paper
 make stats STUDY_DIR=../out/information_control_50 PYTHON=../.venv/bin/python
 make figures
+make llm-tables PYTHON=../.venv/bin/python
 make paper
 make smoke
 ```
