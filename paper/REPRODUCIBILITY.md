@@ -106,6 +106,19 @@ For live OpenAI smoke tests, place the API key in `.env` as
 `llm_model` in the scenario if a specific model is required; otherwise the
 OpenAI provider uses a small default model for bounded smoke tests.
 
+The smallest opt-in live/replay pilot is:
+
+```sh
+PYTHONPATH=. .venv/bin/python scripts/run_study_progress.py \
+  scenarios/study_llm_openai_pilot.yaml \
+  -o out/llm_openai_pilot
+```
+
+Its OpenAI variant uses `llm_cache_mode: cache_first`; the replay variant uses
+the same cache path with `llm_provider: replay`. Do not treat the live pilot as
+a paper result until the cached artifacts, validation summary, and deterministic
+replay run have been inspected.
+
 ## Artifact Index
 
 Each study directory has the same structure:

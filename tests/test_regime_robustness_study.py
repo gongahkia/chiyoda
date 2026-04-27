@@ -69,3 +69,23 @@ def test_llm_extension_pilot_is_optional_and_replayable():
     assert interventions["llm_provider"] == "template"
     assert interventions["llm_cache_path"] == "out/llm_cache/template"
     assert interventions["llm_max_radius"] == 8.0
+
+
+def test_openai_llm_pilot_has_cache_populate_and_replay_variants():
+    config = load_study_config("scenarios/study_llm_openai_pilot.yaml")
+    variants = _materialize_variants(config)
+    manager = ScenarioManager()
+
+    assert len(variants) == 4
+    assert config.seeds == [42]
+    assert config.export.include_figures is False
+
+    openai = _prepare_scenario(manager, config.scenario_file, variants[2], seed=42)
+    replay = _prepare_scenario(manager, config.scenario_file, variants[3], seed=42)
+
+    assert openai["interventions"]["policy"] == "llm_guidance"
+    assert openai["interventions"]["llm_provider"] == "openai"
+    assert openai["interventions"]["llm_cache_mode"] == "cache_first"
+    assert replay["interventions"]["llm_provider"] == "replay"
+    assert replay["interventions"]["llm_cache_mode"] == "replay_only"
+    assert openai["interventions"]["llm_cache_path"] == replay["interventions"]["llm_cache_path"]
