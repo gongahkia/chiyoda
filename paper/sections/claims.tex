@@ -54,13 +54,23 @@ Not supported & The best evacuation-count policy changes across the
 robustness grid, including static beacons, global broadcast, entropy targeting,
 and no intervention. & Separates safety-efficiency claims from operational
 winner claims. \\
+\addlinespace
+Validated LLM guidance is best understood as sparse safety control, not as a
+replacement for deterministic communication. & Supported as bounded extension &
+Live OpenAI prompt, regime, target-selection, and budget-equivalence studies
+show high sparse ISE, prompt-sensitive HCI tradeoffs, exact replay, and weaker
+ISE under equal generated-message budgets. & Larger extension result; does not
+supersede deterministic baseline claims. \\
 \bottomrule
 \end{tabular}
 \end{table*}
 
-The final two rows are deliberately separate. The robustness grid strengthens
-the static-beacon result for information-safety efficiency, but it does not
-make a universal operational prescription. Completed evacuations remain noisy
-and regime dependent, which is consistent with the paper's central claim:
-information control must be evaluated by coupled belief and safety effects
-rather than by a single aggregate endpoint.
+The final rows are deliberately separate. The robustness grid strengthens the
+static-beacon result for information-safety efficiency, but it does not make a
+universal operational prescription. The LLM extension is also bounded: it
+shows that generated guidance can be evaluated as safety control, while ruling
+out the stronger claim that richer generated language automatically improves
+harmful convergence or replaces conservative deterministic communication.
+Completed evacuations remain noisy and regime dependent, which is consistent
+with the paper's central claim: information control must be evaluated by
+coupled belief and safety effects rather than by a single aggregate endpoint.

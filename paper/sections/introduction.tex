@@ -29,7 +29,7 @@ relay, entropy-targeted broadcasts, density-aware targeting, exposure-aware
 targeting, and bottleneck-avoidance targeting, then stress-tests timing,
 budget, credibility, and repetition.
 
-\paragraph{Contributions.} This paper makes four contributions.
+\paragraph{Contributions.} This paper makes five contributions.
 
 \begin{enumerate}
 \item \textbf{A controllable information-intervention layer.} Chiyoda turns
@@ -52,6 +52,11 @@ generate multi-seed bundles with Parquet/CSV tables and paper figures. The
 current paper is backed by a 50-seed primary study and two 30-seed supporting
 studies, plus a 900-run robustness grid across hazard severity and population
 familiarity. Generated statistics are ingested through \texttt{stats.tex}.
+
+\item \textbf{A bounded generated-guidance extension.} Optional LLM-mediated
+guidance is evaluated with the same safety-control metrics, cache/replay
+requirements, and validation constraints. The extension tests whether generated
+messages improve downstream ISE/HCI, not whether they sound more natural.
 \end{enumerate}
 
 \paragraph{Roadmap.} \S\ref{sec:background} positions the work against
