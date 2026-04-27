@@ -129,3 +129,47 @@ beacon, bottleneck-avoidance, or entropy-targeted baselines. This is
 consistent with the target-selection ablation: bounded generated guidance can
 buy useful belief change efficiently, while the remaining safety problem is
 still route convergence under hazard pressure.
+
+\subsection{LLM Objective and Budget Ablations}
+\label{subsec:llm-objective-budget}
+
+The expanded LLM evidence tests whether this efficiency result is a language
+effect, a prompt-objective effect, or primarily a budget effect. The
+prompt-objective ablation keeps target selection, validator, cadence, radius,
+budget, provider, and model fixed while varying the live OpenAI prompt between
+safety, hazard avoidance, anti-convergence, and urgency framings.
+
+\llmPromptObjectiveTable
+
+Prompt objectives measurably change the downstream tradeoff, but not in the
+simple way a language-only interpretation would predict. The safety prompt has
+the highest generated-policy ISE. The hazard-avoidance prompt has lower HCI
+than the safety prompt, but also slightly lower ISE. The anti-convergence
+prompt does not reduce HCI in this setting. All 320 live OpenAI messages in
+this ablation passed validation and replay reproduced the live aggregates,
+which makes the result a controlled prompt-objective comparison rather than a
+cache artifact.
+
+\llmBudgetEquivalenceTable
+
+The budget-equivalence sweep is the sharper test. Sparse OpenAI guidance keeps
+high ISE under only eight interventions per run. When generated guidance is
+given static-beacon or entropy-targeted intervention budgets, its ISE falls
+substantially. The equal-budget variants reduce HCI relative to sparse LLM
+guidance, but they do not dominate the conservative deterministic baselines.
+This supports the strongest bounded LLM claim: validated generated guidance can
+be a high-efficiency sparse intervention, but it is not a drop-in replacement
+for deterministic safety-control policies.
+
+\llmClaimStatisticsTable
+
+Seed-level tests reinforce that interpretation. Sparse safety-prompt guidance
+has significantly higher ISE than the static beacon, entropy-targeted, and
+bottleneck-avoidance baselines in the prompt-objective study. The same
+comparisons do not show an HCI improvement. The budget-equivalence comparisons
+show the reverse pressure: larger generated-message budgets lower HCI
+descriptively, but significantly weaken the sparse LLM ISE advantage. The
+paper should therefore present LLM guidance as a bounded generative extension:
+novel because it evaluates generated emergency messages as safety-control
+actions, but still limited by route-convergence risk and intervention-budget
+sensitivity.
