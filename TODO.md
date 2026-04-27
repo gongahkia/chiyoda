@@ -75,9 +75,10 @@ Next LLM work:
 1. Add a robustness extension for LLM guidance across hazard severity and
    population familiarity, probably smaller than the 900-run deterministic grid
    unless the paper needs a full factorial extension.
-   - Status: study config added at
-     `scenarios/study_llm_regime_robustness.yaml`; execution and summary
-     interpretation are still pending.
+   - Status: completed the focused 90-run OpenAI/replay extension in
+     `out/llm_regime_robustness` and integrated the high-level result into the
+     limitations section. Replay exactly matches live aggregate outcomes; HCI
+     still rises sharply under high hazard severity.
 2. Add target-selection ablations so LLM text quality is separated from who
    receives messages.
    - Status: `llm_target_policy` support and a paper-safe template ablation
@@ -93,6 +94,7 @@ Next LLM work:
    organization/project API key if the LLM extension is going to be claimed
    beyond cached artifacts. The deterministic baseline package must continue
    to pass without any live API key.
+   - Status: completed for `scenarios/study_llm_regime_robustness.yaml`.
 6. Reconcile LLM documentation so `README.md`, `paper/REPRODUCIBILITY.md`,
    `paper/sections/limitations.tex`, and this TODO agree on which LLM results
    are completed, which are cached/replayable, and which are future work.

@@ -147,6 +147,26 @@ verification. The current medium run contains 80 completed runs across 8
 variants and 10 seeds. Treat it as an extension study; it should not replace
 the deterministic baseline evidence.
 
+The focused LLM regime robustness extension can be run with checkpoints:
+
+```sh
+PYTHONPATH=. .venv/bin/python scripts/run_study_progress.py \
+  scenarios/study_llm_regime_robustness.yaml \
+  -o out/llm_regime_robustness \
+  --checkpoint-dir out/llm_regime_robustness.checkpoints \
+  --resume \
+  --no-figures
+PYTHONPATH=. .venv/bin/python scripts/summarize_llm_interventions.py \
+  out/llm_regime_robustness
+```
+
+The current run contains 90 completed runs: nine hazard/familiarity regimes,
+five seeds per regime, one live OpenAI safety-strict cache-population variant,
+and one replay-only variant per regime. It produced 360 live generated-message
+events, 359 accepted OpenAI messages, one rejected congested-exit
+recommendation handled by deterministic fallback, and exact replay agreement
+on aggregate outcomes.
+
 ## Artifact Index
 
 Each study directory has the same structure:

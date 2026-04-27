@@ -94,6 +94,42 @@ under this intervention budget, and replay exactly matches the safety-strict
 live variant. However, the harmful-convergence index remains high. The
 extension therefore supports a cautious paper claim: validated generated
 messages can be made replayable and efficient, but richer adaptive language
-does not by itself solve crowd synchronization risk. The next experiment
-should test whether LLM guidance can reduce HCI under controlled target
-selection, hazard severity, and population familiarity regimes.
+does not by itself solve crowd synchronization risk.
+
+\subsection{LLM Regime Robustness Check}
+\label{subsec:llm-regime-robustness}
+
+We therefore ran a focused LLM robustness extension over the same
+hazard-severity and population-familiarity axes used in the deterministic
+regime grid. The extension contains nine regimes, five seeds per regime, one
+live OpenAI safety-strict cache-population variant, and one replay-only variant
+per regime. Each run uses the same eight-attempt intervention budget as the
+medium safety-strict LLM policy.
+
+\begin{table}[t]
+\centering
+\small
+\begin{tabular}{lrrr}
+\toprule
+Hazard & Evacuated & ISE & HCI \\
+\midrule
+Low & 10.00 & 0.0417 & 3.75 \\
+Medium & 9.27 & 0.0434 & 8.93 \\
+High & 9.33 & 0.0293 & 18.92 \\
+\bottomrule
+\end{tabular}
+\caption{Focused LLM regime robustness extension, averaged across
+low, mixed, and high population-familiarity regimes. The replay-only variants
+match the live OpenAI aggregate metrics exactly.}
+\label{tab:llm-regime-extension}
+\end{table}
+
+The live run produced 360 generated-message events. Safety validation accepted
+359 OpenAI messages and rejected one congested-exit recommendation, which was
+handled by the deterministic fallback. Replay reproduced the live aggregate
+outcomes exactly across evacuated count, ISE, HCI, intervention count, and
+recipient count. The robustness check strengthens the reproducibility claim
+for generated guidance, but it also sharpens the limitation: HCI rises sharply
+with hazard severity. LLM guidance remains safety-efficient under a small
+budget, but it still does not solve harmful convergence in severe hazard
+regimes.
