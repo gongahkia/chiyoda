@@ -1,0 +1,198 @@
+hazard_low: &hazard_low
+  hazards:
+    - type: "GAS"
+      location: [20, 10]
+      radius: 0.5
+      severity: 0.45
+      spread_rate: 0.10
+      diffusion_rate: 0.05
+      wind_vector: [0.1, 0.0]
+      visibility_reduction: 0.20
+
+hazard_medium: &hazard_medium
+  hazards:
+    - type: "GAS"
+      location: [20, 10]
+      radius: 0.5
+      severity: 0.70
+      spread_rate: 0.15
+      diffusion_rate: 0.08
+      wind_vector: [0.1, 0.0]
+      visibility_reduction: 0.30
+
+hazard_high: &hazard_high
+  hazards:
+    - type: "GAS"
+      location: [20, 10]
+      radius: 0.5
+      severity: 0.90
+      spread_rate: 0.22
+      diffusion_rate: 0.12
+      wind_vector: [0.1, 0.0]
+      visibility_reduction: 0.45
+
+population_low: &population_low
+  population:
+    total: 120
+    cohorts:
+      - name: "limited_regulars"
+        count: 40
+        personality: "NORMAL"
+        calmness: 0.75
+        familiarity: 0.30
+        group_size: 1
+      - name: "unfamiliar_visitors"
+        count: 80
+        personality: "NORMAL"
+        calmness: 0.60
+        familiarity: 0.05
+        group_size: 2
+
+population_mixed: &population_mixed
+  population:
+    total: 120
+    cohorts:
+      - name: "regular_commuters"
+        count: 80
+        personality: "NORMAL"
+        calmness: 0.80
+        familiarity: 0.70
+        group_size: 1
+      - name: "tourists"
+        count: 40
+        personality: "NORMAL"
+        calmness: 0.60
+        familiarity: 0.10
+        group_size: 2
+
+population_high: &population_high
+  population:
+    total: 120
+    cohorts:
+      - name: "high_familiarity_commuters"
+        count: 100
+        personality: "NORMAL"
+        calmness: 0.82
+        familiarity: 0.90
+        group_size: 1
+      - name: "semi_familiar_visitors"
+        count: 20
+        personality: "NORMAL"
+        calmness: 0.68
+        familiarity: 0.40
+        group_size: 2
+
+llm_openai_safety_strict: &llm_openai_safety_strict
+  interventions:
+    policy: "llm_guidance"
+    start_step: 30
+    interval_steps: 60
+    budget_per_interval: 1
+    message_radius: 6.0
+    credibility: 0.9
+    message_type: "route_guidance"
+    objective: "generated_guidance_regime_robustness"
+    llm_provider: "openai"
+    llm_model: "gpt-5.4-mini"
+    llm_cache_path: "out/llm_cache/regime_openai_safety_strict"
+    llm_cache_mode: "cache_first"
+    llm_store_cache: true
+    llm_prompt_style: "safety"
+    llm_validator_profile: "strict"
+    llm_target_policy: "entropy_targeted"
+    llm_max_radius: 8.0
+
+llm_replay_safety_strict: &llm_replay_safety_strict
+  interventions:
+    policy: "llm_guidance"
+    start_step: 30
+    interval_steps: 60
+    budget_per_interval: 1
+    message_radius: 6.0
+    credibility: 0.9
+    message_type: "route_guidance"
+    objective: "generated_guidance_regime_robustness"
+    llm_provider: "replay"
+    llm_model: "gpt-5.4-mini"
+    llm_cache_path: "out/llm_cache/regime_openai_safety_strict"
+    llm_cache_mode: "replay_only"
+    llm_store_cache: false
+    llm_prompt_style: "safety"
+    llm_validator_profile: "strict"
+    llm_target_policy: "entropy_targeted"
+    llm_max_radius: 8.0
+
+study:
+  name: "LLM Guidance Regime Robustness Extension"
+  description: "Focused LLM extension over the deterministic robustness matrix: three hazard regimes by three population-familiarity regimes, with live cache-population and deterministic replay variants."
+  scenario_file: "station_sarin.yaml"
+  repetitions: 1
+  seeds: [42, 137, 256, 512, 1024]
+  export:
+    profile: "paper"
+    formats: []
+    table_formats: ["parquet", "csv"]
+    include_figures: false
+  variants:
+    - name: "hazard_low__familiarity_low__llm_openai_safety_strict"
+      scenario_overrides:
+        <<: [*hazard_low, *population_low, *llm_openai_safety_strict]
+    - name: "hazard_low__familiarity_low__llm_replay_safety_strict"
+      scenario_overrides:
+        <<: [*hazard_low, *population_low, *llm_replay_safety_strict]
+
+    - name: "hazard_low__familiarity_mixed__llm_openai_safety_strict"
+      scenario_overrides:
+        <<: [*hazard_low, *population_mixed, *llm_openai_safety_strict]
+    - name: "hazard_low__familiarity_mixed__llm_replay_safety_strict"
+      scenario_overrides:
+        <<: [*hazard_low, *population_mixed, *llm_replay_safety_strict]
+
+    - name: "hazard_low__familiarity_high__llm_openai_safety_strict"
+      scenario_overrides:
+        <<: [*hazard_low, *population_high, *llm_openai_safety_strict]
+    - name: "hazard_low__familiarity_high__llm_replay_safety_strict"
+      scenario_overrides:
+        <<: [*hazard_low, *population_high, *llm_replay_safety_strict]
+
+    - name: "hazard_medium__familiarity_low__llm_openai_safety_strict"
+      scenario_overrides:
+        <<: [*hazard_medium, *population_low, *llm_openai_safety_strict]
+    - name: "hazard_medium__familiarity_low__llm_replay_safety_strict"
+      scenario_overrides:
+        <<: [*hazard_medium, *population_low, *llm_replay_safety_strict]
+
+    - name: "hazard_medium__familiarity_mixed__llm_openai_safety_strict"
+      scenario_overrides:
+        <<: [*hazard_medium, *population_mixed, *llm_openai_safety_strict]
+    - name: "hazard_medium__familiarity_mixed__llm_replay_safety_strict"
+      scenario_overrides:
+        <<: [*hazard_medium, *population_mixed, *llm_replay_safety_strict]
+
+    - name: "hazard_medium__familiarity_high__llm_openai_safety_strict"
+      scenario_overrides:
+        <<: [*hazard_medium, *population_high, *llm_openai_safety_strict]
+    - name: "hazard_medium__familiarity_high__llm_replay_safety_strict"
+      scenario_overrides:
+        <<: [*hazard_medium, *population_high, *llm_replay_safety_strict]
+
+    - name: "hazard_high__familiarity_low__llm_openai_safety_strict"
+      scenario_overrides:
+        <<: [*hazard_high, *population_low, *llm_openai_safety_strict]
+    - name: "hazard_high__familiarity_low__llm_replay_safety_strict"
+      scenario_overrides:
+        <<: [*hazard_high, *population_low, *llm_replay_safety_strict]
+
+    - name: "hazard_high__familiarity_mixed__llm_openai_safety_strict"
+      scenario_overrides:
+        <<: [*hazard_high, *population_mixed, *llm_openai_safety_strict]
+    - name: "hazard_high__familiarity_mixed__llm_replay_safety_strict"
+      scenario_overrides:
+        <<: [*hazard_high, *population_mixed, *llm_replay_safety_strict]
+
+    - name: "hazard_high__familiarity_high__llm_openai_safety_strict"
+      scenario_overrides:
+        <<: [*hazard_high, *population_high, *llm_openai_safety_strict]
+    - name: "hazard_high__familiarity_high__llm_replay_safety_strict"
+      scenario_overrides:
+        <<: [*hazard_high, *population_high, *llm_replay_safety_strict]

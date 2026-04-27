@@ -114,3 +114,70 @@ def test_llm_medium_study_has_prompt_and_validator_ablations():
     assert {"state_only", "safety", "entropy"}.issubset(prompt_styles)
     assert {"standard", "strict", "lenient"}.issubset(validator_profiles)
     assert {"template", "openai", "replay"}.issubset(providers)
+
+
+def test_llm_target_selection_ablation_varies_only_target_selector_for_llm_variants():
+    config = load_study_config("scenarios/study_llm_target_selection_ablation.yaml")
+    variants = _materialize_variants(config)
+    manager = ScenarioManager()
+
+    assert len(variants) == 9
+    assert len(config.seeds) == 10
+    assert config.export.include_figures is False
+
+    target_policies = set()
+    for variant in variants:
+        scenario = _prepare_scenario(manager, config.scenario_file, variant, seed=42)
+        interventions = scenario.get("interventions", {})
+        if interventions.get("policy") != "llm_guidance":
+            continue
+        target_policies.add(interventions["llm_target_policy"])
+        assert interventions["llm_provider"] == "template"
+        assert interventions["llm_prompt_style"] == "safety"
+        assert interventions["llm_validator_profile"] == "strict"
+        assert interventions["interval_steps"] == 60
+        assert interventions["budget_per_interval"] == 1
+
+    assert target_policies == {
+        "entropy_targeted",
+        "density_aware",
+        "exposure_aware",
+        "bottleneck_avoidance",
+        "static_beacon",
+        "global_broadcast",
+    }
+
+
+def test_llm_regime_robustness_matrix_shape_and_replay_pairing():
+    config = load_study_config("scenarios/study_llm_regime_robustness.yaml")
+    variants = _materialize_variants(config)
+    manager = ScenarioManager()
+
+    assert len(variants) == 18
+    assert len(config.seeds) == 5
+    assert config.export.include_figures is False
+
+    hazards = set()
+    familiarity = set()
+    providers = set()
+    cache_paths = set()
+    for variant in variants:
+        parts = variant.name.split("__")
+        assert len(parts) == 3
+        hazards.add(parts[0].replace("hazard_", ""))
+        familiarity.add(parts[1].replace("familiarity_", ""))
+        scenario = _prepare_scenario(manager, config.scenario_file, variant, seed=42)
+        assert sum(cohort["count"] for cohort in scenario["population"]["cohorts"]) == 120
+        assert len(scenario["hazards"]) == 1
+        interventions = scenario["interventions"]
+        assert interventions["policy"] == "llm_guidance"
+        assert interventions["llm_prompt_style"] == "safety"
+        assert interventions["llm_validator_profile"] == "strict"
+        assert interventions["llm_target_policy"] == "entropy_targeted"
+        providers.add(interventions["llm_provider"])
+        cache_paths.add(interventions["llm_cache_path"])
+
+    assert hazards == {"low", "medium", "high"}
+    assert familiarity == {"low", "mixed", "high"}
+    assert providers == {"openai", "replay"}
+    assert cache_paths == {"out/llm_cache/regime_openai_safety_strict"}

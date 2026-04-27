@@ -86,6 +86,8 @@ Included study definitions:
 | `study_intervention_ablation.yaml` | Ablate intervention timing, budget, and adaptive target choice |
 | `study_message_quality.yaml` | Stress-test message credibility, delay, and frequency |
 | `study_regime_robustness.yaml` | Full 3x3x5 robustness grid over hazard regime, familiarity regime, and representative communication policy |
+| `study_llm_target_selection_ablation.yaml` | Hold generated-message settings fixed while varying LLM recipient targeting |
+| `study_llm_regime_robustness.yaml` | Focused LLM OpenAI/replay extension over the 3x3 hazard/familiarity regime grid |
 
 The current paper artifact is documented in
 [`paper/REPRODUCIBILITY.md`](./paper/REPRODUCIBILITY.md), including the exact

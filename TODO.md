@@ -75,8 +75,15 @@ Next LLM work:
 1. Add a robustness extension for LLM guidance across hazard severity and
    population familiarity, probably smaller than the 900-run deterministic grid
    unless the paper needs a full factorial extension.
+   - Status: study config added at
+     `scenarios/study_llm_regime_robustness.yaml`; execution and summary
+     interpretation are still pending.
 2. Add target-selection ablations so LLM text quality is separated from who
    receives messages.
+   - Status: `llm_target_policy` support and a paper-safe template ablation
+     config have been added at
+     `scenarios/study_llm_target_selection_ablation.yaml`; full execution and
+     interpretation are still pending.
 3. Add a table-generation script for `paper/sections/limitations.tex` so the
    medium LLM table can be regenerated directly from
    `out/llm_medium/tables/llm_policy_comparison.csv`.

@@ -1,0 +1,114 @@
+llm_interventions: &llm_interventions
+  policy: "llm_guidance"
+  start_step: 30
+  interval_steps: 60
+  budget_per_interval: 1
+  message_radius: 6.0
+  credibility: 0.9
+  message_type: "route_guidance"
+  objective: "generated_guidance_target_selection_ablation"
+  llm_provider: "template"
+  llm_model: "template"
+  llm_cache_mode: "cache_first"
+  llm_store_cache: true
+  llm_prompt_style: "safety"
+  llm_validator_profile: "strict"
+  llm_max_radius: 8.0
+
+study:
+  name: "LLM Guidance Target-Selection Ablation"
+  description: "Separates generated-message effects from recipient-selection effects by holding provider, prompt, validator, cadence, radius, and budget fixed while varying the LLM target selector."
+  scenario_file: "station_sarin.yaml"
+  repetitions: 1
+  seeds: [42, 137, 256, 512, 1024, 2048, 4096, 8192, 10007, 20011]
+  export:
+    profile: "paper"
+    formats: ["png", "svg", "pdf"]
+    table_formats: ["parquet", "csv"]
+    include_figures: false
+  variants:
+    - name: "static_beacon"
+      description: "Conservative deterministic local communication baseline."
+      scenario_overrides:
+        interventions:
+          policy: "static_beacon"
+          start_step: 30
+          interval_steps: 30
+          budget_per_interval: 2
+          message_radius: 8.0
+          credibility: 0.9
+          message_type: "route_guidance"
+
+    - name: "entropy_targeted"
+      description: "Deterministic entropy-targeted adaptive baseline."
+      scenario_overrides:
+        interventions:
+          policy: "entropy_targeted"
+          start_step: 30
+          interval_steps: 20
+          budget_per_interval: 3
+          message_radius: 6.0
+          credibility: 0.9
+          message_type: "route_guidance"
+          objective: "reduce_entropy_without_bottlenecking"
+
+    - name: "bottleneck_avoidance"
+      description: "Deterministic capacity-aware adaptive baseline."
+      scenario_overrides:
+        interventions:
+          policy: "bottleneck_avoidance"
+          start_step: 40
+          interval_steps: 20
+          budget_per_interval: 2
+          message_radius: 7.0
+          credibility: 0.9
+          message_type: "route_guidance"
+          objective: "avoid_bottleneck_convergence"
+
+    - name: "llm_target_entropy"
+      description: "Generated-message policy targeting highest-entropy agents."
+      scenario_overrides:
+        interventions:
+          <<: *llm_interventions
+          llm_cache_path: "out/llm_cache/target_ablation_template_entropy"
+          llm_target_policy: "entropy_targeted"
+
+    - name: "llm_target_density"
+      description: "Generated-message policy targeting dense local clusters."
+      scenario_overrides:
+        interventions:
+          <<: *llm_interventions
+          llm_cache_path: "out/llm_cache/target_ablation_template_density"
+          llm_target_policy: "density_aware"
+
+    - name: "llm_target_exposure"
+      description: "Generated-message policy targeting high current/cumulative exposure pressure."
+      scenario_overrides:
+        interventions:
+          <<: *llm_interventions
+          llm_cache_path: "out/llm_cache/target_ablation_template_exposure"
+          llm_target_policy: "exposure_aware"
+
+    - name: "llm_target_bottleneck"
+      description: "Generated-message policy targeting active bottleneck zones."
+      scenario_overrides:
+        interventions:
+          <<: *llm_interventions
+          llm_cache_path: "out/llm_cache/target_ablation_template_bottleneck"
+          llm_target_policy: "bottleneck_avoidance"
+
+    - name: "llm_target_static"
+      description: "Generated-message policy using fixed static-beacon target locations."
+      scenario_overrides:
+        interventions:
+          <<: *llm_interventions
+          llm_cache_path: "out/llm_cache/target_ablation_template_static"
+          llm_target_policy: "static_beacon"
+
+    - name: "llm_target_global"
+      description: "Generated-message policy using a station-center global target."
+      scenario_overrides:
+        interventions:
+          <<: *llm_interventions
+          llm_cache_path: "out/llm_cache/target_ablation_template_global"
+          llm_target_policy: "global_broadcast"
