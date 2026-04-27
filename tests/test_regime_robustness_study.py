@@ -89,3 +89,28 @@ def test_openai_llm_pilot_has_cache_populate_and_replay_variants():
     assert replay["interventions"]["llm_provider"] == "replay"
     assert replay["interventions"]["llm_cache_mode"] == "replay_only"
     assert openai["interventions"]["llm_cache_path"] == replay["interventions"]["llm_cache_path"]
+
+
+def test_llm_medium_study_has_prompt_and_validator_ablations():
+    config = load_study_config("scenarios/study_llm_medium.yaml")
+    variants = _materialize_variants(config)
+    manager = ScenarioManager()
+
+    assert len(variants) == 8
+    assert len(config.seeds) == 10
+    assert config.export.include_figures is False
+
+    prompt_styles = set()
+    validator_profiles = set()
+    providers = set()
+    for variant in variants:
+        scenario = _prepare_scenario(manager, config.scenario_file, variant, seed=42)
+        interventions = scenario.get("interventions", {})
+        if interventions.get("policy") == "llm_guidance":
+            prompt_styles.add(interventions["llm_prompt_style"])
+            validator_profiles.add(interventions["llm_validator_profile"])
+            providers.add(interventions["llm_provider"])
+
+    assert {"state_only", "safety", "entropy"}.issubset(prompt_styles)
+    assert {"standard", "strict", "lenient"}.issubset(validator_profiles)
+    assert {"template", "openai", "replay"}.issubset(providers)

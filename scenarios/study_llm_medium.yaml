@@ -1,0 +1,154 @@
+study:
+  name: "LLM Guidance Safety-Control Medium Study"
+  description: "Medium controlled LLM extension study with prompt and validator ablations."
+  scenario_file: "station_sarin.yaml"
+  repetitions: 1
+  seeds: [42, 137, 256, 512, 1024, 2048, 4096, 8192, 10007, 20011]
+  export:
+    profile: "paper"
+    formats: ["png", "svg", "pdf"]
+    table_formats: ["parquet", "csv"]
+    include_figures: false
+  variants:
+    - name: "static_beacon"
+      description: "Conservative local deterministic communication baseline."
+      scenario_overrides:
+        interventions:
+          policy: "static_beacon"
+          start_step: 30
+          interval_steps: 30
+          budget_per_interval: 2
+          message_radius: 8.0
+          credibility: 0.9
+          message_type: "route_guidance"
+
+    - name: "entropy_targeted"
+      description: "Deterministic entropy-targeted adaptive baseline."
+      scenario_overrides:
+        interventions:
+          policy: "entropy_targeted"
+          start_step: 30
+          interval_steps: 20
+          budget_per_interval: 3
+          message_radius: 6.0
+          credibility: 0.9
+          message_type: "route_guidance"
+          objective: "reduce_entropy_without_bottlenecking"
+
+    - name: "bottleneck_avoidance"
+      description: "Capacity-aware deterministic adaptive baseline."
+      scenario_overrides:
+        interventions:
+          policy: "bottleneck_avoidance"
+          start_step: 40
+          interval_steps: 20
+          budget_per_interval: 2
+          message_radius: 7.0
+          credibility: 0.9
+          message_type: "route_guidance"
+          objective: "avoid_bottleneck_convergence"
+
+    - name: "llm_template_safety"
+      description: "Deterministic generated-language baseline using safety-framed prompt semantics."
+      scenario_overrides:
+        interventions:
+          policy: "llm_guidance"
+          start_step: 30
+          interval_steps: 30
+          budget_per_interval: 2
+          message_radius: 6.0
+          credibility: 0.9
+          message_type: "route_guidance"
+          objective: "generated_guidance_under_safety_validation"
+          llm_provider: "template"
+          llm_model: "template"
+          llm_cache_path: "out/llm_cache/medium_template_safety"
+          llm_cache_mode: "cache_first"
+          llm_store_cache: true
+          llm_prompt_style: "safety"
+          llm_validator_profile: "standard"
+          llm_max_radius: 8.0
+
+    - name: "llm_openai_state_only"
+      description: "OpenAI generated-message policy with state-only prompt."
+      scenario_overrides:
+        interventions:
+          policy: "llm_guidance"
+          start_step: 30
+          interval_steps: 60
+          budget_per_interval: 1
+          message_radius: 6.0
+          credibility: 0.9
+          message_type: "route_guidance"
+          objective: "generated_guidance_state_only"
+          llm_provider: "openai"
+          llm_model: "gpt-5.4-mini"
+          llm_cache_path: "out/llm_cache/medium_openai_state_only"
+          llm_cache_mode: "cache_first"
+          llm_store_cache: true
+          llm_prompt_style: "state_only"
+          llm_validator_profile: "standard"
+          llm_max_radius: 8.0
+
+    - name: "llm_openai_safety_strict"
+      description: "OpenAI generated-message policy with safety prompt and strict validator."
+      scenario_overrides:
+        interventions:
+          policy: "llm_guidance"
+          start_step: 30
+          interval_steps: 60
+          budget_per_interval: 1
+          message_radius: 6.0
+          credibility: 0.9
+          message_type: "route_guidance"
+          objective: "generated_guidance_safety_strict"
+          llm_provider: "openai"
+          llm_model: "gpt-5.4-mini"
+          llm_cache_path: "out/llm_cache/medium_openai_safety_strict"
+          llm_cache_mode: "cache_first"
+          llm_store_cache: true
+          llm_prompt_style: "safety"
+          llm_validator_profile: "strict"
+          llm_max_radius: 8.0
+
+    - name: "llm_openai_entropy_lenient"
+      description: "OpenAI generated-message policy with entropy prompt and lenient validator."
+      scenario_overrides:
+        interventions:
+          policy: "llm_guidance"
+          start_step: 30
+          interval_steps: 60
+          budget_per_interval: 1
+          message_radius: 6.0
+          credibility: 0.9
+          message_type: "route_guidance"
+          objective: "generated_guidance_entropy_lenient"
+          llm_provider: "openai"
+          llm_model: "gpt-5.4-mini"
+          llm_cache_path: "out/llm_cache/medium_openai_entropy_lenient"
+          llm_cache_mode: "cache_first"
+          llm_store_cache: true
+          llm_prompt_style: "entropy"
+          llm_validator_profile: "lenient"
+          llm_max_radius: 8.0
+
+    - name: "llm_replay_safety_strict"
+      description: "Replay-only verification for the safety-strict OpenAI cache."
+      scenario_overrides:
+        interventions:
+          policy: "llm_guidance"
+          start_step: 30
+          interval_steps: 60
+          budget_per_interval: 1
+          message_radius: 6.0
+          credibility: 0.9
+          message_type: "route_guidance"
+          objective: "generated_guidance_safety_strict"
+          llm_provider: "replay"
+          llm_model: "gpt-5.4-mini"
+          llm_cache_path: "out/llm_cache/medium_openai_safety_strict"
+          llm_cache_mode: "replay_only"
+          llm_store_cache: false
+          llm_prompt_style: "safety"
+          llm_validator_profile: "strict"
+          llm_max_radius: 8.0
