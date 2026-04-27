@@ -167,6 +167,26 @@ events, 359 accepted OpenAI messages, one rejected congested-exit
 recommendation handled by deterministic fallback, and exact replay agreement
 on aggregate outcomes.
 
+The LLM target-selection ablation can be run without live API calls:
+
+```sh
+PYTHONPATH=. .venv/bin/python scripts/run_study_progress.py \
+  scenarios/study_llm_target_selection_ablation.yaml \
+  -o out/llm_target_selection_ablation \
+  --checkpoint-dir out/llm_target_selection_ablation.checkpoints \
+  --resume \
+  --no-figures
+PYTHONPATH=. .venv/bin/python scripts/summarize_llm_interventions.py \
+  out/llm_target_selection_ablation
+```
+
+The current run contains 90 completed runs: three deterministic baselines and
+six generated-message target selectors over ten seeds. All generated template
+messages passed validation. The best generated-message ISE came from
+bottleneck targeting (0.0450), followed by entropy targeting (0.0422), density
+targeting (0.0391), and static targeting (0.0354). Global and exposure
+targeting were much weaker under the same generated-message budget.
+
 ## Artifact Index
 
 Each study directory has the same structure:

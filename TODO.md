@@ -81,10 +81,11 @@ Next LLM work:
      still rises sharply under high hazard severity.
 2. Add target-selection ablations so LLM text quality is separated from who
    receives messages.
-   - Status: `llm_target_policy` support and a paper-safe template ablation
-     config have been added at
-     `scenarios/study_llm_target_selection_ablation.yaml`; full execution and
-     interpretation are still pending.
+   - Status: completed the 90-run template target-selection ablation in
+     `out/llm_target_selection_ablation` and integrated the high-level result
+     into the limitations section. Target selection materially changes ISE:
+     bottleneck, entropy, density, and static targeting are much stronger than
+     global or exposure targeting under the same generated-message budget.
 3. Add a table-generation script for `paper/sections/limitations.tex` so the
    medium LLM table can be regenerated directly from
    `out/llm_medium/tables/llm_policy_comparison.csv`.
@@ -98,6 +99,7 @@ Next LLM work:
 6. Reconcile LLM documentation so `README.md`, `paper/REPRODUCIBILITY.md`,
    `paper/sections/limitations.tex`, and this TODO agree on which LLM results
    are completed, which are cached/replayable, and which are future work.
+   - Status: updated after the regime robustness and target-selection runs.
 
 ## Paper hardening checklist
 
@@ -233,10 +235,12 @@ Possible implementation path:
 
 3. Regenerable LLM table integration.
    - `paper/sections/limitations.tex` currently contains a hand-maintained
-     medium LLM table.
+     medium LLM table plus hand-maintained regime and target-selection tables.
    - Add a table-generation script or extend `paper/scripts/gen_stats.py` so
-     the table can be regenerated from
-     `out/llm_medium/tables/llm_policy_comparison.csv`.
+     the tables can be regenerated from:
+     - `out/llm_medium/tables/llm_policy_comparison.csv`
+     - `out/llm_regime_robustness/tables/llm_policy_comparison.csv`
+     - `out/llm_target_selection_ablation/tables/llm_policy_comparison.csv`
 
 4. Fresh live OpenAI verification.
    - Existing cached artifacts show prior OpenAI pilots and replay coverage.
@@ -251,3 +255,17 @@ Possible implementation path:
    - The simulator still needs external validation against richer geometries,
      calibrated population behavior, hazard models, drills, VR traces, or
      incident records before any operational-readiness claim.
+
+6. Full paper build and release-readiness check.
+   - Smoke builds pass, but the ACM-style `make paper` build should be run
+     before release if the local environment has `acmart.cls` and `latexmk`.
+   - Confirm the final PDF table placement after adding the LLM medium,
+     target-selection, and regime robustness tables.
+
+7. Direct deterministic-versus-LLM regime comparison.
+   - Add a compact summary that joins
+     `out/regime_robustness_900/tables/regime_summary.csv` with
+     `out/llm_regime_robustness/tables/llm_policy_comparison.csv`.
+   - Use it to state exactly where LLM guidance beats or trails static beacon,
+     global broadcast, entropy targeting, and bottleneck avoidance by ISE and
+     HCI.

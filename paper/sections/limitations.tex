@@ -96,6 +96,50 @@ extension therefore supports a cautious paper claim: validated generated
 messages can be made replayable and efficient, but richer adaptive language
 does not by itself solve crowd synchronization risk.
 
+\subsection{LLM Target-Selection Ablation}
+\label{subsec:llm-target-selection}
+
+The medium LLM result also has an important confound: the generated-message
+policies use a much smaller recipient budget than the deterministic policies.
+To separate generated-message behavior from recipient selection, we ran a
+target-selection ablation with deterministic template generation. The provider,
+prompt style, validator profile, cadence, radius, and budget are held fixed;
+only the target selector changes.
+
+\begin{table}[t]
+\centering
+\small
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{lrrrr}
+\toprule
+Target selector & Evacuated & ISE & HCI & Recipients \\
+\midrule
+Bottleneck & 9.2 & 0.0450 & 8.48 & 85.4 \\
+Entropy & 9.7 & 0.0422 & 8.66 & 128.5 \\
+Density & 10.2 & 0.0391 & 7.35 & 146.3 \\
+Static & 10.0 & 0.0354 & 7.84 & 95.5 \\
+Global & 9.3 & 0.0106 & 8.58 & 67.7 \\
+Exposure & 9.3 & 0.0087 & 8.45 & 72.1 \\
+\bottomrule
+\end{tabular}
+}
+\caption{LLM target-selection ablation over ten seeds using deterministic
+template generation. Message-generation settings are fixed; only recipient
+selection changes.}
+\label{tab:llm-target-selection}
+\end{table}
+
+The ablation shows that target selection is not a minor implementation detail.
+Bottleneck, entropy, density, and static target selectors all produce much
+higher ISE than the deterministic baselines under a small generated-message
+budget, while global and exposure targeting fall close to the deterministic
+frontier. Density targeting has the best evacuation count among the generated
+variants and the lowest generated-policy HCI, but it still does not beat the
+static deterministic beacon on harmful convergence. The implication is that
+the LLM extension should not be interpreted as a language-only improvement.
+The safety effect is created by a coupled design: bounded messages, validation,
+small recipient budgets, and target selection.
+
 \subsection{LLM Regime Robustness Check}
 \label{subsec:llm-regime-robustness}
 
