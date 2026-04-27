@@ -91,9 +91,9 @@ def test_policy_comparison_keeps_core_metrics():
                 "evacuated": 1,
             },
             {
-                "record_type": "aggregate",
+                "record_type": "variant_aggregate",
                 "variant_name": "llm",
-                "evacuated": 2,
+                "agents_evacuated": 2,
                 "information_safety_efficiency": 0.1,
                 "harmful_convergence_index": 3.0,
             },
@@ -103,4 +103,23 @@ def test_policy_comparison_keeps_core_metrics():
     comparison = _policy_comparison(summary)
 
     assert list(comparison["variant_name"]) == ["llm"]
+    assert comparison["agents_evacuated"].iloc[0] == 2
     assert comparison["information_safety_efficiency"].iloc[0] == 0.1
+
+
+def test_policy_comparison_supports_legacy_aggregate_rows():
+    summary = pd.DataFrame(
+        [
+            {
+                "record_type": "aggregate",
+                "variant_name": "legacy_llm",
+                "evacuated": 3,
+                "information_safety_efficiency": 0.2,
+            },
+        ]
+    )
+
+    comparison = _policy_comparison(summary)
+
+    assert list(comparison["variant_name"]) == ["legacy_llm"]
+    assert comparison["agents_evacuated"].iloc[0] == 3

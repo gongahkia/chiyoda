@@ -112,10 +112,12 @@ def _validation_reasons(llm: pd.DataFrame) -> pd.DataFrame:
 
 
 def _policy_comparison(summary: pd.DataFrame) -> pd.DataFrame:
-    run_rows = summary[summary["record_type"] == "aggregate"].copy()
+    run_rows = summary[summary["record_type"].isin(["variant_aggregate", "aggregate"])].copy()
+    if "agents_evacuated" not in run_rows.columns and "evacuated" in run_rows.columns:
+        run_rows["agents_evacuated"] = run_rows["evacuated"]
     columns = [
         "variant_name",
-        "evacuated",
+        "agents_evacuated",
         "mean_travel_time_s",
         "mean_hazard_exposure",
         "information_safety_efficiency",
