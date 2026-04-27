@@ -13,12 +13,15 @@ study and paper stable before starting extension work.
      - Hazard-convergence index.
      - Broad reach versus useful safety effect.
      - Cases where entropy or accuracy gains can worsen exposure.
-   - Update the LaTeX sections after the robustness summary is available.
+   - Status: the robustness summary is integrated, but the paper still needs a
+     final narrative and reviewer-risk pass before submission.
 
 2. Run core verification before treating the baseline package as paper-ready.
    - Run the Python test suite.
    - Run the paper smoke build.
    - Confirm reproduction commands and artifact paths in `paper/REPRODUCIBILITY.md`.
+   - Status: `PYTHONPATH=. pytest -q` passes and the paper smoke build succeeds
+     against `out/information_control_50`.
 
 ## Active LLM study work
 
@@ -79,6 +82,13 @@ Next LLM work:
    `out/llm_medium/tables/llm_policy_comparison.csv`.
 4. Decide whether LLM results belong in the main paper as an extension section
    or should be held for a follow-on paper after robustness is complete.
+5. Run a fresh opt-in live OpenAI validation pass with the intended
+   organization/project API key if the LLM extension is going to be claimed
+   beyond cached artifacts. The deterministic baseline package must continue
+   to pass without any live API key.
+6. Reconcile LLM documentation so `README.md`, `paper/REPRODUCIBILITY.md`,
+   `paper/sections/limitations.tex`, and this TODO agree on which LLM results
+   are completed, which are cached/replayable, and which are future work.
 
 ## Paper hardening checklist
 
@@ -180,16 +190,55 @@ Possible implementation path:
      and `bottleneck_avoidance`.
    - Separate language value from extra information access by controlling the
      simulator state exposed to each policy.
-   - Status: optional deterministic pilot scenario added; full comparison has
-     not been run or claimed. Tiny OpenAI/replay and medium LLM study configs
-     are implemented but still need execution and interpretation.
+   - Status: tiny OpenAI/replay and medium LLM studies have been executed and
+     summarized. The remaining gap is not first-pass comparison, but robustness
+     across regimes and target-selection ablations that separate message
+     generation from recipient choice.
 
 5. Frame the paper extension carefully.
    - Strong framing: "LLM evacuation guidance must be evaluated as safety
      control."
    - Weak framing to avoid: "LLMs improve evacuation because messages sound
      more natural."
-   - Decide after the first full paper draft whether this belongs in the same
-     paper as a controlled extension or in a follow-on paper.
-   - Status: method and implementation sections now describe the LLM extension
-     as optional, bounded, cached, validated, and not yet a completed result.
+   - Decide whether the current bounded extension belongs in the main paper or
+     should be held for a follow-on paper after robustness is complete.
+   - Status: method, implementation, and limitations sections describe the LLM
+     extension as optional, bounded, cached, validated, and empirically
+     preliminary.
+
+## Remaining confirmed gaps
+
+1. LLM robustness extension across hazard severity and population familiarity.
+   - Needed because the medium LLM result is currently a single scenario
+     extension, while the deterministic baseline has a 900-run regime grid.
+   - The next study should test whether LLM guidance retains high ISE and
+     whether it can reduce HCI under low/mixed/high familiarity and
+     low/medium/high hazard regimes.
+
+2. LLM target-selection ablations.
+   - Needed because the medium LLM result is confounded by a much smaller
+     intervention budget and recipient count than the deterministic baselines.
+   - Hold provider, prompt style, validator profile, message radius, cadence,
+     and budget fixed while varying who receives messages: entropy, density,
+     exposure, bottleneck, static-beacon, and global target selection.
+
+3. Regenerable LLM table integration.
+   - `paper/sections/limitations.tex` currently contains a hand-maintained
+     medium LLM table.
+   - Add a table-generation script or extend `paper/scripts/gen_stats.py` so
+     the table can be regenerated from
+     `out/llm_medium/tables/llm_policy_comparison.csv`.
+
+4. Fresh live OpenAI verification.
+   - Existing cached artifacts show prior OpenAI pilots and replay coverage.
+   - Before strengthening any LLM claim, run the intended live OpenAI
+     smoke/medium or robustness subset with the actual organization/project
+     API key, then verify cache hits, misses, validation reasons, fallback
+     counts, replay identity, and cost/log metadata.
+
+5. Paper hardening and external-validity limits.
+   - Continue tightening methods, statistical interpretation, related work,
+     and reviewer-facing limitations.
+   - The simulator still needs external validation against richer geometries,
+     calibrated population behavior, hazard models, drills, VR traces, or
+     incident records before any operational-readiness claim.
