@@ -52,6 +52,7 @@ class InformationInterventionConfig:
     llm_cache_mode: str = "cache_first"
     llm_store_cache: bool = True
     llm_max_radius: Optional[float] = None
+    llm_prompt_style: str = "safety"
 
     @classmethod
     def from_mapping(cls, payload: Optional[Dict[str, Any]]) -> "InformationInterventionConfig":
@@ -77,6 +78,7 @@ class InformationInterventionConfig:
             llm_max_radius=None
             if data.get("llm_max_radius") is None
             else float(data.get("llm_max_radius")),
+            llm_prompt_style=str(data.get("llm_prompt_style", "safety")),
         )
 
 
@@ -461,6 +463,7 @@ class LLMGuidancePolicy(EntropyTargetedPolicy):
             target=target.point,
             selected_reason=target.reason,
             objective=self.config.objective,
+            prompt_style=self.config.llm_prompt_style,
             exits=[tuple(exit_.pos) for exit_ in simulation.exits],
             hazards=[
                 HazardSnapshot(

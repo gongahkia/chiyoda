@@ -9,6 +9,7 @@ from chiyoda.information.llm import (
     OpenAIResponsesGenerator,
     TemplateLLMGenerator,
     ValidationResult,
+    build_prompt_instructions,
     load_openai_api_key,
     validate_generated_message,
 )
@@ -27,6 +28,7 @@ def _request() -> LLMMessageRequest:
         recipients_estimate=4,
         mean_local_density=0.3,
         mean_hazard_load=0.1,
+        prompt_style="safety",
     )
 
 
@@ -64,6 +66,29 @@ def test_template_generator_avoids_congested_exit():
     assert message.provider == "deterministic"
     assert message.recommended_exits == [(10, 1)]
     assert message.avoid_exits == [(1, 1)]
+
+
+def test_prompt_style_changes_cache_key_and_instructions():
+    safety = _request()
+    minimal = LLMMessageRequest(
+        policy=safety.policy,
+        step=safety.step,
+        target=safety.target,
+        selected_reason=safety.selected_reason,
+        objective=safety.objective,
+        exits=safety.exits,
+        hazards=safety.hazards,
+        congested_exits=safety.congested_exits,
+        recipients_estimate=safety.recipients_estimate,
+        mean_local_density=safety.mean_local_density,
+        mean_hazard_load=safety.mean_hazard_load,
+        prompt_style="minimal",
+    )
+    cache = LLMMessageCache("/tmp/unused")
+
+    assert cache.key_for(safety) != cache.key_for(minimal)
+    assert "reducing hazard exposure" in build_prompt_instructions("safety")
+    assert "smallest possible instruction" in build_prompt_instructions("minimal")
 
 
 def test_validator_rejects_invented_exit_and_hazard():

@@ -43,6 +43,7 @@ class LLMMessageRequest:
     recipients_estimate: int
     mean_local_density: float
     mean_hazard_load: float
+    prompt_style: str = "safety"
 
 
 @dataclass
@@ -99,6 +100,7 @@ class LLMGenerationRecord:
                 target=tuple(request_payload["target"]),
                 selected_reason=str(request_payload["selected_reason"]),
                 objective=str(request_payload["objective"]),
+                prompt_style=str(request_payload.get("prompt_style", "safety")),
                 exits=[tuple(item) for item in request_payload["exits"]],
                 hazards=[
                     HazardSnapshot(
@@ -241,15 +243,8 @@ class OpenAIResponsesGenerator(LLMMessageGenerator):
             "model": self.model,
             "store": False,
             "max_output_tokens": 500,
-            "instructions": (
-                "You are proposing emergency evacuation guidance for a research "
-                "simulator. Return only valid JSON with keys: text, "
-                "recommended_exits, avoid_exits, hazard_positions, confidence, "
-                "abstain. recommended_exits and avoid_exits must use only exits "
-                "from the provided state. hazard_positions must use only listed "
-                "hazard positions. Abstain if no safe bounded message is possible."
-            ),
-            "input": json.dumps(_to_jsonable(request), sort_keys=True),
+            "instructions": build_prompt_instructions(request.prompt_style),
+            "input": json.dumps(_prompt_payload(request), sort_keys=True),
         }
         api_request = urlrequest.Request(
             self.endpoint,
@@ -352,6 +347,53 @@ def validate_generated_message(
         reasons.append(f"low_confidence:{message.confidence:.2f}")
 
     return ValidationResult(accepted=not reasons, reasons=reasons)
+
+
+def build_prompt_instructions(prompt_style: str) -> str:
+    base = (
+        "You are proposing emergency evacuation guidance for a research "
+        "simulator. Return only valid JSON with keys: text, recommended_exits, "
+        "avoid_exits, hazard_positions, confidence, abstain. recommended_exits "
+        "and avoid_exits must use only exits from the provided state. "
+        "hazard_positions must use only listed hazard positions. Abstain if no "
+        "safe bounded message is possible."
+    )
+    variants = {
+        "minimal": "Use the smallest possible instruction and do not infer missing state.",
+        "state_only": "Use only the listed exits, hazards, congestion, and target context.",
+        "safety": (
+            "Prioritize reducing hazard exposure, queue pressure, and route "
+            "convergence. Prefer clear local guidance over broad synchronized movement."
+        ),
+        "entropy": (
+            "Prioritize reducing uncertainty for recipients while avoiding "
+            "unsafe convergence or invented information."
+        ),
+    }
+    return f"{base} {variants.get(prompt_style, variants['safety'])}"
+
+
+def _prompt_payload(request: LLMMessageRequest) -> Dict[str, Any]:
+    payload = _to_jsonable(request)
+    if request.prompt_style == "minimal":
+        return {
+            "prompt_style": request.prompt_style,
+            "exits": payload["exits"],
+            "hazards": payload["hazards"],
+            "congested_exits": payload["congested_exits"],
+        }
+    if request.prompt_style == "state_only":
+        return {
+            "prompt_style": request.prompt_style,
+            "target": payload["target"],
+            "exits": payload["exits"],
+            "hazards": payload["hazards"],
+            "congested_exits": payload["congested_exits"],
+            "recipients_estimate": payload["recipients_estimate"],
+            "mean_local_density": payload["mean_local_density"],
+            "mean_hazard_load": payload["mean_hazard_load"],
+        }
+    return payload
 
 
 def load_openai_api_key(env_path: Path | str = ".env") -> Optional[str]:
