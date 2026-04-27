@@ -109,6 +109,10 @@ class InterventionMessage:
     validation_reasons: Sequence[str] = field(default_factory=list)
     cache_key: str = ""
     cache_status: str = ""
+    generated_recommended_exits: Sequence[Cell] = field(default_factory=list)
+    generated_avoid_exits: Sequence[Cell] = field(default_factory=list)
+    generated_confidence: float = 0.0
+    used_fallback: bool = False
 
 
 @dataclass
@@ -138,6 +142,10 @@ class InterventionEvent:
     validation_reasons: str = ""
     cache_key: str = ""
     cache_status: str = ""
+    generated_recommended_exits: str = ""
+    generated_avoid_exits: str = ""
+    generated_confidence: float = 0.0
+    used_fallback: bool = False
 
 
 class InterventionPolicy:
@@ -397,8 +405,10 @@ class LLMGuidancePolicy(EntropyTargetedPolicy):
 
         if validation.accepted:
             effective = generated
+            used_fallback = False
         else:
             effective = self._fallback_message(request)
+            used_fallback = True
 
         if (
             self.cache is not None
@@ -431,6 +441,10 @@ class LLMGuidancePolicy(EntropyTargetedPolicy):
             validation_reasons=validation.reasons,
             cache_key=cache_key,
             cache_status=cache_status,
+            generated_recommended_exits=generated.recommended_exits,
+            generated_avoid_exits=generated.avoid_exits,
+            generated_confidence=float(generated.confidence),
+            used_fallback=used_fallback,
         )
 
     def _generate_message(
@@ -586,6 +600,10 @@ def _apply_message(
         validation_reasons=";".join(message.validation_reasons),
         cache_key=message.cache_key,
         cache_status=message.cache_status,
+        generated_recommended_exits=";".join(str(tuple(item)) for item in message.generated_recommended_exits),
+        generated_avoid_exits=";".join(str(tuple(item)) for item in message.generated_avoid_exits),
+        generated_confidence=float(message.generated_confidence),
+        used_fallback=bool(message.used_fallback),
     )
 
 

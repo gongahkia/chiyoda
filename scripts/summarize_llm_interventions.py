@@ -71,6 +71,11 @@ def _generation_summary(llm: pd.DataFrame) -> pd.DataFrame:
                 "accepted": int(validation_counts.get("accepted", 0)),
                 "rejected": int(validation_counts.get("rejected", 0)),
                 "unique_cache_keys": int(group["cache_key"].replace("", pd.NA).dropna().nunique()),
+                "fallback_events": _fallback_count(group),
+                "mean_generated_confidence": _mean_column(group, "generated_confidence"),
+                "recommendation_diversity": _token_diversity(group, "generated_recommended_exits"),
+                "avoidance_diversity": _token_diversity(group, "generated_avoid_exits"),
+                "raw_congested_recommendations": _reason_count(group, "congested_recommendation"),
                 "mean_entropy_delta": float(group["entropy_delta"].mean()),
                 "mean_accuracy_delta": float(group["accuracy_delta"].mean()),
             }
@@ -120,6 +125,42 @@ def _policy_comparison(summary: pd.DataFrame) -> pd.DataFrame:
     ]
     available = [column for column in columns if column in run_rows.columns]
     return run_rows[available].sort_values("variant_name")
+
+
+def _fallback_count(group: pd.DataFrame) -> int:
+    if "used_fallback" not in group.columns:
+        return 0
+    return int(group["used_fallback"].fillna(False).astype(bool).sum())
+
+
+def _mean_column(group: pd.DataFrame, column: str) -> float:
+    if column not in group.columns:
+        return 0.0
+    values = pd.to_numeric(group[column], errors="coerce").dropna()
+    if values.empty:
+        return 0.0
+    return float(values.mean())
+
+
+def _token_diversity(group: pd.DataFrame, column: str) -> int:
+    if column not in group.columns:
+        return 0
+    tokens = set()
+    for raw in group[column].fillna(""):
+        for token in str(raw).split(";"):
+            token = token.strip()
+            if token:
+                tokens.add(token)
+    return len(tokens)
+
+
+def _reason_count(group: pd.DataFrame, prefix: str) -> int:
+    if "validation_reasons" not in group.columns:
+        return 0
+    count = 0
+    for raw in group["validation_reasons"].fillna(""):
+        count += sum(1 for reason in str(raw).split(";") if reason.startswith(prefix))
+    return count
 
 
 if __name__ == "__main__":

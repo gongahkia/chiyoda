@@ -667,6 +667,10 @@ def _collect_run_tables(
                 "validation_reasons": event.validation_reasons,
                 "cache_key": event.cache_key,
                 "cache_status": event.cache_status,
+                "generated_recommended_exits": event.generated_recommended_exits,
+                "generated_avoid_exits": event.generated_avoid_exits,
+                "generated_confidence": event.generated_confidence,
+                "used_fallback": event.used_fallback,
             }
         )
 

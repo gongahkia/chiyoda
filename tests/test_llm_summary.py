@@ -19,6 +19,10 @@ def test_generation_summary_counts_cache_and_validation_status():
                 "cache_status": "miss",
                 "validation_status": "accepted",
                 "cache_key": "a",
+                "generated_recommended_exits": "(10, 1)",
+                "generated_avoid_exits": "(1, 1)",
+                "generated_confidence": 0.7,
+                "used_fallback": False,
                 "recipients": 3,
                 "entropy_delta": -0.2,
                 "accuracy_delta": 0.3,
@@ -30,6 +34,11 @@ def test_generation_summary_counts_cache_and_validation_status():
                 "cache_status": "hit",
                 "validation_status": "rejected",
                 "cache_key": "b",
+                "generated_recommended_exits": "(1, 1)",
+                "generated_avoid_exits": "",
+                "generated_confidence": 0.3,
+                "used_fallback": True,
+                "validation_reasons": "congested_recommendation:(1, 1)",
                 "recipients": 2,
                 "entropy_delta": -0.1,
                 "accuracy_delta": 0.1,
@@ -45,6 +54,9 @@ def test_generation_summary_counts_cache_and_validation_status():
     assert summary.loc[0, "accepted"] == 1
     assert summary.loc[0, "rejected"] == 1
     assert summary.loc[0, "unique_cache_keys"] == 2
+    assert summary.loc[0, "fallback_events"] == 1
+    assert summary.loc[0, "recommendation_diversity"] == 2
+    assert summary.loc[0, "raw_congested_recommendations"] == 1
 
 
 def test_validation_reasons_counts_accepted_and_rejected_reasons():

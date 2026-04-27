@@ -160,6 +160,9 @@ class TestInformationInterventions:
         assert event.validation_status == "accepted"
         assert event.cache_key
         assert event.cache_status == "miss"
+        assert event.generated_recommended_exits
+        assert event.generated_confidence > 0.0
+        assert event.used_fallback is False
         assert list(tmp_path.glob("*.json"))
 
     def test_llm_guidance_uses_cache_first_without_regeneration(self, tmp_path):
