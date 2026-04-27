@@ -49,13 +49,13 @@ checklist to the current Chiyoda draft. It is not part of the manuscript.
 
 1. Contribution: The paper contributes a safety-control framing, coupled
    metrics, reproducible studies, and a bounded generated-guidance extension.
-   Remaining risk: reviewers may ask why this is not simply another evacuation
-   simulator; the introduction and claim matrix now foreground the
-   information-control thesis.
+   Remaining risk mitigated: the introduction and implementation now foreground
+   the information-control thesis and explain why the simulator is organized
+   around controllable communication actions rather than generic crowd motion.
 
 2. Writing clarity: Core terms are stable: ISE, HCI, information-safety
    efficiency, harmful convergence, generated guidance. Remaining risk:
-   `limitations.tex` carries much of the LLM result; table placement should be
+   LLM tables are now in `evaluation.tex`, but table placement should still be
    checked in the final ACM PDF.
 
 3. Experimental strength: The deterministic evidence is broad for a stylized

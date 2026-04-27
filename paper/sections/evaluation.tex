@@ -1,6 +1,8 @@
 \section{Evaluation}
 \label{sec:evaluation}
 
+\input{llm_tables}
+
 We evaluate Chiyoda with one primary policy comparison and two supporting
 stress studies. The primary study is
 \texttt{study\_information\_control.yaml}, a 50-seed comparison of eight
@@ -239,10 +241,142 @@ policies currently look like conservative baselines, while entropy targeting is
 scientifically valuable because it exposes the failure mode created by
 overconfident, synchronized route choice.
 
+\subsection{Bounded LLM Guidance Extension}
+\label{subsec:llm-guidance-evaluation}
+
+The LLM extension tests generated evacuation messages as constrained control
+actions, not as unconstrained advice. The simulator exposes a structured state
+summary, asks the provider for recommended exits, avoided exits, hazard
+references, confidence, and optional abstention, and validates the proposal
+before it can affect agent beliefs. Paper-facing runs use cache-first or
+replay-only execution, record model metadata and validation outcomes, and
+compare generated guidance with deterministic policies by ISE and HCI rather
+than by fluency.
+
+\subsubsection{Medium LLM Extension Result}
+\label{subsec:llm-medium-result}
+
+A first medium-scale LLM extension study applies this protocol to 80 runs:
+eight policy variants across ten random seeds. The study includes the
+deterministic baselines, a deterministic template generator, three live OpenAI
+prompt/validator ablations, and a replay-only verification variant. The live
+LLM policies make only eight intervention attempts per run, compared with
+32--72 interventions for the deterministic communication policies.
+
+\llmMediumTable
+
+The result is useful but bounded. The live OpenAI variants achieve higher
+information-safety efficiency than the deterministic policies under this
+intervention budget, and replay exactly matches the safety-strict live
+variant. However, the harmful-convergence index remains high. The extension
+therefore supports a cautious claim: validated generated messages can be made
+replayable and efficient, but richer adaptive language does not by itself
+solve crowd synchronization risk.
+
+\subsubsection{Target-Selection Ablation}
+\label{subsec:llm-target-selection}
+
+The medium LLM result has an important confound: the generated-message
+policies use a much smaller recipient budget than the deterministic policies.
+To separate generated-message behavior from recipient selection, we ran a
+target-selection ablation with deterministic template generation. The provider,
+prompt style, validator profile, cadence, radius, and budget are held fixed;
+only the target selector changes.
+
+\llmTargetSelectionTable
+
+The ablation shows that target selection is not a minor implementation detail.
+Bottleneck, entropy, density, and static target selectors all produce much
+higher ISE than the deterministic baselines under a small generated-message
+budget, while global and exposure targeting fall close to the deterministic
+frontier. Density targeting has the best evacuation count among the generated
+variants and the lowest generated-policy HCI, but it still does not beat the
+static deterministic beacon on harmful convergence. The implication is that
+the LLM extension should not be interpreted as a language-only improvement.
+The safety effect is created by a coupled design: bounded messages, validation,
+small recipient budgets, and target selection.
+
+\subsubsection{Regime Robustness}
+\label{subsec:llm-regime-robustness}
+
+We therefore ran a focused LLM robustness extension over the same
+hazard-severity and population-familiarity axes used in the deterministic
+regime grid. The extension contains nine regimes, five seeds per regime, one
+live OpenAI safety-strict cache-population variant, and one replay-only variant
+per regime. Each run uses the same eight-attempt intervention budget as the
+medium safety-strict LLM policy.
+
+\llmRegimeTable
+
+The live run produced 360 generated-message events. Safety validation accepted
+359 OpenAI messages and rejected one congested-exit recommendation, which was
+handled by the deterministic fallback. Replay reproduced the live aggregate
+outcomes exactly across evacuated count, ISE, HCI, intervention count, and
+recipient count. The robustness check strengthens the reproducibility claim
+for generated guidance, but it also sharpens the limitation: HCI rises sharply
+with hazard severity. LLM guidance remains safety-efficient under a small
+budget, but it still does not solve harmful convergence in severe hazard
+regimes.
+
+\llmRegimeComparisonTable
+
+The direct comparison against deterministic robustness policies clarifies the
+tradeoff. Under the smaller LLM intervention budget, safety-strict generated
+guidance has higher ISE than every deterministic communication policy averaged
+across the regime grid. It does not, however, lower HCI relative to the static
+beacon, bottleneck-avoidance, or entropy-targeted baselines. This is
+consistent with the target-selection ablation: bounded generated guidance can
+buy useful belief change efficiently, while the remaining safety problem is
+still route convergence under hazard pressure.
+
+\subsubsection{Objective and Budget Ablations}
+\label{subsec:llm-objective-budget}
+
+The expanded LLM evidence tests whether this efficiency result is a language
+effect, a prompt-objective effect, or primarily a budget effect. The
+prompt-objective ablation keeps target selection, validator, cadence, radius,
+budget, provider, and model fixed while varying the live OpenAI prompt between
+safety, hazard avoidance, anti-convergence, and urgency framings.
+
+\llmPromptObjectiveTable
+
+Prompt objectives measurably change the downstream tradeoff, but not in the
+simple way a language-only interpretation would predict. The safety prompt has
+the highest generated-policy ISE. The hazard-avoidance prompt has lower HCI
+than the safety prompt, but also slightly lower ISE. The anti-convergence
+prompt does not reduce HCI in this setting. All 320 live OpenAI messages in
+this ablation passed validation and replay reproduced the live aggregates,
+which makes the result a controlled prompt-objective comparison rather than a
+cache artifact.
+
+\llmBudgetEquivalenceTable
+
+The budget-equivalence sweep is the sharper test. Sparse OpenAI guidance keeps
+high ISE under only eight interventions per run. When generated guidance is
+given static-beacon or entropy-targeted intervention budgets, its ISE falls
+substantially. The equal-budget variants reduce HCI relative to sparse LLM
+guidance, but they do not dominate the conservative deterministic baselines.
+This supports the strongest bounded LLM claim: validated generated guidance can
+be a high-efficiency sparse intervention, but it is not a drop-in replacement
+for deterministic safety-control policies.
+
+\llmClaimStatisticsTable
+
+Seed-level tests reinforce that interpretation. Sparse safety-prompt guidance
+has significantly higher ISE than the static beacon, entropy-targeted, and
+bottleneck-avoidance baselines in the prompt-objective study. The same
+comparisons do not show an HCI improvement. The budget-equivalence comparisons
+show the reverse pressure: larger generated-message budgets lower HCI
+descriptively, but significantly weaken the sparse LLM ISE advantage. The
+paper should therefore present LLM guidance as a bounded generative extension:
+novel because it evaluates generated emergency messages as safety-control
+actions, but still limited by route-convergence risk and intervention-budget
+sensitivity.
+
 \subsection{What the Evidence Supports}
 \label{subsec:evidence-boundary}
 
-The empirical package supports four paper-level claims. First, emergency
+The empirical package supports five paper-level claims. First, emergency
 communication behaves as a safety-control action: changing who receives a
 message, when they receive it, and how credible it is changes exposure,
 queueing, exit concentration, and belief state jointly. Second, local static
@@ -253,6 +387,9 @@ broadcast can improve completed evacuations in some regimes while still
 delivering less belief improvement per unit of exposure and queue pressure.
 Fourth, entropy and belief-accuracy gains are not sufficient objectives,
 because they can coordinate many agents toward the same constrained route.
+Fifth, validated sparse generated guidance can buy belief improvement
+efficiently, but its advantage depends on recipient budget and does not remove
+harmful-convergence risk.
 
 The same evidence rules out stronger claims. The experiments do not show that
 static beacons are a universal operational optimum, because the
@@ -260,10 +397,8 @@ evacuation-count winner changes across hazard and familiarity regimes. They
 do not establish real-world predictive validity, because the current simulator
 has not been calibrated against evacuation drills, sensor traces, or station
 incident records. They also do not show that generative or personalized
-messages are safe by default. Any future LLM-mediated messaging layer should
-therefore be evaluated as a constrained control policy with bounded action
-space, auditable message templates, and the same ISE and HCI tests used here,
-not as an unconstrained source of evacuation advice.
+messages are safe by default, because the LLM studies find efficiency gains
+without a corresponding HCI win over the conservative deterministic baselines.
 
 \subsection{Threats to Evaluation}
 \label{subsec:evaluation-threats}

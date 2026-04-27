@@ -21,6 +21,15 @@ policies produce target points and messages, while the shared executor applies
 messages to recipients and computes before/after entropy and accuracy. This
 keeps policy design separate from belief mutation and telemetry.
 
+This organization is part of the research contribution rather than incidental
+software structure. Chiyoda is not only a crowd-motion simulator with extra
+logging; it exposes emergency communication as a controllable action with
+explicit targets, budgets, credibility, validation, and downstream safety
+telemetry. That separation is what makes the paper's main comparisons possible:
+message quality, recipient choice, route capacity, hazard exposure, and belief
+change can be varied independently instead of being collapsed into a single
+``informed agent'' assumption.
+
 Generated-message support lives in \texttt{chiyoda/information/llm.py}. It is
 implemented as an optional provider-neutral layer rather than as a dependency
 of the baseline studies. The layer defines structured message requests,
