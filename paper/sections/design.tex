@@ -61,7 +61,7 @@ later becomes congested.
 The intervention policy interface is the experimental control surface. Every
 policy decides whether to fire, selects one or more spatial targets, builds a
 message, applies it to recipients inside a radius, and emits telemetry. Chiyoda
-currently implements seven policies:
+currently implements seven deterministic baseline policies:
 
 \begin{itemize}
 \item \textbf{Static beacon}: periodic local messages from existing signage
@@ -75,6 +75,16 @@ released responders.
 hazard pressure.
 \item \textbf{Bottleneck-avoidance}: targets active bottleneck zones.
 \end{itemize}
+
+The repository also includes an optional generated-message policy for future
+LLM experiments. This policy uses the same intervention hook as the
+deterministic policies, but separates target selection from message proposal:
+the simulator exposes a bounded state summary, a generator proposes structured
+route guidance, and a validator must accept the proposal before it can affect
+agent beliefs. This keeps the scientific comparison aligned with the paper's
+main framing. A generated message is not treated as helpful because it is
+fluent; it is treated as a safety-control action whose downstream exposure,
+queueing, belief, and convergence effects must be measured.
 
 Figure~\ref{fig:policy-taxonomy} summarizes the policy space. Figure~\ref{fig:intervention-loop}
 shows where the intervention hook sits in the simulation loop.

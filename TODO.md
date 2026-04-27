@@ -111,8 +111,8 @@ Possible implementation path:
      instructions that over-concentrate agents into dangerous bottlenecks.
    - Include a safe fallback policy when validation fails.
    - Log rejected messages so the paper can report safety-filter behavior.
-   - Status: initial exit, hazard, radius, credibility, and abstention
-     validation implemented.
+   - Status: exit, hazard, radius, credibility, abstention, conflicting-exit,
+     congested-exit, vague-guidance, and confidence validation implemented.
 
 4. Compare LLM-mediated policies against the current deterministic baselines.
    - Keep the same ISE and HCI metrics.
@@ -130,3 +130,5 @@ Possible implementation path:
      more natural."
    - Decide after the first full paper draft whether this belongs in the same
      paper as a controlled extension or in a follow-on paper.
+   - Status: method and implementation sections now describe the LLM extension
+     as optional, bounded, cached, validated, and not yet a completed result.

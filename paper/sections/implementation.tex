@@ -21,6 +21,25 @@ policies produce target points and messages, while the shared executor applies
 messages to recipients and computes before/after entropy and accuracy. This
 keeps policy design separate from belief mutation and telemetry.
 
+Generated-message support lives in \texttt{chiyoda/information/llm.py}. It is
+implemented as an optional provider-neutral layer rather than as a dependency
+of the baseline studies. The layer defines structured message requests,
+generated evacuation messages, validation records, a content-addressed JSON
+cache, deterministic template generation, replay-only generation, and a live
+OpenAI Responses API adapter. The \texttt{llm\_guidance} policy uses
+cache-first semantics: if a matching cache record exists, the simulator reuses
+the cached message and validation result; otherwise a live provider may
+populate the cache in explicitly configured pilot runs. Paper-facing LLM runs
+should use replay-only mode after cache population.
+
+The generated-message validator rejects proposals that invent exits, invent
+hazards, recommend already congested exits, give conflicting recommend/avoid
+instructions, exceed radius or credibility bounds, abstain, omit route
+guidance, produce vague text, or report confidence below the configured
+threshold. Intervention telemetry records the provider, model, cache key,
+cache status, validation status, validation reasons, and generated text so
+LLM behavior can be audited separately from downstream evacuation outcomes.
+
 Two implementation details matter for reproducibility. First, A* pathfinding
 uses per-step caches for density penalties, edge weights, and identical
 start/goal/belief queries. These caches are cleared whenever the simulation
