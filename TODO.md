@@ -1,108 +1,93 @@
 # TODO
 
-This file records the current research sequence for Chiyoda. Keep the baseline
-study and paper stable before starting extension work.
+This file records the remaining work for the current Chiyoda paper scope. The
+project is now in paper-hardening mode, not experiment-expansion mode.
 
-## Active baseline work
+## Current Status
 
-1. Finish the current paper draft around the deterministic safety-control result.
-   - Treat information interventions as safety-control actions, not only
-     entropy-reduction mechanisms.
-   - Keep the empirical claims tied to the available study artifacts:
-     - Information-safety efficiency.
-     - Hazard-convergence index.
-     - Broad reach versus useful safety effect.
-     - Cases where entropy or accuracy gains can worsen exposure.
-   - Do a final narrative and reviewer-risk pass before submission.
+Scoped data collection for the current paper is complete.
 
-2. Run core verification before treating the baseline package as paper-ready.
-   - Run the Python test suite.
-   - Run the paper smoke build.
-   - Confirm reproduction commands and artifact paths in `paper/REPRODUCIBILITY.md`.
-   - Re-run these checks after the next paper edits, even though the latest
-     local checks passed.
+Completed empirical artifacts:
 
-## Active LLM paper decision
+1. Deterministic safety-control evidence.
+   - `out/information_control_50`
+   - `out/intervention_ablation_30`
+   - `out/message_quality_30`
+   - `out/regime_robustness_900`
 
-The LLM extension is now strong enough to support a bounded discussion, not a
-replacement for the deterministic safety-control evidence. Remaining decision:
-
-1. Recommended framing: make LLM guidance a larger bounded extension section,
-   but not the central paper claim. The novel claim should be that generated
-   evacuation guidance must be evaluated as safety control: prompt objectives
-   measurably change ISE/HCI tradeoffs, sparse validated guidance can be highly
-   efficient, and equal-budget LLM guidance does not automatically dominate
-   conservative deterministic control.
-2. Use the completed prompt-objective and budget-equivalence artifacts to
-   support that framing:
+2. Bounded LLM guidance evidence.
+   - `out/llm_medium`
+   - `out/llm_target_selection_ablation`
+   - `out/llm_regime_robustness`
    - `out/llm_prompt_objective_ablation`
    - `out/llm_budget_equivalence`
-   - `out/llm_regime_robustness`
-   - `out/llm_target_selection_ablation`
-3. Code-side follow-ups before paper editing:
-   - Add a compact LLM synthesis script that joins the medium, prompt-objective,
-     budget-equivalence, target-selection, and regime-robustness CSV artifacts.
-   - Add seed-level nonparametric comparisons for the key LLM claims: sparse
-     safety prompt versus deterministic baselines, prompt-objective differences,
-     and sparse versus equal-budget LLM variants.
-   - Extend generated LaTeX table support so new LLM synthesis tables are
-     reproducible instead of hand-maintained.
-   - Add a cache/cost audit summary from stored OpenAI usage metadata so the
-     live-credit claim is traceable and replay remains paper-safe.
+   - `out/llm_synthesis`
 
-## Paper hardening checklist
+3. Reproducible paper support.
+   - Generated `paper/stats.tex`
+   - Generated `paper/llm_tables.tex`
+   - Smoke-built `paper/main_smoke.pdf`
+   - Self-review notes in `paper/SELF_REVIEW.md`
 
-Drill harder on these before treating the work as PhD-submission ready:
+No additional code changes, live API runs, or new simulation sweeps are planned
+for the current paper unless final reading finds a claim that is not supported
+by the existing artifacts.
 
-1. Full narrative pass from abstract to conclusion.
-   - Make the thesis continuous: emergency communication is safety control,
-     not just information spread.
-   - Ensure the abstract, introduction, evaluation, limitations, and conclusion
-     make the same bounded claim.
+## Remaining Paper Work
 
-2. Methods rigor.
-   - Specify the agent belief state, route choice logic, hazard exposure model,
-     intervention policy mechanics, and telemetry pipeline precisely.
-   - Define ISE and HCI as paper-level constructs, not only implementation
-     outputs.
-   - Explain why these coupled metrics are the right answer to the research
-     question.
+1. Full narrative read from abstract to conclusion.
+   - Keep the thesis continuous: emergency communication is safety control, not
+     just information spread.
+   - Ensure the abstract, introduction, claims, evaluation, limitations, and
+     conclusion make the same bounded claim.
+   - Make LLM guidance a bounded extension result, not the central paper claim.
 
-3. Statistical treatment.
-   - Explain the use of seed-level aggregates, Mann--Whitney tests, descriptive
-     effect sizes, and nonparametric interpretation.
-   - Make clear why the paper does not overclaim operational superiority from
-     stylized simulation.
+2. Claim-evidence alignment pass.
+   - Check every major claim in the abstract and introduction against the
+     deterministic and LLM artifacts listed above.
+   - Weaken or remove any claim that is not directly supported.
+   - Preserve the limitation that Chiyoda is a stylized simulator, not an
+     operational evacuation planner.
 
-4. Reviewer attack surface.
-   - Address single station geometry, stylized hazard physics, uncalibrated
-     population behavior, lack of real evacuation trace validation, and metric
-     validity.
-   - Explain why the static-beacon result is nontrivial: it wins by coupled
-     information-safety efficiency, not by raw reach or raw evacuation count.
+3. Methods and metric clarity.
+   - Confirm the agent belief state, route-choice logic, hazard exposure model,
+     intervention policy mechanics, and telemetry pipeline are precise enough
+     for a reviewer to reproduce.
+   - Define ISE and HCI clearly as paper-level constructs.
+   - Explain why coupled belief/safety metrics answer the research question
+     better than entropy, reach, or evacuation count alone.
+
+4. Statistical interpretation.
+   - Confirm the paper explains seed-level aggregates, Mann-Whitney tests,
+     descriptive effect sizes, and nonparametric interpretation.
+   - Avoid claiming operational superiority from stylized simulation.
+   - Emphasize tradeoff patterns and bounded evidence.
 
 5. Related work tightening.
-   - Position the work against pedestrian evacuation simulation, information
-     diffusion in crowds, emergency communication systems, information-theoretic
-     control, and safety-critical AI messaging.
+   - Position the contribution against pedestrian evacuation simulation,
+     information diffusion in crowds, emergency communication systems,
+     information-theoretic control, and safety-critical AI messaging.
+   - Make clear why the paper is about communication as control, not only about
+     adding messages to an evacuation simulator.
 
-6. Figure and table polish.
-   - Keep one core result figure, one robustness figure, one claim matrix, and
-     one compact policy comparison table central.
+6. Figure, table, and PDF polish.
+   - Visually inspect the final PDF for table placement, overfull boxes, figure
+     order, and caption clarity.
+   - Keep the central result figures and compact policy tables prominent.
    - Avoid overwhelming the reader with raw metrics that do not support the
      thesis.
 
-## Remaining confirmed gaps
+7. Final release checks.
+   - Run the Python test suite.
+   - Run the paper smoke build.
+   - Run the full ACM-style `make paper` build if the local environment has
+     `acmart.cls` and `latexmk`.
+   - Confirm reproduction commands and artifact paths in
+     `paper/REPRODUCIBILITY.md`.
 
-1. Paper hardening and external-validity limits.
-   - Continue tightening methods, statistical interpretation, related work,
-     and reviewer-facing limitations.
-   - The simulator still needs external validation against richer geometries,
-     calibrated population behavior, hazard models, drills, VR traces, or
-     incident records before any operational-readiness claim.
+## Not In Current Scope
 
-2. Full paper build and release-readiness check.
-   - Smoke builds pass, but the ACM-style `make paper` build should be run
-     before release if the local environment has `acmart.cls` and `latexmk`.
-   - Confirm the final PDF table placement after adding the LLM medium,
-     target-selection, and regime robustness tables.
+External validation remains future work, not a blocker for the current paper as
+long as the paper avoids operational-readiness claims. This includes richer
+station geometries, calibrated population behavior, validated hazard physics,
+evacuation drills, VR traces, pedestrian trajectory data, and incident records.
