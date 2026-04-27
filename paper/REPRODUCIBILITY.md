@@ -119,6 +119,16 @@ the same cache path with `llm_provider: replay`. Do not treat the live pilot as
 a paper result until the cached artifacts, validation summary, and deterministic
 replay run have been inspected.
 
+After any LLM pilot, summarize generated-message telemetry with:
+
+```sh
+PYTHONPATH=. .venv/bin/python scripts/summarize_llm_interventions.py \
+  out/llm_openai_pilot
+```
+
+This writes `llm_generation_summary.csv`, `llm_validation_reasons.csv`, and,
+when aggregate study metrics are available, `llm_policy_comparison.csv`.
+
 ## Artifact Index
 
 Each study directory has the same structure:
