@@ -27,13 +27,28 @@ study and paper stable before starting extension work.
 The LLM extension is now strong enough to support a bounded discussion, not a
 replacement for the deterministic safety-control evidence. Remaining decision:
 
-1. Decide whether LLM results belong in the main paper as an extension section
-   or should be held for a follow-on paper after robustness is complete.
-2. Use the completed prompt-objective and budget-equivalence artifacts to decide
-   how large the LLM section should be. The key unresolved interpretation is
-   whether to frame LLM guidance as a high-efficiency sparse intervention with
-   prompt-sensitive safety tradeoffs, or as a follow-on study because equal
-   intervention budgets weaken the efficiency advantage.
+1. Recommended framing: make LLM guidance a larger bounded extension section,
+   but not the central paper claim. The novel claim should be that generated
+   evacuation guidance must be evaluated as safety control: prompt objectives
+   measurably change ISE/HCI tradeoffs, sparse validated guidance can be highly
+   efficient, and equal-budget LLM guidance does not automatically dominate
+   conservative deterministic control.
+2. Use the completed prompt-objective and budget-equivalence artifacts to
+   support that framing:
+   - `out/llm_prompt_objective_ablation`
+   - `out/llm_budget_equivalence`
+   - `out/llm_regime_robustness`
+   - `out/llm_target_selection_ablation`
+3. Code-side follow-ups before paper editing:
+   - Add a compact LLM synthesis script that joins the medium, prompt-objective,
+     budget-equivalence, target-selection, and regime-robustness CSV artifacts.
+   - Add seed-level nonparametric comparisons for the key LLM claims: sparse
+     safety prompt versus deterministic baselines, prompt-objective differences,
+     and sparse versus equal-budget LLM variants.
+   - Extend generated LaTeX table support so new LLM synthesis tables are
+     reproducible instead of hand-maintained.
+   - Add a cache/cost audit summary from stored OpenAI usage metadata so the
+     live-credit claim is traceable and replay remains paper-safe.
 
 ## Paper hardening checklist
 
