@@ -165,6 +165,20 @@ class TestInformationInterventions:
         assert event.used_fallback is False
         assert list(tmp_path.glob("*.json"))
 
+    def test_llm_guidance_can_swap_target_selector(self, tmp_path):
+        sim = self._make_intervention_sim(
+            "llm_guidance",
+            llm_provider="template",
+            llm_cache_path=str(tmp_path),
+            llm_target_policy="global_broadcast",
+        )
+        sim.run()
+
+        assert len(sim.intervention_events) > 0
+        event = sim.intervention_events[0]
+        assert event.selected_reason == "llm_global_broadcast_global_broadcast"
+        assert event.recipients == len(sim.agents)
+
     def test_llm_guidance_uses_cache_first_without_regeneration(self, tmp_path):
         first = self._make_intervention_sim(
             "llm_guidance",

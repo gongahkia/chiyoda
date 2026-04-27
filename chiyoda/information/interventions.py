@@ -55,6 +55,7 @@ class InformationInterventionConfig:
     llm_max_radius: Optional[float] = None
     llm_prompt_style: str = "safety"
     llm_validator_profile: str = "standard"
+    llm_target_policy: str = "entropy_targeted"
 
     @classmethod
     def from_mapping(cls, payload: Optional[Dict[str, Any]]) -> "InformationInterventionConfig":
@@ -82,6 +83,7 @@ class InformationInterventionConfig:
             else float(data.get("llm_max_radius")),
             llm_prompt_style=str(data.get("llm_prompt_style", "safety")),
             llm_validator_profile=str(data.get("llm_validator_profile", "standard")),
+            llm_target_policy=str(data.get("llm_target_policy", "entropy_targeted")),
         )
 
 
@@ -380,9 +382,32 @@ class LLMGuidancePolicy(EntropyTargetedPolicy):
             )
 
     def select_targets(self, simulation) -> List[InterventionTarget]:
-        targets = super().select_targets(simulation)
+        selector_name = self.config.llm_target_policy
+        if selector_name in {"entropy", "entropy_targeted"}:
+            targets = EntropyTargetedPolicy.select_targets(self, simulation)
+            selector_name = "entropy_targeted"
+        elif selector_name in {"density", "density_aware"}:
+            targets = DensityAwarePolicy(self.config).select_targets(simulation)
+            selector_name = "density_aware"
+        elif selector_name in {"exposure", "exposure_aware"}:
+            targets = ExposureAwarePolicy(self.config).select_targets(simulation)
+            selector_name = "exposure_aware"
+        elif selector_name in {"bottleneck", "bottleneck_avoidance"}:
+            targets = BottleneckAvoidancePolicy(self.config).select_targets(simulation)
+            selector_name = "bottleneck_avoidance"
+        elif selector_name in {"static", "static_beacon", "static_broadcast"}:
+            targets = StaticBroadcastPolicy(self.config).select_targets(simulation)
+            selector_name = "static_beacon"
+        elif selector_name in {"global", "global_broadcast"}:
+            targets = GlobalBroadcastPolicy(self.config).select_targets(simulation)
+            selector_name = "global_broadcast"
+        else:
+            raise ValueError(
+                "Unsupported llm_target_policy. Use entropy_targeted, density_aware, "
+                "exposure_aware, bottleneck_avoidance, static_beacon, or global_broadcast."
+            )
         for target in targets:
-            target.reason = f"llm_{target.reason}"
+            target.reason = f"llm_{selector_name}_{target.reason}"
         return targets
 
     def build_message(self, simulation, target: InterventionTarget) -> InterventionMessage:
