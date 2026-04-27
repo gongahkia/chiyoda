@@ -310,9 +310,14 @@ def validate_generated_message(
     base_radius: float,
     max_radius: float,
     base_credibility: float,
+    congested_exits: Sequence[Cell] = (),
+    min_confidence: float = 0.2,
 ) -> ValidationResult:
     reasons: List[str] = []
     known_exit_set = {tuple(exit_) for exit_ in known_exits}
+    recommended_set = {tuple(exit_) for exit_ in message.recommended_exits}
+    avoid_set = {tuple(exit_) for exit_ in message.avoid_exits}
+    congested_set = {tuple(exit_) for exit_ in congested_exits}
 
     if message.abstain:
         reasons.append("generator_abstained")
@@ -322,6 +327,10 @@ def validate_generated_message(
     for exit_ in message.avoid_exits:
         if tuple(exit_) not in known_exit_set:
             reasons.append(f"invented_avoid_exit:{tuple(exit_)}")
+    for exit_ in sorted(recommended_set & avoid_set):
+        reasons.append(f"conflicting_exit:{exit_}")
+    for exit_ in sorted(recommended_set & congested_set):
+        reasons.append(f"congested_recommendation:{exit_}")
 
     known_hazard_positions = [hazard.position for hazard in known_hazards]
     for hazard_pos in message.hazard_positions:
@@ -335,6 +344,12 @@ def validate_generated_message(
 
     if not message.recommended_exits and not message.abstain:
         reasons.append("no_recommended_exit")
+    if not message.text.strip() and not message.abstain:
+        reasons.append("empty_guidance")
+    if _is_vague_guidance(message.text) and not message.abstain:
+        reasons.append("vague_guidance")
+    if message.confidence < min_confidence and not message.abstain:
+        reasons.append(f"low_confidence:{message.confidence:.2f}")
 
     return ValidationResult(accepted=not reasons, reasons=reasons)
 
@@ -455,6 +470,23 @@ def _parse_points(value: Any) -> List[Point]:
             except (TypeError, ValueError):
                 continue
     return points
+
+
+def _is_vague_guidance(text: str) -> bool:
+    normalized = " ".join(text.lower().split())
+    if not normalized:
+        return False
+    vague_messages = {
+        "stay calm",
+        "proceed calmly",
+        "evacuate safely",
+        "follow instructions",
+        "move to safety",
+    }
+    if normalized in vague_messages:
+        return True
+    directional_terms = ("exit", "avoid", "left", "right", "north", "south", "east", "west")
+    return len(normalized.split()) < 6 and not any(term in normalized for term in directional_terms)
 
 
 def _near_any(point: Point, candidates: Sequence[Point], tolerance: float) -> bool:

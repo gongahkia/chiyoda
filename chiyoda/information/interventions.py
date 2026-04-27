@@ -384,6 +384,7 @@ class LLMGuidancePolicy(EntropyTargetedPolicy):
             base_radius=self.config.message_radius,
             max_radius=self._max_radius(simulation),
             base_credibility=self.config.credibility,
+            congested_exits=congested,
         )
         if cached_validation is not None and validation.reasons == cached_validation.reasons:
             validation = cached_validation

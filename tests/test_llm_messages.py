@@ -104,6 +104,48 @@ def test_validator_rejects_overconfident_message():
     assert "unsafe_credibility:1.0" in result.reasons
 
 
+def test_validator_rejects_conflicting_and_congested_exit_guidance():
+    message = GeneratedEvacuationMessage(
+        text="Use exit 10 1 and avoid exit 10 1.",
+        recommended_exits=[(10, 1)],
+        avoid_exits=[(10, 1)],
+        confidence=0.7,
+    )
+    result = validate_generated_message(
+        message,
+        known_exits=[(10, 1), (1, 1)],
+        known_hazards=[],
+        base_radius=8.0,
+        max_radius=20.0,
+        base_credibility=0.9,
+        congested_exits=[(10, 1)],
+    )
+
+    assert not result.accepted
+    assert "conflicting_exit:(10, 1)" in result.reasons
+    assert "congested_recommendation:(10, 1)" in result.reasons
+
+
+def test_validator_rejects_vague_and_low_confidence_guidance():
+    message = GeneratedEvacuationMessage(
+        text="Stay calm",
+        recommended_exits=[(10, 1)],
+        confidence=0.1,
+    )
+    result = validate_generated_message(
+        message,
+        known_exits=[(10, 1)],
+        known_hazards=[],
+        base_radius=8.0,
+        max_radius=20.0,
+        base_credibility=0.9,
+    )
+
+    assert not result.accepted
+    assert "vague_guidance" in result.reasons
+    assert "low_confidence:0.10" in result.reasons
+
+
 def test_openai_api_key_loader_accepts_hyphenated_env_file(tmp_path, monkeypatch):
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     monkeypatch.delenv("OPENAI-API-KEY", raising=False)
