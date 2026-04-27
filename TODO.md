@@ -20,6 +20,48 @@ study and paper stable before starting extension work.
    - Run the paper smoke build.
    - Confirm reproduction commands and artifact paths in `paper/REPRODUCIBILITY.md`.
 
+## Paper hardening checklist
+
+Drill harder on these before treating the work as PhD-submission ready:
+
+1. Full narrative pass from abstract to conclusion.
+   - Make the thesis continuous: emergency communication is safety control,
+     not just information spread.
+   - Ensure the abstract, introduction, evaluation, limitations, and conclusion
+     make the same bounded claim.
+
+2. Methods rigor.
+   - Specify the agent belief state, route choice logic, hazard exposure model,
+     intervention policy mechanics, and telemetry pipeline precisely.
+   - Define ISE and HCI as paper-level constructs, not only implementation
+     outputs.
+   - Explain why these coupled metrics are the right answer to the research
+     question.
+
+3. Statistical treatment.
+   - Explain the use of seed-level aggregates, Mann--Whitney tests, descriptive
+     effect sizes, and nonparametric interpretation.
+   - Make clear why the paper does not overclaim operational superiority from
+     stylized simulation.
+
+4. Reviewer attack surface.
+   - Address single station geometry, stylized hazard physics, uncalibrated
+     population behavior, lack of real evacuation trace validation, and metric
+     validity.
+   - Explain why the static-beacon result is nontrivial: it wins by coupled
+     information-safety efficiency, not by raw reach or raw evacuation count.
+
+5. Related work tightening.
+   - Position the work against pedestrian evacuation simulation, information
+     diffusion in crowds, emergency communication systems, information-theoretic
+     control, and safety-critical AI messaging.
+
+6. Figure and table polish.
+   - Keep one core result figure, one robustness figure, one claim matrix, and
+     one compact policy comparison table central.
+   - Avoid overwhelming the reader with raw metrics that do not support the
+     thesis.
+
 ## Completed baseline work
 
 - Completed the full 900-run regime robustness study:
@@ -30,10 +72,11 @@ study and paper stable before starting extension work.
 - Integrated the completed robustness result into the LaTeX paper, including
   the regime summary table and heatmap.
 
-## Deferred LLM extension
+## Active LLM extension
 
-Do not start this track until the baseline robustness run is complete and the
-current paper has a full first-pass draft.
+The LLM extension should strengthen the core paper only if it is implemented as
+a constrained safety-control policy. It must remain off by default and must not
+change the deterministic baseline studies.
 
 Research value proposition:
 
@@ -50,17 +93,21 @@ Possible implementation path:
    - Require deterministic replay from cache for paper runs.
    - Store prompts, model metadata, response text, validation status, and cache
      keys as artifacts.
+   - Do not require live API keys for tests or baseline reproduction.
 
 2. Add a simulator-state-to-message prompt layer.
    - Inputs should include hazard state, congestion, exits, policy budget, and
      local population context.
    - Outputs should be structured messages with target scope, routing intent,
      and confidence or abstention fields.
+   - Keep state exposure controlled so language is the experimental factor, not
+     hidden extra sensor access.
 
 3. Add safety validators before any generated message affects agents.
    - Reject invented exits, impossible routes, stale hazard claims, and
      instructions that over-concentrate agents into dangerous bottlenecks.
    - Include a safe fallback policy when validation fails.
+   - Log rejected messages so the paper can report safety-filter behavior.
 
 4. Compare LLM-mediated policies against the current deterministic baselines.
    - Keep the same ISE and HCI metrics.
