@@ -98,7 +98,7 @@ class TestGossipModel:
 
 
 class TestInformationInterventions:
-    def _make_intervention_sim(self, policy="global_broadcast"):
+    def _make_intervention_sim(self, policy="global_broadcast", **overrides):
         layout = Layout.from_text(
             "XXXXXXXXXXXX\n"
             "X..@@@....EX\n"
@@ -118,14 +118,16 @@ class TestInformationInterventions:
         nav = SmartNavigator(layout, density_fn=spatial.density_penalty_fn(), hazard_fn=sim.hazard_penalty_at_cell)
         sim.attach_navigation(nav)
         sim.attach_behavior_model(BehaviorModel())
-        sim.attach_intervention_policy(create_intervention_policy({
+        policy_config = {
             "policy": policy,
             "start_step": 0,
             "interval_steps": 1,
             "budget_per_interval": 1,
             "message_radius": 20.0,
             "credibility": 0.95,
-        }))
+        }
+        policy_config.update(overrides)
+        sim.attach_intervention_policy(create_intervention_policy(policy_config))
         return sim
 
     def test_global_broadcast_updates_beliefs_and_records_event(self):
@@ -141,6 +143,30 @@ class TestInformationInterventions:
         assert len(sim.intervention_events) > 0
         assert sim.intervention_events[0].selected_reason == "highest_agent_entropy"
         assert sim.intervention_events[0].entropy_after <= sim.intervention_events[0].entropy_before
+
+    def test_llm_guidance_records_generation_telemetry(self, tmp_path):
+        sim = self._make_intervention_sim(
+            "llm_guidance",
+            llm_provider="template",
+            llm_cache_path=str(tmp_path),
+        )
+        sim.run()
+
+        assert len(sim.intervention_events) > 0
+        event = sim.intervention_events[0]
+        assert event.policy == "llm_guidance"
+        assert event.generation_provider == "deterministic"
+        assert event.generation_model == "template"
+        assert event.validation_status == "accepted"
+        assert event.cache_key
+        assert list(tmp_path.glob("*.json"))
+
+    def test_llm_guidance_replay_requires_cache_path(self):
+        with pytest.raises(ValueError):
+            create_intervention_policy({
+                "policy": "llm_guidance",
+                "llm_provider": "replay",
+            })
 
 
 # -- Agent Tests --

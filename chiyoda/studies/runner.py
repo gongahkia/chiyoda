@@ -660,6 +660,12 @@ def _collect_run_tables(
                 "selected_reason": event.selected_reason,
                 "target_score": event.target_score,
                 "objective": event.objective,
+                "generated_text": event.generated_text,
+                "generation_provider": event.generation_provider,
+                "generation_model": event.generation_model,
+                "validation_status": event.validation_status,
+                "validation_reasons": event.validation_reasons,
+                "cache_key": event.cache_key,
             }
         )
 

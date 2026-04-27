@@ -9,12 +9,23 @@ study-grade telemetry for information-safety analysis.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 
 from chiyoda.information.entropy import agent_entropy, belief_accuracy
 from chiyoda.information.field import ExitBelief, HazardBelief
+from chiyoda.information.llm import (
+    GeneratedEvacuationMessage,
+    HazardSnapshot,
+    LLMGenerationRecord,
+    LLMMessageCache,
+    LLMMessageRequest,
+    ReplayOnlyGenerator,
+    TemplateLLMGenerator,
+    validate_generated_message,
+)
 
 
 Cell = Tuple[int, int]
@@ -33,6 +44,11 @@ class InformationInterventionConfig:
     message_type: str = "route_guidance"
     objective: str = "reduce_entropy_without_bottlenecking"
     enabled: bool = True
+    llm_provider: str = "template"
+    llm_model: str = "template"
+    llm_cache_path: Optional[str] = None
+    llm_store_cache: bool = True
+    llm_max_radius: Optional[float] = None
 
     @classmethod
     def from_mapping(cls, payload: Optional[Dict[str, Any]]) -> "InformationInterventionConfig":
@@ -48,6 +64,15 @@ class InformationInterventionConfig:
             message_type=str(data.get("message_type", "route_guidance")),
             objective=str(data.get("objective", "reduce_entropy_without_bottlenecking")),
             enabled=bool(data.get("enabled", True)),
+            llm_provider=str(data.get("llm_provider", "template")),
+            llm_model=str(data.get("llm_model", "template")),
+            llm_cache_path=None
+            if data.get("llm_cache_path") is None
+            else str(data.get("llm_cache_path")),
+            llm_store_cache=bool(data.get("llm_store_cache", True)),
+            llm_max_radius=None
+            if data.get("llm_max_radius") is None
+            else float(data.get("llm_max_radius")),
         )
 
 
@@ -68,6 +93,12 @@ class InterventionMessage:
     exits: Sequence[Cell] = field(default_factory=list)
     hazards: Sequence[Any] = field(default_factory=list)
     congested_exits: Sequence[Cell] = field(default_factory=list)
+    generated_text: str = ""
+    generation_provider: str = ""
+    generation_model: str = ""
+    validation_status: str = "not_applicable"
+    validation_reasons: Sequence[str] = field(default_factory=list)
+    cache_key: str = ""
 
 
 @dataclass
@@ -90,6 +121,12 @@ class InterventionEvent:
     selected_reason: str
     target_score: float
     objective: str
+    generated_text: str = ""
+    generation_provider: str = ""
+    generation_model: str = ""
+    validation_status: str = "not_applicable"
+    validation_reasons: str = ""
+    cache_key: str = ""
 
 
 class InterventionPolicy:
@@ -298,6 +335,124 @@ class BottleneckAvoidancePolicy(InterventionPolicy):
         ]
 
 
+class LLMGuidancePolicy(EntropyTargetedPolicy):
+    name = "llm_guidance"
+
+    def __init__(self, config: InformationInterventionConfig) -> None:
+        super().__init__(config)
+        self.cache = LLMMessageCache(Path(config.llm_cache_path)) if config.llm_cache_path else None
+        if config.llm_provider == "template":
+            self.generator = TemplateLLMGenerator()
+        elif config.llm_provider == "replay":
+            if self.cache is None:
+                raise ValueError("llm_guidance with llm_provider='replay' requires llm_cache_path")
+            self.generator = ReplayOnlyGenerator(self.cache)
+        else:
+            raise ValueError(
+                "Unsupported llm_provider. Use 'template' or 'replay' for reproducible studies."
+            )
+
+    def select_targets(self, simulation) -> List[InterventionTarget]:
+        targets = super().select_targets(simulation)
+        for target in targets:
+            target.reason = f"llm_{target.reason}"
+        return targets
+
+    def build_message(self, simulation, target: InterventionTarget) -> InterventionMessage:
+        congested = self._congested_exits(simulation)
+        request = self._build_request(simulation, target, congested)
+        cache_key = self.cache.key_for(request) if self.cache is not None else ""
+        generated = self.generator.generate(request, cache_key)
+        validation = validate_generated_message(
+            generated,
+            known_exits=[tuple(exit_.pos) for exit_ in simulation.exits],
+            known_hazards=request.hazards,
+            base_radius=self.config.message_radius,
+            max_radius=self._max_radius(simulation),
+            base_credibility=self.config.credibility,
+        )
+
+        if validation.accepted:
+            effective = generated
+        else:
+            effective = self._fallback_message(request)
+
+        if (
+            self.cache is not None
+            and self.config.llm_store_cache
+            and self.config.llm_provider != "replay"
+        ):
+            self.cache.store(
+                LLMGenerationRecord(
+                    cache_key=cache_key,
+                    request=request,
+                    message=generated,
+                    validation=validation,
+                )
+            )
+
+        exits = effective.recommended_exits or [tuple(exit_.pos) for exit_ in simulation.exits]
+        avoid_exits = list({tuple(exit_) for exit_ in [*congested, *effective.avoid_exits]})
+        return InterventionMessage(
+            message_type=effective.message_type or self.config.message_type,
+            credibility=min(self.config.credibility, effective.credibility or self.config.credibility),
+            radius=min(effective.radius or self.config.message_radius, self._max_radius(simulation)),
+            exits=exits,
+            hazards=list(simulation.hazards),
+            congested_exits=avoid_exits,
+            generated_text=effective.text,
+            generation_provider=effective.provider,
+            generation_model=effective.model,
+            validation_status=validation.status,
+            validation_reasons=validation.reasons,
+            cache_key=cache_key,
+        )
+
+    def _build_request(
+        self,
+        simulation,
+        target: InterventionTarget,
+        congested: Sequence[Cell],
+    ) -> LLMMessageRequest:
+        active = [
+            agent for agent in simulation._active_agents()
+            if _distance((float(agent.pos[0]), float(agent.pos[1])), target.point)
+            <= self.config.message_radius
+        ]
+        return LLMMessageRequest(
+            policy=self.config.policy,
+            step=int(simulation.current_step),
+            target=target.point,
+            selected_reason=target.reason,
+            objective=self.config.objective,
+            exits=[tuple(exit_.pos) for exit_ in simulation.exits],
+            hazards=[
+                HazardSnapshot(
+                    position=(float(hazard.pos[0]), float(hazard.pos[1])),
+                    kind=str(hazard.kind),
+                    radius=float(hazard.radius),
+                    severity=float(hazard.severity),
+                )
+                for hazard in simulation.hazards
+            ],
+            congested_exits=list(congested),
+            recipients_estimate=len(active),
+            mean_local_density=_mean([float(getattr(agent, "local_density", 0.0)) for agent in active]),
+            mean_hazard_load=_mean([float(getattr(agent, "current_hazard_load", 0.0)) for agent in active]),
+        )
+
+    def _fallback_message(self, request: LLMMessageRequest) -> GeneratedEvacuationMessage:
+        fallback = TemplateLLMGenerator().generate(request, "")
+        fallback.provider = "deterministic_fallback"
+        fallback.model = "template"
+        return fallback
+
+    def _max_radius(self, simulation) -> float:
+        if self.config.llm_max_radius is not None:
+            return self.config.llm_max_radius
+        return max(self.config.message_radius, min(simulation.layout.width, simulation.layout.height))
+
+
 POLICIES = {
     "static_broadcast": StaticBroadcastPolicy,
     "static_beacon": StaticBroadcastPolicy,
@@ -307,6 +462,7 @@ POLICIES = {
     "density_aware": DensityAwarePolicy,
     "exposure_aware": ExposureAwarePolicy,
     "bottleneck_avoidance": BottleneckAvoidancePolicy,
+    "llm_guidance": LLMGuidancePolicy,
 }
 
 
@@ -380,6 +536,12 @@ def _apply_message(
         selected_reason=target.reason,
         target_score=float(target.score),
         objective=policy.config.objective,
+        generated_text=message.generated_text,
+        generation_provider=message.generation_provider,
+        generation_model=message.generation_model,
+        validation_status=message.validation_status,
+        validation_reasons=";".join(message.validation_reasons),
+        cache_key=message.cache_key,
     )
 
 
