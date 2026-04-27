@@ -129,6 +129,21 @@ PYTHONPATH=. .venv/bin/python scripts/summarize_llm_interventions.py \
 This writes `llm_generation_summary.csv`, `llm_validation_reasons.csv`, and,
 when aggregate study metrics are available, `llm_policy_comparison.csv`.
 
+After the tiny pilot is clean, the medium LLM study can be run with:
+
+```sh
+PYTHONPATH=. .venv/bin/python scripts/run_study_progress.py \
+  scenarios/study_llm_medium.yaml \
+  -o out/llm_medium
+PYTHONPATH=. .venv/bin/python scripts/summarize_llm_interventions.py \
+  out/llm_medium
+```
+
+The medium design includes deterministic baselines, template generation,
+OpenAI prompt-style ablations, validator-profile ablations, and replay-only
+verification. Treat it as an extension study; it should not replace the
+deterministic baseline evidence.
+
 ## Artifact Index
 
 Each study directory has the same structure:

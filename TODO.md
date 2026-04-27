@@ -20,6 +20,46 @@ study and paper stable before starting extension work.
    - Run the paper smoke build.
    - Confirm reproduction commands and artifact paths in `paper/REPRODUCIBILITY.md`.
 
+## Active LLM study work
+
+Do not make LLM paper claims until these are complete:
+
+1. Run the tiny OpenAI cache pilot and replay verification.
+   - Command:
+
+     ```bash
+     PYTHONPATH=. .venv/bin/python scripts/run_study_progress.py scenarios/study_llm_openai_pilot.yaml -o out/llm_openai_pilot
+     ```
+
+   - Then summarize:
+
+     ```bash
+     PYTHONPATH=. .venv/bin/python scripts/summarize_llm_interventions.py out/llm_openai_pilot
+     ```
+
+2. Inspect the tiny pilot artifacts.
+   - Check cache hit/miss counts.
+   - Check accepted/rejected message rates.
+   - Check rejection reasons.
+   - Confirm replay-only variants use cached records rather than live calls.
+
+3. Run the medium LLM study only after the tiny pilot is clean.
+   - Command:
+
+     ```bash
+     PYTHONPATH=. .venv/bin/python scripts/run_study_progress.py scenarios/study_llm_medium.yaml -o out/llm_medium
+     ```
+
+   - This design contains deterministic baselines, prompt ablations,
+     validator-profile ablations, and replay verification.
+
+4. Decide paper integration after summaries exist.
+   - Strong positive: LLM guidance improves ISE or HCI under validation.
+   - Strong negative: validators frequently reject generated messages or LLM
+     guidance fails to beat static/local baselines.
+   - Either result is useful, but only if reported as safety-control evidence
+     rather than language-quality evidence.
+
 ## Paper hardening checklist
 
 Drill harder on these before treating the work as PhD-submission ready:
@@ -104,7 +144,7 @@ Possible implementation path:
    - Keep state exposure controlled so language is the experimental factor, not
      hidden extra sensor access.
    - Status: structured request/message schema implemented; OpenAI prompt
-     adapter implemented; provider-comparison prompts remain open.
+     adapter and prompt-style ablations implemented.
 
 3. Add safety validators before any generated message affects agents.
    - Reject invented exits, impossible routes, stale hazard claims, and
@@ -121,7 +161,8 @@ Possible implementation path:
    - Separate language value from extra information access by controlling the
      simulator state exposed to each policy.
    - Status: optional deterministic pilot scenario added; full comparison has
-     not been run or claimed.
+     not been run or claimed. Tiny OpenAI/replay and medium LLM study configs
+     are implemented but still need execution and interpretation.
 
 5. Frame the paper extension carefully.
    - Strong framing: "LLM evacuation guidance must be evaluated as safety
