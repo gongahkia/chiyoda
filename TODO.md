@@ -22,9 +22,11 @@ study and paper stable before starting extension work.
 
 ## Active LLM study work
 
-Do not make LLM paper claims until these are complete:
+The first pass of the LLM extension is now complete enough to support a
+bounded extension discussion, not a replacement for the core deterministic
+evidence:
 
-1. Run the tiny OpenAI cache pilot and replay verification.
+1. Completed: tiny OpenAI cache pilot and replay verification.
    - Command:
 
      ```bash
@@ -36,14 +38,16 @@ Do not make LLM paper claims until these are complete:
      ```bash
      PYTHONPATH=. .venv/bin/python scripts/summarize_llm_interventions.py out/llm_openai_pilot
      ```
+   - Result: 8 live OpenAI events, 8 accepted messages, 0 fallbacks, 0
+     congested recommendations, and replay reproduced all 8 cached messages.
 
-2. Inspect the tiny pilot artifacts.
+2. Completed: inspected the tiny pilot artifacts.
    - Check cache hit/miss counts.
    - Check accepted/rejected message rates.
    - Check rejection reasons.
    - Confirm replay-only variants use cached records rather than live calls.
 
-3. Run the medium LLM study only after the tiny pilot is clean.
+3. Completed: medium LLM study after the tiny pilot passed.
    - Command:
 
      ```bash
@@ -52,13 +56,29 @@ Do not make LLM paper claims until these are complete:
 
    - This design contains deterministic baselines, prompt ablations,
      validator-profile ablations, and replay verification.
+   - Result: 80 runs completed across 8 variants and 10 seeds. OpenAI
+     safety-strict and replay safety-strict matched on aggregate outcomes,
+     with ISE 0.0491 and HCI 7.84.
 
-4. Decide paper integration after summaries exist.
-   - Strong positive: LLM guidance improves ISE or HCI under validation.
-   - Strong negative: validators frequently reject generated messages or LLM
-     guidance fails to beat static/local baselines.
-   - Either result is useful, but only if reported as safety-control evidence
-     rather than language-quality evidence.
+4. Completed first paper integration.
+   - Current interpretation: validated LLM guidance improves ISE under a much
+     smaller intervention budget, but it does not yet reduce harmful
+     convergence relative to conservative deterministic baselines.
+   - This should be reported as safety-control evidence, not language-quality
+     evidence.
+
+Next LLM work:
+
+1. Add a robustness extension for LLM guidance across hazard severity and
+   population familiarity, probably smaller than the 900-run deterministic grid
+   unless the paper needs a full factorial extension.
+2. Add target-selection ablations so LLM text quality is separated from who
+   receives messages.
+3. Add a table-generation script for `paper/sections/limitations.tex` so the
+   medium LLM table can be regenerated directly from
+   `out/llm_medium/tables/llm_policy_comparison.csv`.
+4. Decide whether LLM results belong in the main paper as an extension section
+   or should be held for a follow-on paper after robustness is complete.
 
 ## Paper hardening checklist
 

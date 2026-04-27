@@ -85,7 +85,7 @@ cd paper
 ## Optional LLM Extension Pilot
 
 The LLM extension is not part of the completed baseline evidence. It exists as
-a controlled, replayable pilot for future paper work. The default pilot uses a
+a controlled, replayable extension for future paper work. The default pilot uses a
 deterministic template provider and writes generated-message cache artifacts
 without requiring live API keys:
 
@@ -117,7 +117,9 @@ PYTHONPATH=. .venv/bin/python scripts/run_study_progress.py \
 Its OpenAI variant uses `llm_cache_mode: cache_first`; the replay variant uses
 the same cache path with `llm_provider: replay`. Do not treat the live pilot as
 a paper result until the cached artifacts, validation summary, and deterministic
-replay run have been inspected.
+replay run have been inspected. In the current artifact set, the tiny OpenAI
+pilot completed with 8 accepted live messages, 0 rejected live messages, 0
+fallbacks, and exact replay coverage for the cached messages.
 
 After any LLM pilot, summarize generated-message telemetry with:
 
@@ -141,8 +143,9 @@ PYTHONPATH=. .venv/bin/python scripts/summarize_llm_interventions.py \
 
 The medium design includes deterministic baselines, template generation,
 OpenAI prompt-style ablations, validator-profile ablations, and replay-only
-verification. Treat it as an extension study; it should not replace the
-deterministic baseline evidence.
+verification. The current medium run contains 80 completed runs across 8
+variants and 10 seeds. Treat it as an extension study; it should not replace
+the deterministic baseline evidence.
 
 ## Artifact Index
 

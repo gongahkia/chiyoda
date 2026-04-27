@@ -51,3 +51,49 @@ interventions. The correct comparison is therefore not whether LLM text sounds
 more natural, but whether a validated generated-message policy improves ISE or
 reduces HCI under the same information budget and target-selection constraints
 as deterministic baselines.
+
+\subsection{Medium LLM Extension Result}
+\label{subsec:llm-medium-result}
+
+A first medium-scale LLM extension study applies this protocol to 80 runs:
+eight policy variants across ten random seeds. The study includes the
+deterministic baselines, a deterministic template generator, three live OpenAI
+prompt/validator ablations, and a replay-only verification variant. The live
+LLM policies make only eight intervention attempts per run, compared with
+32--72 interventions for the deterministic communication policies.
+
+\begin{table}[t]
+\centering
+\small
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{lrrrr}
+\toprule
+Policy & Evacuated & ISE & HCI & Recipients \\
+\midrule
+Static beacon & 11.0 & 0.0145 & 6.81 & 503.7 \\
+Entropy targeted & 9.2 & 0.0079 & 8.10 & 1064.3 \\
+Bottleneck avoidance & 9.4 & 0.0124 & 7.55 & 585.7 \\
+Template safety & 9.0 & 0.0155 & 7.86 & 446.6 \\
+OpenAI state-only & 9.0 & 0.0414 & 8.39 & 132.3 \\
+OpenAI safety-strict & 9.9 & 0.0491 & 7.84 & 133.8 \\
+OpenAI entropy-lenient & 10.0 & 0.0429 & 8.76 & 138.8 \\
+Replay safety-strict & 9.9 & 0.0491 & 7.84 & 133.8 \\
+\bottomrule
+\end{tabular}
+}
+\caption{Medium LLM extension summary over ten seeds. LLM guidance improves
+information-safety efficiency mainly by operating under a much smaller
+intervention budget, but it does not yet reduce harmful convergence relative
+to the strongest conservative baseline.}
+\label{tab:llm-medium-extension}
+\end{table}
+
+The result is useful but deliberately bounded. The live OpenAI variants
+achieve higher information-safety efficiency than the deterministic policies
+under this intervention budget, and replay exactly matches the safety-strict
+live variant. However, the harmful-convergence index remains high. The
+extension therefore supports a cautious paper claim: validated generated
+messages can be made replayable and efficient, but richer adaptive language
+does not by itself solve crowd synchronization risk. The next experiment
+should test whether LLM guidance can reduce HCI under controlled target
+selection, hazard severity, and population familiarity regimes.
