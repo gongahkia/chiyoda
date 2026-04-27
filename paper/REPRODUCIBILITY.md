@@ -187,6 +187,18 @@ bottleneck targeting (0.0450), followed by entropy targeting (0.0422), density
 targeting (0.0391), and static targeting (0.0354). Global and exposure
 targeting were much weaker under the same generated-message budget.
 
+Regenerate the LaTeX tables used by the LLM extension section with:
+
+```sh
+cd paper
+../.venv/bin/python scripts/gen_llm_tables.py -o llm_tables.tex
+```
+
+This reads the medium LLM, target-selection, LLM regime robustness, and
+deterministic regime robustness CSV artifacts. The generated
+`llm_tables.tex` includes the direct static-beacon versus LLM regime comparison
+used in `paper/sections/limitations.tex`.
+
 ## Artifact Index
 
 Each study directory has the same structure:

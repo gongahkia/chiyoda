@@ -12,6 +12,11 @@ PAPER       ?= main
 BUILD_DIR   ?= build
 STUDY_DIR   ?= ../out/information_control_50
 STATS_TEX    = stats.tex
+LLM_TABLES_TEX = llm_tables.tex
+LLM_MEDIUM_CSV ?= ../out/llm_medium/tables/llm_policy_comparison.csv
+LLM_TARGET_CSV ?= ../out/llm_target_selection_ablation/tables/llm_policy_comparison.csv
+LLM_REGIME_CSV ?= ../out/llm_regime_robustness/tables/llm_policy_comparison.csv
+DET_REGIME_CSV ?= ../out/regime_robustness_900/tables/regime_summary.csv
 LATEXMK     ?= latexmk
 PYTHON      ?= python3
 LATEXMK_FLAGS = -lualatex -interaction=nonstopmode -halt-on-error \
@@ -20,14 +25,14 @@ LATEXMK_FLAGS = -lualatex -interaction=nonstopmode -halt-on-error \
 FIGURES_MMD := $(wildcard figures/*.mmd)
 FIGURES_PDF := $(FIGURES_MMD:.mmd=.pdf)
 
-.PHONY: paper smoke stats figures arxiv clean distclean watch
+.PHONY: paper smoke stats llm-tables figures arxiv clean distclean watch
 
-paper: stats $(FIGURES_PDF) | $(BUILD_DIR)
+paper: stats llm-tables $(FIGURES_PDF) | $(BUILD_DIR)
 	$(LATEXMK) $(LATEXMK_FLAGS) $(PAPER).tex
 	@cp $(BUILD_DIR)/$(PAPER).pdf ./$(PAPER).pdf
 	@echo "Built $(PAPER).pdf"
 
-smoke: stats $(FIGURES_PDF) | $(BUILD_DIR)
+smoke: stats llm-tables $(FIGURES_PDF) | $(BUILD_DIR)
 	lualatex -interaction=nonstopmode -output-directory=$(BUILD_DIR) main_smoke.tex
 	@cp references.bib $(BUILD_DIR)/
 	cd $(BUILD_DIR) && bibtex main_smoke
@@ -38,6 +43,14 @@ smoke: stats $(FIGURES_PDF) | $(BUILD_DIR)
 
 stats:
 	$(PYTHON) scripts/gen_stats.py $(STUDY_DIR) > $(STATS_TEX)
+
+llm-tables:
+	$(PYTHON) scripts/gen_llm_tables.py \
+	  --medium $(LLM_MEDIUM_CSV) \
+	  --target $(LLM_TARGET_CSV) \
+	  --llm-regime $(LLM_REGIME_CSV) \
+	  --det-regime $(DET_REGIME_CSV) \
+	  -o $(LLM_TABLES_TEX)
 
 figures: $(FIGURES_PDF)
 
@@ -50,7 +63,7 @@ arxiv: paper
 	tar --exclude='$(BUILD_DIR)' --exclude='*.aux' --exclude='*.log' \
 	    --exclude='*.fls' --exclude='*.fdb_latexmk' --exclude='arxiv.tar.gz' \
 	    -czf arxiv.tar.gz \
-	    $(PAPER).tex sections/ figures/ references.bib stats.tex \
+	    $(PAPER).tex sections/ figures/ references.bib stats.tex llm_tables.tex \
 	    2>/dev/null || true
 	@echo "Wrote arxiv.tar.gz"
 
@@ -66,4 +79,4 @@ clean:
 	      $(PAPER).fls $(PAPER).fdb_latexmk $(PAPER).synctex.gz
 
 distclean: clean
-	rm -f $(PAPER).pdf main_smoke.pdf $(STATS_TEX) figures/*.pdf arxiv.tar.gz
+	rm -f $(PAPER).pdf main_smoke.pdf $(STATS_TEX) $(LLM_TABLES_TEX) figures/*.pdf arxiv.tar.gz

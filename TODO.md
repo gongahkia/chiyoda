@@ -89,6 +89,10 @@ Next LLM work:
 3. Add a table-generation script for `paper/sections/limitations.tex` so the
    medium LLM table can be regenerated directly from
    `out/llm_medium/tables/llm_policy_comparison.csv`.
+   - Status: completed. `paper/scripts/gen_llm_tables.py` regenerates
+     `paper/llm_tables.tex` from the medium LLM, target-selection, LLM regime,
+     and deterministic regime CSV artifacts. The paper now imports this file
+     instead of hand-maintaining LLM tables in `limitations.tex`.
 4. Decide whether LLM results belong in the main paper as an extension section
    or should be held for a follow-on paper after robustness is complete.
 5. Run a fresh opt-in live OpenAI validation pass with the intended
@@ -269,3 +273,9 @@ Possible implementation path:
    - Use it to state exactly where LLM guidance beats or trails static beacon,
      global broadcast, entropy targeting, and bottleneck avoidance by ISE and
      HCI.
+   - Status: completed in `paper/llm_tables.tex` and
+     `paper/sections/limitations.tex`. LLM guidance has higher ISE than static
+     beacon, global broadcast, entropy targeting, and bottleneck avoidance
+     averaged across the regime grid under its smaller intervention budget, but
+     it does not lower HCI relative to static beacon, bottleneck avoidance, or
+     entropy targeting.
