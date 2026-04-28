@@ -64,7 +64,10 @@ accepts the full `BehaviorConfig` surface (`density_panic_weight`,
 population cohort can set exact `base_speed`/`base_speed_mps`,
 `base_rationality`, `credibility`, `gossip_radius`, and `base_vision_radius`
 in addition to the existing familiarity, calmness, grouping, and release
-fields.
+fields. See
+[`docs/population_calibration.md`](./docs/population_calibration.md) and
+`scenarios/study_population_calibration_examples.yaml` for example-only
+calibration variants and parameter provenance.
 
 The `compare-trajectory-reference` command performs a lightweight check
 against a reference trajectory CSV or Parquet table with `agent_id`, `time_s`,

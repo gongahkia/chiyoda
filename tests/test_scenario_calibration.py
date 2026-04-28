@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 
 from chiyoda.scenarios.manager import ScenarioManager
+from chiyoda.studies.runner import _materialize_variants, _prepare_scenario, load_study_config
 
 
 def test_behavior_and_cohort_calibration_are_loaded_from_scenario():
@@ -74,3 +75,49 @@ def test_base_speed_multiplier_still_scales_default_speed():
     sim = ScenarioManager().build_simulation(scenario)
 
     assert sim.agents[0].base_speed == pytest.approx(0.67)
+
+
+def test_population_calibration_example_study_documents_exposed_knobs():
+    config = load_study_config("scenarios/study_population_calibration_examples.yaml")
+    variants = _materialize_variants(config)
+    manager = ScenarioManager()
+
+    assert [variant.name for variant in variants] == [
+        "documented_baseline",
+        "regular_heavy_calm",
+        "visitor_heavy_uncertain",
+        "limited_visibility_stress",
+    ]
+    assert config.export.include_figures is False
+    assert config.export.table_formats == ["parquet"]
+
+    behavior_keys = {
+        "density_panic_weight",
+        "neighbor_panic_weight",
+        "hazard_panic_weight",
+        "entropy_anxiety_weight",
+        "freeze_probability",
+        "calm_recovery_rate",
+        "helping_threshold",
+    }
+    cohort_keys = {
+        "base_speed",
+        "base_rationality",
+        "familiarity",
+        "credibility",
+        "gossip_radius",
+        "base_vision_radius",
+    }
+
+    for variant in variants:
+        scenario = _prepare_scenario(manager, config.scenario_file, variant, seed=42)
+        assert set(scenario["behavior"]) == behavior_keys
+        assert scenario["interventions"]["policy"] == "none"
+        assert sum(cohort["count"] for cohort in scenario["population"]["cohorts"]) == 120
+        for cohort in scenario["population"]["cohorts"]:
+            assert cohort_keys.issubset(cohort)
+
+        sim = manager.build_simulation(scenario)
+        assert len([agent for agent in sim.agents if not getattr(agent, "is_responder", False)]) == 120
+        assert len([agent for agent in sim.agents if getattr(agent, "is_responder", False)]) == 3
+        assert sim.behavior_model is not None

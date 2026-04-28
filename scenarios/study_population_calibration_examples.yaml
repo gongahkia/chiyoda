@@ -1,0 +1,183 @@
+population_documented_baseline: &population_documented_baseline
+  population:
+    total: 120
+    cohorts:
+      - name: "regular_commuters_documented"
+        count: 80
+        personality: "NORMAL"
+        calmness: 0.80
+        familiarity: 0.70
+        base_speed: 1.34
+        base_rationality: 0.80
+        credibility: 0.80
+        gossip_radius: 2.0
+        base_vision_radius: 5.0
+        group_size: 1
+      - name: "visitors_documented"
+        count: 40
+        personality: "NORMAL"
+        calmness: 0.60
+        familiarity: 0.10
+        base_speed: 1.20
+        base_rationality: 0.60
+        credibility: 0.65
+        gossip_radius: 1.6
+        base_vision_radius: 4.5
+        group_size: 2
+
+population_regular_heavy: &population_regular_heavy
+  population:
+    total: 120
+    cohorts:
+      - name: "high_familiarity_regulars"
+        count: 100
+        personality: "NORMAL"
+        calmness: 0.84
+        familiarity: 0.88
+        base_speed: 1.36
+        base_rationality: 0.86
+        credibility: 0.88
+        gossip_radius: 2.4
+        base_vision_radius: 5.8
+        group_size: 1
+      - name: "semi_familiar_visitors"
+        count: 20
+        personality: "NORMAL"
+        calmness: 0.68
+        familiarity: 0.35
+        base_speed: 1.22
+        base_rationality: 0.68
+        credibility: 0.72
+        gossip_radius: 1.8
+        base_vision_radius: 4.8
+        group_size: 2
+
+population_visitor_heavy: &population_visitor_heavy
+  population:
+    total: 120
+    cohorts:
+      - name: "limited_regulars"
+        count: 45
+        personality: "NORMAL"
+        calmness: 0.74
+        familiarity: 0.38
+        base_speed: 1.28
+        base_rationality: 0.70
+        credibility: 0.76
+        gossip_radius: 2.0
+        base_vision_radius: 5.0
+        group_size: 1
+      - name: "unfamiliar_groups"
+        count: 75
+        personality: "NORMAL"
+        calmness: 0.52
+        familiarity: 0.04
+        base_speed: 1.10
+        base_rationality: 0.48
+        credibility: 0.55
+        gossip_radius: 1.4
+        base_vision_radius: 4.0
+        group_size: 3
+
+population_visibility_limited: &population_visibility_limited
+  population:
+    total: 120
+    cohorts:
+      - name: "regulars_low_visibility"
+        count: 70
+        personality: "NORMAL"
+        calmness: 0.72
+        familiarity: 0.62
+        base_speed: 1.22
+        base_rationality: 0.66
+        credibility: 0.74
+        gossip_radius: 1.6
+        base_vision_radius: 3.4
+        group_size: 1
+      - name: "visitors_low_visibility"
+        count: 50
+        personality: "NORMAL"
+        calmness: 0.50
+        familiarity: 0.08
+        base_speed: 1.02
+        base_rationality: 0.44
+        credibility: 0.52
+        gossip_radius: 1.2
+        base_vision_radius: 3.0
+        group_size: 2
+
+behavior_documented_baseline: &behavior_documented_baseline
+  behavior:
+    density_panic_weight: 0.20
+    neighbor_panic_weight: 0.10
+    hazard_panic_weight: 0.15
+    entropy_anxiety_weight: 0.25
+    freeze_probability: 0.02
+    calm_recovery_rate: 0.005
+    helping_threshold: 0.70
+
+behavior_calm_regulars: &behavior_calm_regulars
+  behavior:
+    density_panic_weight: 0.16
+    neighbor_panic_weight: 0.08
+    hazard_panic_weight: 0.12
+    entropy_anxiety_weight: 0.18
+    freeze_probability: 0.012
+    calm_recovery_rate: 0.008
+    helping_threshold: 0.72
+
+behavior_uncertain_visitors: &behavior_uncertain_visitors
+  behavior:
+    density_panic_weight: 0.24
+    neighbor_panic_weight: 0.13
+    hazard_panic_weight: 0.18
+    entropy_anxiety_weight: 0.36
+    freeze_probability: 0.032
+    calm_recovery_rate: 0.004
+    helping_threshold: 0.68
+
+behavior_visibility_stress: &behavior_visibility_stress
+  behavior:
+    density_panic_weight: 0.27
+    neighbor_panic_weight: 0.15
+    hazard_panic_weight: 0.24
+    entropy_anxiety_weight: 0.34
+    freeze_probability: 0.04
+    calm_recovery_rate: 0.003
+    helping_threshold: 0.64
+
+policy_none: &policy_none
+  interventions:
+    policy: "none"
+
+study:
+  name: "Heuristic Population Calibration Examples"
+  description: "Example-only cohort and behavior calibration variants. These are provenance-documented heuristics, not matched real-world calibrations."
+  scenario_file: "station_sarin.yaml"
+  repetitions: 3
+  seeds: [42, 137, 256]
+  export:
+    profile: "calibration_examples"
+    include_figures: false
+    formats: []
+    table_formats: ["parquet"]
+  variants:
+    - name: "documented_baseline"
+      description: "Current mixed commuter/visitor profile with all exposed calibration knobs stated explicitly."
+      scenario_overrides:
+        <<: [*population_documented_baseline, *behavior_documented_baseline, *policy_none]
+
+    - name: "regular_heavy_calm"
+      description: "More regular commuters, higher familiarity and credibility, and lower anxiety transition weights."
+      scenario_overrides:
+        <<: [*population_regular_heavy, *behavior_calm_regulars, *policy_none]
+
+    - name: "visitor_heavy_uncertain"
+      description: "More unfamiliar grouped visitors with lower credibility, lower vision, and higher entropy-driven anxiety."
+      scenario_overrides:
+        <<: [*population_visitor_heavy, *behavior_uncertain_visitors, *policy_none]
+
+    - name: "limited_visibility_stress"
+      description: "Lower vision and speed with stronger hazard, density, and neighbor-driven panic transitions."
+      scenario_overrides:
+        <<: [*population_visibility_limited, *behavior_visibility_stress, *policy_none]
