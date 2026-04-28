@@ -95,6 +95,9 @@ class ScenarioManager:
             neighbor_panic_weight=float(behavior_cfg.get("neighbor_panic_weight", 0.1)),
             hazard_panic_weight=float(behavior_cfg.get("hazard_panic_weight", 0.15)),
             entropy_anxiety_weight=float(behavior_cfg.get("entropy_anxiety_weight", 0.25)),
+            freeze_probability=float(behavior_cfg.get("freeze_probability", 0.02)),
+            calm_recovery_rate=float(behavior_cfg.get("calm_recovery_rate", 0.005)),
+            helping_threshold=float(behavior_cfg.get("helping_threshold", 0.7)),
         )
         sim.attach_behavior_model(BehaviorModel(bconfig))
         policy = create_intervention_policy(sc.get("interventions"))
@@ -212,6 +215,8 @@ class ScenarioManager:
             count = int(rc.get("count", 1))
             release_step = int(rc.get("release_step", 0))
             ppe_factor = float(rc.get("ppe_factor", 0.1))
+            base_speed = float(rc.get("base_speed", rc.get("base_speed_mps", 1.34)))
+            base_speed *= float(rc.get("base_speed_multiplier", 1.0))
             spawn_cells = rc.get("spawn_cells", [])
             mission_target = rc.get("mission_target", None)
             if mission_target:
@@ -228,11 +233,14 @@ class ScenarioManager:
                 r = FirstResponder(
                     id=agent_offset + len(responders),
                     pos=pos,
+                    base_speed=base_speed,
                     release_step=release_step,
                     cohort_name=f"responder_{i+1}",
                     ppe_factor=ppe_factor,
+                    broadcast_radius=float(rc.get("broadcast_radius", 5.0)),
                     mission_target=mission_target,
                 )
+                self._apply_agent_calibration(r, rc)
                 responders.append(r)
         return responders
 
@@ -278,7 +286,8 @@ class ScenarioManager:
             count = int(cohort_cfg.get("count", 0))
             personality = str(cohort_cfg.get("personality", "NORMAL"))
             calmness = float(cohort_cfg.get("calmness", 0.8))
-            base_speed_mult = float(cohort_cfg.get("base_speed_multiplier", 1.0))
+            base_speed = float(cohort_cfg.get("base_speed", cohort_cfg.get("base_speed_mps", 1.34)))
+            base_speed *= float(cohort_cfg.get("base_speed_multiplier", 1.0))
             release_step = int(cohort_cfg.get("release_step", 0))
             group_size = max(1, int(cohort_cfg.get("group_size", 1)))
             spawn_cells = list(cohort_cfg.get("spawn_cells", []) or [])
@@ -294,11 +303,12 @@ class ScenarioManager:
                     pos_idx += 1
                 agent = Commuter(
                     id=len(agents), pos=position,
-                    base_speed=1.34 * base_speed_mult,
+                    base_speed=base_speed,
                     personality=personality, calmness=calmness,
                     release_step=release_step, cohort_name=cohort_name,
                     familiarity=familiarity,
                 )
+                self._apply_agent_calibration(agent, cohort_cfg)
                 agents.append(agent)
                 members.append(agent)
 
@@ -333,6 +343,18 @@ class ScenarioManager:
                 dependent.leader_id = helper.id
 
         return agents
+
+    def _apply_agent_calibration(self, agent, config: Dict[str, Any]) -> None:
+        if "base_rationality" in config:
+            agent.base_rationality = float(config["base_rationality"])
+            agent.rationality = float(config["base_rationality"])
+        if "credibility" in config:
+            agent.credibility = float(config["credibility"])
+        if "gossip_radius" in config:
+            agent.gossip_radius = float(config["gossip_radius"])
+        if "base_vision_radius" in config:
+            agent.base_vision_radius = float(config["base_vision_radius"])
+            agent.vision_radius = agent.effective_vision_radius()
 
     def _deep_merge(self, base: Dict[str, Any], overrides: Dict[str, Any]) -> Dict[str, Any]:
         merged = dict(base)

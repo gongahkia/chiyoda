@@ -5,6 +5,10 @@ from pathlib import Path
 import click
 
 from chiyoda.analysis.reports import export_figures
+from chiyoda.analysis.trajectory_reference import (
+    compare_trajectory_reference,
+    load_trajectory_table,
+)
 from chiyoda.studies import StudyBundle, compare_studies, load_study_config, run_study
 
 
@@ -182,6 +186,32 @@ def export_figures_command(study_dir, figure_formats, profile):
             formats=resolved_figures,
         )
     click.echo(f"Exported figures to {export_dir}")
+
+
+@cli.command("compare-trajectory-reference")
+@click.argument("simulated")
+@click.argument("reference")
+@click.option("-o", "--out", "out_file", required=True, help="Output CSV file")
+@click.option(
+    "--group-by",
+    "group_columns",
+    multiple=True,
+    default=("variant_name",),
+    help="Simulated table column(s) used for grouped comparisons",
+)
+def compare_trajectory_reference_command(simulated, reference, out_file, group_columns):
+    """Compare exported Chiyoda trajectories with a reference trajectory table."""
+    simulated_frame = load_trajectory_table(simulated)
+    reference_frame = load_trajectory_table(reference)
+    comparison = compare_trajectory_reference(
+        simulated_frame,
+        reference_frame,
+        group_columns=tuple(group_columns),
+    )
+    output = Path(out_file)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    comparison.to_csv(output, index=False)
+    click.echo(f"Exported trajectory reference comparison to {output}")
 
 
 @cli.command()

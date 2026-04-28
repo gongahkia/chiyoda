@@ -1,95 +1,56 @@
 # TODO
 
-This file records the remaining work for the current Chiyoda paper scope. The
-project is now in paper-hardening mode, not experiment-expansion mode.
+This file records unfinished work only. Completed empirical artifacts,
+implementation notes, and smoke-build status should live in the repo history,
+README, paper text, or `paper/REPRODUCIBILITY.md`.
 
-## Current Status
+## Paper Hardening
 
-Scoped data collection for the current paper is complete.
-
-Completed empirical artifacts:
-
-1. Deterministic safety-control evidence.
-   - `out/information_control_50`
-   - `out/intervention_ablation_30`
-   - `out/message_quality_30`
-   - `out/regime_robustness_900`
-
-2. Bounded LLM guidance evidence.
-   - `out/llm_medium`
-   - `out/llm_target_selection_ablation`
-   - `out/llm_regime_robustness`
-   - `out/llm_prompt_objective_ablation`
-   - `out/llm_budget_equivalence`
-   - `out/llm_synthesis`
-
-3. Reproducible paper support.
-   - Generated `paper/stats.tex`
-   - Generated `paper/llm_tables.tex`
-   - Smoke-built `paper/main_smoke.pdf`
-   - Self-review notes in `paper/SELF_REVIEW.md`
-
-No additional code changes, live API runs, or new simulation sweeps are planned
-for the current paper unless final reading finds a claim that is not supported
-by the existing artifacts.
-
-## Remaining Paper Work
-
-1. Richer station geometries with attempted modelling of real-world stations/possible edgecase stations with drastic results
-
-2. Various calibrated population behavior (powered by heuristic changes)
-
-3. Various calibrated population behavior (powered by LLMs and api call to relevant APIs) 
-
-4. Validated hazard physics,
-
-5. Applied simulation of evacuation drills
-
-6. Pedestrian trajectory data where relevant for the scope of the paper
-
-7. Full narrative read from abstract to conclusion.
+1. Full narrative read from abstract to conclusion.
    - Keep the thesis continuous: emergency communication is safety control, not
      just information spread.
    - Ensure the abstract, introduction, claims, evaluation, limitations, and
      conclusion make the same bounded claim.
    - Make LLM guidance a bounded extension result, not the central paper claim.
 
-8. Claim-evidence alignment pass.
+2. Claim-evidence alignment pass.
    - Check every major claim in the abstract and introduction against the
-     deterministic and LLM artifacts listed above.
+     deterministic and LLM artifacts.
    - Weaken or remove any claim that is not directly supported.
    - Preserve the limitation that Chiyoda is a stylized simulator, not an
      operational evacuation planner.
 
-9. Methods and metric clarity.
+3. Methods and metric clarity.
    - Confirm the agent belief state, route-choice logic, hazard exposure model,
      intervention policy mechanics, and telemetry pipeline are precise enough
      for a reviewer to reproduce.
    - Define ISE and HCI clearly as paper-level constructs.
    - Explain why coupled belief/safety metrics answer the research question
      better than entropy, reach, or evacuation count alone.
+   - Explain the newly exposed calibration knobs without implying that current
+     paper results are empirically calibrated.
 
-10. Statistical interpretation.
+4. Statistical interpretation.
    - Confirm the paper explains seed-level aggregates, Mann-Whitney tests,
      descriptive effect sizes, and nonparametric interpretation.
    - Avoid claiming operational superiority from stylized simulation.
    - Emphasize tradeoff patterns and bounded evidence.
 
-11. Related work tightening.
-   - Position the contribution against pedestrian evacuation simulation,
-     information diffusion in crowds, emergency communication systems,
-     information-theoretic control, and safety-critical AI messaging.
+5. Related work final pass.
+   - Keep the new JuPedSim, Vadere, SUMO, PedPy, FDS, OpenStationMap, and GTFS
+     Pathways positioning focused on interoperability, not replacement.
+   - Re-check citation quality and exact bibliographic metadata before release.
    - Make clear why the paper is about communication as control, not only about
      adding messages to an evacuation simulator.
 
-12. Figure, table, and PDF polish.
+6. Figure, table, and PDF polish.
    - Visually inspect the final PDF for table placement, overfull boxes, figure
      order, and caption clarity.
    - Keep the central result figures and compact policy tables prominent.
    - Avoid overwhelming the reader with raw metrics that do not support the
      thesis.
 
-13. Final release checks.
+7. Final release checks.
    - Run the Python test suite.
    - Run the paper smoke build.
    - Run the full ACM-style `make paper` build if the local environment has
@@ -97,6 +58,64 @@ by the existing artifacts.
    - Confirm reproduction commands and artifact paths in
      `paper/REPRODUCIBILITY.md`.
 
-## Not In Current Scope
+## Next Implementation Work
 
-External validation remains future work, not a blocker for the current paper as long as it does not purport operational readiness for actual application in a real-world setting, or attempt to cover VR traces or handle incident record generation.
+1. Richer station geometry workflow.
+   - Add a documented calibration path from OSM/OpenStationMap indoor features
+     or GTFS Pathways into Chiyoda's existing GeoJSON/DXF layout ingestion.
+   - Include manual fallbacks for stations whose indoor mapping is incomplete.
+   - Add at least one small synthetic edge-case station geometry that stresses
+     bottlenecks, exit imbalance, or disconnected-looking interior features.
+
+2. Heuristic population calibration.
+   - Add example scenario variants that use the exposed `behavior` and cohort
+     calibration knobs.
+   - Keep these as calibration examples until matched against a real trajectory,
+     drill, VR, or incident reference.
+   - Document parameter provenance for speed, rationality, familiarity,
+     credibility, gossip radius, and vision radius.
+
+3. Generated population calibration.
+   - Define what external API input would be allowed to influence: cohort mix,
+     parameter priors, or scenario metadata.
+   - Keep live API use cacheable and replayable, following the existing LLM
+     cache/replay pattern.
+   - Prevent generated calibration from silently overwriting measured or
+     hand-audited scenario parameters.
+
+4. Hazard physics cross-checks.
+   - Add an import path for precomputed hazard fields from FDS or published
+     gas/smoke examples before making any stronger validated-physics claim.
+   - Keep Chiyoda's current hazard model described as stylized unless it is
+     cross-checked against such a reference.
+   - Add tests that verify imported hazard fields affect exposure, visibility,
+     and route penalties consistently.
+
+5. Evacuation drill and incident-data ingestion.
+   - Define a schema for drill, VR, incident, or expert-coded event references.
+   - Keep ingestion separate from simulation execution so comparisons remain
+     auditable and do not become hidden hand-tuning.
+   - Add explicit provenance fields for source, license, timestamp, station,
+     scenario assumptions, and known missing data.
+
+6. Pedestrian trajectory reference work.
+   - Collect one small, license-compatible trajectory reference sample for
+     CI-scale regression tests.
+   - Keep full public trajectory datasets optional because video-derived
+     trajectory corpora can range from tens of megabytes to multiple gigabytes.
+   - Add a PedPy analysis notebook or script that consumes Chiyoda `agent_steps`
+     exports instead of reimplementing full trajectory science in Chiyoda.
+   - Add JuPedSim/Vadere-compatible trajectory export if it helps comparison
+     with established pedestrian simulators.
+
+7. Developer environment cleanup.
+   - Repair or recreate `.venv`; it currently lacks `pip` and `pytest`.
+   - Document the expected Python command for verification so `python3 -m
+     pytest` and paper smoke builds are reproducible on a fresh checkout.
+
+## Scope Guard
+
+External validation remains future work, not a blocker for the current paper as
+long as the paper does not purport operational readiness for real-world
+deployment and does not claim validated hazard physics or calibrated behavior
+before the corresponding references are integrated.

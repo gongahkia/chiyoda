@@ -29,6 +29,7 @@ $ python -m chiyoda.cli run scenarios/station_sarin.yaml -o out/sarin
 $ python -m chiyoda.cli sweep scenarios/study_ited_full.yaml -o out/ited_study
 $ python -m chiyoda.cli sweep scenarios/study_information_control.yaml -o out/information_control
 $ python -m chiyoda.cli compare out/baseline out/sarin -o out/comparison
+$ python -m chiyoda.cli compare-trajectory-reference out/information_control reference_trajectories.csv -o out/trajectory_reference.csv
 ```
 
 ## Structure
@@ -45,6 +46,24 @@ $ python -m chiyoda.cli compare out/baseline out/sarin -o out/comparison
 | [`chiyoda/scenarios/`](./chiyoda/scenarios) | Scenario loading and management |
 | [`scenarios/`](./scenarios) | YAML scenario definitions and layouts |
 | [`tests/`](./tests) | Test suite |
+
+## Calibration and Reference Checks
+
+Scenario YAML can calibrate behavior at two levels. The `behavior` block
+accepts the full `BehaviorConfig` surface (`density_panic_weight`,
+`neighbor_panic_weight`, `hazard_panic_weight`, `entropy_anxiety_weight`,
+`freeze_probability`, `calm_recovery_rate`, and `helping_threshold`). Each
+population cohort can set exact `base_speed`/`base_speed_mps`,
+`base_rationality`, `credibility`, `gossip_radius`, and `base_vision_radius`
+in addition to the existing familiarity, calmness, grouping, and release
+fields.
+
+The `compare-trajectory-reference` command performs a lightweight check
+against a reference trajectory CSV or Parquet table with `agent_id`, `time_s`,
+`x`, and `y` columns. It reports first-order deltas for duration, path length,
+displacement, speed, and local density. For full trajectory science, Chiyoda
+exports `agent_steps` tables that can be analyzed with dedicated tools such as
+PedPy instead of reimplementing those methods here.
 
 ## ITED Study Variants
 

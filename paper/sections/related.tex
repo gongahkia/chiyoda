@@ -32,6 +32,31 @@ Belief entropy, belief accuracy, intervention reach, exposure, queueing, and
 exit imbalance are exported together, which lets the paper ask whether a
 belief improvement is also a safety improvement.
 
+Open-source pedestrian toolchains already cover much of the physical
+simulation and trajectory-analysis stack. JuPedSim and Vadere provide mature
+microscopic pedestrian simulation frameworks with published locomotion models
+and analysis workflows~\cite{kemlohwagoum2015jupedsim,kleinmeier2019vadere}.
+SUMO also exposes pedestrian simulation and JuPedSim coupling in a wider
+multimodal traffic environment~\cite{alvarezlopez2018sumo}. PedPy complements
+these simulators by analyzing real or simulated trajectory files for density,
+velocity, flow, and fundamental-diagram measurements~\cite{schrodter2025pedpy}.
+Chiyoda should therefore not be read as a replacement for these systems. Its
+role is narrower: it keeps the motion model inspectable while adding a
+replayable information-control layer whose outputs can be compared with, or
+exported toward, established pedestrian-analysis tooling.
+
+External geometry and hazard data are also better treated as interfaces than
+as reinventions. Station layout work can draw from indoor and station mapping
+schemas such as OpenStationMap and from GTFS Pathways records for entrances,
+levels, and station interiors~\cite{openstationmap2026,gtfs2026pathways}.
+Validated fire and smoke studies should use high-fidelity tools such as the
+NIST Fire Dynamics Simulator when physical dispersion accuracy is the target
+question~\cite{mcgrattan2013fds}. Chiyoda's current hazard layer remains a
+stylized comparative field, but its scenario and telemetry formats make it
+possible to calibrate or cross-check against richer geometry, pathway, hazard,
+and trajectory references without making those external tools part of the core
+paper claim.
+
 The resulting distinction is methodological. Chiyoda treats communication as
 an experimental control surface rather than a binary assumption about whether
 agents know enough. It asks how an emergency system should allocate limited
