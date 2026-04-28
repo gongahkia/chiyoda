@@ -49,6 +49,14 @@ $ python -m chiyoda.cli compare-trajectory-reference out/information_control ref
 
 ## Calibration and Reference Checks
 
+Station geometry can be loaded from text grids, GeoJSON, or a small DXF
+subset. The GeoJSON path accepts explicit Chiyoda roles and can also infer
+walkable, blocked, and exit cells from common OSM/OpenStationMap indoor tags
+and GTFS Pathways fields. See
+[`docs/station_geometry_workflow.md`](./docs/station_geometry_workflow.md) for
+the auditable workflow, manual fallbacks, and the synthetic
+`edge_bottleneck_station` fixture.
+
 Scenario YAML can calibrate behavior at two levels. The `behavior` block
 accepts the full `BehaviorConfig` surface (`density_panic_weight`,
 `neighbor_panic_weight`, `hazard_panic_weight`, `entropy_anxiety_weight`,

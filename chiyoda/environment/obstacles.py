@@ -19,8 +19,23 @@ PERSON_TOKEN = "@"
 
 WALKABLE_ROLES = {"walkable", "floor", "room", "corridor", "space"}
 OBSTACLE_ROLES = {"obstacle", "wall", "blocked", "blocker"}
-EXIT_ROLES = {"exit", "egress"}
+EXIT_ROLES = {"exit", "egress", "entrance"}
 SPAWN_ROLES = {"spawn", "person", "agent", "start"}
+
+OSM_WALKABLE_INDOOR = {"area", "corridor", "level", "room"}
+OSM_OBSTACLE_INDOOR = {"column", "wall"}
+OSM_WALKABLE_HIGHWAY = {
+    "corridor",
+    "elevator",
+    "footway",
+    "path",
+    "pedestrian",
+    "steps",
+}
+OSM_OBSTACLE_BARRIERS = {"block", "fence", "wall"}
+GTFS_WALKABLE_LOCATION_TYPES = {"0", "3", "4"}
+GTFS_EXIT_LOCATION_TYPES = {"2"}
+GTFS_WALKABLE_PATHWAY_MODES = {"1", "2", "3", "4", "5", "6", "7"}
 
 
 @dataclass(frozen=True)
@@ -668,14 +683,81 @@ def _feature_role(feature: Mapping[str, Any], *, role_property: str) -> str:
     properties = feature.get("properties", {}) or {}
     candidates = [
         properties.get(role_property),
+        properties.get("chiyoda_role"),
         properties.get("kind"),
         properties.get("feature"),
         properties.get("usage"),
     ]
     for candidate in candidates:
-        if candidate is not None:
-            return str(candidate).lower()
+        normalized = _tag_value(candidate)
+        if normalized:
+            return normalized
+
+    inferred = _infer_station_feature_role(properties)
+    if inferred is not None:
+        return inferred
     return "obstacle"
+
+
+def _infer_station_feature_role(properties: Mapping[str, Any]) -> str | None:
+    """Infer Chiyoda layout roles from common station-geometry tags."""
+    if _truthy_tag(properties.get("entrance")):
+        return "exit"
+
+    location_type = _tag_value(properties.get("location_type"))
+    if location_type in GTFS_EXIT_LOCATION_TYPES:
+        return "exit"
+    if location_type in GTFS_WALKABLE_LOCATION_TYPES:
+        return "walkable"
+
+    pathway_mode = _tag_value(properties.get("pathway_mode"))
+    if pathway_mode in GTFS_WALKABLE_PATHWAY_MODES:
+        return "walkable"
+
+    indoor = _tag_value(properties.get("indoor"))
+    if indoor in OSM_OBSTACLE_INDOOR:
+        return "obstacle"
+    if indoor in OSM_WALKABLE_INDOOR:
+        return "walkable"
+
+    barrier = _tag_value(properties.get("barrier"))
+    if barrier in OSM_OBSTACLE_BARRIERS:
+        return "obstacle"
+
+    highway = _tag_value(properties.get("highway"))
+    if highway in OSM_WALKABLE_HIGHWAY:
+        return "walkable"
+
+    area_highway = _tag_value(properties.get("area:highway"))
+    if area_highway in OSM_WALKABLE_HIGHWAY:
+        return "walkable"
+
+    railway = _tag_value(properties.get("railway"))
+    if railway in {"platform", "subway_entrance", "train_station_entrance"}:
+        return "exit" if railway.endswith("_entrance") else "walkable"
+
+    public_transport = _tag_value(properties.get("public_transport"))
+    if public_transport in {"platform", "stop_position"}:
+        return "walkable"
+    if public_transport in {"entrance", "station_entrance"}:
+        return "exit"
+
+    door = _tag_value(properties.get("door"))
+    if door and door != "no":
+        return "walkable"
+
+    return None
+
+
+def _tag_value(value: Any) -> str:
+    if value is None:
+        return ""
+    return str(value).strip().lower()
+
+
+def _truthy_tag(value: Any) -> bool:
+    normalized = _tag_value(value)
+    return bool(normalized) and normalized not in {"0", "false", "no", "none"}
 
 
 def _role_token(role: str) -> str:

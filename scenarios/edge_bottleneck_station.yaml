@@ -1,0 +1,60 @@
+scenario:
+  name: "Synthetic Edge Bottleneck Station"
+  layout:
+    geojson:
+      file: "layouts/edge_bottleneck_station.geojson"
+      cell_size: 1.0
+      padding: 1
+      add_border_walls: true
+  population:
+    total: 24
+    cohorts:
+      - name: "left_platform_regulars"
+        count: 14
+        personality: "NORMAL"
+        calmness: 0.78
+        familiarity: 0.65
+        base_speed: 1.25
+        base_rationality: 0.72
+        credibility: 0.8
+        gossip_radius: 2.2
+        base_vision_radius: 5.5
+        group_size: 1
+      - name: "left_platform_visitors"
+        count: 10
+        personality: "NORMAL"
+        calmness: 0.58
+        familiarity: 0.15
+        base_speed: 1.05
+        base_rationality: 0.55
+        credibility: 0.65
+        gossip_radius: 1.8
+        base_vision_radius: 4.5
+        group_size: 2
+  hazards:
+    - type: "SMOKE"
+      location: [14, 5.5]
+      radius: 0.0
+      severity: 0.35
+      spread_rate: 0.08
+      diffusion_rate: 0.04
+      visibility_reduction: 0.45
+  information:
+    mode: "asymmetric"
+    decay_rate: 0.01
+    observation_radius: 4.5
+    gossip_radius: 2.0
+    beacon_radius: 6.0
+  interventions:
+    policy: "bottleneck_avoidance"
+    start_step: 20
+    interval_steps: 20
+    budget_per_interval: 1
+    message_radius: 6.0
+    credibility: 0.9
+    message_type: "route_guidance"
+    objective: "edge_case_bottleneck_check"
+  simulation:
+    max_steps: 120
+    dt: 0.1
+    random_seed: 42

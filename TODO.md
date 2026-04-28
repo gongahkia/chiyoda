@@ -60,14 +60,7 @@ README, paper text, or `paper/REPRODUCIBILITY.md`.
 
 ## Next Implementation Work
 
-1. Richer station geometry workflow.
-   - Add a documented calibration path from OSM/OpenStationMap indoor features
-     or GTFS Pathways into Chiyoda's existing GeoJSON/DXF layout ingestion.
-   - Include manual fallbacks for stations whose indoor mapping is incomplete.
-   - Add at least one small synthetic edge-case station geometry that stresses
-     bottlenecks, exit imbalance, or disconnected-looking interior features.
-
-2. Heuristic population calibration.
+1. Heuristic population calibration.
    - Add example scenario variants that use the exposed `behavior` and cohort
      calibration knobs.
    - Keep these as calibration examples until matched against a real trajectory,
@@ -75,7 +68,7 @@ README, paper text, or `paper/REPRODUCIBILITY.md`.
    - Document parameter provenance for speed, rationality, familiarity,
      credibility, gossip radius, and vision radius.
 
-3. Generated population calibration.
+2. Generated population calibration.
    - Define what external API input would be allowed to influence: cohort mix,
      parameter priors, or scenario metadata.
    - Keep live API use cacheable and replayable, following the existing LLM
@@ -83,7 +76,7 @@ README, paper text, or `paper/REPRODUCIBILITY.md`.
    - Prevent generated calibration from silently overwriting measured or
      hand-audited scenario parameters.
 
-4. Hazard physics cross-checks.
+3. Hazard physics cross-checks.
    - Add an import path for precomputed hazard fields from FDS or published
      gas/smoke examples before making any stronger validated-physics claim.
    - Keep Chiyoda's current hazard model described as stylized unless it is
@@ -91,14 +84,14 @@ README, paper text, or `paper/REPRODUCIBILITY.md`.
    - Add tests that verify imported hazard fields affect exposure, visibility,
      and route penalties consistently.
 
-5. Evacuation drill and incident-data ingestion.
+4. Evacuation drill and incident-data ingestion.
    - Define a schema for drill, VR, incident, or expert-coded event references.
    - Keep ingestion separate from simulation execution so comparisons remain
      auditable and do not become hidden hand-tuning.
    - Add explicit provenance fields for source, license, timestamp, station,
      scenario assumptions, and known missing data.
 
-6. Pedestrian trajectory reference work.
+5. Pedestrian trajectory reference work.
    - Collect one small, license-compatible trajectory reference sample for
      CI-scale regression tests.
    - Keep full public trajectory datasets optional because video-derived
@@ -107,6 +100,14 @@ README, paper text, or `paper/REPRODUCIBILITY.md`.
      exports instead of reimplementing full trajectory science in Chiyoda.
    - Add JuPedSim/Vadere-compatible trajectory export if it helps comparison
      with established pedestrian simulators.
+
+6. Real station geometry fixture.
+   - Collect one small, license-compatible OSM/OpenStationMap or GTFS Pathways
+     station sample for CI-scale ingestion checks.
+   - Record source URL, license, access date, station, level, coordinate
+     transform, manual edits, and known missing indoor topology.
+   - Keep it separate from paper validation until trajectory, drill, incident,
+     or expert-coded references are matched to the same station.
 
 7. Developer environment cleanup.
    - Repair or recreate `.venv`; it currently lacks `pip` and `pytest`.

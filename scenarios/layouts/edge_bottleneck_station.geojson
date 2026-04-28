@@ -1,0 +1,134 @@
+{
+  "type": "FeatureCollection",
+  "name": "Synthetic edge bottleneck station",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "West concourse",
+        "indoor": "corridor",
+        "level": "0",
+        "source": "synthetic"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [[0, 0], [6, 0], [6, 10], [0, 10], [0, 0]]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "East concourse",
+        "indoor": "corridor",
+        "level": "0",
+        "source": "synthetic"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [[16, 0], [26, 0], [26, 10], [16, 10], [16, 0]]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Narrow transfer throat",
+        "highway": "footway",
+        "thickness": 1.0,
+        "level": "0",
+        "source": "synthetic"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [[6, 5.5], [16, 5.5]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Disconnected-looking service island",
+        "indoor": "wall",
+        "level": "0",
+        "source": "synthetic"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [[20, 2], [23, 2], [23, 5], [20, 5], [20, 2]]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "West street exit",
+        "entrance": "main",
+        "level": "0",
+        "source": "synthetic"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [0, 5]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "East platform exit",
+        "entrance": "yes",
+        "railway": "subway_entrance",
+        "level": "0",
+        "source": "synthetic"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [26, 8]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "West platform spawn A",
+        "role": "spawn",
+        "public_transport": "platform",
+        "level": "0",
+        "source": "synthetic"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [3, 3]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "West platform spawn B",
+        "role": "spawn",
+        "public_transport": "platform",
+        "level": "0",
+        "source": "synthetic"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [3, 7]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Right-side GTFS-style walkway",
+        "pathway_mode": "1",
+        "is_bidirectional": "1",
+        "level": "0",
+        "source": "synthetic"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [[16, 5.5], [18, 5.5], [18, 8], [26, 8]]
+      }
+    }
+  ]
+}
