@@ -67,7 +67,9 @@ in addition to the existing familiarity, calmness, grouping, and release
 fields. See
 [`docs/population_calibration.md`](./docs/population_calibration.md) and
 `scenarios/study_population_calibration_examples.yaml` for example-only
-calibration variants and parameter provenance.
+calibration variants and parameter provenance. Generated population priors are
+available as an opt-in cache/replay preprocessing path; see
+[`docs/generated_population_calibration.md`](./docs/generated_population_calibration.md).
 
 The `compare-trajectory-reference` command performs a lightweight check
 against a reference trajectory CSV or Parquet table with `agent_id`, `time_s`,

@@ -59,3 +59,8 @@ Use these examples to exercise the model, not to claim a measured population:
   observations to Chiyoda parameters.
 - Do not let generated or API-proposed calibration silently overwrite
   hand-audited or measured scenario parameters.
+
+Generated population calibration is available as a separate opt-in
+preprocessing path with cache/replay semantics. See
+[`generated_population_calibration.md`](./generated_population_calibration.md)
+for the allowed target surface and overwrite protections.

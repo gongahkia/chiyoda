@@ -1,0 +1,68 @@
+generated_population_template: &generated_population_template
+  generated_population_calibration:
+    enabled: true
+    provider: "template"
+    model: "template"
+    cache_path: "out/population_calibration_cache/template"
+    cache_mode: "cache_first"
+    store_cache: true
+    allowed_targets: ["parameter_priors", "scenario_metadata"]
+    objective: "fill_missing_population_priors_without_overwriting_manual_values"
+    prompt_style: "conservative"
+    overwrite_policy: "missing_only"
+
+generated_population_replay: &generated_population_replay
+  generated_population_calibration:
+    enabled: true
+    provider: "replay"
+    model: "replay_only"
+    cache_path: "out/population_calibration_cache/template"
+    cache_mode: "replay_only"
+    store_cache: false
+    allowed_targets: ["parameter_priors", "scenario_metadata"]
+    objective: "fill_missing_population_priors_without_overwriting_manual_values"
+    prompt_style: "conservative"
+    overwrite_policy: "missing_only"
+
+generated_population_cohort_mix: &generated_population_cohort_mix
+  generated_population_calibration:
+    enabled: true
+    provider: "template"
+    model: "template"
+    cache_path: "out/population_calibration_cache/cohort_mix"
+    cache_mode: "cache_first"
+    store_cache: true
+    allowed_targets: ["cohort_mix", "parameter_priors", "scenario_metadata"]
+    objective: "materialize_missing_cohort_mix_as_generated_priors"
+    prompt_style: "conservative"
+    overwrite_policy: "missing_only"
+  population:
+    total: 120
+    cohorts: []
+
+study:
+  name: "Generated Population Calibration Study"
+  description: "Cache/replay smoke study for generated population calibration. Generated values fill only missing priors and are not measured calibration."
+  scenario_file: "station_sarin.yaml"
+  repetitions: 1
+  seeds: [42]
+  export:
+    profile: "generated_calibration"
+    include_figures: false
+    formats: []
+    table_formats: ["parquet"]
+  variants:
+    - name: "template_missing_priors"
+      description: "Deterministic generated priors fill only missing cohort calibration fields and attach audit metadata."
+      scenario_overrides:
+        <<: *generated_population_template
+
+    - name: "replay_missing_priors"
+      description: "Replay-only variant uses the same cache key and cache directory as the template population-prior variant."
+      scenario_overrides:
+        <<: *generated_population_replay
+
+    - name: "template_missing_cohort_mix"
+      description: "Demonstrates that generated cohort mix is allowed only when the scenario has no authored cohorts."
+      scenario_overrides:
+        <<: *generated_population_cohort_mix

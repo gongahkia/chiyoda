@@ -19,6 +19,7 @@ from chiyoda.agents.behaviors import BehaviorModel, BehaviorConfig
 from chiyoda.information.interventions import create_intervention_policy
 from chiyoda.navigation.pathfinding import SmartNavigator
 from chiyoda.navigation.spatial_index import SpatialIndex
+from chiyoda.scenarios.generated_calibration import apply_generated_population_calibration
 
 
 @dataclass
@@ -47,7 +48,7 @@ class ScenarioManager:
         return self.build_simulation(scenario)
 
     def build_simulation(self, scenario: Dict[str, Any]) -> Simulation:
-        sc = dict(scenario)
+        sc = apply_generated_population_calibration(scenario)
         simulation_cfg = sc.get("simulation", {})
         random_seed = simulation_cfg.get("random_seed", 42)
         if random_seed is not None:
