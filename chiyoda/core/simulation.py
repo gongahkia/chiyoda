@@ -30,6 +30,8 @@ class SimulationConfig:
     random_seed: Optional[int] = 42
     hazard_avoidance_weight: float = 1.25
     acceleration_backend: str = "auto"
+    density_slowdown_scale: float = 1.0
+    min_crowd_speed_factor: float = 0.25
     # ITED config
     information_mode: str = "asymmetric"  # "perfect", "none", "asymmetric"
     info_decay_rate: float = 0.01
@@ -267,7 +269,10 @@ class Simulation:
                 agent.local_density = 0.0
             else:
                 agent.local_density = self.spatial_index.local_density(agent.pos, radius=1.5)
-            agent.crowd_speed_factor = max(0.25, 1.0 - (agent.local_density / 2.0))
+            agent.crowd_speed_factor = max(
+                self.config.min_crowd_speed_factor,
+                1.0 - (self.config.density_slowdown_scale * agent.local_density / 2.0),
+            )
             agent.current_hazard_load = float(hazard_loads[active_lookup[agent.id]])
             # ITED: use physiology model if available
             if hasattr(agent, 'update_physiology'):

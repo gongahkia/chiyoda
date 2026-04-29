@@ -75,6 +75,8 @@ class ScenarioManager:
             random_seed=random_seed,
             hazard_avoidance_weight=float(simulation_cfg.get("hazard_avoidance_weight", 1.25)),
             acceleration_backend=str(simulation_cfg.get("acceleration_backend", "auto")),
+            density_slowdown_scale=float(simulation_cfg.get("density_slowdown_scale", 1.0)),
+            min_crowd_speed_factor=float(simulation_cfg.get("min_crowd_speed_factor", 0.25)),
             information_mode=str(info_cfg.get("mode", "asymmetric")),
             info_decay_rate=float(info_cfg.get("decay_rate", 0.01)),
             observation_radius=float(info_cfg.get("observation_radius", 5.0)),

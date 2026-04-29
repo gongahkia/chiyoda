@@ -25,7 +25,11 @@ doctor:
 	@command -v pdflatex >/dev/null || (echo "missing pdflatex"; exit 1)
 	@command -v bibtex >/dev/null || (echo "missing bibtex"; exit 1)
 	@kpsewhich acmart.cls >/dev/null || (echo "missing acmart.cls"; exit 1)
-	@kpsewhich hyperxmp.sty >/dev/null || (echo "missing hyperxmp.sty"; exit 1)
+	@kpsewhich hyperxmp.sty >/dev/null || test -f paper/hyperxmp.sty || (echo "missing hyperxmp.sty"; exit 1)
+	@kpsewhich fontaxes.sty >/dev/null || (echo "missing fontaxes.sty"; exit 1)
+	@kpsewhich binhex.tex >/dev/null || (echo "missing binhex.tex"; exit 1)
+	@kpsewhich balance.sty >/dev/null || (echo "missing balance.sty"; exit 1)
+	@kpsewhich -format=bst ACM-Reference-Format.bst >/dev/null || (echo "missing ACM-Reference-Format.bst"; exit 1)
 
 paper-smoke:
 	@$(MAKE) -C paper smoke PYTHON=../$(VENV_PYTHON)

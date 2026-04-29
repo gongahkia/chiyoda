@@ -280,6 +280,27 @@ PYTHONPATH=. .venv/bin/python scripts/validate_wuppertal_bottleneck.py \
 This writes `bottleneck_flow_summary.csv`,
 `bottleneck_flow_comparison.csv`, and `reference_metadata.json`.
 
+Run the small calibration sweep:
+
+```sh
+PYTHONPATH=. .venv/bin/python scripts/sweep_wuppertal_bottleneck_calibration.py \
+  -o out/validation_wuppertal_bottleneck_calibration
+```
+
+The sweep varies bottleneck/exit width, base walking speed, density slowdown,
+and social-force repulsion. It writes `calibration_sweep_results.csv`,
+`best_bottleneck_flow_summary.csv`, `best_bottleneck_flow_comparison.csv`,
+`best_candidate_parameters.json`, `best_candidate_scenario.yaml`, and
+per-candidate comparison tables under `candidates/`.
+
+The best current candidate is
+`w7__v1p60__dens0p60__baseline_sfm`: a 7-cell bottleneck/exit, 1.60 m/s base
+speed, density slowdown scale 0.60, and baseline social-force repulsion
+(`A_AGENT=2.1`, `B_AGENT=0.3`). Against the Wuppertal reference, this gives
+49/75 crossings, mean flow 0.675 versus 1.163 ped/s (-42.0%), and mean
+time-headway 1.513 versus 0.871 s (+73.6%). This is a diagnostic gap, not a
+calibrated bottleneck-flow match.
+
 Regenerate the LaTeX tables used by the LLM extension section with:
 
 ```sh

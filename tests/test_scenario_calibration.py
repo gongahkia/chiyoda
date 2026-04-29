@@ -77,6 +77,23 @@ def test_base_speed_multiplier_still_scales_default_speed():
     assert sim.agents[0].base_speed == pytest.approx(0.67)
 
 
+def test_density_slowdown_parameters_are_loaded_from_scenario():
+    scenario = {
+        "name": "density_slowdown",
+        "layout": {"text": ("XXXXXX\n" "X@..EX\n" "XXXXXX\n")},
+        "population": {"total": 1},
+        "simulation": {
+            "density_slowdown_scale": 0.6,
+            "min_crowd_speed_factor": 0.35,
+        },
+    }
+
+    sim = ScenarioManager().build_simulation(scenario)
+
+    assert sim.config.density_slowdown_scale == pytest.approx(0.6)
+    assert sim.config.min_crowd_speed_factor == pytest.approx(0.35)
+
+
 def test_population_calibration_example_study_documents_exposed_knobs():
     config = load_study_config("scenarios/study_population_calibration_examples.yaml")
     variants = _materialize_variants(config)

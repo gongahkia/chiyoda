@@ -149,10 +149,10 @@ def _medium_table(frame: pd.DataFrame) -> str:
         ]
     )
     return rf"""\newcommand{{\llmMediumTable}}{{%
-\begin{{table}}[t]
+\begin{{table*}}[t]
 \centering
 \small
-\resizebox{{\columnwidth}}{{!}}{{%
+\resizebox{{0.68\textwidth}}{{!}}{{%
 \begin{{tabular}}{{lrrrr}}
 \toprule
 Policy & Evacuated & ISE & HCI & Recipients \\
@@ -166,7 +166,7 @@ information-safety efficiency mainly by operating under a much smaller
 intervention budget, but it does not yet reduce harmful convergence relative
 to the strongest conservative baseline.}}
 \label{{tab:llm-medium-extension}}
-\end{{table}}
+\end{{table*}}
 }}"""
 
 
@@ -185,10 +185,10 @@ def _target_table(frame: pd.DataFrame) -> str:
         ]
     )
     return rf"""\newcommand{{\llmTargetSelectionTable}}{{%
-\begin{{table}}[t]
+\begin{{table*}}[t]
 \centering
 \small
-\resizebox{{\columnwidth}}{{!}}{{%
+\resizebox{{0.68\textwidth}}{{!}}{{%
 \begin{{tabular}}{{lrrrr}}
 \toprule
 Target selector & Evacuated & ISE & HCI & Recipients \\
@@ -201,7 +201,7 @@ Target selector & Evacuated & ISE & HCI & Recipients \\
 template generation. Message-generation settings are fixed; only recipient
 selection changes.}}
 \label{{tab:llm-target-selection}}
-\end{{table}}
+\end{{table*}}
 }}"""
 
 
@@ -233,9 +233,10 @@ def _llm_regime_table(frame: pd.DataFrame) -> str:
         ]
     )
     return rf"""\newcommand{{\llmRegimeTable}}{{%
-\begin{{table}}[t]
+\begin{{table*}}[t]
 \centering
 \small
+\resizebox{{0.52\textwidth}}{{!}}{{%
 \begin{{tabular}}{{lrrr}}
 \toprule
 Hazard & Evacuated & ISE & HCI \\
@@ -243,11 +244,12 @@ Hazard & Evacuated & ISE & HCI \\
 {body}
 \bottomrule
 \end{{tabular}}
+}}
 \caption{{Focused LLM regime robustness extension, averaged across
 low, mixed, and high population-familiarity regimes. The replay-only variants
 match the live OpenAI aggregate metrics exactly.}}
 \label{{tab:llm-regime-extension}}
-\end{{table}}
+\end{{table*}}
 }}"""
 
 
@@ -296,10 +298,10 @@ def _regime_comparison_table(det_regime: pd.DataFrame, llm_regime: pd.DataFrame)
         ]
     )
     return rf"""\newcommand{{\llmRegimeComparisonTable}}{{%
-\begin{{table}}[t]
+\begin{{table*}}[t]
 \centering
 \small
-\resizebox{{\columnwidth}}{{!}}{{%
+\resizebox{{0.76\textwidth}}{{!}}{{%
 \begin{{tabular}}{{lrrrr}}
 \toprule
 Deterministic policy & Det. ISE & LLM/Det. ISE & Det. HCI & LLM HCI $\Delta$ \\
@@ -314,7 +316,7 @@ hazard--familiarity regimes. The deterministic grid uses 20 seeds per cell;
 the LLM extension uses five seeds per cell. Positive HCI deltas mean the LLM
 extension has higher harmful convergence.}}
 \label{{tab:llm-regime-comparison}}
-\end{{table}}
+\end{{table*}}
 }}"""
 
 
@@ -322,10 +324,10 @@ def _prompt_objective_table(frame: pd.DataFrame) -> str:
     rows = _ordered_rows(frame, PROMPT_ORDER)
     body = _policy_rows(rows, PROMPT_LABELS)
     return rf"""\newcommand{{\llmPromptObjectiveTable}}{{%
-\begin{{table}}[t]
+\begin{{table*}}[t]
 \centering
 \small
-\resizebox{{\columnwidth}}{{!}}{{%
+\resizebox{{0.68\textwidth}}{{!}}{{%
 \begin{{tabular}}{{lrrrr}}
 \toprule
 Policy & Evacuated & ISE & HCI & Recipients \\
@@ -338,7 +340,7 @@ Policy & Evacuated & ISE & HCI & Recipients \\
 cadence, radius, budget, provider, and model are held fixed for the generated
 guidance variants.}}
 \label{{tab:llm-prompt-objective}}
-\end{{table}}
+\end{{table*}}
 }}"""
 
 
@@ -346,10 +348,10 @@ def _budget_equivalence_table(frame: pd.DataFrame) -> str:
     rows = _ordered_rows(frame, BUDGET_ORDER)
     body = _policy_rows(rows, BUDGET_LABELS)
     return rf"""\newcommand{{\llmBudgetEquivalenceTable}}{{%
-\begin{{table}}[t]
+\begin{{table*}}[t]
 \centering
 \small
-\resizebox{{\columnwidth}}{{!}}{{%
+\resizebox{{0.68\textwidth}}{{!}}{{%
 \begin{{tabular}}{{lrrrr}}
 \toprule
 Policy & Evacuated & ISE & HCI & Recipients \\
@@ -362,7 +364,7 @@ Policy & Evacuated & ISE & HCI & Recipients \\
 compared with generated guidance using static-beacon and entropy-targeted
 intervention budgets.}}
 \label{{tab:llm-budget-equivalence}}
-\end{{table}}
+\end{{table*}}
 }}"""
 
 
@@ -387,10 +389,10 @@ def _claim_statistics_table(frame: pd.DataFrame) -> str:
         )
     body = _rows(rows)
     return rf"""\newcommand{{\llmClaimStatisticsTable}}{{%
-\begin{{table}}[t]
+\begin{{table*}}[t]
 \centering
 \small
-\resizebox{{\columnwidth}}{{!}}{{%
+\resizebox{{0.76\textwidth}}{{!}}{{%
 \begin{{tabular}}{{lrrrr}}
 \toprule
 Claim & ISE $\Delta$ & ISE $p$ & HCI $\Delta$ & HCI $p$ \\
@@ -403,7 +405,7 @@ Claim & ISE $\Delta$ & ISE $p$ & HCI $\Delta$ & HCI $p$ \\
 claims. Positive ISE deltas favor the test variant; negative HCI deltas favor
 the test variant.}}
 \label{{tab:llm-claim-statistics}}
-\end{{table}}
+\end{{table*}}
 }}"""
 
 

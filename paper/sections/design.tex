@@ -106,22 +106,55 @@ queueing, belief, and convergence effects must be measured.
 Figure~\ref{fig:policy-taxonomy} summarizes the policy space. Figure~\ref{fig:intervention-loop}
 shows where the intervention hook sits in the simulation loop.
 
-\begin{figure}[!t]
-  \centering
-  \includegraphics[width=\linewidth]{figures/policy-taxonomy.pdf}
-  \caption{Information intervention policy taxonomy. Policies differ by
-  source, target signal, spatial reach, and safety objective.}
-  \label{fig:policy-taxonomy}
-\end{figure}
+\begin{figure*}[!t]
+\centering
+\footnotesize
+\setlength{\tabcolsep}{5pt}
+\renewcommand{\arraystretch}{1.18}
+\begin{tabular}{p{0.16\textwidth}p{0.20\textwidth}p{0.20\textwidth}p{0.19\textwidth}p{0.17\textwidth}}
+\toprule
+Source & Policy & Target signal & Spatial reach & Safety objective \\
+\midrule
+Static infrastructure & Static beacon & Fixed exit and route priors & Local beacon radius & Improve local belief quality \\
+Central authority & Global broadcast & Shared hazard or exit update & Whole population & Rapid common situational awareness \\
+Responder authority & Responder relay & High-credibility local report & Responder neighborhood & Correct stale local beliefs \\
+Adaptive controller & Entropy-targeted & Highest belief uncertainty & Selected uncertain agents & Reduce uncertainty where it is largest \\
+Adaptive controller & Density-aware & Highest local density & Dense clusters & Reduce crowd pressure \\
+Adaptive controller & Exposure-aware & Highest hazard load & Exposed agents & Reduce cumulative exposure \\
+Adaptive controller & Bottleneck avoidance & Active bottleneck pressure & Queue-adjacent agents & Avoid harmful route convergence \\
+\bottomrule
+\end{tabular}
+\caption{Information intervention policy taxonomy. Policies differ by source,
+target signal, spatial reach, and safety objective.}
+\label{fig:policy-taxonomy}
+\end{figure*}
 
-\begin{figure}[!t]
-  \centering
-  \includegraphics[width=\linewidth]{figures/intervention-loop.pdf}
-  \caption{Intervention hook in the ITED simulation loop. Policies read the
-  current physical-information state, update recipient beliefs, and emit
-  before/after telemetry before navigation.}
-  \label{fig:intervention-loop}
-\end{figure}
+\begin{figure*}[!t]
+\centering
+\footnotesize
+\setlength{\tabcolsep}{4pt}
+\renewcommand{\arraystretch}{1.35}
+\begin{tabular}{@{}c@{\quad}c@{\quad}c@{\quad}c@{\quad}c@{\quad}c@{\quad}c@{}}
+\fbox{\begin{minipage}{0.18\textwidth}\centering Evolve hazards\\and physiology\end{minipage}} &
+\(\rightarrow\) &
+\fbox{\begin{minipage}{0.18\textwidth}\centering Observe, beacon,\\and gossip\end{minipage}} &
+\(\rightarrow\) &
+\fbox{\begin{minipage}{0.18\textwidth}\centering Run intervention\\policy\end{minipage}} &
+\(\rightarrow\) &
+\fbox{\begin{minipage}{0.18\textwidth}\centering Update beliefs\\and telemetry\end{minipage}} \\
+&&&&&&\\[-0.4em]
+\multicolumn{7}{c}{$\downarrow$}\\[-0.2em]
+\multicolumn{7}{c}{%
+\fbox{\begin{minipage}{0.80\textwidth}\centering
+Update intentions $\rightarrow$ belief-weighted pathfinding $\rightarrow$
+social-force movement $\rightarrow$ step telemetry
+\end{minipage}}} \\
+\end{tabular}
+\caption{Intervention hook in the ITED simulation loop. Policies read the
+current physical-information state, update recipient beliefs, and emit
+before/after telemetry before navigation.}
+\label{fig:intervention-loop}
+\end{figure*}
 
 \subsection{Information-Safety Metrics}
 \label{subsec:metrics}

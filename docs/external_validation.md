@@ -38,6 +38,41 @@ The script writes:
 - `bottleneck_flow_comparison.csv`
 - `reference_metadata.json`
 
+Run the calibration sweep:
+
+```sh
+.venv/bin/python scripts/sweep_wuppertal_bottleneck_calibration.py \
+  -o out/validation_wuppertal_bottleneck_calibration
+```
+
+The sweep varies bottleneck/exit width, free walking speed, density slowdown,
+and social-force repulsion settings. It writes:
+
+- `calibration_sweep_results.csv`
+- `best_bottleneck_flow_summary.csv`
+- `best_bottleneck_flow_comparison.csv`
+- `best_candidate_parameters.json`
+- per-candidate `bottleneck_flow_summary.csv` and
+  `bottleneck_flow_comparison.csv` files under `candidates/`
+
+Current best candidate:
+
+| Parameter | Value |
+|:---|:---|
+| Candidate | `w7__v1p60__dens0p60__baseline_sfm` |
+| Bottleneck/exit width | 7 grid cells |
+| Base speed | 1.60 m/s |
+| Density slowdown scale | 0.60 |
+| Social-force agent repulsion | baseline, `A_AGENT=2.1`, `B_AGENT=0.3` |
+
+Current best comparison:
+
+| Metric | Chiyoda | Wuppertal reference | Delta |
+|:---|---:|---:|---:|
+| Crossing count | 49 | 75 | -34.7% |
+| Mean flow | 0.675 ped/s | 1.163 ped/s | -42.0% |
+| Mean time headway | 1.513 s | 0.871 s | +73.6% |
+
 ## Interpretation
 
 The comparison is intentionally diagnostic. It validates the ingestion and
@@ -49,3 +84,8 @@ The current Chiyoda proxy is expected to differ from the laboratory reference
 because it uses a grid-scale bottleneck, simplified social-force dynamics, and
 no calibrated experiment-specific parameters. If the proxy underestimates
 flow, that is a useful calibration gap rather than a failure to hide.
+
+The calibration sweep reduces the original single-exit proxy gap but does not
+meet the conservative match thresholds used by the script. The paper should
+therefore describe this artifact as a diagnostic bottleneck-flow gap, not as
+calibrated pedestrian behavior.

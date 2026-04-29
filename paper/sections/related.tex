@@ -6,7 +6,9 @@ information-aware decision models. Social-force models represent pedestrians
 as self-driven particles whose movement emerges from goal attraction,
 repulsion, and contact forces~\cite{helbing1995social}. Cellular automata
 models instead discretize space and update movement through local transition
-rules~\cite{burstedde2001simulation}. Both traditions are useful for evacuation
+rules~\cite{burstedde2001simulation}. Microscopic studies also show how simple
+local interaction rules can produce macroscopic crowd outcomes and failure
+modes~\cite{moussaid2011simple}. These traditions are useful for evacuation
 because physical failure is often a capacity problem: exit flow, bottlenecks,
 counterflow, and density-dependent slowdown can dominate individual intent.
 Chiyoda uses this physical tradition as the substrate, but the paper's novelty
@@ -21,10 +23,13 @@ prior models often include information perception as a behavioral factor,
 whereas Chiyoda makes emergency communication itself the object of controlled
 comparison. Policies are not merely scenario settings; they are interventions
 that can be timed, targeted, budgeted, and evaluated.
+Guidance models that account for congestion, hazards, and compliance reinforce
+the same point: a route recommendation is a control action whose effect depends
+on both the physical field and whether agents follow it~\cite{chu2017variable}.
 
 Incomplete-information evacuation models provide the decision-theoretic
 counterpart. Bayesian and game-theoretic formulations study route choice under
-uncertainty and congestion~\cite{wang2023bayesian}, while social-group ABM
+uncertainty and congestion~\cite{hoogendoorn2004routechoice,wang2023bayesian}, while social-group ABM
 surveys emphasize communication, affiliation, and collective behavior as
 central modeling concerns~\cite{templeton2023social,senanayake2024agent}.
 Chiyoda builds on this direction by making uncertainty observable as telemetry.
@@ -56,6 +61,9 @@ stylized comparative field, but its scenario and telemetry formats make it
 possible to calibrate or cross-check against richer geometry, pathway, hazard,
 and trajectory references without making those external tools part of the core
 paper claim.
+That separation follows evacuation-model verification guidance: model
+components and emergent behaviors should be checked against appropriate
+reference data before predictive claims are made~\cite{ronchi2013verification}.
 
 The resulting distinction is methodological. Chiyoda treats communication as
 an experimental control surface rather than a binary assumption about whether

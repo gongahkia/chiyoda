@@ -6,7 +6,7 @@ model represents pedestrians as self-driven particles subject to destination,
 repulsion, and contact forces~\cite{helbing1995social}. Cellular automata
 models discretize space and update local movement decisions through transition
 rules~\cite{burstedde2001simulation}. Fundamental-diagram work relates crowd
-density to walking speed and flow capacity~\cite{weidmann1993transporttechnik}.
+density to walking speed and flow capacity~\cite{fruin1971pedestrian,weidmann1993transporttechnik}.
 These tools are useful because evacuation failure is often physical:
 bottlenecks, counter-flow, density waves, and slower-is-faster effects can
 dominate individual intent.
@@ -19,9 +19,12 @@ route choice under a spreading contaminant~\cite{makmul2020cellular,liu2021toxic
 Chiyoda builds on this insight but makes the communication policy itself the
 experimental object.
 
-Information-aware evacuation models also intersect with game theory and
-bounded rationality. Bayesian formulations can model incomplete information
-and route-choice equilibria under congestion~\cite{wang2023bayesian}. Social
+Information-aware evacuation models also intersect with route-choice theory,
+game theory, and bounded rationality. Pedestrian route-choice models connect
+activity constraints, perceived costs, and network structure~\cite{hoogendoorn2004routechoice},
+while evacuation experiments show that visibility can change route-selection
+behavior~\cite{guo2012visibility}. Bayesian formulations can model incomplete information
+and route-choice equilibria under congestion~\cite{mah90dynamic,wang2023bayesian}. Social
 group ABMs review the importance of communication, affiliation, and collective
 behavior, while also noting persistent gaps in behavioral realism and
 validation~\cite{templeton2023social,senanayake2024agent}. Chiyoda takes a
