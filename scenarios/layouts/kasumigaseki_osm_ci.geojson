@@ -1,0 +1,124 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "osm_type": "relation",
+        "osm_id": 9201665,
+        "name": "Kasumigaseki Station area group",
+        "indoor": "corridor",
+        "level": "-1",
+        "fixture_note": "Manually simplified local-coordinate public concourse for CI ingestion checks."
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[[0, 0], [32, 0], [32, 10], [0, 10], [0, 0]]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "osm_type": "relation",
+        "osm_id": 9194585,
+        "name": "Kasumigaseki Hibiya Line transfer corridor",
+        "indoor": "corridor",
+        "level": "-1",
+        "fixture_note": "Simplified connector; exact indoor topology is not represented."
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[[14, 8], [18, 8], [18, 24], [14, 24], [14, 8]]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "osm_type": "relation",
+        "osm_id": 9194487,
+        "name": "Kasumigaseki Marunouchi Line platform proxy",
+        "public_transport": "platform",
+        "railway": "platform",
+        "level": "-1",
+        "thickness": 3.0
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [[3, 4], [29, 4]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "osm_type": "relation",
+        "osm_id": 9201664,
+        "name": "Kasumigaseki Chiyoda Line platform proxy",
+        "public_transport": "platform",
+        "railway": "platform",
+        "level": "-2",
+        "thickness": 3.0
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [[16, 12], [16, 22]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "indoor": "wall",
+        "level": "-1",
+        "fixture_note": "Manual service island retained to exercise obstacle rasterization."
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[[11, 2], [13, 2], [13, 8], [11, 8], [11, 2]]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "railway": "subway_entrance",
+        "entrance": "yes",
+        "ref": "A",
+        "level": "-1"
+      },
+      "geometry": {"type": "Point", "coordinates": [0, 5]}
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "railway": "subway_entrance",
+        "entrance": "yes",
+        "ref": "B",
+        "level": "-1"
+      },
+      "geometry": {"type": "Point", "coordinates": [32, 5]}
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "location_type": "2",
+        "ref": "transfer-egress",
+        "level": "-1"
+      },
+      "geometry": {"type": "Point", "coordinates": [16, 24]}
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "role": "spawn",
+        "fixture_note": "Synthetic population origin for CI only."
+      },
+      "geometry": {"type": "Point", "coordinates": [5, 4]}
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "role": "spawn",
+        "fixture_note": "Synthetic population origin for CI only."
+      },
+      "geometry": {"type": "Point", "coordinates": [16, 18]}
+    }
+  ]
+}

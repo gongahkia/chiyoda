@@ -1,0 +1,32 @@
+name: kasumigaseki_osm_ci
+description: >
+  CI-scale OSM-style Kasumigaseki Station geometry fixture for ingestion checks.
+  This is a manually simplified local-coordinate proxy and not validation data.
+metadata:
+  provenance_file: scenarios/layouts/kasumigaseki_osm_ci.metadata.json
+layout:
+  geojson:
+    file: layouts/kasumigaseki_osm_ci.geojson
+    cell_size: 1.0
+    padding: 1
+    add_border_walls: true
+population:
+  total: 8
+  cohorts:
+    - name: concourse_ci
+      count: 4
+      spawn_cells: [[6, 5], [7, 5], [8, 5], [9, 5]]
+      familiarity: 0.6
+      calmness: 0.8
+    - name: transfer_ci
+      count: 4
+      spawn_cells: [[17, 19], [17, 20], [17, 21], [17, 22]]
+      familiarity: 0.45
+      calmness: 0.75
+simulation:
+  max_steps: 8
+  dt: 0.2
+  random_seed: 11
+information:
+  mode: asymmetric
+  observation_radius: 6.0

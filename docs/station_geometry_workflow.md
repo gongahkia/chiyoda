@@ -109,6 +109,13 @@ GTFS-style pathway properties, explicit spawn points, an imbalanced exit pair,
 a central bottleneck, and a disconnected-looking service island. It is meant
 for ingestion and regression testing, not for real-world validation.
 
+The `scenarios/kasumigaseki_osm_ci.yaml` fixture is a second, real-station
+provenance check. It records Kasumigaseki Station OSM object identifiers,
+ODbL attribution, access date, a local-coordinate manual transform, manual
+edits, and known missing indoor topology in
+`scenarios/layouts/kasumigaseki_osm_ci.metadata.json`. The geometry remains a
+small CI proxy and must not be used as operational validation evidence.
+
 ## Review Checklist
 
 Before promoting imported geometry into a paper artifact, confirm:

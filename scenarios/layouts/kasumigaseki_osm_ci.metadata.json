@@ -1,0 +1,32 @@
+{
+  "fixture_id": "kasumigaseki_osm_ci",
+  "station": "Kasumigaseki Station",
+  "station_codes": ["M15", "H07", "C08"],
+  "level": "single-level local-coordinate proxy",
+  "source_url": "https://community.openstreetmap.org/t/wheelchair-tag-on-metro-station-relations/1469",
+  "license": "OpenStreetMap data: Open Data Commons Open Database License (ODbL) 1.0",
+  "license_url": "https://www.openstreetmap.org/copyright/",
+  "access_date": "2026-04-29",
+  "osm_objects": [
+    "node/6195254304",
+    "node/6196655597",
+    "node/6198306276",
+    "relation/9194487",
+    "relation/9194585",
+    "relation/9201664",
+    "relation/9201665"
+  ],
+  "coordinate_transform": "Manual simplification into local meter-like fixture coordinates; not a geodetic transform.",
+  "manual_edits": [
+    "Reduced multi-line station topology to two public corridors and two platform proxies.",
+    "Added synthetic spawn points for CI simulation construction.",
+    "Added one service-island obstacle to exercise wall rasterization."
+  ],
+  "known_missing_indoor_topology": [
+    "No exact stairs, escalators, elevators, fare gates, platform edges, doors, or vertical transfer graph.",
+    "No authoritative indoor dimensions or crowd-observation references.",
+    "No claim that the proxy matches operational evacuation routes."
+  ],
+  "paper_use": "CI-scale geometry ingestion check only; keep separate from validation claims until matched external references are available.",
+  "attribution": "Contains information derived from OpenStreetMap object identifiers; © OpenStreetMap contributors, ODbL."
+}

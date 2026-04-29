@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 import numpy as np
 
 from chiyoda.analysis.telemetry import detect_bottleneck_zones
@@ -77,3 +80,20 @@ def test_edge_bottleneck_station_scenario_builds_from_geojson_fixture():
     assert sim.intervention_policy is not None
     assert sim.layout.cell_size == 1.0
     assert detect_bottleneck_zones(sim.layout)
+
+
+def test_kasumigaseki_osm_ci_fixture_records_real_station_provenance():
+    sim = ScenarioManager().load_scenario("scenarios/kasumigaseki_osm_ci.yaml")
+    metadata = json.loads(
+        Path("scenarios/layouts/kasumigaseki_osm_ci.metadata.json").read_text()
+    )
+
+    assert metadata["station"] == "Kasumigaseki Station"
+    assert "ODbL" in metadata["license"]
+    assert "relation/9201665" in metadata["osm_objects"]
+    assert metadata["known_missing_indoor_topology"]
+    assert len(sim.exits) >= 2
+    assert len(sim.agents) == 8
+    assert sim.layout.cell_size == 1.0
+    assert np.count_nonzero(sim.layout.grid == "X") > 0
+    assert np.count_nonzero(sim.layout.grid == ".") > 0
