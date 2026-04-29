@@ -105,6 +105,62 @@ def compare_trajectory_reference(
     return pd.DataFrame(rows)
 
 
+def external_tool_trajectory_frame(
+    frame: pd.DataFrame,
+    *,
+    frame_rate_hz: float = 10.0,
+) -> pd.DataFrame:
+    """Normalize Chiyoda trajectories for pedestrian-analysis tool exports."""
+    _validate_trajectory_columns(frame)
+    if frame_rate_hz <= 0:
+        raise ValueError("frame_rate_hz must be positive")
+    ordered = frame.sort_values(["time_s", "agent_id"]).copy()
+    return pd.DataFrame(
+        {
+            "agent_id": pd.to_numeric(ordered["agent_id"], errors="raise").astype(int),
+            "frame": (
+                pd.to_numeric(ordered["time_s"], errors="raise") * float(frame_rate_hz)
+            ).round().astype(int),
+            "time_s": pd.to_numeric(ordered["time_s"], errors="raise"),
+            "x": pd.to_numeric(ordered["x"], errors="raise"),
+            "y": pd.to_numeric(ordered["y"], errors="raise"),
+            "z": 0.0,
+        }
+    )
+
+
+def export_jupedsim_trajectory(
+    frame: pd.DataFrame,
+    path: str | Path,
+    *,
+    frame_rate_hz: float = 10.0,
+) -> Path:
+    """Export a JuPedSim-style plain trajectory table: id, frame, x, y, z."""
+    normalized = external_tool_trajectory_frame(frame, frame_rate_hz=frame_rate_hz)
+    output = Path(path)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    normalized.rename(columns={"agent_id": "id"})[
+        ["id", "frame", "x", "y", "z"]
+    ].to_csv(output, sep="\t", index=False)
+    return output
+
+
+def export_vadere_trajectory(
+    frame: pd.DataFrame,
+    path: str | Path,
+    *,
+    frame_rate_hz: float = 10.0,
+) -> Path:
+    """Export a compact Vadere-compatible point table."""
+    normalized = external_tool_trajectory_frame(frame, frame_rate_hz=frame_rate_hz)
+    output = Path(path)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    normalized.rename(
+        columns={"agent_id": "pedestrianId", "frame": "timeStep", "time_s": "simTime"}
+    )[["timeStep", "pedestrianId", "simTime", "x", "y"]].to_csv(output, index=False)
+    return output
+
+
 def _validate_trajectory_columns(frame: pd.DataFrame) -> None:
     missing = REQUIRED_TRAJECTORY_COLUMNS.difference(frame.columns)
     if missing:

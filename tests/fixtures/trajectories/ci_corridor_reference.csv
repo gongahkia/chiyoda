@@ -1,0 +1,7 @@
+agent_id,time_s,x,y,local_density,source_reference
+1,0.0,0.0,0.0,0.10,ci_corridor_reference
+1,1.0,1.2,0.0,0.12,ci_corridor_reference
+1,2.0,2.4,0.0,0.14,ci_corridor_reference
+2,0.0,0.0,1.0,0.11,ci_corridor_reference
+2,1.0,1.0,1.0,0.13,ci_corridor_reference
+2,2.0,2.0,1.0,0.15,ci_corridor_reference

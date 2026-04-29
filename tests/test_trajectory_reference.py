@@ -5,6 +5,9 @@ import pytest
 
 from chiyoda.analysis.trajectory_reference import (
     compare_trajectory_reference,
+    export_jupedsim_trajectory,
+    export_vadere_trajectory,
+    load_trajectory_table,
     summarize_trajectory_frame,
 )
 
@@ -83,3 +86,40 @@ def test_compare_trajectory_reference_groups_simulation_variants():
     assert path_rows.loc["slow", "delta"] == pytest.approx(-0.5)
     assert path_rows.loc["fast", "simulated"] == pytest.approx(2.0)
     assert path_rows.loc["fast", "delta"] == pytest.approx(0.5)
+
+
+def test_ci_trajectory_fixture_loads_and_summarizes():
+    frame = load_trajectory_table("tests/fixtures/trajectories/ci_corridor_reference.csv")
+
+    summary = summarize_trajectory_frame(frame)
+
+    assert summary["agent_count"] == 2
+    assert summary["duration_s"] == pytest.approx(2.0)
+    assert summary["mean_speed_mps"] == pytest.approx(1.1)
+
+
+def test_external_trajectory_exports(tmp_path):
+    frame = pd.DataFrame(
+        [
+            {"agent_id": 2, "time_s": 0.0, "x": 1.0, "y": 2.0},
+            {"agent_id": 2, "time_s": 0.5, "x": 1.5, "y": 2.0},
+        ]
+    )
+    jps_path = export_jupedsim_trajectory(
+        frame,
+        tmp_path / "trajectory_jupedsim.txt",
+        frame_rate_hz=2.0,
+    )
+    vadere_path = export_vadere_trajectory(
+        frame,
+        tmp_path / "trajectory_vadere.csv",
+        frame_rate_hz=2.0,
+    )
+
+    jps = pd.read_csv(jps_path, sep="\t")
+    vadere = pd.read_csv(vadere_path)
+
+    assert list(jps.columns) == ["id", "frame", "x", "y", "z"]
+    assert list(vadere.columns) == ["timeStep", "pedestrianId", "simTime", "x", "y"]
+    assert jps.loc[1, "frame"] == 1
+    assert vadere.loc[1, "pedestrianId"] == 2

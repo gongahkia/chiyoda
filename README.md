@@ -77,6 +77,9 @@ against a reference trajectory CSV or Parquet table with `agent_id`, `time_s`,
 displacement, speed, and local density. For full trajectory science, Chiyoda
 exports `agent_steps` tables that can be analyzed with dedicated tools such as
 PedPy instead of reimplementing those methods here.
+Export helpers can also write compact JuPedSim- and Vadere-compatible
+trajectory tables for external comparison workflows; see
+[`docs/trajectory_reference_workflow.md`](./docs/trajectory_reference_workflow.md).
 
 Drill, VR, incident, and expert-coded event references can be loaded through
 the standalone `chiyoda.references` schema. These records include explicit

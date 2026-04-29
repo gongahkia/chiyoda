@@ -1,0 +1,11 @@
+{
+  "reference_id": "ci_corridor_reference",
+  "description": "Small hand-authored corridor trajectory fixture for CI-scale regression tests.",
+  "license": "CC0-1.0",
+  "created_for": "Chiyoda trajectory reference tests",
+  "coordinate_system": "local meters",
+  "known_limitations": [
+    "Synthetic fixture; not evidence of real-world pedestrian validation.",
+    "Two agents, straight-line motion, no occlusion or tracking uncertainty."
+  ]
+}
