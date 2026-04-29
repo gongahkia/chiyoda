@@ -194,28 +194,15 @@ class Simulation:
                     setattr(agent, attr, default)
 
     def hazard_intensity_at(self, point) -> float:
-        px = float(point[0])
-        py = float(point[1])
+        pos = np.array(point, dtype=float)
         intensity = 0.0
         for hazard in self.hazards:
             if hasattr(hazard, 'intensity_at'):
-                hx = float(hazard.pos[0])
-                hy = float(hazard.pos[1])
-                dx = px - hx
-                dy = py - hy
-                radius = float(hazard.radius)
-                severity = float(hazard.severity)
-                if radius <= 1e-6:
-                    if dx * dx + dy * dy <= 0.75 * 0.75:
-                        intensity += severity
-                else:
-                    dist_sq = dx * dx + dy * dy
-                    if dist_sq <= radius * radius:
-                        intensity += severity * max(0.0, 1.0 - ((dist_sq ** 0.5) / radius))
+                intensity += float(hazard.intensity_at(pos))
             else:
                 radius = max(float(hazard.radius), 0.0)
-                dx = px - float(hazard.pos[0])
-                dy = py - float(hazard.pos[1])
+                dx = float(point[0]) - float(hazard.pos[0])
+                dy = float(point[1]) - float(hazard.pos[1])
                 distance = float((dx * dx + dy * dy) ** 0.5)
                 if radius <= 1e-6:
                     if distance <= 0.75:
@@ -263,6 +250,11 @@ class Simulation:
             if self.hazards else np.zeros((0,), dtype=float)
         )
         hazard_loads = self.acceleration.hazard_intensities(positions, hazard_positions, radii, severities)
+        if any(hasattr(hazard, "intensity_grid") for hazard in self.hazards):
+            hazard_loads = np.array(
+                [self.hazard_intensity_at(position) for position in positions],
+                dtype=float,
+            )
 
         for agent in self.agents:
             if agent.has_evacuated or agent.id not in active_ids:

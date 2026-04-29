@@ -11,7 +11,7 @@ import yaml
 from chiyoda.environment.layout import EMPTY, EXIT, Layout, WALL, BEACON, RESPONDER_ENTRY
 from chiyoda.environment.obstacles import apply_obstacles_to_grid, obstacles_from_config
 from chiyoda.environment.exits import Exit
-from chiyoda.environment.hazards import Hazard
+from chiyoda.environment.hazards import Hazard, ImportedHazardField
 from chiyoda.core.simulation import Simulation, SimulationConfig
 from chiyoda.agents.commuter import Commuter
 from chiyoda.agents.responder import FirstResponder
@@ -57,7 +57,10 @@ class ScenarioManager:
 
         layout = self._build_layout(sc)
         exits = [Exit(pos=tuple(p)) for p in layout.exit_positions()]
-        hazards = self._build_hazards(sc.get("hazards", []) or [])
+        hazards = self._build_hazards(
+            sc.get("hazards", []) or [],
+            source_file=sc.get("_source_file"),
+        )
         agents = self._build_agents(layout, sc.get("population", {}) or {})
 
         # build responders if specified
@@ -186,9 +189,29 @@ class ScenarioManager:
             line_thickness=float(cad_cfg.get("line_thickness", 1.0)),
         )
 
-    def _build_hazards(self, hazards_cfg: List[Dict[str, Any]]) -> List[Hazard]:
+    def _build_hazards(
+        self,
+        hazards_cfg: List[Dict[str, Any]],
+        *,
+        source_file: Optional[str] = None,
+    ) -> List[Hazard]:
         hazards: List[Hazard] = []
         for hc in hazards_cfg:
+            if "field" in hc:
+                field_cfg = hc["field"]
+                if isinstance(field_cfg, str):
+                    field_cfg = {"file": field_cfg}
+                if not isinstance(field_cfg, dict) or "file" not in field_cfg:
+                    raise ValueError("Imported hazard fields require field.file")
+                path = self._resolve_relative_path(
+                    str(field_cfg["file"]),
+                    source_file,
+                )
+                hazards.append(ImportedHazardField.from_file(
+                    path,
+                    kind=str(hc.get("type", field_cfg.get("kind", "GAS"))),
+                ))
+                continue
             wind = hc.get("wind_vector", [0.0, 0.0])
             hazards.append(Hazard(
                 pos=tuple(hc.get("location", [0, 0])),
