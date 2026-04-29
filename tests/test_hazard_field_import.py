@@ -108,6 +108,11 @@ def test_imported_hazard_field_can_drive_ground_truth_route_cost(tmp_path):
         [0.0, 3.0, 3.0, 0.0],
         [0.0, 0.0, 0.0, 0.0],
     ]
+    payload["visibility"] = [
+        [1.0, 1.0, 1.0, 1.0],
+        [1.0, 0.5, 0.5, 1.0],
+        [1.0, 1.0, 1.0, 1.0],
+    ]
     field_path.write_text(json.dumps(payload))
 
     layout = Layout.from_text(

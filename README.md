@@ -12,7 +12,7 @@ Domain-agnostic at its core — models entities navigating spatial environments 
 |:------|:-----------|
 | **Information** | Shannon entropy beliefs, SIR gossip propagation, beacon broadcast, belief decay |
 | **Agents** | BDI cognitive architecture, physiological impairment model, exploration/herding modes |
-| **Hazards** | Multi-kind (GAS/SMOKE/FIRE/CRUSH), advection-diffusion spread, visibility reduction |
+| **Hazards** | Stylized multi-kind (GAS/SMOKE/FIRE/CRUSH), advection-diffusion spread, imported field checks, visibility reduction |
 | **Navigation** | Helbing-Molnar social force model, belief-weighted A* pathfinding, counter-flow friction |
 | **Responders** | Counter-flow first responders with PPE, high-credibility information injection |
 | **Interventions** | Static, global, responder, entropy-targeted, density-aware, exposure-aware, and bottleneck-avoidance broadcasts |
@@ -23,7 +23,8 @@ Domain-agnostic at its core — models entities navigating spatial environments 
 
 ```console
 $ git clone https://github.com/gongahkia/chiyoda && cd chiyoda
-$ make config
+$ make venv
+$ make verify PYTHON=.venv/bin/python
 $ python -m chiyoda.cli run scenarios/station_baseline.yaml -o out/baseline
 $ python -m chiyoda.cli run scenarios/station_sarin.yaml -o out/sarin
 $ python -m chiyoda.cli sweep scenarios/study_ited_full.yaml -o out/ited_study
@@ -80,6 +81,10 @@ PedPy instead of reimplementing those methods here.
 Export helpers can also write compact JuPedSim- and Vadere-compatible
 trajectory tables for external comparison workflows; see
 [`docs/trajectory_reference_workflow.md`](./docs/trajectory_reference_workflow.md).
+Precomputed gas or smoke fields can be imported for FDS or published-reference
+cross-checks, but the default hazard model remains stylized unless such a
+reference is attached to the scenario. See
+[`docs/hazard_field_import.md`](./docs/hazard_field_import.md).
 
 Drill, VR, incident, and expert-coded event references can be loaded through
 the standalone `chiyoda.references` schema. These records include explicit
@@ -136,6 +141,8 @@ The current paper artifact is documented in
 [`paper/REPRODUCIBILITY.md`](./paper/REPRODUCIBILITY.md), including the exact
 50-seed primary study command, the two 30-seed support-study commands, and the
 artifact index used by the LaTeX build.
+Developer setup, Python verification commands, and TeX dependency checks are
+documented in [`docs/developer_environment.md`](./docs/developer_environment.md).
 
 ## Reference
 
