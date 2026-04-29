@@ -1,10 +1,8 @@
-% !TEX program = lualatex
+% !TEX program = pdflatex
 % Chiyoda -- research paper. arXiv preprint, attributed.
 % Build with: make paper
 
 \documentclass[sigconf,nonacm,screen]{acmart}
-
-\newcommand{\todo}[1]{{\color{red}\textbf{[TODO]}\ \emph{#1}}}
 
 \title{Chiyoda: Entropy-Guided Information Control for Hazard-Coupled Pedestrian Evacuation}
 \subtitle{A Simulation Framework for Measuring When Emergency Communication Helps or Harms}
@@ -41,19 +39,19 @@ evaluates static, global, responder-relay, entropy-targeted, density-aware,
 exposure-aware, and bottleneck-avoidance policies with telemetry that links
 belief entropy, belief accuracy, exposure, queueing, exit imbalance, and
 evacuation time. In a 50-seed primary study with \statRunCount{} runs and
-\statInterventionEvents{} intervention events, \statBestPolicy{} achieves the
-highest information-safety efficiency (\statBestEfficiency{}), while global and
-adaptive policies show that broad reach and entropy reduction are not
-sufficient safety objectives. A 900-run robustness grid further shows that
-static local messaging remains the most information-safety-efficient policy in
-every tested hazard and familiarity regime, even though the
-evacuation-count winner varies. A bounded LLM extension shows the same
-standard for generated guidance: validated sparse messages can be highly
-information-efficient, but equal-budget generated guidance weakens that
-advantage and does not eliminate harmful convergence. The central claim is
-therefore not that more information or richer language is always better, but
-that emergency communication must be evaluated by coupled belief and safety
-effects.
+\statInterventionEvents{} intervention events, \statBestPolicy{} has the
+highest information-safety efficiency in the tested scenario
+(\statBestEfficiency{}), while global and adaptive policies show that broad
+reach and entropy reduction are not sufficient safety objectives. A 900-run
+robustness grid further shows that static local messaging remains the most
+information-safety-efficient tested policy across all hazard and familiarity
+regimes, even though the evacuation-count winner varies. A bounded LLM
+extension applies the same standard to generated guidance: validated sparse
+messages can be highly information-efficient, but equal-budget generated
+guidance weakens that advantage and does not eliminate harmful convergence.
+The central claim is therefore not that more information or richer language is
+always better, but that emergency communication must be evaluated by coupled
+belief and safety effects.
 \end{abstract}
 
 \keywords{evacuation simulation, pedestrian dynamics, information theory,

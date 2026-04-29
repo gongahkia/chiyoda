@@ -7,10 +7,11 @@ to identify the information-safety tradeoff, but not enough to claim that the
 observed policy ordering generalizes. The regime robustness study therefore
 treats external validity as the object of study.
 
-The robustness study asks where each communication policy becomes safe,
-inefficient, or harmful. It varies three hazard regimes, three population
-familiarity regimes, and five representative communication policies over 20
-seeds, yielding 900 runs. The policy set is intentionally smaller than the main
+The robustness study asks where each communication policy becomes more
+efficient, less efficient, or more convergence-prone under the model. It
+varies three hazard regimes, three population familiarity regimes, and five
+representative communication policies over 20 seeds, yielding 900 runs. The
+policy set is intentionally smaller than the main
 study: no intervention, static beacons, global broadcast, entropy-targeted
 communication, and bottleneck-avoidance communication. These policies span the
 main theoretical contrast between no control, local fixed control, global
@@ -45,7 +46,7 @@ control, and when bottleneck-aware messaging is most valuable.
 \label{subsec:robustness-results}
 
 Table~\ref{tab:robustness-results} summarizes the completed robustness grid.
-The strongest result is that static beacons have the highest
+The clearest result is that static beacons have the highest
 information-safety efficiency in all nine hazard--familiarity regimes. This
 does not mean static beacons maximize every evacuation endpoint. It means that
 local, repeated, high-credibility messaging consistently buys belief
@@ -54,7 +55,7 @@ adaptive alternatives in this simulator family.
 
 \begin{table*}[!t]
 \centering
-\caption{Robustness results by regime. Static beacons are the best policy by
+\caption{Robustness results by regime. Static beacons have the highest
 information-safety efficiency (ISE) in every hazard--familiarity cell, while
 the best policy by completed evacuations varies.}
 \label{tab:robustness-results}
@@ -108,18 +109,17 @@ constraints imposed by the hazard field and bottlenecks.
 \label{subsec:robustness-interpretation}
 
 The robustness grid is interpreted as a claim filter rather than as a
-leaderboard. A policy is treated as \emph{globally robust} only if its
-information-safety efficiency remains positive and competitive across most
-hazard--familiarity cells without producing consistently high harmful
+leaderboard. A policy is treated as \emph{robust within the tested grid} only
+if its information-safety efficiency remains positive and competitive across
+most hazard--familiarity cells without producing consistently high harmful
 convergence. A policy is treated as \emph{regime dependent} if it performs
 well only under particular hazard severity or familiarity conditions. A policy
-is treated as \emph{unsafe or inefficient under this model} if it improves
-belief state while repeatedly increasing exposure, queue pressure, or exit
-concentration.
+is treated as \emph{inefficient under this model} if it improves belief state
+while repeatedly increasing exposure, queue pressure, or exit concentration.
 
 This protocol matters because the paper's main contribution is a measurement
 framework, not a universal evacuation prescription. Static beacons are the
-strongest conservative controller by ISE across the tested regimes, while
+highest-ISE conservative controller across the tested regimes, while
 global broadcast, entropy targeting, and no intervention each win some cells
 by completed evacuations. Similarly, entropy targeting is scientifically
 important even though it is not operationally dominant, because it reveals when
@@ -130,11 +130,11 @@ therefore reports both policy rankings and regime-specific failure modes.
 \label{subsec:robustness-decision-criteria}
 
 The completed robustness study updates the claim matrix in
-\S\ref{sec:claims}. The paper can now claim that local static messaging is a
-robust baseline by information-safety efficiency across hazard severity and
-population familiarity. It should not claim that static beacons are the
-universal operational winner. Evacuation counts remain regime dependent, and
-the best evacuation-count policy changes across the grid. The correct claim is
-therefore narrower and stronger: the information-safety framework reveals a
-stable local-control advantage that would be obscured by looking only at reach
-or completed evacuations.
+\S\ref{sec:claims}. The evidence supports local static messaging as a robust
+baseline by information-safety efficiency across the tested hazard severity
+and population familiarity regimes. It does not support the stronger claim
+that static beacons are the universal operational winner. Evacuation counts
+remain regime dependent, and the best evacuation-count policy changes across
+the grid. The correct claim is therefore narrower and stronger: the
+information-safety framework reveals a stable local-control advantage that
+would be obscured by looking only at reach or completed evacuations.

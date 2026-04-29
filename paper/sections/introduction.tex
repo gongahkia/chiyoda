@@ -20,8 +20,8 @@ than the ground truth world. They may avoid a hazard they have heard about,
 miss an exit they do not know, herd when uncertainty is high, or follow a
 stale route because the belief has not yet decayed.
 
-\paragraph{Research question.} We ask when entropy-guided communication
-improves evacuation outcomes and when it creates harmful convergence. More
+\paragraph{Research question.} We ask when communication improves the
+belief-safety tradeoff and when it creates harmful convergence. More
 concretely: which intervention policies improve belief accuracy and reduce
 uncertainty per unit of induced exposure, queueing, and exit imbalance? The
 completed study package compares static signage, global broadcasts, responder
@@ -33,10 +33,10 @@ The paper's core insight is that emergency communication should be evaluated
 as a safety-control action, not as a monotonic information-delivery mechanism.
 This view changes both the simulator design and the evaluation standard:
 messages are judged by coupled belief and safety effects, and a policy can be
-useful even if it does not maximize raw evacuation count. It also gives a
-natural standard for generated-language guidance: an LLM message is only useful
-if it remains bounded, replayable, validated, and beneficial under the same ISE
-and HCI diagnostics as deterministic messages.
+informative even if it does not maximize raw evacuation count. It also gives a
+natural standard for generated-language guidance: an LLM message is only
+paper-facing evidence if it remains bounded, replayable, validated, and
+measured under the same ISE and HCI diagnostics as deterministic messages.
 
 \paragraph{Contributions.} This paper makes five contributions.
 

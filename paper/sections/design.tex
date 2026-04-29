@@ -40,6 +40,23 @@ severity estimate, radius estimate, freshness, credibility, and hop count.
 Agents do not route through the ground truth environment directly; they route
 through the subset of exits and hazards represented in their beliefs.
 
+\subsection{Route Choice and Hazard Coupling}
+\label{subsec:route-choice}
+
+Route choice is computed from the agent's current belief state. An agent first
+selects among exits whose existence probability exceeds the known-exit
+threshold, preferring exits with high existence probability, low congestion
+estimate, and fresh information. It then plans with A* over the walkable grid.
+Each edge has a base traversal cost, a density penalty from the current spatial
+index, and a hazard penalty from the agent's hazard beliefs. Ground-truth
+hazards still determine exposure, visibility loss, physiological impairment,
+and direct observation, but they do not enter route planning unless the agent
+has observed or received a corresponding hazard belief. Agents with no known
+exit either explore or follow nearby movement depending on rationality and
+behavioral state. This separation is the main mechanism that lets the paper
+measure information as a causal intervention rather than as an oracle view of
+the environment.
+
 \subsection{Communication Channels}
 \label{subsec:channels}
 
@@ -117,12 +134,13 @@ The core coupled metric is information-safety efficiency:
      {1 + P_{exposure} + P_{queue}},
 \]
 
-where $\Delta H^{+}$ is positive entropy reduction, $\Delta A^{+}$ is positive
-belief-accuracy gain, $P_{exposure}$ is recipient-weighted hazard-load
-pressure, and $P_{queue}$ is bottleneck pressure observed at intervention
-time. ISE is deliberately not a utility function for all evacuation outcomes.
-It is a diagnostic for whether a communication policy purchases useful belief
-change cheaply in safety terms.
+where $\Delta H^{+}$ is the sum of positive entropy reductions over
+intervention events, $\Delta A^{+}$ is the sum of positive belief-accuracy
+gains, $P_{exposure}$ is recipient-weighted hazard-load pressure, and
+$P_{queue}$ is the sum of bottleneck queue pressure observed at intervention
+times. Runs with no interventions have ISE zero. ISE is deliberately not a
+utility function for all evacuation outcomes. It is a diagnostic for whether a
+communication policy purchases useful belief change cheaply in safety terms.
 
 The complementary diagnostic is harmful convergence. HCI rises when entropy
 reduction coincides with concentrated exit usage, queueing, and exposure. A

@@ -11,9 +11,9 @@ checklist to the current Chiyoda draft. It is not part of the manuscript.
    into bottlenecks or hazard exposure.
 3. Method: Chiyoda couples physical evacuation, belief state, information
    propagation, intervention policies, and ISE/HCI telemetry.
-4. Evidence: deterministic studies show static local messaging is the strongest
-   information-safety baseline; robustness and ablation studies define where
-   the claim holds.
+4. Evidence: deterministic studies show static local messaging is the
+   highest-ISE tested information-safety baseline; robustness and ablation
+   studies define where the claim holds.
 5. Extension: validated sparse LLM guidance is efficient, but equal-budget LLM
    guidance weakens that advantage and does not solve harmful convergence.
 
@@ -24,7 +24,8 @@ checklist to the current Chiyoda draft. It is not part of the manuscript.
   study, ISE/HCI metrics.
   Status: supported.
 
-- Claim: Static local messaging is the strongest conservative baseline by ISE.
+- Claim: Static local messaging is the highest-ISE tested conservative
+  baseline by ISE.
   Evidence: 50-seed primary study and 900-run hazard/familiarity robustness
   grid.
   Status: supported.
@@ -54,9 +55,9 @@ checklist to the current Chiyoda draft. It is not part of the manuscript.
    around controllable communication actions rather than generic crowd motion.
 
 2. Writing clarity: Core terms are stable: ISE, HCI, information-safety
-   efficiency, harmful convergence, generated guidance. Remaining risk:
-   LLM tables are now in `evaluation.tex`, but table placement should still be
-   checked in the final ACM PDF.
+   efficiency, harmful convergence, generated guidance. Smoke-PDF table and
+   figure placement has been visually checked. Remaining risk: final ACM PDF
+   rendering still needs a complete TeX install with `hyperxmp.sty`.
 
 3. Experimental strength: The deterministic evidence is broad for a stylized
    simulator, and the LLM extension includes target, regime, prompt, budget,

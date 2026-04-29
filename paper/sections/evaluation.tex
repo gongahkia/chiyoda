@@ -18,9 +18,9 @@ and a 500-step horizon.
 
 The two supporting studies each use 30 seeds. The intervention ablation study
 varies targeting budget, timing, and bottleneck awareness. The message-quality
-study varies broadcast credibility, delay, and repetition. These studies are
-not replacements for the main comparison; they test whether the main
-information-safety interpretation is robust to natural design choices.
+study varies broadcast credibility, delay, and repetition. These studies do
+not replace the main comparison; they test whether the main
+information-safety interpretation survives natural design changes.
 
 \subsection{Outcome Measures}
 \label{subsec:outcomes}
@@ -36,15 +36,16 @@ improvement without creating exposure or queueing pressure.
 
 Variant tables report means across seeds. Pairwise comparisons against the
 no-intervention baseline use two-sided Mann--Whitney tests over run-level
-summary rows, with effect sizes used as descriptive support rather than as
-standalone proof of operational superiority. This choice is conservative for
-the current stage: the simulator is stochastic and stylized, so the evaluation
-focuses on robust tradeoff patterns rather than on declaring a universal
-winner.
+summary rows. We treat $p<0.05$ as evidence of a seed-level distributional
+difference in this simulator, and we use effect sizes as descriptive support
+rather than as standalone proof of operational superiority. This choice is
+conservative for the current stage: the simulator is stochastic and stylized,
+so the evaluation focuses on tradeoff patterns that recur across studies
+rather than on declaring a universal winner.
 
 \begin{figure*}[!t]
   \centering
-  \includegraphics[width=\textwidth]{../out/information_control_50/figures/13_information_safety_frontier.pdf}
+  \includegraphics[width=\textwidth]{figures/information-safety-frontier.pdf}
   \caption{Information-safety frontier across communication policies in the
   50-seed main study. Static beacons produce the highest information-safety
   efficiency, while density-aware and exposure-aware policies show the largest
@@ -54,7 +55,7 @@ winner.
 
 \begin{figure*}[!t]
   \centering
-  \includegraphics[width=\textwidth]{../out/information_control_50/figures/12_intervention_timeline.pdf}
+  \includegraphics[width=\textwidth]{figures/intervention-timeline.pdf}
   \caption{Intervention reach and entropy effects over time. Broad reach and
   useful safety effect separate: global broadcast reaches many agents, but its
   information-safety efficiency remains below local static beacons, bottleneck
@@ -71,8 +72,8 @@ baseline across physical evacuation outcomes. The no-intervention baseline
 evacuates 10.76 agents on average. Static beacons evacuate 10.90, global
 broadcast evacuates 11.00, and the remaining active policies range from 9.70
 to 10.86. Mann--Whitney tests against the baseline do not show significant
-improvements in evacuated count or hazard exposure for any active policy at
-$n=50$ seeds. This is why the paper cannot claim that more information
+improvements in evacuated count or hazard exposure at $p<0.05$ for any active
+policy at $n=50$ seeds. This is why the paper cannot claim that more information
 monotonically improves evacuation.
 
 \begin{table*}[!t]
@@ -97,14 +98,15 @@ No intervention & 10.76 & 11.53 & 2.919 & 2.74 & 0.0000 & 0.00 \\
 \end{table*}
 
 The second result is that communication policy still matters, even when
-physical outcomes remain noisy. Static beacons are the best policy by
-information-safety efficiency (\statBestPolicy{}, \statBestEfficiency{}). They
-combine local reach, repeated exposure, and high credibility: enough to reduce
-belief uncertainty without synchronizing the full population toward the same
-capacity-constrained route. Responder relay has lower efficiency than static
-beacons, but also the lowest HCI among the active policies in the main study
-(6.31), which supports the idea that delayed, mobile, high-credibility sources
-can be conservative safety controllers.
+physical outcomes remain noisy. Static beacons have the highest
+information-safety efficiency in the main scenario
+(\statBestPolicy{}, \statBestEfficiency{}). They combine local reach, repeated
+exposure, and high credibility: enough to reduce belief uncertainty without
+synchronizing the full population toward the same capacity-constrained route.
+Responder relay has lower efficiency than static beacons, but also the lowest
+HCI among the active policies in the main study (6.31), which supports the
+idea that delayed, mobile, high-credibility sources can be conservative
+information controllers in this setting.
 
 The third result is that wide reach is not the same as useful reach. Global
 broadcast slightly improves mean evacuation count relative to the baseline
@@ -116,13 +118,13 @@ produce more information benefit per unit of safety pressure.
 
 The fourth result is that adaptive targeting exposes a real control tradeoff.
 Entropy targeting has the largest intervention accuracy gain in the main study
-(1.76), and both entropy targeting and bottleneck avoidance significantly
-reduce mean travel time against no intervention
+(1.76), and both entropy targeting and bottleneck avoidance show seed-level
+travel-time differences against no intervention
 ($p=0.035$ and $p=0.014$, respectively). Yet these same policies do not improve
-evacuation count, and bottleneck avoidance has a near-significant reduction in
-evacuated agents ($-1.06$, $p=0.061$). The practical interpretation is that
-better-informed trajectories can be shorter for agents who move, while still
-failing to improve aggregate completion under capacity and hazard pressure.
+evacuation count, and bottleneck avoidance trends toward fewer evacuated agents
+($-1.06$, $p=0.061$). The practical interpretation is that better-informed
+trajectories can be shorter for agents who move, while still failing to improve
+aggregate completion under capacity and hazard pressure.
 
 \subsection{Intervention Ablation}
 \label{subsec:ablation-results}
@@ -160,7 +162,8 @@ high-budget setting), but its ISE is lower. Bottleneck targeting is less
 sensitive to late deployment: the late bottleneck condition has slightly higher
 evacuation count and slightly higher ISE than early bottleneck targeting. This
 suggests that bottleneck-aware control is a better candidate for delayed
-operational response, while entropy targeting needs stricter budget control.
+response settings in this simulator, while entropy targeting needs stricter
+budget control.
 
 \subsection{Message Quality}
 \label{subsec:message-quality-results}
@@ -356,22 +359,22 @@ high ISE under only eight interventions per run. When generated guidance is
 given static-beacon or entropy-targeted intervention budgets, its ISE falls
 substantially. The equal-budget variants reduce HCI relative to sparse LLM
 guidance, but they do not dominate the conservative deterministic baselines.
-This supports the strongest bounded LLM claim: validated generated guidance can
-be a high-efficiency sparse intervention, but it is not a drop-in replacement
-for deterministic safety-control policies.
+This supports the bounded LLM claim: validated generated guidance can be a
+high-efficiency sparse intervention, but it is not a drop-in replacement for
+deterministic safety-control policies.
 
 \llmClaimStatisticsTable
 
 Seed-level tests reinforce that interpretation. Sparse safety-prompt guidance
-has significantly higher ISE than the static beacon, entropy-targeted, and
-bottleneck-avoidance baselines in the prompt-objective study. The same
-comparisons do not show an HCI improvement. The budget-equivalence comparisons
-show the reverse pressure: larger generated-message budgets lower HCI
-descriptively, but significantly weaken the sparse LLM ISE advantage. The
-paper should therefore present LLM guidance as a bounded generative extension:
-novel because it evaluates generated emergency messages as safety-control
-actions, but still limited by route-convergence risk and intervention-budget
-sensitivity.
+has higher ISE than the static beacon, entropy-targeted, and
+bottleneck-avoidance baselines in the prompt-objective study under the reported
+Mann--Whitney comparisons. The same comparisons do not show an HCI
+improvement. The budget-equivalence comparisons show the reverse pressure:
+larger generated-message budgets lower HCI descriptively, but weaken the
+sparse LLM ISE advantage. The paper therefore presents LLM guidance as a
+bounded generative extension: novel because it evaluates generated emergency
+messages as safety-control actions, but still limited by route-convergence
+risk and intervention-budget sensitivity.
 
 \subsection{What the Evidence Supports}
 \label{subsec:evidence-boundary}
@@ -380,9 +383,9 @@ The empirical package supports five paper-level claims. First, emergency
 communication behaves as a safety-control action: changing who receives a
 message, when they receive it, and how credible it is changes exposure,
 queueing, exit concentration, and belief state jointly. Second, local static
-messaging is the strongest conservative baseline by information-safety
-efficiency in both the 50-seed main comparison and the 900-run robustness
-grid. Third, broad reach is not equivalent to safety-efficient reach; global
+messaging is the highest-ISE tested deterministic baseline in both the
+50-seed main comparison and the 900-run robustness grid. Third, broad reach is
+not equivalent to safety-efficient reach; global
 broadcast can improve completed evacuations in some regimes while still
 delivering less belief improvement per unit of exposure and queue pressure.
 Fourth, entropy and belief-accuracy gains are not sufficient objectives,

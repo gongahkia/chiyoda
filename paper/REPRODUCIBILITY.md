@@ -327,7 +327,8 @@ make stats STUDY_DIR=../out/information_control_50 PYTHON=../.venv/bin/python
 make smoke STUDY_DIR=../out/information_control_50 PYTHON=../.venv/bin/python
 ```
 
-If `acmart.cls` and `latexmk` are available, build the main ACM-style preprint:
+If `acmart.cls` and its package dependencies are available, build the main
+ACM-style preprint:
 
 ```sh
 make paper STUDY_DIR=../out/information_control_50 PYTHON=../.venv/bin/python
@@ -344,5 +345,7 @@ From the repository root:
 PYTHONPATH=. pytest -q
 ```
 
-The current completed verification target is a passing Python test suite and a
-successful paper smoke build against `out/information_control_50`.
+On machines where the repository `.venv` has not been repaired yet,
+`PYTHONPATH=. python3 -m pytest -q` is an acceptable local fallback. The current
+completed verification target is a passing Python test suite and a successful
+paper smoke build against `out/information_control_50`.

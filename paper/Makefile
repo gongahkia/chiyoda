@@ -1,7 +1,7 @@
 # Makefile for the Chiyoda research paper.
 #
 # Targets:
-#   make paper      -- build main.pdf via latexmk.
+#   make paper      -- build main.pdf via PDFLaTeX/BibTeX.
 #   make smoke      -- article-class smoke build.
 #   make stats      -- regenerate stats.tex from an exported study bundle.
 #   make figures    -- render Mermaid sources in figures/ to PDF.
@@ -21,26 +21,40 @@ LLM_PROMPT_CSV ?= ../out/llm_prompt_objective_ablation/tables/llm_policy_compari
 LLM_BUDGET_CSV ?= ../out/llm_budget_equivalence/tables/llm_policy_comparison.csv
 LLM_CLAIM_STATS_CSV ?= ../out/llm_synthesis/llm_claim_statistics.csv
 LATEXMK     ?= latexmk
+PDLATEX     ?= pdflatex
+BIBTEX      ?= bibtex
 PYTHON      ?= python3
-LATEXMK_FLAGS = -lualatex -interaction=nonstopmode -halt-on-error \
-                -output-directory=$(BUILD_DIR) -shell-escape
+LATEXMK_FLAGS = -pdf -interaction=nonstopmode -halt-on-error \
+                -output-directory=$(BUILD_DIR)
+PDFLATEX_FLAGS = -interaction=nonstopmode -halt-on-error \
+                 -output-directory=$(BUILD_DIR)
 
 FIGURES_MMD := $(wildcard figures/*.mmd)
 FIGURES_PDF := $(FIGURES_MMD:.mmd=.pdf)
+STUDY_FIGURES := figures/information-safety-frontier.pdf \
+                 figures/intervention-timeline.pdf \
+                 figures/regime-robustness-heatmap.pdf
+ARXIV_FILES := $(PAPER).tex sections/*.tex references.bib $(STATS_TEX) \
+               $(LLM_TABLES_TEX) figures/policy-taxonomy.pdf \
+               figures/intervention-loop.pdf $(STUDY_FIGURES)
 
 .PHONY: paper smoke stats llm-tables figures arxiv clean distclean watch
 
-paper: stats llm-tables $(FIGURES_PDF) | $(BUILD_DIR)
-	$(LATEXMK) $(LATEXMK_FLAGS) $(PAPER).tex
+paper: stats llm-tables $(FIGURES_PDF) $(STUDY_FIGURES) | $(BUILD_DIR)
+	$(PDLATEX) $(PDFLATEX_FLAGS) $(PAPER).tex
+	@cp references.bib $(BUILD_DIR)/
+	cd $(BUILD_DIR) && $(BIBTEX) $(PAPER)
+	$(PDLATEX) $(PDFLATEX_FLAGS) $(PAPER).tex
+	$(PDLATEX) $(PDFLATEX_FLAGS) $(PAPER).tex
 	@cp $(BUILD_DIR)/$(PAPER).pdf ./$(PAPER).pdf
 	@echo "Built $(PAPER).pdf"
 
-smoke: stats llm-tables $(FIGURES_PDF) | $(BUILD_DIR)
-	lualatex -interaction=nonstopmode -output-directory=$(BUILD_DIR) main_smoke.tex
+smoke: stats llm-tables $(FIGURES_PDF) $(STUDY_FIGURES) | $(BUILD_DIR)
+	$(PDLATEX) $(PDFLATEX_FLAGS) main_smoke.tex
 	@cp references.bib $(BUILD_DIR)/
-	cd $(BUILD_DIR) && bibtex main_smoke
-	lualatex -interaction=nonstopmode -output-directory=$(BUILD_DIR) main_smoke.tex
-	lualatex -interaction=nonstopmode -output-directory=$(BUILD_DIR) main_smoke.tex
+	cd $(BUILD_DIR) && $(BIBTEX) main_smoke
+	$(PDLATEX) $(PDFLATEX_FLAGS) main_smoke.tex
+	$(PDLATEX) $(PDFLATEX_FLAGS) main_smoke.tex
 	@cp $(BUILD_DIR)/main_smoke.pdf ./main_smoke.pdf
 	@echo "Built main_smoke.pdf"
 
@@ -58,19 +72,23 @@ llm-tables:
 	  --claim-stats $(LLM_CLAIM_STATS_CSV) \
 	  -o $(LLM_TABLES_TEX)
 
-figures: $(FIGURES_PDF)
+figures: $(FIGURES_PDF) $(STUDY_FIGURES)
 
 figures/%.pdf: figures/%.mmd
 	mmdc -i $< -o $@ -b transparent || \
 	  (echo "warning: mmdc not installed; skipping $<"; touch $@)
 
-arxiv: paper
+figures/information-safety-frontier.pdf: ../out/information_control_50/figures/13_information_safety_frontier.pdf
+	cp $< $@
+
+figures/intervention-timeline.pdf: ../out/information_control_50/figures/12_intervention_timeline.pdf
+	cp $< $@
+
+arxiv: stats llm-tables $(FIGURES_PDF) $(STUDY_FIGURES)
 	@rm -f arxiv.tar.gz
 	tar --exclude='$(BUILD_DIR)' --exclude='*.aux' --exclude='*.log' \
 	    --exclude='*.fls' --exclude='*.fdb_latexmk' --exclude='arxiv.tar.gz' \
-	    -czf arxiv.tar.gz \
-	    $(PAPER).tex sections/ figures/ references.bib stats.tex llm_tables.tex \
-	    2>/dev/null || true
+	    -czf arxiv.tar.gz $(ARXIV_FILES)
 	@echo "Wrote arxiv.tar.gz"
 
 watch: stats

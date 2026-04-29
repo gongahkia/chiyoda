@@ -4,60 +4,6 @@ This file records unfinished work only. Completed empirical artifacts,
 implementation notes, and smoke-build status should live in the repo history,
 README, paper text, or `paper/REPRODUCIBILITY.md`.
 
-## Paper Hardening
-
-1. Full narrative read from abstract to conclusion.
-   - Keep the thesis continuous: emergency communication is safety control, not
-     just information spread.
-   - Ensure the abstract, introduction, claims, evaluation, limitations, and
-     conclusion make the same bounded claim.
-   - Make LLM guidance a bounded extension result, not the central paper claim.
-
-2. Claim-evidence alignment pass.
-   - Check every major claim in the abstract and introduction against the
-     deterministic and LLM artifacts.
-   - Weaken or remove any claim that is not directly supported.
-   - Preserve the limitation that Chiyoda is a stylized simulator, not an
-     operational evacuation planner.
-
-3. Methods and metric clarity.
-   - Confirm the agent belief state, route-choice logic, hazard exposure model,
-     intervention policy mechanics, and telemetry pipeline are precise enough
-     for a reviewer to reproduce.
-   - Define ISE and HCI clearly as paper-level constructs.
-   - Explain why coupled belief/safety metrics answer the research question
-     better than entropy, reach, or evacuation count alone.
-   - Explain the newly exposed calibration knobs without implying that current
-     paper results are empirically calibrated.
-
-4. Statistical interpretation.
-   - Confirm the paper explains seed-level aggregates, Mann-Whitney tests,
-     descriptive effect sizes, and nonparametric interpretation.
-   - Avoid claiming operational superiority from stylized simulation.
-   - Emphasize tradeoff patterns and bounded evidence.
-
-5. Related work final pass.
-   - Keep the new JuPedSim, Vadere, SUMO, PedPy, FDS, OpenStationMap, and GTFS
-     Pathways positioning focused on interoperability, not replacement.
-   - Re-check citation quality and exact bibliographic metadata before release.
-   - Make clear why the paper is about communication as control, not only about
-     adding messages to an evacuation simulator.
-
-6. Figure, table, and PDF polish.
-   - Visually inspect the final PDF for table placement, overfull boxes, figure
-     order, and caption clarity.
-   - Keep the central result figures and compact policy tables prominent.
-   - Avoid overwhelming the reader with raw metrics that do not support the
-     thesis.
-
-7. Final release checks.
-   - Run the Python test suite.
-   - Run the paper smoke build.
-   - Run the full ACM-style `make paper` build if the local environment has
-     `acmart.cls` and `latexmk`.
-   - Confirm reproduction commands and artifact paths in
-     `paper/REPRODUCIBILITY.md`.
-
 ## Next Implementation Work
 
 1. Hazard physics cross-checks.
@@ -102,8 +48,12 @@ README, paper text, or `paper/REPRODUCIBILITY.md`.
 
 6. Developer environment cleanup.
    - Repair or recreate `.venv`; it currently lacks `pip` and `pytest`.
+   - Install or document the full TeX dependencies needed for the ACM-style
+     `make paper` target; the local TeX install currently has `acmart.cls` but
+     is missing `hyperxmp.sty`.
    - Document the expected Python command for verification so `python3 -m
-     pytest` and paper smoke builds are reproducible on a fresh checkout.
+     pytest`, `.venv/bin/python -m pytest`, and paper smoke builds are
+     reproducible on a fresh checkout.
 
 ## Scope Guard
 
@@ -111,3 +61,23 @@ External validation remains future work, not a blocker for the current paper as
 long as the paper does not purport operational readiness for real-world
 deployment and does not claim validated hazard physics or calibrated behavior
 before the corresponding references are integrated.
+
+## After Paper Acceptance/Final arXiv Release
+
+1. Publish the final paper to arXiv.
+   - Build the release package from `paper/` with `make arxiv` after the final
+     manuscript checks are complete.
+   - After arXiv assigns the paper URL, add the arXiv link to this repo's
+     `README.md`.
+   - Add the same paper link to the project/site page in
+     `gongahkia.github.io`.
+   - Use `make paper` for the final local paper build before publishing site
+     or README links.
+
+2. Draft a repo-process blog post.
+   - Write a Markdown draft in this repo first.
+   - Cover the full process of working on Chiyoda: simulator scope, study
+     design, paper hardening, arXiv packaging, reproducibility artifacts, and
+     lessons learned.
+   - Do not publish the blog post until the paper state and arXiv link are
+     final.

@@ -33,6 +33,8 @@ paper/
     architecture.mmd
     intervention-loop.mmd
     policy-taxonomy.mmd
+    information-safety-frontier.pdf
+    intervention-timeline.pdf
     regime-robustness-heatmap.pdf
 ```
 
@@ -45,6 +47,7 @@ make figures
 make llm-tables PYTHON=../.venv/bin/python
 make paper
 make smoke
+make arxiv
 ```
 
 The default `STUDY_DIR` is `../out/information_control_50`. Generate the
@@ -57,6 +60,13 @@ PYTHONPATH=. .venv/bin/python scripts/run_study_progress.py scenarios/study_info
 See [`REPRODUCIBILITY.md`](./REPRODUCIBILITY.md) for the complete 50-seed
 primary study, 30-seed support studies, artifact index, and regeneration
 commands.
+
+## arXiv package
+
+The main paper target builds with PDFLaTeX/BibTeX. The arXiv target writes
+`paper/arxiv.tar.gz`, vendors the paper figures under `paper/figures/`, and
+includes only the TeX sources, bibliography, generated tables, generated
+stats, and referenced PDF figures needed for arXiv to compile `main.tex`.
 
 ## Current Thesis
 
