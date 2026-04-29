@@ -76,3 +76,11 @@ speed, and local density from a Chiyoda bundle and a reference trajectory
 table. It is intentionally not a replacement for full trajectory-analysis
 libraries such as PedPy; its purpose is to make quick calibration checks
 repeatable inside the paper pipeline before deeper external analysis.
+The repository also includes a public Wuppertal bottleneck trajectory from the
+Pedestrian Dynamics Data Archive~\cite{boltes2020dataarchive}. A dedicated
+validation script reads the PeTrack trajectory format, computes crossing times
+at the bottleneck measurement line used in the JuPedSim/PedPy example, and
+compares crossing count, mean flow, and time headway against a Chiyoda
+bottleneck proxy scenario. This adds an external measurement target while
+keeping the claim narrow: it validates the comparison pipeline and exposes
+calibration gaps, not operational station prediction.

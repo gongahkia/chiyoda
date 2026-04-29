@@ -254,6 +254,32 @@ PYTHONPATH=. .venv/bin/python scripts/audit_llm_cache_usage.py \
   --output-usd-per-mtok <output price>
 ```
 
+## External Bottleneck Validation
+
+The repository includes a public Wuppertal 2018 bottleneck trajectory reference
+from the Pedestrian Dynamics Data Archive under
+`data/external/wuppertal_bottleneck_2018/`. This is a trajectory-ingestion and
+bottleneck-flow calibration check, not station-level operational validation.
+
+Run the Chiyoda bottleneck proxy:
+
+```sh
+PYTHONPATH=. .venv/bin/python -m chiyoda.cli sweep \
+  scenarios/study_validation_wuppertal_bottleneck.yaml \
+  -o out/validation_wuppertal_bottleneck
+```
+
+Compare it to the external reference:
+
+```sh
+PYTHONPATH=. .venv/bin/python scripts/validate_wuppertal_bottleneck.py \
+  out/validation_wuppertal_bottleneck \
+  -o out/validation_wuppertal_bottleneck_external
+```
+
+This writes `bottleneck_flow_summary.csv`,
+`bottleneck_flow_comparison.csv`, and `reference_metadata.json`.
+
 Regenerate the LaTeX tables used by the LLM extension section with:
 
 ```sh

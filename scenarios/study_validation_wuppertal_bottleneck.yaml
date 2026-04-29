@@ -1,0 +1,11 @@
+name: validation_wuppertal_bottleneck
+description: "Single-seed Chiyoda bottleneck-flow run for comparison with the Wuppertal 2018 trajectory reference."
+scenario_file: validation_wuppertal_bottleneck.yaml
+repetitions: 1
+seeds: [42]
+variants:
+  - name: chiyoda_bottleneck_proxy
+    description: "Grid-scale bottleneck proxy matched only at the level of pedestrian count and bottleneck-flow measurement."
+export:
+  include_figures: false
+  table_formats: ["parquet", "csv"]

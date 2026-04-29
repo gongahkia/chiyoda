@@ -85,6 +85,10 @@ Precomputed gas or smoke fields can be imported for FDS or published-reference
 cross-checks, but the default hazard model remains stylized unless such a
 reference is attached to the scenario. See
 [`docs/hazard_field_import.md`](./docs/hazard_field_import.md).
+For an external pedestrian-flow check, the repo includes a public Wuppertal
+2018 bottleneck trajectory reference and a Chiyoda proxy scenario that compares
+crossing count, flow, and time headway at the bottleneck measurement line. See
+[`docs/external_validation.md`](./docs/external_validation.md).
 
 Drill, VR, incident, and expert-coded event references can be loaded through
 the standalone `chiyoda.references` schema. These records include explicit

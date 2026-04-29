@@ -1,0 +1,22 @@
+{
+  "reference_id": "wuppertal_bottleneck_2018_040_c_56_h",
+  "description": "Public bottleneck experiment trajectory used by JuPedSim/PedPy documentation for bottleneck-flow comparison.",
+  "experiment": "University of Wuppertal 2018 bottleneck experiment",
+  "trajectory_file": "040_c_56_h-.txt",
+  "format": "PeTrack text trajectory: id frame x/m y/m z/m",
+  "frame_rate_hz": 25.0,
+  "measurement_line": [[0.35, 0.0], [-0.35, 0.0]],
+  "source_url": "https://www.jupedsim.org/stable/notebooks/getting_started.html",
+  "download_url": "https://www.jupedsim.org/stable/_downloads/46bd9974e8e21d7ef412fec395a358d3/040_c_56_h-.txt",
+  "archive": "Pedestrian Dynamics Data Archive",
+  "archive_doi": "10.34735/ped.da",
+  "paper_reference": "Boltes, Holl, and Seyfried (2020), Data archive for exploring pedestrian dynamics and its application in dimensioning of facilities for multidirectional streams, Collective Dynamics 5, DOI 10.17815/CD.2020.28.",
+  "license": "Creative Commons Attribution 4.0 International for the archive paper; data archive requests source attribution.",
+  "license_url": "https://collective-dynamics.eu/index.php/cod/article/view/A28",
+  "access_date": "2026-04-29",
+  "known_limitations": [
+    "Laboratory bottleneck experiment, not a station evacuation drill.",
+    "Supports bottleneck-flow and trajectory-ingestion validation only.",
+    "Does not validate Chiyoda CBRN hazard physics or operational station predictions."
+  ]
+}
