@@ -108,6 +108,7 @@ class PopulationCalibrationRecord:
     request: PopulationCalibrationRequest
     calibration: GeneratedPopulationCalibration
     validation: PopulationCalibrationValidation
+    application: Dict[str, Any] = field(default_factory=dict)
 
     def to_json_dict(self) -> Dict[str, Any]:
         return {
@@ -115,6 +116,7 @@ class PopulationCalibrationRecord:
             "request": _to_jsonable(self.request),
             "calibration": _to_jsonable(self.calibration),
             "validation": _to_jsonable(self.validation),
+            "application": _to_jsonable(self.application),
         }
 
     @classmethod
@@ -156,6 +158,7 @@ class PopulationCalibrationRecord:
                 accepted=bool(validation_payload["accepted"]),
                 reasons=[str(item) for item in validation_payload.get("reasons", [])],
             ),
+            application=dict(payload.get("application", {})),
         )
 
 
@@ -419,6 +422,7 @@ def apply_generated_population_calibration(scenario: Mapping[str, Any]) -> Dict[
                 request=request,
                 calibration=calibration,
                 validation=validation,
+                application=dict(application),
             )
         )
 

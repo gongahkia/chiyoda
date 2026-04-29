@@ -86,3 +86,22 @@ PYTHONPATH=. .venv/bin/python scripts/run_study_progress.py scenarios/study_gene
 Use this as plumbing evidence only. Generated population priors are still
 future-work inputs until matched against trajectory, drill, VR, incident, or
 expert-coded references.
+
+## Cache Audit
+
+Generated population calibration cache records now include the accepted or
+rejected validation status, validation reasons, proposed targets, applied
+targets, skipped overwrite attempts, provider/model, and token usage when the
+raw provider response includes it. Run:
+
+```sh
+python3 scripts/audit_llm_cache_usage.py \
+  --population-cache-root out/population_calibration_cache \
+  -o out/llm_synthesis
+```
+
+The script writes:
+
+- `generated_population_calibration_cache_records.csv`
+- `generated_population_calibration_cache_usage.csv`
+- `generated_population_calibration_cache_usage_totals.csv`

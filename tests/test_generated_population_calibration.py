@@ -88,7 +88,12 @@ def test_generated_calibration_fills_missing_fields_without_overwriting_existing
     assert cohort["parameter_provenance"]["base_rationality"].startswith("generated:")
     assert audit["validation_status"] == "accepted"
     assert any(item.endswith("regulars.base_speed:existing_value") for item in audit["skipped"])
-    assert list(tmp_path.glob("*.json"))
+    cache_record = PopulationCalibrationCache(tmp_path).load(audit["cache_key"])
+    assert cache_record is not None
+    assert any(
+        item.endswith("regulars.base_speed:existing_value")
+        for item in cache_record.application["skipped"]
+    )
 
 
 def test_replay_generated_calibration_uses_existing_cache(tmp_path):
