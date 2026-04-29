@@ -78,6 +78,12 @@ displacement, speed, and local density. For full trajectory science, Chiyoda
 exports `agent_steps` tables that can be analyzed with dedicated tools such as
 PedPy instead of reimplementing those methods here.
 
+Drill, VR, incident, and expert-coded event references can be loaded through
+the standalone `chiyoda.references` schema. These records include explicit
+source, license, timestamp, station, scenario-assumption, and missing-data
+provenance and remain separate from simulation execution. See
+[`docs/event_reference_ingestion.md`](./docs/event_reference_ingestion.md).
+
 ## ITED Study Variants
 
 The included `study_ited_full.yaml` defines 9 experimental variants:
