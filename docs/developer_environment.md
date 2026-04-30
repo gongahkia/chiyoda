@@ -84,10 +84,9 @@ cd paper
 make smoke PYTHON=../.venv/bin/python
 ```
 
-For final ACM/arXiv checks after TeX dependencies are installed:
+For final paper checks after TeX dependencies are installed:
 
 ```sh
 cd paper
 make paper PYTHON=../.venv/bin/python
-make arxiv PYTHON=../.venv/bin/python
 ```

@@ -5,7 +5,6 @@
 #   make smoke      -- article-class smoke build.
 #   make stats      -- regenerate stats.tex from an exported study bundle.
 #   make figures    -- render Mermaid sources in figures/ to PDF.
-#   make arxiv      -- produce arxiv.tar.gz for upload.
 #   make clean      -- remove build artefacts.
 
 PAPER       ?= main
@@ -32,13 +31,10 @@ PDFLATEX_FLAGS = -interaction=nonstopmode -halt-on-error \
 FIGURES_MMD := $(wildcard figures/*.mmd)
 FIGURES_PDF := $(FIGURES_MMD:.mmd=.pdf)
 STUDY_FIGURES := figures/information-safety-frontier.pdf \
-                 figures/intervention-timeline.pdf \
-                 figures/regime-robustness-heatmap.pdf
-ARXIV_FILES := $(PAPER).tex sections/*.tex references.bib hyperxmp.sty $(STATS_TEX) \
-               $(LLM_TABLES_TEX) figures/policy-taxonomy.pdf \
-               figures/intervention-loop.pdf $(STUDY_FIGURES)
+	                 figures/intervention-timeline.pdf \
+	                 figures/regime-robustness-heatmap.pdf
 
-.PHONY: paper smoke stats llm-tables figures arxiv clean distclean watch
+.PHONY: paper smoke stats llm-tables figures clean distclean watch
 
 paper: stats llm-tables $(FIGURES_PDF) $(STUDY_FIGURES) | $(BUILD_DIR)
 	$(PDLATEX) $(PDFLATEX_FLAGS) $(PAPER).tex
@@ -84,13 +80,6 @@ figures/information-safety-frontier.pdf: ../out/information_control_50/figures/1
 figures/intervention-timeline.pdf: ../out/information_control_50/figures/12_intervention_timeline.pdf
 	cp $< $@
 
-arxiv: stats llm-tables $(FIGURES_PDF) $(STUDY_FIGURES)
-	@rm -f arxiv.tar.gz
-	tar --exclude='$(BUILD_DIR)' --exclude='*.aux' --exclude='*.log' \
-	    --exclude='*.fls' --exclude='*.fdb_latexmk' --exclude='arxiv.tar.gz' \
-	    -czf arxiv.tar.gz $(ARXIV_FILES)
-	@echo "Wrote arxiv.tar.gz"
-
 watch: stats
 	$(LATEXMK) $(LATEXMK_FLAGS) -pvc $(PAPER).tex
 
@@ -103,4 +92,4 @@ clean:
 	      $(PAPER).fls $(PAPER).fdb_latexmk $(PAPER).synctex.gz
 
 distclean: clean
-	rm -f $(PAPER).pdf main_smoke.pdf $(STATS_TEX) $(LLM_TABLES_TEX) figures/*.pdf arxiv.tar.gz
+	rm -f $(PAPER).pdf main_smoke.pdf $(STATS_TEX) $(LLM_TABLES_TEX) figures/*.pdf

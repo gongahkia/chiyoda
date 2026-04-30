@@ -1,7 +1,7 @@
 # Chiyoda -- research paper
 
 LaTeX scaffold for the Chiyoda paper, modeled after `../yuho/paper`.
-The paper is structured as an arXiv-style ACM preprint with a lightweight
+The paper is structured as an ACM-style preprint with a lightweight
 article-class smoke build for machines without `acmart.cls`.
 
 ## Layout
@@ -13,7 +13,7 @@ paper/
   references.bib        # seeded citations
   stats.tex             # generated from an exported study bundle
   REPRODUCIBILITY.md    # exact study commands and artifact index
-  Makefile              # paper / smoke / stats / figures / arxiv / clean
+  Makefile              # paper / smoke / stats / figures / clean
   scripts/
     gen_stats.py        # study bundle -> stats.tex
     gen_llm_tables.py   # LLM study artifacts -> llm_tables.tex
@@ -47,7 +47,6 @@ make figures
 make llm-tables PYTHON=../.venv/bin/python
 make paper
 make smoke
-make arxiv
 ```
 
 The default `STUDY_DIR` is `../out/information_control_50`. Generate the
@@ -61,12 +60,13 @@ See [`REPRODUCIBILITY.md`](./REPRODUCIBILITY.md) for the complete 50-seed
 primary study, 30-seed support studies, artifact index, and regeneration
 commands.
 
-## arXiv package
+## Zenodo deposit
 
-The main paper target builds with PDFLaTeX/BibTeX. The arXiv target writes
-`paper/arxiv.tar.gz`, vendors the paper figures under `paper/figures/`, and
-includes only the TeX sources, bibliography, generated tables, generated
-stats, and referenced PDF figures needed for arXiv to compile `main.tex`.
+The main paper target builds `paper/main.pdf` with PDFLaTeX/BibTeX. For Zenodo,
+deposit `paper/main.pdf` as the manuscript artifact. Optionally include a source
+archive of the repository or paper directory if you want the TeX source,
+generated tables, figures, and reproducibility scripts to be preserved alongside
+the PDF.
 
 ## Current Thesis
 
