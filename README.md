@@ -30,16 +30,16 @@
 
 ## Table of Contents
 
-* [🚀 Published Paper](#-published-paper)
-* [🤔 Why Chiyoda?](#-why-chiyoda)
-* [👀 How can I use it?](#-how-can-i-use-it)
-* [📚 Repository Guide](#-repository-guide)
-* [🧪 Reproduce the Paper](#-reproduce-the-paper)
-* [🛠️ Development](#️-development)
-* [✨ Research Context](#-research-context)
-* [🙏 Citation](#-citation)
+* [Published Paper](#-published-paper)
+* [Why Chiyoda?](#-why-chiyoda)
+* [How can I use it?](#-how-can-i-use-it)
+* [Repository Guide](#-repository-guide)
+* [Reproduce the Paper](#-reproduce-the-paper)
+* [Development](#️-development)
+* [Citation](#-citation)
+* [Research Context](#-research-context)
 
-## 🚀 Published Paper
+## Published Paper
 
 Chiyoda is published as a Zenodo preprint:
 
@@ -52,7 +52,7 @@ Chiyoda is published as a Zenodo preprint:
 The repository contains the simulation code, scenario definitions, study
 scripts, LaTeX source, generated figures, and the final paper PDF.
 
-## 🤔 Why Chiyoda?
+## Why Chiyoda?
 
 Emergency warnings are usually treated as helpful information: tell people
 more, and evacuation decisions should improve. Chiyoda studies the harder
@@ -77,7 +77,7 @@ Core capabilities include:
 | **Interventions** | Static, global, responder, entropy-targeted, density-aware, exposure-aware, and bottleneck-avoidance messaging |
 | **Analysis** | Belief entropy, belief accuracy, information-safety efficiency, harmful-convergence index, trajectory exports |
 
-## 👀 How can I use it?
+## How can I use it?
 
 Clone the repository and create the local Python environment:
 
@@ -113,7 +113,7 @@ results use bounded, validated, replayable generated-message workflows; see
 [`paper/REPRODUCIBILITY.md`](./paper/REPRODUCIBILITY.md) before treating any
 new live-provider run as evidence.
 
-## 📚 Repository Guide
+## Repository Guide
 
 | File / Folder | Purpose |
 |:---|:---|
@@ -141,7 +141,7 @@ Important documentation:
 * [`docs/station_geometry_workflow.md`](./docs/station_geometry_workflow.md)
   describes station geometry import and role inference.
 
-## 🧪 Reproduce the Paper
+## Reproduce the Paper
 
 The final paper PDF is [`paper/main.pdf`](./paper/main.pdf). To rebuild it from
 the current generated study artifacts:
@@ -165,7 +165,7 @@ stress tests, a 900-run hazard/familiarity robustness grid, and bounded LLM
 extension studies. The complete command list is in
 [`paper/REPRODUCIBILITY.md`](./paper/REPRODUCIBILITY.md).
 
-## 🛠️ Development
+## Development
 
 Run the test suite:
 
@@ -190,21 +190,7 @@ hazard tools at the boundary. Chiyoda exports trajectory and telemetry tables
 for comparison with tools such as PedPy, JuPedSim, Vadere, and FDS-oriented
 hazard-field workflows instead of claiming to replace them.
 
-## ✨ Research Context
-
-The name `Chiyoda` references the
-[Tokyo Metro Chiyoda Line](https://en.wikipedia.org/wiki/Tokyo_Metro_Chiyoda_Line).
-The motivating domain is emergency communication under CBRN-like evacuation
-pressure, but the framework is implemented as a more general information-control
-simulation layer for spatial evacuation studies.
-
-Chiyoda sits between pedestrian dynamics, hazard-coupled evacuation, and
-information-aware decision models. Its contribution is not a new crowd-force
-law; it is a replayable intervention surface and evaluation package for asking
-when emergency communication improves safety and when it creates harmful
-convergence.
-
-## 🙏 Citation
+## Citation
 
 Please cite the Zenodo record if you use the paper, code, scenarios, or figures:
 
@@ -219,3 +205,19 @@ Please cite the Zenodo record if you use the paper, code, scenarios, or figures:
   url       = {https://doi.org/10.5281/zenodo.19905070}
 }
 ```
+
+## Research Context
+
+The name `Chiyoda` references the
+[Tokyo Metro Chiyoda Line](https://en.wikipedia.org/wiki/Tokyo_Metro_Chiyoda_Line).
+The motivating domain is emergency communication under CBRN-like evacuation
+pressure, but the framework is implemented as a more general information-control
+simulation layer for spatial evacuation studies.
+
+Chiyoda sits between pedestrian dynamics, hazard-coupled evacuation, and
+information-aware decision models. Its contribution is not a new crowd-force
+law; it is a replayable intervention surface and evaluation package for asking
+when emergency communication improves safety and when it creates harmful
+convergence.
+
+![](./asset/logo/map.png)
