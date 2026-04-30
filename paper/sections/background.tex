@@ -5,8 +5,12 @@ Pedestrian evacuation models have a long physical tradition. The social-force
 model represents pedestrians as self-driven particles subject to destination,
 repulsion, and contact forces~\cite{helbing1995social}. Cellular automata
 models discretize space and update local movement decisions through transition
-rules~\cite{burstedde2001simulation}. Fundamental-diagram work relates crowd
-density to walking speed and flow capacity~\cite{fruin1971pedestrian,weidmann1993transporttechnik}.
+rules~\cite{burstedde2001simulation}. Evacuation-model reviews emphasize that
+these physical models must be interpreted together with scenario assumptions,
+calibration data, and validation scope rather than as universally predictive
+engines~\cite{gwynne1999review,schadschneider2009evacuation}.
+Fundamental-diagram work relates crowd density to walking speed and flow
+capacity~\cite{fruin1971pedestrian,weidmann1993transporttechnik}.
 These tools are useful because evacuation failure is often physical:
 bottlenecks, counter-flow, density waves, and slower-is-faster effects can
 dominate individual intent.
@@ -24,7 +28,10 @@ game theory, and bounded rationality. Pedestrian route-choice models connect
 activity constraints, perceived costs, and network structure~\cite{hoogendoorn2004routechoice},
 while evacuation experiments show that visibility can change route-selection
 behavior~\cite{guo2012visibility}. Bayesian formulations can model incomplete information
-and route-choice equilibria under congestion~\cite{mah90dynamic,wang2023bayesian}. Social
+and route-choice equilibria under congestion~\cite{mah90dynamic,wang2023bayesian}. Fire
+behavior and virtual-evacuation studies also show that exit choice is shaped
+by affiliation, social influence, stress, familiarity, and other occupants'
+movement~\cite{sime1983affiliative,kobes2010building,bode2013human,kinateder2014social}. Social
 group ABMs review the importance of communication, affiliation, and collective
 behavior, while also noting persistent gaps in behavioral realism and
 validation~\cite{templeton2023social,senanayake2024agent}. Chiyoda takes a
@@ -35,5 +42,5 @@ reproducible.
 The information-theoretic lens comes from Shannon entropy~\cite{shannon1948mathematical}.
 For each agent, Chiyoda computes entropy over exit existence, hazard knowledge,
 and general danger. Global entropy is the population mean. Entropy is not a
-normative objective by itself: the point of this paper is to test when reducing
-entropy improves safety and when it merely concentrates the crowd's behavior.
+normative objective by itself: the goal is to test when reducing entropy
+improves safety and when it merely concentrates the crowd's behavior.

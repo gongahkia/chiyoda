@@ -11,8 +11,8 @@ medical prediction.
 The behavioral model is also a hypothesis generator rather than a calibrated
 description of a specific crowd. Agents use simplified BDI-style intentions,
 local gossip, panic/anxiety states, and familiarity cohorts. These mechanisms
-are valuable because they make assumptions inspectable, but the paper must not
-claim real-world predictive validity without calibration against evacuation
+are valuable because they make assumptions inspectable, but the model should not
+be read as a real-world predictive model without calibration against evacuation
 drills, incident records, controlled VR experiments, or pedestrian trajectory
 data.
 The included Wuppertal bottleneck reference is the first step toward that
@@ -23,18 +23,7 @@ flow and overestimates time headway, so the discrepancy should be read as
 evidence about the limits of the current grid-scale proxy rather than as a
 station-level validation result.
 
-Finally, entropy is not equivalent to safety. The point of the paper is
-precisely that uncertainty reduction can be harmful when it produces synchronized
-movement. The proposed information-safety metrics are therefore comparative
-diagnostics, not universal welfare functions.
-
-A natural extension is adaptive message generation, including learned or
-language-model-mediated guidance. Section~\ref{subsec:llm-guidance-evaluation}
-shows that this extension can be made replayable and safety-efficient under a
-sparse budget, but it also shows why generated messages should not be
-evaluated by fluency alone. Under this paper's framing, any generated message
-is a safety-control action: it must be replayable, validated against the
-simulated state, prevented from inventing unavailable exits or stale hazard
-claims, and measured by downstream exposure, queueing, exit balance, and
-evacuation outcomes. Without those controls, richer language could make a
-policy more persuasive while also amplifying harmful convergence.
+Finally, entropy is not equivalent to safety. The central premise is that
+uncertainty reduction can be harmful when it produces synchronized movement. The
+proposed information-safety metrics are therefore comparative diagnostics, not
+universal welfare functions.

@@ -117,22 +117,22 @@ well only under particular hazard severity or familiarity conditions. A policy
 is treated as \emph{inefficient under this model} if it improves belief state
 while repeatedly increasing exposure, queue pressure, or exit concentration.
 
-This protocol matters because the paper's main contribution is a measurement
-framework, not a universal evacuation prescription. Static beacons are the
-highest-ISE conservative controller across the tested regimes, while
-global broadcast, entropy targeting, and no intervention each win some cells
-by completed evacuations. Similarly, entropy targeting is scientifically
-important even though it is not operationally dominant, because it reveals when
-uncertainty reduction turns into synchronized route choice. The paper
-therefore reports both policy rankings and regime-specific failure modes.
+This protocol matters because the contribution is a measurement framework, not
+a universal evacuation prescription. Static beacons are the highest-ISE
+conservative controller across the tested regimes, while global broadcast,
+entropy targeting, and no intervention each win some cells by completed
+evacuations. Similarly, entropy targeting is scientifically important even
+though it is not operationally dominant, because it reveals when uncertainty
+reduction turns into synchronized route choice. We therefore report both policy
+rankings and regime-specific failure modes.
 
 \subsection{Claim Update}
 \label{subsec:robustness-decision-criteria}
 
-The completed robustness study updates the claim matrix in
-\S\ref{sec:claims}. The evidence supports local static messaging as a robust
-baseline by information-safety efficiency across the tested hazard severity
-and population familiarity regimes. It does not support the stronger claim
+The completed robustness study updates the evidence boundary in
+\S\ref{subsec:evidence-boundary}. The evidence supports local static messaging
+as a robust baseline by information-safety efficiency across the tested hazard
+severity and population familiarity regimes. It does not support the stronger claim
 that static beacons are the universal operational winner. Evacuation counts
 remain regime dependent, and the best evacuation-count policy changes across
 the grid. The correct claim is therefore narrower and stronger: the

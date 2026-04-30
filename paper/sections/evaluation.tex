@@ -73,8 +73,8 @@ evacuates 10.76 agents on average. Static beacons evacuate 10.90, global
 broadcast evacuates 11.00, and the remaining active policies range from 9.70
 to 10.86. Mann--Whitney tests against the baseline do not show significant
 improvements in evacuated count or hazard exposure at $p<0.05$ for any active
-policy at $n=50$ seeds. This is why the paper cannot claim that more information
-monotonically improves evacuation.
+policy at $n=50$ seeds. These results rule out the stronger claim that more
+information monotonically improves evacuation.
 
 \begin{table*}[!t]
 \centering
@@ -134,9 +134,9 @@ finding is budget non-monotonicity. Early low-budget entropy targeting has the
 highest ISE in the ablation (0.0253), more than double early high-budget
 entropy targeting (0.0092). The high-budget version improves belief accuracy
 more strongly (1.89 versus 1.26), but also produces larger queue pressure and
-lower information-safety efficiency. This supports the paper's core mechanism:
-more certainty is not automatically safer when many agents receive similar
-guidance under shared bottleneck constraints.
+lower information-safety efficiency. This supports the mechanism behind our
+hypothesis: more certainty is not automatically safer when many agents receive
+similar guidance under shared bottleneck constraints.
 
 \begin{table*}[!t]
 \centering
@@ -233,13 +233,13 @@ conservative information control.
 \subsection{Interpretation}
 \label{subsec:interpretation}
 
-The study supports the paper's central framing rather than a single winning
-policy. Information interventions should be evaluated as safety-control
-actions, not as monotonic entropy minimizers. A policy can reach many agents
-and still have low safety efficiency; another can improve belief accuracy and
-still fail to improve aggregate completion. The promising direction is
-therefore not ``broadcast more,'' but ``broadcast credibly, locally, and with
-awareness of capacity and exposure.'' Static beacon and responder relay
+The results support our hypothesis that emergency communication is a coupled
+belief-and-safety control problem. Information interventions should be evaluated
+as safety-control actions, not as monotonic entropy minimizers. A policy can
+reach many agents and still have low safety efficiency; another can improve
+belief accuracy and still fail to improve aggregate completion. The operational
+implication is not simply to broadcast more, but to broadcast credibly, locally,
+and with awareness of capacity and exposure. Static beacon and responder relay
 policies currently look like conservative baselines, while entropy targeting is
 scientifically valuable because it exposes the failure mode created by
 overconfident, synchronized route choice.
@@ -371,15 +371,15 @@ bottleneck-avoidance baselines in the prompt-objective study under the reported
 Mann--Whitney comparisons. The same comparisons do not show an HCI
 improvement. The budget-equivalence comparisons show the reverse pressure:
 larger generated-message budgets lower HCI descriptively, but weaken the
-sparse LLM ISE advantage. The paper therefore presents LLM guidance as a
-bounded generative extension: novel because it evaluates generated emergency
-messages as safety-control actions, but still limited by route-convergence
-risk and intervention-budget sensitivity.
+sparse LLM ISE advantage. These results characterize LLM guidance as a bounded
+generative extension: useful because it evaluates generated emergency messages
+as safety-control actions, but still limited by route-convergence risk and
+intervention-budget sensitivity.
 
 \subsection{What the Evidence Supports}
 \label{subsec:evidence-boundary}
 
-The empirical package supports five paper-level claims. First, emergency
+The empirical package supports five claims. First, emergency
 communication behaves as a safety-control action: changing who receives a
 message, when they receive it, and how credible it is changes exposure,
 queueing, exit concentration, and belief state jointly. Second, local static

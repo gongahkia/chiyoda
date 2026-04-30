@@ -20,7 +20,6 @@ paper/
     plot_regime_robustness.py # robustness summary -> heatmap PDF
   sections/
     introduction.tex
-    claims.tex
     background.tex
     design.tex
     implementation.tex
@@ -28,6 +27,7 @@ paper/
     robustness_plan.tex
     related.tex
     limitations.tex
+    future_work.tex
     conclusion.tex
   figures/
     architecture.mmd

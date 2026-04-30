@@ -34,7 +34,7 @@ FIGURES_PDF := $(FIGURES_MMD:.mmd=.pdf)
 STUDY_FIGURES := figures/information-safety-frontier.pdf \
                  figures/intervention-timeline.pdf \
                  figures/regime-robustness-heatmap.pdf
-ARXIV_FILES := $(PAPER).tex sections/*.tex references.bib $(STATS_TEX) \
+ARXIV_FILES := $(PAPER).tex sections/*.tex references.bib hyperxmp.sty $(STATS_TEX) \
                $(LLM_TABLES_TEX) figures/policy-taxonomy.pdf \
                figures/intervention-loop.pdf $(STUDY_FIGURES)
 
@@ -75,7 +75,7 @@ llm-tables:
 figures: $(FIGURES_PDF) $(STUDY_FIGURES)
 
 figures/%.pdf: figures/%.mmd
-	mmdc -i $< -o $@ -b transparent || \
+	mmdc -i $< -o $@ -b transparent -f || \
 	  (echo "warning: mmdc not installed; skipping $<"; touch $@)
 
 figures/information-safety-frontier.pdf: ../out/information_control_50/figures/13_information_safety_frontier.pdf

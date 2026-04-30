@@ -10,6 +10,10 @@ from typing import Iterable
 import pandas as pd
 
 
+def _wide_table_begin(columns: str) -> str:
+    return rf"\begin{{tabular*}}{{\textwidth}}{{@{{\extracolsep{{\fill}}}}{columns}@{{}}}}"
+
+
 MEDIUM_LABELS = {
     "static_beacon": "Static beacon",
     "entropy_targeted": "Entropy targeted",
@@ -152,15 +156,13 @@ def _medium_table(frame: pd.DataFrame) -> str:
 \begin{{table*}}[t]
 \centering
 \small
-\resizebox{{0.68\textwidth}}{{!}}{{%
-\begin{{tabular}}{{lrrrr}}
+{_wide_table_begin("lrrrr")}
 \toprule
 Policy & Evacuated & ISE & HCI & Recipients \\
 \midrule
 {body}
 \bottomrule
-\end{{tabular}}
-}}
+\end{{tabular*}}
 \caption{{Medium LLM extension summary over ten seeds. LLM guidance improves
 information-safety efficiency mainly by operating under a much smaller
 intervention budget, but it does not yet reduce harmful convergence relative
@@ -188,15 +190,13 @@ def _target_table(frame: pd.DataFrame) -> str:
 \begin{{table*}}[t]
 \centering
 \small
-\resizebox{{0.68\textwidth}}{{!}}{{%
-\begin{{tabular}}{{lrrrr}}
+{_wide_table_begin("lrrrr")}
 \toprule
 Target selector & Evacuated & ISE & HCI & Recipients \\
 \midrule
 {body}
 \bottomrule
-\end{{tabular}}
-}}
+\end{{tabular*}}
 \caption{{LLM target-selection ablation over ten seeds using deterministic
 template generation. Message-generation settings are fixed; only recipient
 selection changes.}}
@@ -236,15 +236,13 @@ def _llm_regime_table(frame: pd.DataFrame) -> str:
 \begin{{table*}}[t]
 \centering
 \small
-\resizebox{{0.52\textwidth}}{{!}}{{%
-\begin{{tabular}}{{lrrr}}
+{_wide_table_begin("lrrr")}
 \toprule
 Hazard & Evacuated & ISE & HCI \\
 \midrule
 {body}
 \bottomrule
-\end{{tabular}}
-}}
+\end{{tabular*}}
 \caption{{Focused LLM regime robustness extension, averaged across
 low, mixed, and high population-familiarity regimes. The replay-only variants
 match the live OpenAI aggregate metrics exactly.}}
@@ -301,15 +299,13 @@ def _regime_comparison_table(det_regime: pd.DataFrame, llm_regime: pd.DataFrame)
 \begin{{table*}}[t]
 \centering
 \small
-\resizebox{{0.76\textwidth}}{{!}}{{%
-\begin{{tabular}}{{lrrrr}}
+{_wide_table_begin("lrrrr")}
 \toprule
 Deterministic policy & Det. ISE & LLM/Det. ISE & Det. HCI & LLM HCI $\Delta$ \\
 \midrule
 {body}
 \bottomrule
-\end{{tabular}}
-}}
+\end{{tabular*}}
 \caption{{Direct comparison between deterministic robustness policies and the
 live OpenAI safety-strict LLM extension, averaged across all nine
 hazard--familiarity regimes. The deterministic grid uses 20 seeds per cell;
@@ -327,15 +323,13 @@ def _prompt_objective_table(frame: pd.DataFrame) -> str:
 \begin{{table*}}[t]
 \centering
 \small
-\resizebox{{0.68\textwidth}}{{!}}{{%
-\begin{{tabular}}{{lrrrr}}
+{_wide_table_begin("lrrrr")}
 \toprule
 Policy & Evacuated & ISE & HCI & Recipients \\
 \midrule
 {body}
 \bottomrule
-\end{{tabular}}
-}}
+\end{{tabular*}}
 \caption{{Live OpenAI prompt-objective ablation. Target selection, validator,
 cadence, radius, budget, provider, and model are held fixed for the generated
 guidance variants.}}
@@ -351,15 +345,13 @@ def _budget_equivalence_table(frame: pd.DataFrame) -> str:
 \begin{{table*}}[t]
 \centering
 \small
-\resizebox{{0.68\textwidth}}{{!}}{{%
-\begin{{tabular}}{{lrrrr}}
+{_wide_table_begin("lrrrr")}
 \toprule
 Policy & Evacuated & ISE & HCI & Recipients \\
 \midrule
 {body}
 \bottomrule
-\end{{tabular}}
-}}
+\end{{tabular*}}
 \caption{{Live OpenAI budget-equivalence sweep. Sparse generated guidance is
 compared with generated guidance using static-beacon and entropy-targeted
 intervention budgets.}}
@@ -392,15 +384,13 @@ def _claim_statistics_table(frame: pd.DataFrame) -> str:
 \begin{{table*}}[t]
 \centering
 \small
-\resizebox{{0.76\textwidth}}{{!}}{{%
-\begin{{tabular}}{{lrrrr}}
+{_wide_table_begin("lrrrr")}
 \toprule
 Claim & ISE $\Delta$ & ISE $p$ & HCI $\Delta$ & HCI $p$ \\
 \midrule
 {body}
 \bottomrule
-\end{{tabular}}
-}}
+\end{{tabular*}}
 \caption{{Seed-level Mann--Whitney comparisons for the main LLM extension
 claims. Positive ISE deltas favor the test variant; negative HCI deltas favor
 the test variant.}}

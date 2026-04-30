@@ -53,7 +53,7 @@ hazards still determine exposure, visibility loss, physiological impairment,
 and direct observation, but they do not enter route planning unless the agent
 has observed or received a corresponding hazard belief. Agents with no known
 exit either explore or follow nearby movement depending on rationality and
-behavioral state. This separation is the main mechanism that lets the paper
+behavioral state. This separation is the main mechanism that lets us
 measure information as a causal intervention rather than as an oracle view of
 the environment.
 
@@ -98,8 +98,8 @@ LLM experiments. This policy uses the same intervention hook as the
 deterministic policies, but separates target selection from message proposal:
 the simulator exposes a bounded state summary, a generator proposes structured
 route guidance, and a validator must accept the proposal before it can affect
-agent beliefs. This keeps the scientific comparison aligned with the paper's
-main framing. A generated message is not treated as helpful because it is
+agent beliefs. This keeps the scientific comparison aligned with the
+safety-control hypothesis. A generated message is not treated as helpful because it is
 fluent; it is treated as a safety-control action whose downstream exposure,
 queueing, belief, and convergence effects must be measured.
 
@@ -108,22 +108,7 @@ shows where the intervention hook sits in the simulation loop.
 
 \begin{figure*}[!t]
 \centering
-\footnotesize
-\setlength{\tabcolsep}{5pt}
-\renewcommand{\arraystretch}{1.18}
-\begin{tabular}{p{0.16\textwidth}p{0.20\textwidth}p{0.20\textwidth}p{0.19\textwidth}p{0.17\textwidth}}
-\toprule
-Source & Policy & Target signal & Spatial reach & Safety objective \\
-\midrule
-Static infrastructure & Static beacon & Fixed exit and route priors & Local beacon radius & Improve local belief quality \\
-Central authority & Global broadcast & Shared hazard or exit update & Whole population & Rapid common situational awareness \\
-Responder authority & Responder relay & High-credibility local report & Responder neighborhood & Correct stale local beliefs \\
-Adaptive controller & Entropy-targeted & Highest belief uncertainty & Selected uncertain agents & Reduce uncertainty where it is largest \\
-Adaptive controller & Density-aware & Highest local density & Dense clusters & Reduce crowd pressure \\
-Adaptive controller & Exposure-aware & Highest hazard load & Exposed agents & Reduce cumulative exposure \\
-Adaptive controller & Bottleneck avoidance & Active bottleneck pressure & Queue-adjacent agents & Avoid harmful route convergence \\
-\bottomrule
-\end{tabular}
+\includegraphics[width=\textwidth]{figures/policy-taxonomy.pdf}
 \caption{Information intervention policy taxonomy. Policies differ by source,
 target signal, spatial reach, and safety objective.}
 \label{fig:policy-taxonomy}
@@ -131,25 +116,7 @@ target signal, spatial reach, and safety objective.}
 
 \begin{figure*}[!t]
 \centering
-\footnotesize
-\setlength{\tabcolsep}{4pt}
-\renewcommand{\arraystretch}{1.35}
-\begin{tabular}{@{}c@{\quad}c@{\quad}c@{\quad}c@{\quad}c@{\quad}c@{\quad}c@{}}
-\fbox{\begin{minipage}{0.18\textwidth}\centering Evolve hazards\\and physiology\end{minipage}} &
-\(\rightarrow\) &
-\fbox{\begin{minipage}{0.18\textwidth}\centering Observe, beacon,\\and gossip\end{minipage}} &
-\(\rightarrow\) &
-\fbox{\begin{minipage}{0.18\textwidth}\centering Run intervention\\policy\end{minipage}} &
-\(\rightarrow\) &
-\fbox{\begin{minipage}{0.18\textwidth}\centering Update beliefs\\and telemetry\end{minipage}} \\
-&&&&&&\\[-0.4em]
-\multicolumn{7}{c}{$\downarrow$}\\[-0.2em]
-\multicolumn{7}{c}{%
-\fbox{\begin{minipage}{0.80\textwidth}\centering
-Update intentions $\rightarrow$ belief-weighted pathfinding $\rightarrow$
-social-force movement $\rightarrow$ step telemetry
-\end{minipage}}} \\
-\end{tabular}
+\includegraphics[width=\textwidth]{figures/intervention-loop.pdf}
 \caption{Intervention hook in the ITED simulation loop. Policies read the
 current physical-information state, update recipient beliefs, and emit
 before/after telemetry before navigation.}

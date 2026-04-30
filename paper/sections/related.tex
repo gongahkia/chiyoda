@@ -1,76 +1,45 @@
 \section{Related Work}
 \label{sec:related}
 
-Chiyoda sits between pedestrian dynamics, hazard-coupled evacuation, and
-information-aware decision models. Social-force models represent pedestrians
-as self-driven particles whose movement emerges from goal attraction,
-repulsion, and contact forces~\cite{helbing1995social}. Cellular automata
-models instead discretize space and update movement through local transition
-rules~\cite{burstedde2001simulation}. Microscopic studies also show how simple
-local interaction rules can produce macroscopic crowd outcomes and failure
-modes~\cite{moussaid2011simple}. These traditions are useful for evacuation
-because physical failure is often a capacity problem: exit flow, bottlenecks,
-counterflow, and density-dependent slowdown can dominate individual intent.
-Chiyoda uses this physical tradition as the substrate, but the paper's novelty
-does not rest on a new crowd-force law.
+Chiyoda builds on physical pedestrian-evacuation models rather than replacing
+them. Social-force, cellular-automata, and microscopic interaction models
+explain how local movement rules can produce bottlenecks, counterflow, density
+waves, and other crowd-level failure modes~\cite{helbing1995social,
+burstedde2001simulation,moussaid2011simple}. Evacuation-model reviews caution
+that such models remain engineering abstractions whose outputs depend on
+scenario scope, behavioral assumptions, calibration, and validation
+data~\cite{gwynne1999review,schadschneider2009evacuation}. Chiyoda uses this
+tradition as the motion substrate; its distinction is the information-control
+layer placed on top of that substrate.
 
-Hazard-coupled evacuation models add a time-varying environment. Toxic-gas and
-gaseous-material simulations show that contaminant spread, perception, and
-information transmission can change route choice and evacuation
-outcomes~\cite{makmul2020cellular,liu2021toxicgas}. This line of work is
-closest to Chiyoda's CBRN-like setting. The difference is experimental focus:
-prior models often include information perception as a behavioral factor,
-whereas Chiyoda makes emergency communication itself the object of controlled
-comparison. Policies are not merely scenario settings; they are interventions
-that can be timed, targeted, budgeted, and evaluated.
-Guidance models that account for congestion, hazards, and compliance reinforce
-the same point: a route recommendation is a control action whose effect depends
-on both the physical field and whether agents follow it~\cite{chu2017variable}.
+Hazard-coupled evacuation and guidance models are closest to the CBRN-like
+setting studied here. Toxic-gas and gaseous-material simulations show that
+contaminant spread, perception, and information transmission can alter route
+choice and evacuation outcomes~\cite{makmul2020cellular,liu2021toxicgas}.
+Guidance models similarly show that recommendations must account for hazards,
+congestion, and compliance~\cite{chu2017variable}. Chiyoda differs by making
+message policy the controlled variable: timing, targeting, budget, credibility,
+and reach are varied directly instead of being treated as fixed scenario
+assumptions.
 
-Incomplete-information evacuation models provide the decision-theoretic
-counterpart. Bayesian and game-theoretic formulations study route choice under
-uncertainty and congestion~\cite{hoogendoorn2004routechoice,wang2023bayesian}, while social-group ABM
-surveys emphasize communication, affiliation, and collective behavior as
-central modeling concerns~\cite{templeton2023social,senanayake2024agent}.
-Chiyoda builds on this direction by making uncertainty observable as telemetry.
-Belief entropy, belief accuracy, intervention reach, exposure, queueing, and
-exit imbalance are exported together, which lets the paper ask whether a
-belief improvement is also a safety improvement.
+Incomplete-information and social-behavior models motivate the belief layer.
+Bayesian and game-theoretic route-choice work studies uncertainty and
+congestion~\cite{hoogendoorn2004routechoice,wang2023bayesian}, while
+social-group ABM surveys and evacuation studies emphasize communication,
+affiliation, familiar routes, visible crowd movement, and conflicting social
+cues~\cite{templeton2023social,senanayake2024agent,sime1983affiliative,
+kobes2010building,bode2013human,kinateder2014social}. Chiyoda keeps these
+effects stylized, but exports belief entropy, belief accuracy, reach, exposure,
+queueing, and exit imbalance together so belief improvement can be compared
+against downstream safety effects.
 
-Open-source pedestrian toolchains already cover much of the physical
-simulation and trajectory-analysis stack. JuPedSim and Vadere provide mature
-microscopic pedestrian simulation frameworks with published locomotion models
-and analysis workflows~\cite{kemlohwagoum2015jupedsim,kleinmeier2019vadere}.
-SUMO also exposes pedestrian simulation and JuPedSim coupling in a wider
-multimodal traffic environment~\cite{alvarezlopez2018sumo}. PedPy complements
-these simulators by analyzing real or simulated trajectory files for density,
-velocity, flow, and fundamental-diagram measurements~\cite{schrodter2025pedpy}.
-Chiyoda should therefore not be read as a replacement for these systems. Its
-role is narrower: it keeps the motion model inspectable while adding a
-replayable information-control layer whose outputs can be compared with, or
-exported toward, established pedestrian-analysis tooling.
-
-External geometry and hazard data are also better treated as interfaces than
-as reinventions. Station layout work can draw from indoor and station mapping
-schemas such as OpenStationMap and from GTFS Pathways records for entrances,
-levels, and station interiors~\cite{openstationmap2026,gtfs2026pathways}.
-Validated fire and smoke studies should use high-fidelity tools such as the
-NIST Fire Dynamics Simulator when physical dispersion accuracy is the target
-question~\cite{mcgrattan2013fds}. Chiyoda's current hazard layer remains a
-stylized comparative field, but its scenario and telemetry formats make it
-possible to calibrate or cross-check against richer geometry, pathway, hazard,
-and trajectory references without making those external tools part of the core
-paper claim.
-That separation follows evacuation-model verification guidance: model
-components and emergent behaviors should be checked against appropriate
-reference data before predictive claims are made~\cite{ronchi2013verification}.
-
-The resulting distinction is methodological. Chiyoda treats communication as
-an experimental control surface rather than a binary assumption about whether
-agents know enough. It asks how an emergency system should allocate limited
-communication budget under uncertainty, and it measures the side effects of
-that allocation. This makes message timing, targeting, credibility, and
-spatial reach comparable interventions with measurable safety tradeoffs. The
-contribution is therefore not a claim that Chiyoda is more realistic than all
-prior evacuation models; it is a claim that information interventions can and
-should be evaluated as safety-control actions.
+Existing tools cover much of the surrounding simulation and validation stack.
+JuPedSim, Vadere, and SUMO provide mature pedestrian simulation capabilities,
+and PedPy provides trajectory-analysis measures for density, velocity, flow,
+and fundamental diagrams~\cite{kemlohwagoum2015jupedsim,kleinmeier2019vadere,
+alvarezlopez2018sumo,schrodter2025pedpy}. Geometry and hazard studies can draw
+on OpenStationMap, GTFS Pathways, and high-fidelity tools such as the NIST Fire
+Dynamics Simulator~\cite{openstationmap2026,gtfs2026pathways,mcgrattan2013fds}.
+Chiyoda is therefore best read as a replayable information-intervention
+benchmark that can be calibrated or cross-checked against these systems, not as
+a substitute for full pedestrian or dispersion validation~\cite{ronchi2013verification}.
