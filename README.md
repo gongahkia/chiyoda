@@ -30,14 +30,14 @@
 
 ## Table of Contents
 
-* [Published Paper](#-published-paper)
-* [Why Chiyoda?](#-why-chiyoda)
-* [How can I use it?](#-how-can-i-use-it)
-* [Repository Guide](#-repository-guide)
-* [Reproduce the Paper](#-reproduce-the-paper)
-* [Development](#️-development)
-* [Citation](#-citation)
-* [Research Context](#-research-context)
+* [Published Paper](#published-paper)
+* [Why Chiyoda?](#why-chiyoda)
+* [How can I use it?](#how-can-i-use-it)
+* [Repository Guide](#repository-guide)
+* [Reproduce the Paper](#reproduce-the-paper)
+* [Development](#️development)
+* [Citation](#citation)
+* [Research Context](#research-context)
 
 ## Published Paper
 
@@ -220,4 +220,6 @@ law; it is a replayable intervention surface and evaluation package for asking
 when emergency communication improves safety and when it creates harmful
 convergence.
 
-![](./asset/logo/map.png)
+<div align="center">
+    <img src="./asset/logo/map.png" width="65%">
+</div>
