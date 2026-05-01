@@ -4,11 +4,10 @@
 \input{llm_tables}
 
 We evaluate Chiyoda with one primary policy comparison and two supporting
-stress studies. The primary study is
-\texttt{study\_information\_control.yaml}, a 50-seed comparison of eight
-emergency communication regimes: no deliberate intervention, static beacon
-broadcast, global PA broadcast, responder relay, entropy-targeted
-communication, density-aware communication, exposure-aware communication, and
+stress studies. The primary study is a 50-seed comparison of eight emergency
+communication regimes: no deliberate intervention, static beacon broadcast,
+global PA broadcast, responder relay, entropy-targeted communication,
+density-aware communication, exposure-aware communication, and
 bottleneck-avoidance communication. The exported bundle contains
 \statRunCount{} runs, \statVariantCount{} variant aggregates, and
 \statInterventionEvents{} intervention events. Each run uses the same
@@ -365,8 +364,8 @@ deterministic safety-control policies.
 
 \llmClaimStatisticsTable
 
-Seed-level tests reinforce that interpretation. Sparse safety-prompt guidance
-has higher ISE than the static beacon, entropy-targeted, and
+Seed-level tests point in the same direction. Sparse safety-prompt guidance has
+higher ISE than the static beacon, entropy-targeted, and
 bottleneck-avoidance baselines in the prompt-objective study under the reported
 Mann--Whitney comparisons. The same comparisons do not show an HCI
 improvement. The budget-equivalence comparisons show the reverse pressure:

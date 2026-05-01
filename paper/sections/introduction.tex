@@ -29,14 +29,14 @@ relay, entropy-targeted broadcasts, density-aware targeting, exposure-aware
 targeting, and bottleneck-avoidance targeting, then stress-tests timing,
 budget, credibility, and repetition.
 
-Our central hypothesis is that emergency communication should be evaluated as a
-safety-control action, not as a monotonic information-delivery mechanism.
-Messages are therefore judged by their joint effect on belief quality and
-downstream movement risk: a policy can reduce uncertainty and still be unsafe
-if it concentrates agents at a bottleneck or routes them through hazard
-exposure. The same framing covers generated guidance: LLM-produced messages are
-evaluated only when they remain bounded, replayable, validator-checked, and
-scored with the same ISE and HCI diagnostics as deterministic messages.
+Our central hypothesis is that emergency communication should be evaluated as
+safety control, not as monotonic information delivery. Messages are therefore
+judged by their joint effect on belief quality and downstream movement risk: a
+policy can reduce uncertainty and still be unsafe if it concentrates agents at
+a bottleneck or routes them through hazard exposure. The same framing covers
+generated guidance: LLM-produced messages are evaluated only when they remain
+bounded, replayable, validator-checked, and scored with the same ISE and HCI
+diagnostics as deterministic messages.
 
 \paragraph{Contributions.} This paper makes five contributions.
 
@@ -63,9 +63,9 @@ studies, plus a 900-run robustness grid across hazard severity and population
 familiarity. Generated statistics are ingested through \texttt{stats.tex}.
 
 \item \textbf{A bounded generated-guidance extension.} Optional LLM-mediated
-guidance is evaluated with the same safety-control metrics, cache/replay
-requirements, and validation constraints. The extension tests whether generated
-messages improve downstream ISE/HCI, not whether they sound more natural.
+guidance uses the same safety-control metrics, cache/replay requirements, and
+validation constraints. The extension tests whether generated messages improve
+downstream ISE/HCI, not whether they sound more natural.
 \end{enumerate}
 
 Structure-wise, this paper first positions Chiyoda against pedestrian

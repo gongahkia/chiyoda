@@ -11,16 +11,14 @@ speed, base rationality, credibility, gossip radius, and vision radius, while
 the behavior block exposes the full panic, recovery, freezing, and helping
 state-transition parameters used by the simulator.
 
-The core implementation lives in \texttt{chiyoda/core/simulation.py}. The
-simulation loop records step telemetry, agent telemetry, cell-level maps,
-exit flow, bottleneck dynamics, hazard state, gossip events, and intervention
-events. Study execution lives in \texttt{chiyoda/studies/runner.py}; it
-materializes variants, runs each seed, aggregates tables, and exports study
-bundles. Analysis and figure export live in \texttt{chiyoda/analysis/}.
+The core simulation module records step telemetry, agent telemetry, cell-level
+maps, exit flow, bottleneck dynamics, hazard state, gossip events, and
+intervention events. The study runner materializes variants, runs each seed,
+aggregates tables, and exports study bundles. Analysis and figure export live
+in the analysis package.
 
-The information intervention layer lives in
-\texttt{chiyoda/information/interventions.py}. It is deliberately small:
-policies produce target points and messages, while the shared executor applies
+The information intervention layer is deliberately small: policies produce
+target points and messages, while the shared executor applies
 messages to recipients and computes before/after entropy and accuracy. This
 keeps policy design separate from belief mutation and telemetry.
 
@@ -33,9 +31,8 @@ message quality, recipient choice, route capacity, hazard exposure, and belief
 change can be varied independently instead of being collapsed into a single
 ``informed agent'' assumption.
 
-Generated-message support lives in \texttt{chiyoda/information/llm.py}. It is
-implemented as an optional provider-neutral layer rather than as a dependency
-of the baseline studies. The layer defines structured message requests,
+The generated-message layer is optional and provider-neutral rather than a
+dependency of the baseline studies. It defines structured message requests,
 generated evacuation messages, validation records, a content-addressed JSON
 cache, deterministic template generation, replay-only generation, and a live
 OpenAI Responses API adapter. The \texttt{llm\_guidance} policy uses
@@ -64,8 +61,8 @@ update credibility, freshness, severity, and radius estimates for the same
 hazard, not create an unbounded list of separate hazards.
 
 The paper pipeline mirrors the code pipeline. Study execution emits tables and
-figures, \texttt{paper/scripts/gen\_stats.py} converts the exported bundle
-into \texttt{stats.tex}, and the LaTeX build injects those values into the
+figures, \texttt{gen\_stats.py} converts the exported bundle into
+\texttt{stats.tex}, and the LaTeX build injects those values into the
 abstract and evaluation. This keeps the manuscript tied to regenerated study
 artifacts rather than hand-maintained result counts.
 
