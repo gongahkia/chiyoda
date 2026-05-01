@@ -1,4 +1,7 @@
-<!-- project header -->
+<p align="center">
+  <img src="./asset/logo/chiyoda.png" width="150" alt="Chiyoda mascot"/>
+</p>
+
 <h1 align="center">Chiyoda</h1>
 
 <h4 align="center">
