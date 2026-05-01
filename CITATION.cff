@@ -1,0 +1,33 @@
+cff-version: 1.2.0
+title: "Chiyoda: Entropy-Guided Information Control for Hazard-Coupled Pedestrian Evacuation."
+message: "If you use Chiyoda in academic work, please cite this artefact."
+type: software
+authors:
+  - given-names: Gabriel
+    family-names: Ong Zhe Mian
+    email: gabrielzmong@gmail.com
+    website: "https://gabrielongzm.com"
+repository-code: "https://github.com/gongahkia/chiyoda"
+url: "https://github.com/gongahkia/chiyoda"
+license: MIT
+version: "1.0.0"
+date-released: "2026-04-30"
+keywords:
+  - evacuation-simulation
+  - pedestrian-dynamics
+  - information-theory
+  - agent-based-modelling
+  - emergency-communication
+  - CBRN
+  - entropy
+  - multiagent-systems
+  - safety-control
+preferred-citation:
+  type: software
+  title: "Chiyoda: Entropy-Guided Information Control for Hazard-Coupled Pedestrian Evacuation"
+  authors:
+    - given-names: Gabriel
+      family-names: Ong Zhe Mian
+      email: gabrielzmong@gmail.com
+  year: 2026
+  url: "https://github.com/gongahkia/chiyoda"
