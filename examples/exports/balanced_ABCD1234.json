@@ -3,7 +3,7 @@
   "size": 30,
   "layers": 15,
   "metadata": {
-    "schema_version": "gibson.structure.v13",
+    "schema_version": "gibson.structure.v14",
     "profile": "balanced",
     "config": {
       "profile": "balanced",
@@ -41810,6 +41810,11 @@
     "alternate_path_count": 3,
     "vertical_transfer_count": 5,
     "guaranteed_service_to_skyline": true,
+    "route_redundancy_score": 1.0,
+    "reachable_landmark_count": 18,
+    "faction_territory_connectivity": 0.7155172,
+    "main_path_room_reachability": 1.0,
+    "quality_score": 0.9593596,
     "high_centrality_route_ids": [
       14,
       13,

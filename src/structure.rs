@@ -7,7 +7,7 @@ use crate::config::GenerationConfig;
 
 pub const CURRENT_SEED_FILE: &str = "current_seed.txt";
 pub const STRUCTURE_FILE: &str = "structure.json";
-pub const STRUCTURE_SCHEMA_VERSION: &str = "gibson.structure.v13";
+pub const STRUCTURE_SCHEMA_VERSION: &str = "gibson.structure.v14";
 
 pub type StructureResult<T> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
@@ -134,6 +134,11 @@ pub struct PathAnalysisRecord {
     pub alternate_path_count: usize,
     pub vertical_transfer_count: usize,
     pub guaranteed_service_to_skyline: bool,
+    pub route_redundancy_score: f32,
+    pub reachable_landmark_count: usize,
+    pub faction_territory_connectivity: f32,
+    pub main_path_room_reachability: f32,
+    pub quality_score: f32,
     pub high_centrality_route_ids: Vec<usize>,
     pub main_path: Option<MissionPathRecord>,
 }

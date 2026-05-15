@@ -3088,6 +3088,11 @@ impl MegaStructureGenerator {
                 alternate_path_count: 0,
                 vertical_transfer_count: 0,
                 guaranteed_service_to_skyline: false,
+                route_redundancy_score: 0.0,
+                reachable_landmark_count: 0,
+                faction_territory_connectivity: 0.0,
+                main_path_room_reachability: 0.0,
+                quality_score: 0.0,
                 high_centrality_route_ids: Vec::new(),
                 main_path: None,
             };
@@ -3169,9 +3174,82 @@ impl MegaStructureGenerator {
                 .filter(|edge| edge.kind.contains("vertical_transfer"))
                 .count(),
             guaranteed_service_to_skyline: self.has_service_to_skyline_path(),
+            route_redundancy_score: 0.0,
+            reachable_landmark_count: 0,
+            faction_territory_connectivity: 0.0,
+            main_path_room_reachability: 0.0,
+            quality_score: 0.0,
             high_centrality_route_ids,
             main_path: self.main_mission_path(),
         }
+    }
+
+    fn finalize_topology_quality(
+        &self,
+        mut analysis: PathAnalysisRecord,
+        rooms: &[RoomRecord],
+        territories: &[TerritoryRecord],
+        landmarks: &[NarrativeLandmarkRecord],
+    ) -> PathAnalysisRecord {
+        let valid_route_ids: BTreeSet<_> = self.transit_edges.iter().map(|edge| edge.id).collect();
+        analysis.reachable_landmark_count = landmarks
+            .iter()
+            .filter(|landmark| {
+                landmark
+                    .route_id
+                    .is_some_and(|route_id| valid_route_ids.contains(&route_id))
+            })
+            .count();
+
+        let routed_territories = territories
+            .iter()
+            .filter(|territory| !territory.route_ids.is_empty())
+            .count();
+        analysis.faction_territory_connectivity = if territories.is_empty() {
+            0.0
+        } else {
+            routed_territories as f32 / territories.len() as f32
+        };
+
+        analysis.main_path_room_reachability = analysis
+            .main_path
+            .as_ref()
+            .map(|path| {
+                let valid_room_count = path
+                    .room_ids
+                    .iter()
+                    .filter(|room_id| **room_id < rooms.len())
+                    .count();
+                if path.room_ids.is_empty() {
+                    0.0
+                } else {
+                    valid_room_count as f32 / path.room_ids.len() as f32
+                }
+            })
+            .unwrap_or(0.0);
+
+        analysis.route_redundancy_score = (analysis.alternate_path_count as f32 / 3.0)
+            .min(1.0)
+            .min(analysis.largest_component_edges as f32 / self.transit_edges.len().max(1) as f32);
+        let component_score =
+            analysis.largest_component_edges as f32 / self.transit_edges.len().max(1) as f32;
+        let vertical_score = (analysis.vertical_transfer_count as f32 / 3.0).min(1.0);
+        let service_score = if analysis.guaranteed_service_to_skyline {
+            1.0
+        } else {
+            0.0
+        };
+        let landmark_score = (analysis.reachable_landmark_count as f32 / 8.0).min(1.0);
+        analysis.quality_score = ((component_score
+            + analysis.route_redundancy_score
+            + vertical_score
+            + service_score
+            + landmark_score
+            + analysis.faction_territory_connectivity
+            + analysis.main_path_room_reachability)
+            / 7.0)
+            .clamp(0.0, 1.0);
+        analysis
     }
 
     fn has_service_to_skyline_path(&self) -> bool {
@@ -3771,7 +3849,12 @@ impl MegaStructureGenerator {
                 room
             })
             .collect();
-        let path_analysis = self.path_analysis();
+        let path_analysis = self.finalize_topology_quality(
+            self.path_analysis(),
+            &rooms,
+            &territories,
+            &narrative_landmarks,
+        );
         let metadata = StructureMetadata {
             schema_version: STRUCTURE_SCHEMA_VERSION.to_owned(),
             profile: self.config.profile.to_string(),
@@ -4834,6 +4917,11 @@ mod tests {
         assert!(saved.path_analysis.alternate_path_count > 0);
         assert!(saved.path_analysis.vertical_transfer_count > 0);
         assert!(saved.path_analysis.guaranteed_service_to_skyline);
+        assert!(saved.path_analysis.route_redundancy_score > 0.0);
+        assert!(saved.path_analysis.reachable_landmark_count > 0);
+        assert!(saved.path_analysis.faction_territory_connectivity > 0.0);
+        assert!(saved.path_analysis.main_path_room_reachability > 0.0);
+        assert!(saved.path_analysis.quality_score > 0.0);
         assert!(!saved.path_analysis.high_centrality_route_ids.is_empty());
         assert!(saved.path_analysis.main_path.is_some());
 
@@ -4862,6 +4950,20 @@ mod tests {
                 assert!(*route_id < saved.transit_graph.edges.len());
             }
         }
+    }
+
+    #[test]
+    fn topology_quality_pass_exports_strict_generation_guarantees() {
+        let saved = generated("ABCD1234").saved_structure();
+        assert!(saved.path_analysis.connected_component_count <= 2);
+        assert!(saved.path_analysis.alternate_path_count >= 3);
+        assert!(saved.path_analysis.vertical_transfer_count >= 3);
+        assert!(saved.path_analysis.guaranteed_service_to_skyline);
+        assert!(saved.path_analysis.route_redundancy_score >= 0.75);
+        assert!(saved.path_analysis.reachable_landmark_count >= 8);
+        assert!(saved.path_analysis.faction_territory_connectivity >= 0.5);
+        assert_eq!(saved.path_analysis.main_path_room_reachability, 1.0);
+        assert!(saved.path_analysis.quality_score >= 0.75);
     }
 
     #[test]

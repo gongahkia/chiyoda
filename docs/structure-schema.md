@@ -2,7 +2,7 @@
 
 This document describes the canonical exported artifact, `structure.json`.
 
-Current schema: `gibson.structure.v13`
+Current schema: `gibson.structure.v14`
 
 Generate an export:
 
@@ -60,7 +60,15 @@ Each transit edge has:
 - `points`: ordered `[x, y, z]` samples through the structure.
 - `stratum`: dominant vertical stratum.
 
-`path_analysis.guaranteed_service_to_skyline` should be `true` for valid exports.
+Valid exports should satisfy the topology quality contract:
+
+- `guaranteed_service_to_skyline`: `true`.
+- `alternate_path_count`: at least `3` ring/alternate routes.
+- `vertical_transfer_count`: at least `3` vertical transfer routes.
+- `reachable_landmark_count`: at least `8` named landmarks attached to valid routes.
+- `faction_territory_connectivity`: at least `0.5`.
+- `main_path_room_reachability`: `1.0`.
+- `quality_score`: aggregate route/component/landmark/faction/main-path score in `[0.0, 1.0]`.
 
 ## Semantic Layers
 

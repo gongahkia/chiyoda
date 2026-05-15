@@ -78,6 +78,14 @@ fn render_path(structure: &SavedStructure, lines: &mut Vec<String>) {
         structure.path_analysis.chokepoint_count,
         structure.path_analysis.dead_end_count
     ));
+    lines.push(format!(
+        "- quality={:.2} redundancy={:.2} reachable_landmarks={} faction_connectivity={:.2} main_room_reachability={:.2}",
+        structure.path_analysis.quality_score,
+        structure.path_analysis.route_redundancy_score,
+        structure.path_analysis.reachable_landmark_count,
+        structure.path_analysis.faction_territory_connectivity,
+        structure.path_analysis.main_path_room_reachability
+    ));
     if let Some(path) = &structure.path_analysis.main_path {
         lines.push(format!(
             "- main={} routes={:?} rooms={}",
@@ -97,6 +105,7 @@ mod tests {
     use super::*;
     use crate::config::GenerationConfig;
     use crate::generation::generate_saved_structure;
+    use crate::structure::STRUCTURE_SCHEMA_VERSION;
 
     #[test]
     fn renders_requested_inspection_sections() {
@@ -111,7 +120,7 @@ mod tests {
                 InspectSection::Path,
             ],
         );
-        assert!(output.contains("Gibson gibson.structure.v13"));
+        assert!(output.contains(&format!("Gibson {STRUCTURE_SCHEMA_VERSION}")));
         assert!(output.contains("Routes:"));
         assert!(output.contains("Landmarks:"));
         assert!(output.contains("Path Analysis:"));
