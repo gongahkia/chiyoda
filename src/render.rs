@@ -851,7 +851,7 @@ fn draw_semantic_overlay(app: &AppState) {
 fn draw_transit_overlay(app: &AppState) {
     let graph = app.generator.transit_graph();
     for edge in &graph.edges {
-        let color = transit_color(&edge.kind);
+        let color = transit_role_color(&edge.role);
         for pair in edge.points.windows(2) {
             draw_line_3d(point_to_vec3(pair[0]), point_to_vec3(pair[1]), color);
         }
@@ -884,6 +884,7 @@ fn draw_district_overlay(app: &AppState) {
             );
         }
     }
+    draw_border_overlay(app);
 }
 
 fn draw_strata_overlay(app: &AppState) {
@@ -902,11 +903,33 @@ fn draw_strata_overlay(app: &AppState) {
 
 fn draw_debug_overlay(app: &AppState) {
     draw_transit_overlay(app);
+    draw_border_overlay(app);
+    for cluster in app.generator.computed_room_clusters() {
+        draw_cube_wires(
+            point_to_vec3(cluster.anchor_position),
+            vec3(1.2, 1.2, 1.2),
+            cluster_color(&cluster.kind),
+        );
+    }
     for room in app.generator.rooms() {
         draw_cube_wires(
             point_to_vec3(room.position),
             vec3(0.58, 0.58, 0.58),
             room_color(&room.label),
+        );
+    }
+}
+
+fn draw_border_overlay(app: &AppState) {
+    for border in app.generator.district_borders() {
+        draw_cube_wires(
+            vec3(
+                (border.bounds_min[0] + border.bounds_max[0]) as f32 * 0.5,
+                border.y as f32,
+                (border.bounds_min[1] + border.bounds_max[1]) as f32 * 0.5,
+            ),
+            vec3(1.6, 0.18, 1.6),
+            border_color(&border.feature),
         );
     }
 }
@@ -922,6 +945,40 @@ fn transit_color(kind: &str) -> Color {
         "skybridge" => Color::new(0.48, 0.76, 1.0, 1.0),
         "express_spine" => Color::new(1.0, 0.25, 0.86, 1.0),
         _ => Color::new(1.0, 0.92, 0.35, 1.0),
+    }
+}
+
+fn transit_role_color(role: &str) -> Color {
+    match role {
+        "primary_artery" => Color::new(1.0, 0.92, 0.35, 1.0),
+        "service_loop" => Color::new(0.65, 0.78, 0.88, 1.0),
+        "restricted_spine" => Color::new(1.0, 0.25, 0.86, 1.0),
+        "evacuation_route" => Color::new(0.25, 1.0, 0.74, 1.0),
+        "market_run" => Color::new(1.0, 0.62, 0.24, 1.0),
+        "maintenance_backbone" => Color::new(0.95, 0.46, 0.16, 1.0),
+        _ => transit_color(role),
+    }
+}
+
+fn border_color(feature: &str) -> Color {
+    match feature {
+        "BORDER_MARKET" | "SCRAP_MARKET" => Color::new(1.0, 0.72, 0.22, 1.0),
+        "SCRAP_ZONE" => Color::new(0.86, 0.34, 0.14, 1.0),
+        "SECURITY_THRESHOLD" => Color::new(0.42, 0.82, 1.0, 1.0),
+        "SURFACE_COMMONS" => Color::new(0.62, 1.0, 0.52, 1.0),
+        _ => Color::new(0.95, 0.95, 0.55, 1.0),
+    }
+}
+
+fn cluster_color(kind: &str) -> Color {
+    match kind {
+        "habitation_block" => Color::new(0.82, 0.74, 0.56, 1.0),
+        "market_strip" => Color::new(1.0, 0.58, 0.18, 1.0),
+        "machine_complex" => Color::new(0.72, 0.72, 0.82, 1.0),
+        "shrine_pocket" => Color::new(1.0, 0.76, 0.30, 1.0),
+        "data_vault_compound" => Color::new(0.30, 0.82, 1.0, 1.0),
+        "transit_cluster" => Color::new(0.20, 1.0, 0.78, 1.0),
+        _ => Color::new(0.86, 0.86, 0.60, 1.0),
     }
 }
 

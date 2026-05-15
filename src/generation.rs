@@ -1,10 +1,11 @@
 use macroquad::prelude::*;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use crate::config::GenerationConfig;
 use crate::seed::{seed_hash, Rng32};
 use crate::structure::{
-    self, ConnectionRecord, DistrictRecord, RoomRecord, SavedStructure, StratumRecord,
+    self, ConnectionRecord, DistrictBorderRecord, DistrictRecord, MissionPathRecord,
+    PathAnalysisRecord, RoomClusterRecord, RoomRecord, SavedStructure, StratumRecord,
     StructureMetadata, StructureResult, TransitAttachmentRecord, TransitEdgeRecord,
     TransitGraphRecord, TransitNodeRecord, STRUCTURE_SCHEMA_VERSION,
 };
@@ -928,6 +929,7 @@ pub struct MegaStructureGenerator {
     transit_nodes: Vec<TransitNodeRecord>,
     transit_edges: Vec<TransitEdgeRecord>,
     transit_attachments: Vec<TransitAttachmentRecord>,
+    district_borders: Vec<DistrictBorderRecord>,
     pattern_counts: BTreeMap<String, usize>,
 }
 
@@ -956,6 +958,7 @@ impl MegaStructureGenerator {
             transit_nodes: Vec::new(),
             transit_edges: Vec::new(),
             transit_attachments: Vec::new(),
+            district_borders: Vec::new(),
             pattern_counts: BTreeMap::new(),
         };
         generator.generate_district_map();
@@ -999,6 +1002,7 @@ impl MegaStructureGenerator {
         let id = self.rooms.len();
         self.rooms.push(RoomRecord {
             id,
+            cluster_id: None,
             position,
             district: district.name().to_owned(),
             label: label.to_owned(),
@@ -1034,6 +1038,8 @@ impl MegaStructureGenerator {
         points: Vec<[usize; 3]>,
     ) -> usize {
         let id = self.transit_edges.len();
+        let role =
+            route_role_for(kind, points.first().copied(), points.last().copied(), self).to_owned();
         let stratum = points
             .first()
             .map(|point| {
@@ -1045,6 +1051,7 @@ impl MegaStructureGenerator {
         self.transit_edges.push(TransitEdgeRecord {
             id,
             kind: kind.to_owned(),
+            role,
             start_node,
             end_node,
             length: points.len(),
@@ -1134,6 +1141,7 @@ impl MegaStructureGenerator {
         self.phase2d_route_aware_generation();
         self.apply_floor_thickness();
         self.phase2c_district_patterns();
+        self.phase2e_district_adjacency();
         self.phase3_infrastructure();
         self.phase4_erosion();
         self.phase4b_decay_signatures();
@@ -1176,7 +1184,7 @@ impl MegaStructureGenerator {
             })
             .filter(|(distance, _)| *distance <= 5)
             .min_by_key(|(distance, _)| *distance)
-            .map(|(_, edge)| format!("{}#{}", edge.kind, edge.id))
+            .map(|(_, edge)| format!("{}:{}#{}", edge.role, edge.kind, edge.id))
     }
 
     pub(crate) fn nearest_decay_feature(&self, x: usize, y: usize, z: usize) -> Option<&str> {
@@ -1211,6 +1219,14 @@ impl MegaStructureGenerator {
             edges: self.transit_edges.clone(),
             attachments: self.transit_attachments.clone(),
         }
+    }
+
+    pub(crate) fn district_borders(&self) -> &[DistrictBorderRecord] {
+        &self.district_borders
+    }
+
+    pub(crate) fn computed_room_clusters(&self) -> Vec<RoomClusterRecord> {
+        self.room_clusters().0
     }
 
     fn phase1_skeleton(&mut self) {
@@ -1725,7 +1741,13 @@ impl MegaStructureGenerator {
             for slot in 0..slots {
                 let index =
                     ((slot + 1) * edge.points.len() / (slots + 1)).min(edge.points.len() - 1);
-                self.add_route_aware_feature(edge.id, &edge.kind, edge.points[index], slot);
+                self.add_route_aware_feature(
+                    edge.id,
+                    &edge.kind,
+                    &edge.role,
+                    edge.points[index],
+                    slot,
+                );
             }
         }
     }
@@ -1734,6 +1756,7 @@ impl MegaStructureGenerator {
         &mut self,
         route_id: usize,
         route_kind: &str,
+        route_role: &str,
         position: [usize; 3],
         slot: usize,
     ) {
@@ -1743,6 +1766,7 @@ impl MegaStructureGenerator {
         let district = self.district_at(x, z);
         let label = route_aware_room_label(
             route_kind,
+            route_role,
             district,
             self.stratum_at(y),
             self.config.landmark_frequency,
@@ -1750,7 +1774,7 @@ impl MegaStructureGenerator {
         );
         let room_id = self.push_room([x, y, z], district, label);
         self.push_transit_attachment(route_id, room_id, "route_aware_feature", [x, y, z]);
-        self.paint_route_aware_feature(x, z, y, route_kind, label);
+        self.paint_route_aware_feature(x, z, y, route_kind, route_role, label);
         self.record_pattern(label);
         self.push_connection(
             &format!("route_attached_{}", label.to_lowercase()),
@@ -1765,6 +1789,7 @@ impl MegaStructureGenerator {
         z: usize,
         y: usize,
         route_kind: &str,
+        route_role: &str,
         label: &str,
     ) {
         let shell = match label {
@@ -1798,6 +1823,18 @@ impl MegaStructureGenerator {
             if matches!(label, "DATA_RELAY" | "DATA_VAULT") && y + 1 < self.layers {
                 self.set(nx, nz, y + 1, CellType::Antenna, false);
             }
+            if matches!(route_role, "restricted_spine" | "evacuation_route")
+                && y + 1 < self.layers
+                && self.get(nx, nz, y + 1) == CellType::Empty
+            {
+                self.set(nx, nz, y + 1, CellType::Facade, false);
+            }
+            if route_role == "maintenance_backbone"
+                && y > 0
+                && self.get(nx, nz, y - 1) == CellType::Empty
+            {
+                self.set(nx, nz, y - 1, CellType::Pipe, false);
+            }
         }
     }
 
@@ -1807,6 +1844,88 @@ impl MegaStructureGenerator {
         self.add_elite_void_courts();
         self.add_commercial_neon_facades();
         self.add_stratum_markers();
+    }
+
+    fn phase2e_district_adjacency(&mut self) {
+        let mut border_id = self.district_borders.len();
+        for x in 0..self.size.saturating_sub(1) {
+            for z in 0..self.size.saturating_sub(1) {
+                for (nx, nz) in [(x + 1, z), (x, z + 1)] {
+                    let a = self.district_at(x, z);
+                    let b = self.district_at(nx, nz);
+                    if a == b || hash_noise(self.seed_hash, x + nx, z + nz, border_id) > 0.18 {
+                        continue;
+                    }
+                    let y = border_feature_y(a, b, self.layers);
+                    let feature = border_feature_name(a, b);
+                    let district = border_owner_district(a, b);
+                    let position = [x, y, z];
+                    let room_id = self.push_room(position, district, feature);
+                    self.paint_border_feature(x, z, y, feature);
+                    self.push_connection(feature, position, [nx, y, nz]);
+                    self.district_borders.push(DistrictBorderRecord {
+                        id: border_id,
+                        from_district: a.name().to_owned(),
+                        to_district: b.name().to_owned(),
+                        bounds_min: [x.min(nx), z.min(nz)],
+                        bounds_max: [x.max(nx), z.max(nz)],
+                        y,
+                        feature: feature.to_owned(),
+                        route_ids: self.nearby_route_ids(position, 6),
+                        room_ids: vec![room_id],
+                    });
+                    border_id += 1;
+                }
+            }
+        }
+    }
+
+    fn nearby_route_ids(&self, position: [usize; 3], radius: usize) -> Vec<usize> {
+        let mut route_ids = Vec::new();
+        for edge in &self.transit_edges {
+            if edge.points.iter().any(|point| {
+                point[0].abs_diff(position[0])
+                    + point[1].abs_diff(position[1])
+                    + point[2].abs_diff(position[2])
+                    <= radius
+            }) {
+                route_ids.push(edge.id);
+                if route_ids.len() >= 4 {
+                    break;
+                }
+            }
+        }
+        route_ids
+    }
+
+    fn paint_border_feature(&mut self, x: usize, z: usize, y: usize, feature: &str) {
+        let cell = match feature {
+            "SCRAP_MARKET" | "BORDER_MARKET" => CellType::Facade,
+            "SECURITY_THRESHOLD" => CellType::Stair,
+            "SURFACE_COMMONS" => CellType::Horizontal,
+            "SCRAP_ZONE" => CellType::Debris,
+            _ => CellType::Cable,
+        };
+        for dx in 0..=1 {
+            for dz in 0..=1 {
+                let nx = (x + dx).min(self.size - 1);
+                let nz = (z + dz).min(self.size - 1);
+                self.set(
+                    nx,
+                    nz,
+                    y,
+                    cell,
+                    matches!(cell, CellType::Horizontal | CellType::Stair),
+                );
+                if matches!(feature, "SCRAP_ZONE" | "SCRAP_MARKET") && y > 0 {
+                    self.set(nx, nz, y - 1, CellType::Debris, false);
+                }
+                if feature == "SECURITY_THRESHOLD" && y + 1 < self.layers {
+                    self.set(nx, nz, y + 1, CellType::Facade, false);
+                }
+            }
+        }
+        self.record_pattern(feature);
     }
 
     fn add_industrial_service_trunks(&mut self) {
@@ -2639,6 +2758,209 @@ impl MegaStructureGenerator {
         .collect()
     }
 
+    fn room_clusters(&self) -> (Vec<RoomClusterRecord>, Vec<Option<usize>>) {
+        #[derive(Default)]
+        struct ClusterBuilder {
+            kind: String,
+            owner_district: String,
+            stratum: String,
+            room_ids: Vec<usize>,
+            route_ids: BTreeSet<usize>,
+            bounds_min: [usize; 3],
+            bounds_max: [usize; 3],
+            anchor_position: [usize; 3],
+        }
+
+        let mut route_by_room = BTreeMap::new();
+        for attachment in &self.transit_attachments {
+            route_by_room.insert(attachment.room_id, attachment.route_id);
+        }
+
+        let mut builders: BTreeMap<(String, String, String, usize), ClusterBuilder> =
+            BTreeMap::new();
+        let mut room_cluster_ids = vec![None; self.rooms.len()];
+        for room in &self.rooms {
+            let route_id = route_by_room.get(&room.id).copied().unwrap_or(usize::MAX);
+            let route_bucket = if route_id == usize::MAX {
+                usize::MAX
+            } else {
+                route_id / 2
+            };
+            let kind = cluster_kind_for_room(&room.label).to_owned();
+            let stratum = self.stratum_at(room.position[1]).name().to_owned();
+            let key = (
+                kind.clone(),
+                room.district.clone(),
+                stratum.clone(),
+                route_bucket,
+            );
+            let entry = builders.entry(key).or_insert_with(|| ClusterBuilder {
+                kind,
+                owner_district: room.district.clone(),
+                stratum,
+                room_ids: Vec::new(),
+                route_ids: BTreeSet::new(),
+                bounds_min: room.position,
+                bounds_max: room.position,
+                anchor_position: room.position,
+            });
+            entry.room_ids.push(room.id);
+            if route_id != usize::MAX {
+                entry.route_ids.insert(route_id);
+            }
+            for axis in 0..3 {
+                entry.bounds_min[axis] = entry.bounds_min[axis].min(room.position[axis]);
+                entry.bounds_max[axis] = entry.bounds_max[axis].max(room.position[axis]);
+            }
+        }
+
+        let clusters: Vec<_> = builders
+            .into_values()
+            .enumerate()
+            .map(|(id, builder)| {
+                for room_id in &builder.room_ids {
+                    room_cluster_ids[*room_id] = Some(id);
+                }
+                RoomClusterRecord {
+                    id,
+                    kind: builder.kind,
+                    owner_district: builder.owner_district,
+                    stratum: builder.stratum,
+                    bounds_min: builder.bounds_min,
+                    bounds_max: builder.bounds_max,
+                    anchor_position: builder.anchor_position,
+                    room_ids: builder.room_ids,
+                    route_ids: builder.route_ids.into_iter().collect(),
+                }
+            })
+            .collect();
+
+        (clusters, room_cluster_ids)
+    }
+
+    fn path_analysis(&self) -> PathAnalysisRecord {
+        let edge_count = self.transit_edges.len();
+        if edge_count == 0 || self.transit_nodes.is_empty() {
+            return PathAnalysisRecord {
+                connected_component_count: 0,
+                largest_component_edges: 0,
+                dead_end_count: 0,
+                chokepoint_count: 0,
+                reachable_room_count: 0,
+                high_centrality_route_ids: Vec::new(),
+                main_path: None,
+            };
+        }
+
+        let mut edge_parent: Vec<_> = (0..edge_count).collect();
+        let mut point_owner = BTreeMap::new();
+        for edge in &self.transit_edges {
+            for point in &edge.points {
+                if let Some(previous_edge) = point_owner.insert(*point, edge.id) {
+                    union(&mut edge_parent, previous_edge, edge.id);
+                }
+            }
+        }
+
+        let mut component_edges = BTreeMap::new();
+        for edge in &self.transit_edges {
+            let component = find_root(&mut edge_parent, edge.id);
+            *component_edges.entry(component).or_insert(0usize) += 1;
+        }
+        let connected_component_count = component_edges.len();
+        let largest_component_edges = component_edges.values().copied().max().unwrap_or_default();
+
+        let mut room_ids = BTreeSet::new();
+        let mut attachment_counts = vec![0usize; edge_count];
+        for attachment in &self.transit_attachments {
+            room_ids.insert(attachment.room_id);
+            if let Some(count) = attachment_counts.get_mut(attachment.route_id) {
+                *count += 1;
+            }
+        }
+        let mut degree_counts = vec![0usize; self.transit_nodes.len()];
+        for edge in &self.transit_edges {
+            degree_counts[edge.start_node] += 1;
+            degree_counts[edge.end_node] += 1;
+        }
+
+        let mut scored_routes: Vec<_> = self
+            .transit_edges
+            .iter()
+            .map(|edge| {
+                let score = attachment_counts[edge.id]
+                    + degree_counts[edge.start_node]
+                    + degree_counts[edge.end_node]
+                    + usize::from(edge.role == "primary_artery") * 3
+                    + usize::from(edge.role == "restricted_spine") * 2;
+                (score, edge.id)
+            })
+            .collect();
+        scored_routes.sort_by(|a, b| b.cmp(a));
+        let high_centrality_route_ids = scored_routes
+            .into_iter()
+            .take(5)
+            .map(|(_, route_id)| route_id)
+            .collect();
+
+        PathAnalysisRecord {
+            connected_component_count,
+            largest_component_edges,
+            dead_end_count: self
+                .transit_nodes
+                .iter()
+                .filter(|node| node.kind == "dead_end")
+                .count(),
+            chokepoint_count: self
+                .rooms
+                .iter()
+                .filter(|room| room.label == "ROUTE_CHOKEPOINT")
+                .count(),
+            reachable_room_count: room_ids.len(),
+            high_centrality_route_ids,
+            main_path: self.main_mission_path(),
+        }
+    }
+
+    fn main_mission_path(&self) -> Option<MissionPathRecord> {
+        let start = self
+            .transit_edges
+            .iter()
+            .find(|edge| edge.role == "maintenance_backbone")
+            .or_else(|| self.transit_edges.first())?;
+        let end = self
+            .transit_edges
+            .iter()
+            .rev()
+            .find(|edge| matches!(edge.role.as_str(), "restricted_spine" | "primary_artery"))
+            .unwrap_or(start);
+        let route_ids: Vec<_> = self
+            .transit_edges
+            .iter()
+            .filter(|edge| {
+                edge.id == start.id
+                    || edge.id == end.id
+                    || matches!(edge.role.as_str(), "primary_artery" | "restricted_spine")
+            })
+            .take(8)
+            .map(|edge| edge.id)
+            .collect();
+        let route_set: BTreeSet<_> = route_ids.iter().copied().collect();
+        let room_ids = self
+            .transit_attachments
+            .iter()
+            .filter(|attachment| route_set.contains(&attachment.route_id))
+            .map(|attachment| attachment.room_id)
+            .collect();
+        Some(MissionPathRecord {
+            label: "service tunnel to skyline vault route".to_owned(),
+            route_ids,
+            room_ids,
+            start: start.points.first().copied().unwrap_or([0, 0, 0]),
+            end: end.points.last().copied().unwrap_or([0, 0, 0]),
+        })
+    }
+
     pub fn saved_structure(&self) -> SavedStructure {
         let mut grid = vec![vec![vec![0u8; self.layers]; self.size]; self.size];
         let mut cell_counts = [0usize; CellType::COUNT];
@@ -2668,6 +2990,17 @@ impl MegaStructureGenerator {
         let total_cells = (self.size * self.size * self.layers).max(1);
         let districts = self.district_records();
         let strata = self.stratum_records();
+        let (room_clusters, room_cluster_ids) = self.room_clusters();
+        let rooms: Vec<_> = self
+            .rooms
+            .iter()
+            .cloned()
+            .map(|mut room| {
+                room.cluster_id = room_cluster_ids.get(room.id).copied().flatten();
+                room
+            })
+            .collect();
+        let path_analysis = self.path_analysis();
         let metadata = StructureMetadata {
             schema_version: STRUCTURE_SCHEMA_VERSION.to_owned(),
             profile: self.config.profile.to_string(),
@@ -2679,13 +3012,15 @@ impl MegaStructureGenerator {
             connection_counts: connection_counts_map(&self.connections),
             room_counts: room_counts_map(&self.rooms),
             pattern_counts: self.pattern_counts.clone(),
-            room_count: self.rooms.len(),
+            room_count: rooms.len(),
             connection_count: self.connections.len(),
             transit_node_count: self.transit_nodes.len(),
             transit_edge_count: self.transit_edges.len(),
             transit_attachment_count: self.transit_attachments.len(),
             district_record_count: districts.len(),
             stratum_record_count: strata.len(),
+            district_border_count: self.district_borders.len(),
+            room_cluster_count: room_clusters.len(),
             occupied_cell_ratio: occupied as f32 / total_cells as f32,
         };
         SavedStructure {
@@ -2695,10 +3030,13 @@ impl MegaStructureGenerator {
             metadata,
             grid,
             connections: self.connections.clone(),
-            rooms: self.rooms.clone(),
+            rooms,
             transit_graph: self.transit_graph(),
             districts,
             strata,
+            district_borders: self.district_borders.clone(),
+            room_clusters,
+            path_analysis,
         }
     }
 
@@ -2908,6 +3246,120 @@ fn present_features(candidates: &[&str], pattern_counts: &BTreeMap<String, usize
         .collect()
 }
 
+fn cluster_kind_for_room(label: &str) -> &'static str {
+    match label {
+        label if label.contains("HABITATION") => "habitation_block",
+        label if label.contains("MARKET") || label.contains("BAZAAR") => "market_strip",
+        label
+            if label.contains("MACHINE") || label.contains("PIPE") || label.contains("SERVICE") =>
+        {
+            "machine_complex"
+        }
+        label if label.contains("SHRINE") => "shrine_pocket",
+        label if label.contains("VAULT") || label.contains("DATA") => "data_vault_compound",
+        label if label.contains("TRANSIT") || label.contains("CHOKEPOINT") => "transit_cluster",
+        _ => "mixed_room_cluster",
+    }
+}
+
+fn route_role_for(
+    kind: &str,
+    start: Option<[usize; 3]>,
+    end: Option<[usize; 3]>,
+    generator: &MegaStructureGenerator,
+) -> &'static str {
+    if kind == "vertical_transit_core" {
+        return "evacuation_route";
+    }
+    if kind == "service_tunnel" {
+        return "maintenance_backbone";
+    }
+    if kind == "express_spine" {
+        return "restricted_spine";
+    }
+    let Some(start) = start else {
+        return "primary_artery";
+    };
+    let Some(end) = end else {
+        return "primary_artery";
+    };
+    let start_district = generator.district_at(
+        start[0].min(generator.size - 1),
+        start[2].min(generator.size - 1),
+    );
+    let end_district = generator.district_at(
+        end[0].min(generator.size - 1),
+        end[2].min(generator.size - 1),
+    );
+    if kind == "skybridge"
+        && (start_district == DistrictType::Elite || end_district == DistrictType::Elite)
+    {
+        "restricted_spine"
+    } else if start_district == DistrictType::Commercial || end_district == DistrictType::Commercial
+    {
+        "market_run"
+    } else if start_district == DistrictType::Industrial || end_district == DistrictType::Industrial
+    {
+        "service_loop"
+    } else {
+        "primary_artery"
+    }
+}
+
+fn border_feature_name(a: DistrictType, b: DistrictType) -> &'static str {
+    if same_pair(a, b, DistrictType::Slum, DistrictType::Commercial) {
+        "BORDER_MARKET"
+    } else if same_pair(a, b, DistrictType::Industrial, DistrictType::Slum) {
+        "SCRAP_ZONE"
+    } else if same_pair(a, b, DistrictType::Elite, DistrictType::Commercial) {
+        "SECURITY_THRESHOLD"
+    } else if a == DistrictType::Residential || b == DistrictType::Residential {
+        "SURFACE_COMMONS"
+    } else {
+        "SCRAP_MARKET"
+    }
+}
+
+fn border_owner_district(a: DistrictType, b: DistrictType) -> DistrictType {
+    if a == DistrictType::Commercial || b == DistrictType::Commercial {
+        DistrictType::Commercial
+    } else if a == DistrictType::Industrial || b == DistrictType::Industrial {
+        DistrictType::Industrial
+    } else {
+        a
+    }
+}
+
+fn border_feature_y(a: DistrictType, b: DistrictType, layers: usize) -> usize {
+    let y = if a == DistrictType::Elite || b == DistrictType::Elite {
+        layers * 2 / 3
+    } else if a == DistrictType::Industrial || b == DistrictType::Industrial {
+        layers / 4
+    } else {
+        layers / 3
+    };
+    y.min(layers.saturating_sub(1))
+}
+
+fn same_pair(a: DistrictType, b: DistrictType, left: DistrictType, right: DistrictType) -> bool {
+    (a == left && b == right) || (a == right && b == left)
+}
+
+fn find_root(parent: &mut [usize], value: usize) -> usize {
+    if parent[value] != value {
+        parent[value] = find_root(parent, parent[value]);
+    }
+    parent[value]
+}
+
+fn union(parent: &mut [usize], a: usize, b: usize) {
+    let root_a = find_root(parent, a);
+    let root_b = find_root(parent, b);
+    if root_a != root_b {
+        parent[root_b] = root_a;
+    }
+}
+
 fn route_layer_for_hubs(start: (usize, usize), end: (usize, usize), layers: usize) -> usize {
     let distance = start.0.abs_diff(end.0) + start.1.abs_diff(end.1);
     if distance > 24 {
@@ -2944,6 +3396,7 @@ fn route_room_label(kind: &str, district: DistrictType, stratum: BiomeStratum) -
 
 fn route_aware_room_label(
     kind: &str,
+    role: &str,
     district: DistrictType,
     stratum: BiomeStratum,
     landmark_frequency: f32,
@@ -2953,6 +3406,14 @@ fn route_aware_room_label(
         && matches!(stratum, BiomeStratum::Midrise | BiomeStratum::Skyline)
     {
         return "DATA_VAULT";
+    }
+    match role {
+        "maintenance_backbone" => return "PIPE_JUNCTION",
+        "market_run" if district == DistrictType::Commercial => return "MARKET_STALL",
+        "market_run" if district == DistrictType::Slum => return "PATCH_BAZAAR",
+        "restricted_spine" => return "SKY_SECURITY_GATE",
+        "evacuation_route" => return "SECURITY_GATE",
+        _ => {}
     }
     match (kind, district, stratum) {
         ("service_tunnel" | "vertical_transit_core", DistrictType::Industrial, _) => {
@@ -3190,6 +3651,15 @@ mod tests {
 
         for (expected_id, edge) in saved.transit_graph.edges.iter().enumerate() {
             assert_eq!(edge.id, expected_id);
+            assert!(matches!(
+                edge.role.as_str(),
+                "primary_artery"
+                    | "service_loop"
+                    | "restricted_spine"
+                    | "evacuation_route"
+                    | "market_run"
+                    | "maintenance_backbone"
+            ));
             assert!(edge.start_node < saved.transit_graph.nodes.len());
             assert!(edge.end_node < saved.transit_graph.nodes.len());
             assert_eq!(edge.length, edge.points.len());
@@ -3282,6 +3752,49 @@ mod tests {
     }
 
     #[test]
+    fn semantic_hierarchy_exports_borders_clusters_and_path_analysis() {
+        let saved = generated("ABCD1234").saved_structure();
+        assert_eq!(
+            saved.metadata.district_border_count,
+            saved.district_borders.len()
+        );
+        assert_eq!(saved.metadata.room_cluster_count, saved.room_clusters.len());
+        assert!(!saved.district_borders.is_empty());
+        assert!(!saved.room_clusters.is_empty());
+        assert!(saved.path_analysis.connected_component_count > 0);
+        assert!(saved.path_analysis.largest_component_edges > 0);
+        assert!(saved.path_analysis.reachable_room_count > 0);
+        assert!(!saved.path_analysis.high_centrality_route_ids.is_empty());
+        assert!(saved.path_analysis.main_path.is_some());
+
+        for border in &saved.district_borders {
+            assert!(border.bounds_max[0] < saved.size);
+            assert!(border.bounds_max[1] < saved.size);
+            assert!(border.y < saved.layers);
+            assert!(!border.feature.is_empty());
+            for room_id in &border.room_ids {
+                assert!(*room_id < saved.rooms.len());
+            }
+            for route_id in &border.route_ids {
+                assert!(*route_id < saved.transit_graph.edges.len());
+            }
+        }
+
+        for cluster in &saved.room_clusters {
+            assert!(!cluster.room_ids.is_empty());
+            assert!(cluster.bounds_max[0] < saved.size);
+            assert!(cluster.bounds_max[1] < saved.layers);
+            assert!(cluster.bounds_max[2] < saved.size);
+            for room_id in &cluster.room_ids {
+                assert_eq!(saved.rooms[*room_id].cluster_id, Some(cluster.id));
+            }
+            for route_id in &cluster.route_ids {
+                assert!(*route_id < saved.transit_graph.edges.len());
+            }
+        }
+    }
+
+    #[test]
     fn exported_json_schema_keeps_semantic_sections() {
         let saved = generated("ABCD1234").saved_structure();
         let value: serde_json::Value =
@@ -3301,6 +3814,9 @@ mod tests {
             "transit_graph",
             "districts",
             "strata",
+            "district_borders",
+            "room_clusters",
+            "path_analysis",
         ] {
             assert!(value.get(key).is_some(), "missing top-level key {key}");
         }
@@ -3322,12 +3838,16 @@ mod tests {
             "transit_attachment_count",
             "district_record_count",
             "stratum_record_count",
+            "district_border_count",
+            "room_cluster_count",
         ] {
             assert!(
                 value["metadata"].get(key).is_some(),
                 "missing metadata key {key}"
             );
         }
+        assert!(value["transit_graph"]["edges"][0].get("role").is_some());
+        assert!(value["rooms"][0].get("cluster_id").is_some());
     }
 
     #[test]

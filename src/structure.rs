@@ -7,7 +7,7 @@ use crate::config::GenerationConfig;
 
 pub const CURRENT_SEED_FILE: &str = "current_seed.txt";
 pub const STRUCTURE_FILE: &str = "structure.json";
-pub const STRUCTURE_SCHEMA_VERSION: &str = "gibson.structure.v6";
+pub const STRUCTURE_SCHEMA_VERSION: &str = "gibson.structure.v7";
 
 pub type StructureResult<T> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
@@ -21,6 +21,7 @@ pub struct ConnectionRecord {
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct RoomRecord {
     pub id: usize,
+    pub cluster_id: Option<usize>,
     pub position: [usize; 3],
     pub district: String,
     pub label: String,
@@ -46,6 +47,7 @@ pub struct TransitNodeRecord {
 pub struct TransitEdgeRecord {
     pub id: usize,
     pub kind: String,
+    pub role: String,
     pub start_node: usize,
     pub end_node: usize,
     pub points: Vec<[usize; 3]>,
@@ -88,6 +90,52 @@ pub struct StratumRecord {
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct DistrictBorderRecord {
+    pub id: usize,
+    pub from_district: String,
+    pub to_district: String,
+    pub bounds_min: [usize; 2],
+    pub bounds_max: [usize; 2],
+    pub y: usize,
+    pub feature: String,
+    pub route_ids: Vec<usize>,
+    pub room_ids: Vec<usize>,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct RoomClusterRecord {
+    pub id: usize,
+    pub kind: String,
+    pub owner_district: String,
+    pub stratum: String,
+    pub bounds_min: [usize; 3],
+    pub bounds_max: [usize; 3],
+    pub anchor_position: [usize; 3],
+    pub room_ids: Vec<usize>,
+    pub route_ids: Vec<usize>,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct MissionPathRecord {
+    pub label: String,
+    pub route_ids: Vec<usize>,
+    pub room_ids: Vec<usize>,
+    pub start: [usize; 3],
+    pub end: [usize; 3],
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct PathAnalysisRecord {
+    pub connected_component_count: usize,
+    pub largest_component_edges: usize,
+    pub dead_end_count: usize,
+    pub chokepoint_count: usize,
+    pub reachable_room_count: usize,
+    pub high_centrality_route_ids: Vec<usize>,
+    pub main_path: Option<MissionPathRecord>,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct SavedStructure {
     pub seed: String,
     pub size: usize,
@@ -99,6 +147,9 @@ pub struct SavedStructure {
     pub transit_graph: TransitGraphRecord,
     pub districts: Vec<DistrictRecord>,
     pub strata: Vec<StratumRecord>,
+    pub district_borders: Vec<DistrictBorderRecord>,
+    pub room_clusters: Vec<RoomClusterRecord>,
+    pub path_analysis: PathAnalysisRecord,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -120,6 +171,8 @@ pub struct StructureMetadata {
     pub transit_attachment_count: usize,
     pub district_record_count: usize,
     pub stratum_record_count: usize,
+    pub district_border_count: usize,
+    pub room_cluster_count: usize,
     pub occupied_cell_ratio: f32,
 }
 
