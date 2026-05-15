@@ -904,6 +904,7 @@ pub struct MegaStructureGenerator {
     district_map: Vec<DistrictType>,
     connections: Vec<ConnectionRecord>,
     rooms: Vec<RoomRecord>,
+    pattern_counts: BTreeMap<String, usize>,
 }
 
 impl MegaStructureGenerator {
@@ -928,6 +929,7 @@ impl MegaStructureGenerator {
             district_map: vec![DistrictType::Residential; size * size],
             connections: Vec::new(),
             rooms: Vec::new(),
+            pattern_counts: BTreeMap::new(),
         };
         generator.generate_district_map();
         generator
@@ -951,6 +953,28 @@ impl MegaStructureGenerator {
         if supported {
             self.support_map[index] = true;
         }
+    }
+
+    fn record_pattern(&mut self, pattern: &str) {
+        *self.pattern_counts.entry(pattern.to_owned()).or_insert(0) += 1;
+    }
+
+    fn push_connection(&mut self, kind: &str, start: [usize; 3], end: [usize; 3]) {
+        self.connections.push(ConnectionRecord {
+            kind: kind.to_owned(),
+            start,
+            end,
+        });
+        self.record_pattern(kind);
+    }
+
+    fn push_room(&mut self, position: [usize; 3], district: DistrictType, label: &str) {
+        self.rooms.push(RoomRecord {
+            position,
+            district: district.name().to_owned(),
+            label: label.to_owned(),
+        });
+        self.record_pattern(label);
     }
 
     fn support_at(&self, x: usize, z: usize, y: usize) -> bool {
@@ -1022,6 +1046,19 @@ impl MegaStructureGenerator {
 
     pub fn config(&self) -> &GenerationConfig {
         &self.config
+    }
+
+    pub(crate) fn nearest_room_label(&self, x: usize, y: usize, z: usize) -> Option<&str> {
+        self.rooms
+            .iter()
+            .filter_map(|room| {
+                let distance = room.position[0].abs_diff(x)
+                    + room.position[1].abs_diff(y)
+                    + room.position[2].abs_diff(z);
+                (distance <= 4).then_some((distance, room.label.as_str()))
+            })
+            .min_by_key(|(distance, _)| *distance)
+            .map(|(_, label)| label)
     }
 
     fn phase1_skeleton(&mut self) {
@@ -1251,11 +1288,11 @@ impl MegaStructureGenerator {
                         self.set(x, z, y, cell, true);
                         if tile == WFCTile::RoomCenter as usize {
                             let local_district = self.district_at(x, z);
-                            self.rooms.push(RoomRecord {
-                                position: [x, y, z],
-                                district: local_district.name().to_owned(),
-                                label: room_label(local_district, stratum).to_owned(),
-                            });
+                            self.push_room(
+                                [x, y, z],
+                                local_district,
+                                room_label(local_district, stratum),
+                            );
                         }
                     }
                 }
@@ -1344,16 +1381,16 @@ impl MegaStructureGenerator {
             }
         }
         let hub_y = (self.layers / 3).max(1);
-        self.rooms.push(RoomRecord {
-            position: [x, hub_y, z],
-            district: district.name().to_owned(),
-            label: format!("{}_TRANSIT_HUB", biome_for_y(hub_y).name()),
-        });
-        self.connections.push(ConnectionRecord {
-            kind: "vertical_transit_core".to_owned(),
-            start: [x, 0, z],
-            end: [x, self.layers.saturating_sub(1), z],
-        });
+        self.push_room(
+            [x, hub_y, z],
+            district,
+            &format!("{}_TRANSIT_HUB", biome_for_y(hub_y).name()),
+        );
+        self.push_connection(
+            "vertical_transit_core",
+            [x, 0, z],
+            [x, self.layers.saturating_sub(1), z],
+        );
     }
 
     fn carve_route(
@@ -1385,12 +1422,13 @@ impl MegaStructureGenerator {
             z += (end_z - z).signum();
         }
         self.paint_route_cell(x as usize, z as usize, y, route_cell, kind);
+        self.attach_route_rooms(start_x, start_z, end_x as usize, end_z as usize, y, kind);
 
-        self.connections.push(ConnectionRecord {
-            kind: kind.to_owned(),
-            start: [start_x, y, start_z],
-            end: [end_x as usize, y, end_z as usize],
-        });
+        self.push_connection(
+            kind,
+            [start_x, y, start_z],
+            [end_x as usize, y, end_z as usize],
+        );
     }
 
     fn paint_route_cell(&mut self, x: usize, z: usize, y: usize, route_cell: CellType, kind: &str) {
@@ -1413,6 +1451,86 @@ impl MegaStructureGenerator {
         }
     }
 
+    fn attach_route_rooms(
+        &mut self,
+        start_x: usize,
+        start_z: usize,
+        end_x: usize,
+        end_z: usize,
+        y: usize,
+        kind: &str,
+    ) {
+        let steps = start_x.abs_diff(end_x).max(start_z.abs_diff(end_z)).max(1);
+        let interval = (steps / 3).max(2);
+        for step in (0..=steps).step_by(interval) {
+            let t = step as f32 / steps as f32;
+            let x = lerpf(start_x as f32, end_x as f32, t).round() as usize;
+            let z = lerpf(start_z as f32, end_z as f32, t).round() as usize;
+            let district = self.district_at(x.min(self.size - 1), z.min(self.size - 1));
+            let stratum = biome_for_y(y);
+            let label = route_room_label(kind, district, stratum);
+            self.push_room(
+                [x.min(self.size - 1), y, z.min(self.size - 1)],
+                district,
+                label,
+            );
+            self.paint_route_attachment(x, z, y, kind);
+        }
+        self.add_route_dead_end(end_x, end_z, y, kind);
+        if steps > self.size / 3 {
+            self.add_route_chokepoint((start_x + end_x) / 2, (start_z + end_z) / 2, y, kind);
+        }
+    }
+
+    fn paint_route_attachment(&mut self, x: usize, z: usize, y: usize, kind: &str) {
+        for (dx, dz) in [(1isize, 0isize), (-1, 0), (0, 1), (0, -1)] {
+            let nx = x as isize + dx;
+            let nz = z as isize + dz;
+            if nx < 0 || nz < 0 || nx >= self.size as isize || nz >= self.size as isize {
+                continue;
+            }
+            let nx = nx as usize;
+            let nz = nz as usize;
+            let cell = match kind {
+                "service_tunnel" => CellType::Pipe,
+                "skybridge" | "express_spine" => CellType::Facade,
+                _ => CellType::Horizontal,
+            };
+            if self.get(nx, nz, y) == CellType::Empty {
+                self.set(nx, nz, y, cell, cell == CellType::Horizontal);
+            }
+        }
+    }
+
+    fn add_route_dead_end(&mut self, x: usize, z: usize, y: usize, kind: &str) {
+        let district = self.district_at(x.min(self.size - 1), z.min(self.size - 1));
+        let label = match kind {
+            "service_tunnel" => "MAINTENANCE_DEAD_END",
+            "skybridge" | "express_spine" => "SKYBRIDGE_TERMINAL",
+            _ => "CORRIDOR_DEAD_END",
+        };
+        self.push_room(
+            [x.min(self.size - 1), y, z.min(self.size - 1)],
+            district,
+            label,
+        );
+        let connection_kind = kind_name(kind, "dead_end");
+        self.push_connection(&connection_kind, [x, y, z], [x, y, z]);
+    }
+
+    fn add_route_chokepoint(&mut self, x: usize, z: usize, y: usize, kind: &str) {
+        let x = x.min(self.size - 1);
+        let z = z.min(self.size - 1);
+        self.set(x, z, y, CellType::Stair, true);
+        if y + 1 < self.layers {
+            self.set(x, z, y + 1, CellType::Elevator, false);
+        }
+        let district = self.district_at(x, z);
+        self.push_room([x, y, z], district, "ROUTE_CHOKEPOINT");
+        let connection_kind = kind_name(kind, "chokepoint");
+        self.push_connection(&connection_kind, [x, y, z], [x, y, z]);
+    }
+
     fn phase2c_district_patterns(&mut self) {
         self.add_industrial_service_trunks();
         self.add_slum_patchwork_walkways();
@@ -1433,11 +1551,11 @@ impl MegaStructureGenerator {
                         self.set(x, z, y, CellType::Pipe, false);
                     }
                 }
-                self.connections.push(ConnectionRecord {
-                    kind: "industrial_service_trunk".to_owned(),
-                    start: [x, 1, z],
-                    end: [x, self.layers.saturating_sub(2), z],
-                });
+                self.push_connection(
+                    "industrial_service_trunk",
+                    [x, 1, z],
+                    [x, self.layers.saturating_sub(2), z],
+                );
             }
         }
     }
@@ -1476,11 +1594,7 @@ impl MegaStructureGenerator {
                 }
                 end = (nx, nz);
             }
-            self.connections.push(ConnectionRecord {
-                kind: "slum_patchwalk".to_owned(),
-                start: [x, y, z],
-                end: [end.0, y, end.1],
-            });
+            self.push_connection("slum_patchwalk", [x, y, z], [end.0, y, end.1]);
         }
     }
 
@@ -1504,11 +1618,7 @@ impl MegaStructureGenerator {
                         }
                     }
                 }
-                self.rooms.push(RoomRecord {
-                    position: [x, y_start, z],
-                    district: DistrictType::Elite.name().to_owned(),
-                    label: "SKYLINE_VOID_COURT".to_owned(),
-                });
+                self.push_room([x, y_start, z], DistrictType::Elite, "SKYLINE_VOID_COURT");
                 carved += 1;
             }
         }
@@ -1627,11 +1737,7 @@ impl MegaStructureGenerator {
                     self.set(x, z, yv, CellType::Bridge, true);
                 }
             }
-            self.connections.push(ConnectionRecord {
-                kind: "bridge".to_owned(),
-                start: [start.0, y, start.1],
-                end: [end.0, y, end.1],
-            });
+            self.push_connection("bridge", [start.0, y, start.1], [end.0, y, end.1]);
         }
     }
 
@@ -1677,11 +1783,7 @@ impl MegaStructureGenerator {
                     self.set(x, z, y, CellType::Cable, false);
                 }
             }
-            self.connections.push(ConnectionRecord {
-                kind: "cable".to_owned(),
-                start: [start.0, start.2, start.1],
-                end: [end.0, end.2, end.1],
-            });
+            self.push_connection("cable", [start.0, start.2, start.1], [end.0, end.2, end.1]);
         }
     }
 
@@ -1719,11 +1821,7 @@ impl MegaStructureGenerator {
                         self.set(px, pz, py, CellType::Pipe, false);
                     }
                 }
-                self.connections.push(ConnectionRecord {
-                    kind: "pipe".to_owned(),
-                    start: [x, y, z],
-                    end: [cx as usize, y, cz as usize],
-                });
+                self.push_connection("pipe", [x, y, z], [cx as usize, y, cz as usize]);
             }
         }
     }
@@ -1838,11 +1936,11 @@ impl MegaStructureGenerator {
                 }
             }
             if removed > 0 {
-                self.connections.push(ConnectionRecord {
-                    kind: "collapse_scar".to_owned(),
-                    start: [x, y, z],
-                    end: [x, y.saturating_add(1).min(self.layers - 1), z],
-                });
+                self.push_connection(
+                    "collapse_scar",
+                    [x, y, z],
+                    [x, y.saturating_add(1).min(self.layers - 1), z],
+                );
             }
         }
     }
@@ -2041,6 +2139,7 @@ impl MegaStructureGenerator {
             material_counts: material_counts_map(material_counts),
             connection_counts: connection_counts_map(&self.connections),
             room_counts: room_counts_map(&self.rooms),
+            pattern_counts: self.pattern_counts.clone(),
             room_count: self.rooms.len(),
             connection_count: self.connections.len(),
             occupied_cell_ratio: occupied as f32 / total_cells as f32,
@@ -2170,6 +2269,23 @@ fn route_kind_for_y(y: usize, layers: usize) -> &'static str {
     } else {
         "artery"
     }
+}
+
+fn route_room_label(kind: &str, district: DistrictType, stratum: BiomeStratum) -> &'static str {
+    match (kind, district, stratum) {
+        ("service_tunnel", _, _) => "MAINTENANCE_SHAFT",
+        ("skybridge" | "express_spine", DistrictType::Elite, _) => "SKY_LOUNGE",
+        ("skybridge" | "express_spine", _, _) => "SKYBRIDGE_NODE",
+        ("artery", DistrictType::Commercial, _) => "MARKET_CONCOURSE",
+        ("artery", DistrictType::Industrial, _) => "SERVICE_DEPOT",
+        ("artery", DistrictType::Slum, _) => "PATCHWORK_JUNCTION",
+        (_, _, BiomeStratum::Underground) => "SERVICE_TUNNEL_ROOM",
+        _ => "TRANSIT_ANNEX",
+    }
+}
+
+fn kind_name(base: &str, suffix: &str) -> String {
+    format!("{base}_{suffix}")
 }
 
 fn room_label(district: DistrictType, stratum: BiomeStratum) -> &'static str {
@@ -2325,6 +2441,34 @@ mod tests {
                     | "SKY_VAULT"
             )
         }));
+        assert!(saved
+            .metadata
+            .pattern_counts
+            .contains_key("vertical_transit_core"));
+        assert!(saved.metadata.pattern_counts.keys().any(|pattern| {
+            matches!(
+                pattern.as_str(),
+                "ROUTE_CHOKEPOINT"
+                    | "MAINTENANCE_DEAD_END"
+                    | "CORRIDOR_DEAD_END"
+                    | "SKYBRIDGE_TERMINAL"
+                    | "MARKET_CONCOURSE"
+                    | "PATCHWORK_JUNCTION"
+                    | "SERVICE_DEPOT"
+                    | "TRANSIT_ANNEX"
+            )
+        }));
+    }
+
+    #[test]
+    fn nearest_room_semantics_are_queryable_for_exported_rooms() {
+        let generator = generated("ABCD1234");
+        let saved = generator.saved_structure();
+        let room = saved.rooms.first().expect("generated room");
+        assert_eq!(
+            generator.nearest_room_label(room.position[0], room.position[1], room.position[2]),
+            Some(room.label.as_str())
+        );
     }
 
     #[test]

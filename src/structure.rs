@@ -69,6 +69,7 @@ pub struct StructureMetadata {
     pub material_counts: BTreeMap<String, usize>,
     pub connection_counts: BTreeMap<String, usize>,
     pub room_counts: BTreeMap<String, usize>,
+    pub pattern_counts: BTreeMap<String, usize>,
     pub room_count: usize,
     pub connection_count: usize,
     pub occupied_cell_ratio: f32,

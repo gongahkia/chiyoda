@@ -898,7 +898,14 @@ fn draw_overlay(app: &AppState) {
     if let Some((x, yv, z)) = app.selected_cell {
         let district = app.generator.district_at(x, z);
         let cell = app.generator.get(x, z, yv);
-        draw_rectangle(8.0, y + 2.0, 320.0, 90.0, Color::new(0.0, 0.0, 0.0, 0.72));
+        let room_label = app.generator.nearest_room_label(x, yv, z);
+        draw_rectangle(
+            8.0,
+            y + 2.0,
+            340.0,
+            if room_label.is_some() { 112.0 } else { 90.0 },
+            Color::new(0.0, 0.0, 0.0, 0.72),
+        );
         draw_text(
             "INSPECT",
             padding,
@@ -927,6 +934,15 @@ fn draw_overlay(app: &AppState) {
             20.0,
             LIGHTGRAY,
         );
+        if let Some(label) = room_label {
+            draw_text(
+                &format!("Room: {}", label),
+                padding,
+                y + 106.0,
+                20.0,
+                LIGHTGRAY,
+            );
+        }
     }
 
     if app.show_legend {
