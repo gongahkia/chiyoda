@@ -110,6 +110,31 @@ pub fn validate_structure(structure: &SavedStructure) -> StructureResult<()> {
             format!("attachment references invalid room {}", attachment.room_id),
         )?;
     }
+    ensure(
+        structure.route_simulation.len() == structure.transit_graph.edges.len(),
+        "route simulation count must match route edge count",
+    )?;
+    for simulation in &structure.route_simulation {
+        ensure(
+            simulation.route_id < structure.transit_graph.edges.len(),
+            format!(
+                "simulation references invalid route {}",
+                simulation.route_id
+            ),
+        )?;
+        for value in [
+            simulation.civilian_density,
+            simulation.security_pressure,
+            simulation.blackout_risk,
+            simulation.market_congestion,
+            simulation.evacuation_viability,
+        ] {
+            ensure(
+                (0.0..=1.0).contains(&value),
+                "simulation metric out of range",
+            )?;
+        }
+    }
 
     ensure(
         structure.path_analysis.guaranteed_service_to_skyline,

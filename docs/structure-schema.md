@@ -2,7 +2,7 @@
 
 This document describes the canonical exported artifact, `structure.json`.
 
-Current schema: `gibson.structure.v14`
+Current schema: `gibson.structure.v15`
 
 Generate an export:
 
@@ -28,6 +28,7 @@ Example exports are checked in under `examples/exports/` for `balanced`, `decaye
 - `room_clusters`: grouped rooms such as market strips, habitation blocks, shrine pockets, and data-vault compounds.
 - `path_analysis`: traversal quality summary and main service-to-skyline mission path.
 - `infrastructure_flows`: route-carried utility systems such as power, data, water, waste, and ventilation.
+- `route_simulation`: per-route civilian density, security pressure, blackout risk, market congestion, evacuation viability, and active temporal phases.
 - `hazard_zones`: exported dynamic/structural risks such as blackouts, sumps, and security sweeps.
 - `structural_system`: load-bearing frames, foundations, suspended decks, and stability ratings.
 - `factions`: faction definitions and influence summaries.

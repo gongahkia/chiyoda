@@ -6,11 +6,11 @@ use crate::seed::{seed_hash, Rng32};
 use crate::structure::{
     self, ConnectionRecord, ContestedBorderRecord, DistrictBorderRecord, DistrictRecord,
     FactionRecord, HazardZoneRecord, InfrastructureFlowRecord, MissionPathRecord,
-    NarrativeLandmarkRecord, PathAnalysisRecord, RoomClusterRecord, RoomRecord, SavedStructure,
-    StabilityRatingRecord, StratumRecord, StructuralSystemRecord, StructureMetadata,
-    StructureResult, TemporalPhaseRecord, TemporalStateRecord, TerritoryRecord,
-    TransitAttachmentRecord, TransitEdgeRecord, TransitGraphRecord, TransitNodeRecord,
-    STRUCTURE_SCHEMA_VERSION,
+    NarrativeLandmarkRecord, PathAnalysisRecord, RoomClusterRecord, RoomRecord,
+    RouteSimulationRecord, SavedStructure, StabilityRatingRecord, StratumRecord,
+    StructuralSystemRecord, StructureMetadata, StructureResult, TemporalPhaseRecord,
+    TemporalStateRecord, TerritoryRecord, TransitAttachmentRecord, TransitEdgeRecord,
+    TransitGraphRecord, TransitNodeRecord, STRUCTURE_SCHEMA_VERSION,
 };
 
 pub(crate) const CHUNK_SIZE_X: usize = 8;
@@ -3838,6 +3838,54 @@ impl MegaStructureGenerator {
         }
     }
 
+    fn route_simulation(&self, temporal_state: &TemporalStateRecord) -> Vec<RouteSimulationRecord> {
+        self.transit_edges
+            .iter()
+            .map(|edge| {
+                let attachment_count = self
+                    .transit_attachments
+                    .iter()
+                    .filter(|attachment| attachment.route_id == edge.id)
+                    .count();
+                let hazard_pressure: f32 = self
+                    .hazard_zones
+                    .iter()
+                    .filter(|hazard| hazard.route_ids.contains(&edge.id))
+                    .map(|hazard| hazard.severity)
+                    .sum::<f32>()
+                    .clamp(0.0, 1.0);
+                let active_phase_ids: Vec<_> = temporal_state
+                    .phases
+                    .iter()
+                    .filter(|phase| phase.active_route_ids.contains(&edge.id))
+                    .map(|phase| phase.id)
+                    .collect();
+                let civilian_density = route_civilian_density(edge, attachment_count);
+                let security_pressure = route_security_pressure(edge, hazard_pressure);
+                let blackout_risk = route_blackout_risk(edge, hazard_pressure, temporal_state);
+                let market_congestion = route_market_congestion(edge, attachment_count);
+                let evacuation_viability =
+                    (1.0 - hazard_pressure * 0.38 - security_pressure * 0.18
+                        + if edge.role == "evacuation_route" {
+                            0.28
+                        } else {
+                            0.0
+                        }
+                        + if edge.kind == "ring_route" { 0.14 } else { 0.0 })
+                    .clamp(0.0, 1.0);
+                RouteSimulationRecord {
+                    route_id: edge.id,
+                    civilian_density,
+                    security_pressure,
+                    blackout_risk,
+                    market_congestion,
+                    evacuation_viability,
+                    active_phase_ids,
+                }
+            })
+            .collect()
+    }
+
     fn narrative_landmarks(
         &self,
         room_clusters: &[RoomClusterRecord],
@@ -3970,6 +4018,7 @@ impl MegaStructureGenerator {
         let structural_system = self.structural_system();
         let (factions, territories, contested_borders) = self.ownership_layer(&room_clusters);
         let temporal_state = self.temporal_state(&factions, &contested_borders);
+        let route_simulation = self.route_simulation(&temporal_state);
         let narrative_landmarks =
             self.narrative_landmarks(&room_clusters, &factions, &contested_borders);
         let rooms: Vec<_> = self
@@ -4008,6 +4057,7 @@ impl MegaStructureGenerator {
             district_border_count: self.district_borders.len(),
             room_cluster_count: room_clusters.len(),
             infrastructure_flow_count: self.infrastructure_flows.len(),
+            route_simulation_count: route_simulation.len(),
             hazard_zone_count: self.hazard_zones.len(),
             structural_rating_count: structural_system.stability_ratings.len(),
             load_bearing_frame_count: structural_system.load_bearing_frames.len(),
@@ -4034,6 +4084,7 @@ impl MegaStructureGenerator {
             room_clusters,
             path_analysis,
             infrastructure_flows: self.infrastructure_flows.clone(),
+            route_simulation,
             hazard_zones: self.hazard_zones.clone(),
             structural_system,
             factions,
@@ -4553,6 +4604,58 @@ fn temporal_factions(
         }
     }
     ids
+}
+
+fn route_civilian_density(edge: &TransitEdgeRecord, attachment_count: usize) -> f32 {
+    let base = match edge.role.as_str() {
+        "market_run" => 0.82,
+        "primary_artery" => 0.70,
+        "evacuation_route" => 0.58,
+        "service_loop" => 0.34,
+        "maintenance_backbone" => 0.22,
+        "restricted_spine" => 0.16,
+        _ => 0.40,
+    };
+    (base + attachment_count as f32 * 0.025 + edge.length as f32 * 0.002).clamp(0.0, 1.0)
+}
+
+fn route_security_pressure(edge: &TransitEdgeRecord, hazard_pressure: f32) -> f32 {
+    let base = match edge.role.as_str() {
+        "restricted_spine" => 0.88,
+        "evacuation_route" => 0.62,
+        "primary_artery" => 0.44,
+        "market_run" => 0.34,
+        _ => 0.22,
+    };
+    (base + hazard_pressure * 0.28).clamp(0.0, 1.0)
+}
+
+fn route_blackout_risk(
+    edge: &TransitEdgeRecord,
+    hazard_pressure: f32,
+    temporal_state: &TemporalStateRecord,
+) -> f32 {
+    let blackout_phase_bonus = temporal_state
+        .phases
+        .iter()
+        .any(|phase| phase.name == "blackout" && phase.active_route_ids.contains(&edge.id));
+    let base = match edge.role.as_str() {
+        "service_loop" | "maintenance_backbone" => 0.48,
+        "market_run" => 0.36,
+        _ => 0.20,
+    };
+    (base + hazard_pressure * 0.36 + if blackout_phase_bonus { 0.18 } else { 0.0 }).clamp(0.0, 1.0)
+}
+
+fn route_market_congestion(edge: &TransitEdgeRecord, attachment_count: usize) -> f32 {
+    let base = match edge.role.as_str() {
+        "market_run" => 0.82,
+        "primary_artery" => 0.42,
+        "service_loop" => 0.18,
+        _ if edge.kind == "ring_route" => 0.40,
+        _ => 0.24,
+    };
+    (base + attachment_count as f32 * 0.035).clamp(0.0, 1.0)
 }
 
 fn named_place(seed: u64, scope: &str, id: usize, kind: &str, position: [usize; 3]) -> String {
@@ -5268,6 +5371,35 @@ mod tests {
     }
 
     #[test]
+    fn route_simulation_exports_flow_pressure_and_viability() {
+        let saved = generated("ABCD1234").saved_structure();
+        assert_eq!(
+            saved.metadata.route_simulation_count,
+            saved.route_simulation.len()
+        );
+        assert_eq!(
+            saved.route_simulation.len(),
+            saved.transit_graph.edges.len()
+        );
+        assert!(saved
+            .route_simulation
+            .iter()
+            .any(|simulation| simulation.market_congestion > 0.5));
+        assert!(saved
+            .route_simulation
+            .iter()
+            .any(|simulation| !simulation.active_phase_ids.is_empty()));
+        for simulation in &saved.route_simulation {
+            assert!(simulation.route_id < saved.transit_graph.edges.len());
+            assert!((0.0..=1.0).contains(&simulation.civilian_density));
+            assert!((0.0..=1.0).contains(&simulation.security_pressure));
+            assert!((0.0..=1.0).contains(&simulation.blackout_risk));
+            assert!((0.0..=1.0).contains(&simulation.market_congestion));
+            assert!((0.0..=1.0).contains(&simulation.evacuation_viability));
+        }
+    }
+
+    #[test]
     fn narrative_landmarks_name_generated_places() {
         let saved = generated("ABCD1234").saved_structure();
         assert_eq!(
@@ -5331,6 +5463,7 @@ mod tests {
             "room_clusters",
             "path_analysis",
             "infrastructure_flows",
+            "route_simulation",
             "hazard_zones",
             "structural_system",
             "factions",
@@ -5362,6 +5495,7 @@ mod tests {
             "district_border_count",
             "room_cluster_count",
             "infrastructure_flow_count",
+            "route_simulation_count",
             "hazard_zone_count",
             "structural_rating_count",
             "load_bearing_frame_count",

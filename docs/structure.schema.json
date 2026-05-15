@@ -12,6 +12,7 @@
     "rooms",
     "transit_graph",
     "path_analysis",
+    "route_simulation",
     "hazard_zones",
     "factions",
     "temporal_state",
@@ -35,7 +36,7 @@
       "required": ["schema_version", "profile", "occupied_cell_ratio"],
       "properties": {
         "schema_version": {
-          "const": "gibson.structure.v14"
+          "const": "gibson.structure.v15"
         },
         "profile": {
           "type": "string"
@@ -71,6 +72,33 @@
         },
         "attachments": {
           "type": "array"
+        }
+      }
+    },
+    "route_simulation": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "route_id",
+          "civilian_density",
+          "security_pressure",
+          "blackout_risk",
+          "market_congestion",
+          "evacuation_viability",
+          "active_phase_ids"
+        ],
+        "properties": {
+          "route_id": { "type": "integer", "minimum": 0 },
+          "civilian_density": { "type": "number", "minimum": 0, "maximum": 1 },
+          "security_pressure": { "type": "number", "minimum": 0, "maximum": 1 },
+          "blackout_risk": { "type": "number", "minimum": 0, "maximum": 1 },
+          "market_congestion": { "type": "number", "minimum": 0, "maximum": 1 },
+          "evacuation_viability": { "type": "number", "minimum": 0, "maximum": 1 },
+          "active_phase_ids": {
+            "type": "array",
+            "items": { "type": "integer", "minimum": 0 }
+          }
         }
       }
     },

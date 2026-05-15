@@ -7,7 +7,7 @@ use crate::config::GenerationConfig;
 
 pub const CURRENT_SEED_FILE: &str = "current_seed.txt";
 pub const STRUCTURE_FILE: &str = "structure.json";
-pub const STRUCTURE_SCHEMA_VERSION: &str = "gibson.structure.v14";
+pub const STRUCTURE_SCHEMA_VERSION: &str = "gibson.structure.v15";
 
 pub type StructureResult<T> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
@@ -155,6 +155,17 @@ pub struct InfrastructureFlowRecord {
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct RouteSimulationRecord {
+    pub route_id: usize,
+    pub civilian_density: f32,
+    pub security_pressure: f32,
+    pub blackout_risk: f32,
+    pub market_congestion: f32,
+    pub evacuation_viability: f32,
+    pub active_phase_ids: Vec<usize>,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct HazardZoneRecord {
     pub id: usize,
     pub kind: String,
@@ -264,6 +275,7 @@ pub struct SavedStructure {
     pub room_clusters: Vec<RoomClusterRecord>,
     pub path_analysis: PathAnalysisRecord,
     pub infrastructure_flows: Vec<InfrastructureFlowRecord>,
+    pub route_simulation: Vec<RouteSimulationRecord>,
     pub hazard_zones: Vec<HazardZoneRecord>,
     pub structural_system: StructuralSystemRecord,
     pub factions: Vec<FactionRecord>,
@@ -295,6 +307,7 @@ pub struct StructureMetadata {
     pub district_border_count: usize,
     pub room_cluster_count: usize,
     pub infrastructure_flow_count: usize,
+    pub route_simulation_count: usize,
     pub hazard_zone_count: usize,
     pub structural_rating_count: usize,
     pub load_bearing_frame_count: usize,
