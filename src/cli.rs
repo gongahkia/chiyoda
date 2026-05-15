@@ -21,6 +21,7 @@ pub struct RuntimeOptions {
     pub export_path: PathBuf,
     pub scenario_path: Option<PathBuf>,
     pub headless: bool,
+    pub validate_path: Option<PathBuf>,
     pub inspect_path: Option<PathBuf>,
     pub inspect_sections: Vec<InspectSection>,
 }
@@ -38,6 +39,7 @@ impl RuntimeOptions {
         let mut export_path = PathBuf::from(crate::structure::STRUCTURE_FILE);
         let mut scenario_path = None;
         let mut headless = false;
+        let mut validate_path = None;
         let mut inspect_path = None;
         let mut inspect_sections = Vec::new();
 
@@ -55,6 +57,9 @@ impl RuntimeOptions {
                     scenario_path = Some(PathBuf::from(next_arg(&mut args, "--scenario")?))
                 }
                 "--headless" => headless = true,
+                "--validate" => {
+                    validate_path = Some(PathBuf::from(next_arg(&mut args, "--validate")?))
+                }
                 "--inspect" => {
                     inspect_path = Some(PathBuf::from(next_arg(&mut args, "--inspect")?))
                 }
@@ -103,6 +108,7 @@ impl RuntimeOptions {
             export_path,
             scenario_path,
             headless,
+            validate_path,
             inspect_path,
             inspect_sections,
         })
@@ -119,7 +125,7 @@ fn invalid_input(message: impl Into<String>) -> Box<dyn Error + Send + Sync> {
 }
 
 pub fn usage() -> &'static str {
-    "Usage: gibson-rust [SEED] [--seed SEED] [--profile balanced|dense|vertical|decayed|neon] [--config path.json] [--export path.json] [--scenario scenario.json] [--headless] [--inspect structure.json] [--summary] [--routes] [--landmarks] [--path]"
+    "Usage: gibson-rust [SEED] [--seed SEED] [--profile balanced|dense|vertical|decayed|neon] [--config path.json] [--export path.json] [--scenario scenario.json] [--headless] [--validate artifact.json] [--inspect structure.json] [--summary] [--routes] [--landmarks] [--path]"
 }
 
 #[cfg(test)]
@@ -165,6 +171,14 @@ mod tests {
         assert_eq!(options.config.profile, GenerationProfile::Neon);
         assert_eq!(options.export_path, PathBuf::from("out.json"));
         assert!(options.headless);
+    }
+
+    #[test]
+    fn parses_validation_path() {
+        let options =
+            RuntimeOptions::parse(["--validate".to_owned(), "structure.json".to_owned()]).unwrap();
+
+        assert_eq!(options.validate_path, Some(PathBuf::from("structure.json")));
     }
 
     #[test]

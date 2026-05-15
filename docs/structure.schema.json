@@ -1,0 +1,155 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://gibson.local/schemas/structure.schema.json",
+  "title": "Gibson Structure",
+  "type": "object",
+  "required": [
+    "seed",
+    "size",
+    "layers",
+    "metadata",
+    "grid",
+    "rooms",
+    "transit_graph",
+    "path_analysis",
+    "hazard_zones",
+    "factions",
+    "temporal_state",
+    "narrative_landmarks"
+  ],
+  "properties": {
+    "seed": {
+      "type": "string",
+      "pattern": "^[A-Z0-9]{8}$"
+    },
+    "size": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "layers": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "metadata": {
+      "type": "object",
+      "required": ["schema_version", "profile", "occupied_cell_ratio"],
+      "properties": {
+        "schema_version": {
+          "const": "gibson.structure.v14"
+        },
+        "profile": {
+          "type": "string"
+        },
+        "occupied_cell_ratio": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        }
+      }
+    },
+    "grid": {
+      "type": "array"
+    },
+    "rooms": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/room"
+      }
+    },
+    "transit_graph": {
+      "type": "object",
+      "required": ["nodes", "edges", "attachments"],
+      "properties": {
+        "nodes": {
+          "type": "array"
+        },
+        "edges": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/route"
+          }
+        },
+        "attachments": {
+          "type": "array"
+        }
+      }
+    },
+    "path_analysis": {
+      "type": "object",
+      "required": [
+        "guaranteed_service_to_skyline",
+        "alternate_path_count",
+        "vertical_transfer_count",
+        "reachable_landmark_count",
+        "main_path_room_reachability",
+        "quality_score"
+      ],
+      "properties": {
+        "guaranteed_service_to_skyline": {
+          "const": true
+        },
+        "alternate_path_count": {
+          "type": "integer",
+          "minimum": 3
+        },
+        "vertical_transfer_count": {
+          "type": "integer",
+          "minimum": 3
+        },
+        "reachable_landmark_count": {
+          "type": "integer",
+          "minimum": 8
+        },
+        "main_path_room_reachability": {
+          "type": "number",
+          "minimum": 1
+        },
+        "quality_score": {
+          "type": "number",
+          "minimum": 0.75,
+          "maximum": 1
+        }
+      }
+    }
+  },
+  "$defs": {
+    "point3": {
+      "type": "array",
+      "prefixItems": [
+        { "type": "integer", "minimum": 0 },
+        { "type": "integer", "minimum": 0 },
+        { "type": "integer", "minimum": 0 }
+      ],
+      "minItems": 3,
+      "maxItems": 3
+    },
+    "room": {
+      "type": "object",
+      "required": ["id", "position", "district", "label"],
+      "properties": {
+        "id": { "type": "integer", "minimum": 0 },
+        "position": { "$ref": "#/$defs/point3" },
+        "district": { "type": "string" },
+        "label": { "type": "string" }
+      }
+    },
+    "route": {
+      "type": "object",
+      "required": ["id", "kind", "role", "start_node", "end_node", "points", "length", "stratum"],
+      "properties": {
+        "id": { "type": "integer", "minimum": 0 },
+        "kind": { "type": "string" },
+        "role": { "type": "string" },
+        "start_node": { "type": "integer", "minimum": 0 },
+        "end_node": { "type": "integer", "minimum": 0 },
+        "points": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/point3" }
+        },
+        "length": { "type": "integer", "minimum": 1 },
+        "stratum": { "type": "string" }
+      }
+    }
+  }
+}

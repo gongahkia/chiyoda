@@ -6,3 +6,4 @@ pub mod render;
 pub mod scenario;
 pub mod seed;
 pub mod structure;
+pub mod validation;

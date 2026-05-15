@@ -3,6 +3,7 @@ use gibson_rust::generation::generate_saved_structure;
 use gibson_rust::inspect::render_inspection;
 use gibson_rust::scenario::{generate_scenario, save_scenario};
 use gibson_rust::structure::{self, CURRENT_SEED_FILE};
+use gibson_rust::validation::validate_file;
 
 fn main() {
     let options = match RuntimeOptions::from_env() {
@@ -14,7 +15,13 @@ fn main() {
         }
     };
 
-    if options.inspect_path.is_some() {
+    if options.validate_path.is_some() {
+        if let Err(error) = validate_artifact(&options) {
+            eprintln!("Failed to validate artifact: {error}");
+            std::process::exit(1);
+        }
+        return;
+    } else if options.inspect_path.is_some() {
         if let Err(error) = inspect_saved_structure(&options) {
             eprintln!("Failed to inspect structure: {error}");
             std::process::exit(1);
@@ -32,6 +39,17 @@ fn main() {
         gibson_rust::render::window_conf(),
         gibson_rust::render::run(options),
     );
+}
+
+fn validate_artifact(options: &RuntimeOptions) -> structure::StructureResult<()> {
+    let path = options
+        .validate_path
+        .as_ref()
+        .expect("validation path checked before dispatch");
+    for line in validate_file(path)? {
+        println!("{line}");
+    }
+    Ok(())
 }
 
 fn export_headless(options: &RuntimeOptions) -> structure::StructureResult<()> {

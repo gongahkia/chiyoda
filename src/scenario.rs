@@ -90,6 +90,10 @@ pub fn to_json(scenario: &ScenarioRecord) -> serde_json::Result<String> {
     serde_json::to_string_pretty(scenario)
 }
 
+pub fn from_json(json: &str) -> serde_json::Result<ScenarioRecord> {
+    serde_json::from_str(json)
+}
+
 pub fn save_scenario(
     path: impl AsRef<std::path::Path>,
     scenario: &ScenarioRecord,
