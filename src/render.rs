@@ -1045,11 +1045,18 @@ fn draw_overlay(app: &AppState) {
         let district = app.generator.district_at(x, z);
         let cell = app.generator.get(x, z, yv);
         let room_label = app.generator.nearest_room_label(x, yv, z);
+        let route_label = app.generator.nearest_route_label(x, yv, z);
+        let decay_label = app.generator.nearest_decay_feature(x, yv, z);
+        let material = app.generator.visual_material_at(x, z, yv, cell).name();
+        let panel_height = 190.0
+            + if room_label.is_some() { 20.0 } else { 0.0 }
+            + if route_label.is_some() { 20.0 } else { 0.0 }
+            + if decay_label.is_some() { 20.0 } else { 0.0 };
         draw_rectangle(
             8.0,
             y + 2.0,
-            340.0,
-            if room_label.is_some() { 112.0 } else { 90.0 },
+            430.0,
+            panel_height,
             Color::new(0.0, 0.0, 0.0, 0.72),
         );
         draw_text(
@@ -1074,17 +1081,59 @@ fn draw_overlay(app: &AppState) {
             LIGHTGRAY,
         );
         draw_text(
-            &format!("Zone: {}", district.name()),
+            &format!("Material: {}", material),
             padding,
             y + 86.0,
             20.0,
             LIGHTGRAY,
         );
+        draw_text(
+            &format!("Zone: {}", district.name()),
+            padding,
+            y + 106.0,
+            20.0,
+            LIGHTGRAY,
+        );
+        draw_text(
+            &format!("Stratum: {}", app.generator.stratum_name_at(yv)),
+            padding,
+            y + 126.0,
+            20.0,
+            LIGHTGRAY,
+        );
+        draw_text(
+            &format!("Grammar: {}", district_inspect_grammar(district.name())),
+            padding,
+            y + 146.0,
+            18.0,
+            LIGHTGRAY,
+        );
+        let mut detail_y = y + 168.0;
         if let Some(label) = room_label {
             draw_text(
                 &format!("Room: {}", label),
                 padding,
-                y + 106.0,
+                detail_y,
+                20.0,
+                LIGHTGRAY,
+            );
+            detail_y += 20.0;
+        }
+        if let Some(label) = route_label {
+            draw_text(
+                &format!("Route: {}", label),
+                padding,
+                detail_y,
+                20.0,
+                LIGHTGRAY,
+            );
+            detail_y += 20.0;
+        }
+        if let Some(label) = decay_label {
+            draw_text(
+                &format!("Decay: {}", label),
+                padding,
+                detail_y,
                 20.0,
                 LIGHTGRAY,
             );
@@ -1148,6 +1197,17 @@ fn draw_overlay(app: &AppState) {
             draw_rectangle(158.0, y - 12.0, 16.0, 16.0, color);
             draw_text(label, 184.0, y, 20.0, LIGHTGRAY);
         }
+    }
+}
+
+fn district_inspect_grammar(district: &str) -> &'static str {
+    match district {
+        "INDUSTRIAL" => "service trunks / machine blocks",
+        "RESIDENTIAL" => "habitation / shared corridors",
+        "COMMERCIAL" => "market arteries / neon fronts",
+        "SLUM" => "patched density / cable walks",
+        "ELITE" => "void courts / glass security",
+        _ => "mixed megastructure grammar",
     }
 }
 

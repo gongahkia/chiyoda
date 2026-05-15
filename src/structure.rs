@@ -7,7 +7,7 @@ use crate::config::GenerationConfig;
 
 pub const CURRENT_SEED_FILE: &str = "current_seed.txt";
 pub const STRUCTURE_FILE: &str = "structure.json";
-pub const STRUCTURE_SCHEMA_VERSION: &str = "gibson.structure.v5";
+pub const STRUCTURE_SCHEMA_VERSION: &str = "gibson.structure.v6";
 
 pub type StructureResult<T> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
@@ -62,6 +62,32 @@ pub struct TransitAttachmentRecord {
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct DistrictRecord {
+    pub id: usize,
+    pub kind: String,
+    pub bounds_min: [usize; 2],
+    pub bounds_max: [usize; 2],
+    pub footprint_cells: usize,
+    pub occupied_cells: usize,
+    pub occupied_ratio: f32,
+    pub dominant_grammar: String,
+    pub generated_features: Vec<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct StratumRecord {
+    pub id: usize,
+    pub name: String,
+    pub y_min: usize,
+    pub y_max: usize,
+    pub cell_count: usize,
+    pub occupied_cells: usize,
+    pub occupied_ratio: f32,
+    pub dominant_grammar: String,
+    pub generated_features: Vec<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct SavedStructure {
     pub seed: String,
     pub size: usize,
@@ -71,6 +97,8 @@ pub struct SavedStructure {
     pub connections: Vec<ConnectionRecord>,
     pub rooms: Vec<RoomRecord>,
     pub transit_graph: TransitGraphRecord,
+    pub districts: Vec<DistrictRecord>,
+    pub strata: Vec<StratumRecord>,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -90,6 +118,8 @@ pub struct StructureMetadata {
     pub transit_node_count: usize,
     pub transit_edge_count: usize,
     pub transit_attachment_count: usize,
+    pub district_record_count: usize,
+    pub stratum_record_count: usize,
     pub occupied_cell_ratio: f32,
 }
 

@@ -78,6 +78,11 @@ pub struct GenerationConfig {
     pub erosion_strength: f32,
     pub neon_intensity: f32,
     pub wfc_room_density: f32,
+    pub route_density: f32,
+    pub landmark_frequency: f32,
+    pub decay_story_density: f32,
+    pub district_contrast: f32,
+    pub strata_separation: f32,
 }
 
 impl Default for GenerationConfig {
@@ -101,6 +106,11 @@ impl GenerationConfig {
                 erosion_strength: 1.0,
                 neon_intensity: 1.0,
                 wfc_room_density: 1.0,
+                route_density: 1.0,
+                landmark_frequency: 1.0,
+                decay_story_density: 1.0,
+                district_contrast: 1.0,
+                strata_separation: 1.0,
             },
             GenerationProfile::Dense => Self {
                 profile,
@@ -114,6 +124,11 @@ impl GenerationConfig {
                 erosion_strength: 0.85,
                 neon_intensity: 0.9,
                 wfc_room_density: 1.25,
+                route_density: 1.35,
+                landmark_frequency: 1.05,
+                decay_story_density: 0.8,
+                district_contrast: 1.15,
+                strata_separation: 0.9,
             },
             GenerationProfile::Vertical => Self {
                 profile,
@@ -127,6 +142,11 @@ impl GenerationConfig {
                 erosion_strength: 0.75,
                 neon_intensity: 1.0,
                 wfc_room_density: 1.0,
+                route_density: 1.2,
+                landmark_frequency: 1.1,
+                decay_story_density: 0.7,
+                district_contrast: 1.0,
+                strata_separation: 1.35,
             },
             GenerationProfile::Decayed => Self {
                 profile,
@@ -140,6 +160,11 @@ impl GenerationConfig {
                 erosion_strength: 1.75,
                 neon_intensity: 0.55,
                 wfc_room_density: 0.85,
+                route_density: 0.9,
+                landmark_frequency: 1.25,
+                decay_story_density: 1.7,
+                district_contrast: 1.25,
+                strata_separation: 1.0,
             },
             GenerationProfile::Neon => Self {
                 profile,
@@ -153,6 +178,11 @@ impl GenerationConfig {
                 erosion_strength: 0.7,
                 neon_intensity: 2.0,
                 wfc_room_density: 1.15,
+                route_density: 1.15,
+                landmark_frequency: 1.3,
+                decay_story_density: 0.65,
+                district_contrast: 1.1,
+                strata_separation: 1.0,
             },
         }
     }
@@ -186,7 +216,12 @@ impl GenerationConfig {
         validate_f32("pipe_frequency", self.pipe_frequency, 0.0, 4.0)?;
         validate_f32("erosion_strength", self.erosion_strength, 0.0, 3.0)?;
         validate_f32("neon_intensity", self.neon_intensity, 0.0, 4.0)?;
-        validate_f32("wfc_room_density", self.wfc_room_density, 0.2, 3.0)
+        validate_f32("wfc_room_density", self.wfc_room_density, 0.2, 3.0)?;
+        validate_f32("route_density", self.route_density, 0.0, 4.0)?;
+        validate_f32("landmark_frequency", self.landmark_frequency, 0.0, 4.0)?;
+        validate_f32("decay_story_density", self.decay_story_density, 0.0, 4.0)?;
+        validate_f32("district_contrast", self.district_contrast, 0.2, 3.0)?;
+        validate_f32("strata_separation", self.strata_separation, 0.5, 2.0)
     }
 }
 
@@ -204,6 +239,11 @@ struct GenerationConfigPatch {
     erosion_strength: Option<f32>,
     neon_intensity: Option<f32>,
     wfc_room_density: Option<f32>,
+    route_density: Option<f32>,
+    landmark_frequency: Option<f32>,
+    decay_story_density: Option<f32>,
+    district_contrast: Option<f32>,
+    strata_separation: Option<f32>,
 }
 
 impl GenerationConfigPatch {
@@ -240,6 +280,21 @@ impl GenerationConfigPatch {
         }
         if let Some(value) = self.wfc_room_density {
             config.wfc_room_density = value;
+        }
+        if let Some(value) = self.route_density {
+            config.route_density = value;
+        }
+        if let Some(value) = self.landmark_frequency {
+            config.landmark_frequency = value;
+        }
+        if let Some(value) = self.decay_story_density {
+            config.decay_story_density = value;
+        }
+        if let Some(value) = self.district_contrast {
+            config.district_contrast = value;
+        }
+        if let Some(value) = self.strata_separation {
+            config.strata_separation = value;
         }
         config
             .validate()
@@ -287,6 +342,18 @@ mod tests {
             ..Default::default()
         };
         assert!(config.validate().is_err());
+
+        let config = GenerationConfig {
+            route_density: 5.0,
+            ..Default::default()
+        };
+        assert!(config.validate().is_err());
+
+        let config = GenerationConfig {
+            strata_separation: 0.1,
+            ..Default::default()
+        };
+        assert!(config.validate().is_err());
     }
 
     #[test]
@@ -301,5 +368,23 @@ mod tests {
         assert_eq!(config.profile, GenerationProfile::Dense);
         assert_eq!(config.grid_layers, 20);
         assert_eq!(config.grid_size, 36);
+    }
+
+    #[test]
+    fn config_patch_accepts_generation_story_controls() {
+        let patch = GenerationConfigPatch {
+            route_density: Some(1.7),
+            landmark_frequency: Some(1.4),
+            decay_story_density: Some(0.6),
+            district_contrast: Some(1.2),
+            strata_separation: Some(1.3),
+            ..Default::default()
+        };
+        let config = patch.apply_to(GenerationConfig::default()).unwrap();
+        assert_eq!(config.route_density, 1.7);
+        assert_eq!(config.landmark_frequency, 1.4);
+        assert_eq!(config.decay_story_density, 0.6);
+        assert_eq!(config.district_contrast, 1.2);
+        assert_eq!(config.strata_separation, 1.3);
     }
 }

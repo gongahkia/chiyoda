@@ -4,9 +4,9 @@ use std::collections::BTreeMap;
 use crate::config::GenerationConfig;
 use crate::seed::{seed_hash, Rng32};
 use crate::structure::{
-    self, ConnectionRecord, RoomRecord, SavedStructure, StructureMetadata, StructureResult,
-    TransitAttachmentRecord, TransitEdgeRecord, TransitGraphRecord, TransitNodeRecord,
-    STRUCTURE_SCHEMA_VERSION,
+    self, ConnectionRecord, DistrictRecord, RoomRecord, SavedStructure, StratumRecord,
+    StructureMetadata, StructureResult, TransitAttachmentRecord, TransitEdgeRecord,
+    TransitGraphRecord, TransitNodeRecord, STRUCTURE_SCHEMA_VERSION,
 };
 
 pub(crate) const CHUNK_SIZE_X: usize = 8;
@@ -66,7 +66,7 @@ pub(crate) enum MaterialType {
 impl MaterialType {
     const COUNT: usize = 6;
 
-    fn name(self) -> &'static str {
+    pub(crate) fn name(self) -> &'static str {
         match self {
             Self::Concrete => "CONCRETE",
             Self::Glass => "GLASS",
@@ -299,6 +299,23 @@ fn biome_for_y(y: usize) -> BiomeStratum {
         }
     }
     BiomeStratum::Surface
+}
+
+fn configured_stratum_for_y(y: usize, layers: usize, separation: f32) -> BiomeStratum {
+    let layer_count = layers.max(1) as f32;
+    let normalized = y as f32 / layer_count;
+    let underground_cut = (0.20 * separation).clamp(0.12, 0.35);
+    let surface_cut = (0.45 * separation).clamp(underground_cut + 0.10, 0.68);
+    let midrise_cut = (0.78 + (separation - 1.0) * 0.08).clamp(surface_cut + 0.10, 0.90);
+    if normalized < underground_cut {
+        BiomeStratum::Underground
+    } else if normalized < surface_cut {
+        BiomeStratum::Surface
+    } else if normalized < midrise_cut {
+        BiomeStratum::Midrise
+    } else {
+        BiomeStratum::Skyline
+    }
 }
 
 pub(crate) fn biome_rust_at(y: usize) -> f32 {
@@ -1001,7 +1018,8 @@ impl MegaStructureGenerator {
             kind: kind.to_owned(),
             position,
             district: district.name().to_owned(),
-            stratum: biome_for_y(position[1].min(self.layers - 1))
+            stratum: self
+                .stratum_at(position[1].min(self.layers - 1))
                 .name()
                 .to_owned(),
         });
@@ -1018,7 +1036,11 @@ impl MegaStructureGenerator {
         let id = self.transit_edges.len();
         let stratum = points
             .first()
-            .map(|point| biome_for_y(point[1].min(self.layers - 1)).name().to_owned())
+            .map(|point| {
+                self.stratum_at(point[1].min(self.layers - 1))
+                    .name()
+                    .to_owned()
+            })
             .unwrap_or_else(|| "SURFACE".to_owned());
         self.transit_edges.push(TransitEdgeRecord {
             id,
@@ -1055,6 +1077,14 @@ impl MegaStructureGenerator {
         self.district_map[self.district_idx(x, z)]
     }
 
+    fn stratum_at(&self, y: usize) -> BiomeStratum {
+        configured_stratum_for_y(y, self.layers, self.config.strata_separation)
+    }
+
+    pub(crate) fn stratum_name_at(&self, y: usize) -> &'static str {
+        self.stratum_at(y).name()
+    }
+
     pub(crate) fn visual_material_at(
         &self,
         x: usize,
@@ -1076,9 +1106,10 @@ impl MegaStructureGenerator {
     fn generate_district_map(&mut self) {
         for x in 0..self.size {
             for z in 0..self.size {
-                let noise = simplex::noise3(x as f32 * 0.05, z as f32 * 0.05, 0.0)
+                let noise = (simplex::noise3(x as f32 * 0.05, z as f32 * 0.05, 0.0)
                     + simplex::noise3(x as f32 * 0.10, z as f32 * 0.10, 1.0) * 0.5
-                    + simplex::noise3(x as f32 * 0.20, z as f32 * 0.20, 2.0) * 0.25;
+                    + simplex::noise3(x as f32 * 0.20, z as f32 * 0.20, 2.0) * 0.25)
+                    * self.config.district_contrast;
                 let district = if noise < -0.3 {
                     DistrictType::Slum
                 } else if noise < -0.1 {
@@ -1100,6 +1131,7 @@ impl MegaStructureGenerator {
         self.phase1_skeleton();
         self.phase2_floorplans();
         self.phase2b_circulation_graph();
+        self.phase2d_route_aware_generation();
         self.apply_floor_thickness();
         self.phase2c_district_patterns();
         self.phase3_infrastructure();
@@ -1130,6 +1162,43 @@ impl MegaStructureGenerator {
             })
             .min_by_key(|(distance, _)| *distance)
             .map(|(_, label)| label)
+    }
+
+    pub(crate) fn nearest_route_label(&self, x: usize, y: usize, z: usize) -> Option<String> {
+        self.transit_edges
+            .iter()
+            .flat_map(|edge| {
+                edge.points.iter().map(move |point| {
+                    let distance =
+                        point[0].abs_diff(x) + point[1].abs_diff(y) + point[2].abs_diff(z);
+                    (distance, edge)
+                })
+            })
+            .filter(|(distance, _)| *distance <= 5)
+            .min_by_key(|(distance, _)| *distance)
+            .map(|(_, edge)| format!("{}#{}", edge.kind, edge.id))
+    }
+
+    pub(crate) fn nearest_decay_feature(&self, x: usize, y: usize, z: usize) -> Option<&str> {
+        if self.get(x, z, y) == CellType::Debris {
+            return Some("DEBRIS_FIELD");
+        }
+        self.connections
+            .iter()
+            .filter(|connection| {
+                matches!(
+                    connection.kind.as_str(),
+                    "collapse_scar" | "broken_facade" | "hanging_bridge_remnant" | "debris_field"
+                )
+            })
+            .filter_map(|connection| {
+                let distance = connection.start[0].abs_diff(x)
+                    + connection.start[1].abs_diff(y)
+                    + connection.start[2].abs_diff(z);
+                (distance <= 5).then_some((distance, connection.kind.as_str()))
+            })
+            .min_by_key(|(distance, _)| *distance)
+            .map(|(_, kind)| kind)
     }
 
     pub(crate) fn rooms(&self) -> &[RoomRecord] {
@@ -1316,7 +1385,7 @@ impl MegaStructureGenerator {
     fn phase2_floorplans(&mut self) {
         for y in 0..self.layers {
             let district = self.district_at(self.size / 2, self.size / 2);
-            let stratum = biome_for_y(y);
+            let stratum = self.stratum_at(y);
             let mut solver = WfcSolver::new(
                 self.seed_hash ^ (y as u64 * 12345),
                 self.size,
@@ -1407,7 +1476,9 @@ impl MegaStructureGenerator {
 
     fn select_transit_hubs(&mut self) -> Vec<(usize, usize)> {
         let mut hubs = Vec::new();
-        let target = (4 + (self.size / 14)).clamp(4, 8);
+        let target = (((4 + (self.size / 14)) as f32) * self.config.route_density)
+            .round()
+            .clamp(3.0, 12.0) as usize;
         let center = self.size / 2;
         hubs.push((center, center));
 
@@ -1425,7 +1496,7 @@ impl MegaStructureGenerator {
                     DistrictType::Elite => 0.35,
                 };
                 let noise = hash_noise(self.seed_hash, x, z, 0);
-                if noise < density_bias {
+                if noise < (density_bias * self.config.route_density).clamp(0.05, 0.95) {
                     hubs.push((x, z));
                 }
             }
@@ -1470,7 +1541,7 @@ impl MegaStructureGenerator {
         self.push_room(
             [x, hub_y, z],
             district,
-            &format!("{}_TRANSIT_HUB", biome_for_y(hub_y).name()),
+            &format!("{}_TRANSIT_HUB", self.stratum_at(hub_y).name()),
         );
         self.push_connection(
             "vertical_transit_core",
@@ -1568,7 +1639,7 @@ impl MegaStructureGenerator {
             let x = lerpf(start.0 as f32, end.0 as f32, t).round() as usize;
             let z = lerpf(start.1 as f32, end.1 as f32, t).round() as usize;
             let district = self.district_at(x.min(self.size - 1), z.min(self.size - 1));
-            let stratum = biome_for_y(y);
+            let stratum = self.stratum_at(y);
             let label = route_room_label(kind, district, stratum);
             let position = [x.min(self.size - 1), y, z.min(self.size - 1)];
             let room_id = self.push_room(
@@ -1640,6 +1711,94 @@ impl MegaStructureGenerator {
         self.push_transit_attachment(route_id, room_id, "chokepoint", position);
         let connection_kind = kind_name(kind, "chokepoint");
         self.push_connection(&connection_kind, [x, y, z], [x, y, z]);
+    }
+
+    fn phase2d_route_aware_generation(&mut self) {
+        let edges = self.transit_edges.clone();
+        for edge in edges {
+            if edge.points.len() < 2 {
+                continue;
+            }
+            let slots = ((edge.points.len() as f32 * 0.16 * self.config.route_density).round()
+                as usize)
+                .clamp(1, 6);
+            for slot in 0..slots {
+                let index =
+                    ((slot + 1) * edge.points.len() / (slots + 1)).min(edge.points.len() - 1);
+                self.add_route_aware_feature(edge.id, &edge.kind, edge.points[index], slot);
+            }
+        }
+    }
+
+    fn add_route_aware_feature(
+        &mut self,
+        route_id: usize,
+        route_kind: &str,
+        position: [usize; 3],
+        slot: usize,
+    ) {
+        let x = position[0].min(self.size - 1);
+        let y = position[1].min(self.layers - 1);
+        let z = position[2].min(self.size - 1);
+        let district = self.district_at(x, z);
+        let label = route_aware_room_label(
+            route_kind,
+            district,
+            self.stratum_at(y),
+            self.config.landmark_frequency,
+            hash_noise(self.seed_hash, x + slot, z, y),
+        );
+        let room_id = self.push_room([x, y, z], district, label);
+        self.push_transit_attachment(route_id, room_id, "route_aware_feature", [x, y, z]);
+        self.paint_route_aware_feature(x, z, y, route_kind, label);
+        self.record_pattern(label);
+        self.push_connection(
+            &format!("route_attached_{}", label.to_lowercase()),
+            [x, y, z],
+            [x, y, z],
+        );
+    }
+
+    fn paint_route_aware_feature(
+        &mut self,
+        x: usize,
+        z: usize,
+        y: usize,
+        route_kind: &str,
+        label: &str,
+    ) {
+        let shell = match label {
+            "PIPE_JUNCTION" | "MAINTENANCE_CHECKPOINT" => CellType::Pipe,
+            "MARKET_STALL" | "PATCH_BAZAAR" => CellType::Facade,
+            "SECURITY_GATE" | "SKY_SECURITY_GATE" => CellType::Stair,
+            "DATA_RELAY" | "DATA_VAULT" => CellType::Facade,
+            _ => CellType::Horizontal,
+        };
+        for (dx, dz) in [(0isize, 0isize), (1, 0), (-1, 0), (0, 1), (0, -1)] {
+            let nx = x as isize + dx;
+            let nz = z as isize + dz;
+            if nx < 0 || nz < 0 || nx >= self.size as isize || nz >= self.size as isize {
+                continue;
+            }
+            let nx = nx as usize;
+            let nz = nz as usize;
+            if self.get(nx, nz, y) == CellType::Empty || dx == 0 && dz == 0 {
+                self.set(
+                    nx,
+                    nz,
+                    y,
+                    shell,
+                    matches!(shell, CellType::Horizontal | CellType::Stair),
+                );
+            }
+            if route_kind == "service_tunnel" && y > 0 && self.get(nx, nz, y - 1) == CellType::Empty
+            {
+                self.set(nx, nz, y - 1, CellType::Pipe, false);
+            }
+            if matches!(label, "DATA_RELAY" | "DATA_VAULT") && y + 1 < self.layers {
+                self.set(nx, nz, y + 1, CellType::Antenna, false);
+            }
+        }
     }
 
     fn phase2c_district_patterns(&mut self) {
@@ -1754,7 +1913,7 @@ impl MegaStructureGenerator {
 
     fn add_stratum_markers(&mut self) {
         for y in 0..self.layers {
-            match biome_for_y(y) {
+            match self.stratum_at(y) {
                 BiomeStratum::Underground if y > 0 => {
                     for x in (0..self.size).step_by(5) {
                         let z = (self.seed_hash as usize + x + y) % self.size;
@@ -2002,7 +2161,10 @@ impl MegaStructureGenerator {
     }
 
     fn phase4b_decay_signatures(&mut self) {
-        let scars = ((self.size as f32) * self.config.erosion_strength * 0.18) as usize;
+        let scars = ((self.size as f32)
+            * self.config.erosion_strength
+            * self.config.decay_story_density
+            * 0.18) as usize;
         for _ in 0..scars {
             let x = self.rng.range_usize(2, self.size.saturating_sub(3).max(2));
             let z = self.rng.range_usize(2, self.size.saturating_sub(3).max(2));
@@ -2064,7 +2226,8 @@ impl MegaStructureGenerator {
     }
 
     fn add_landmark_rooms(&mut self) {
-        let attempts = (self.size / 2).max(8);
+        let attempts = ((self.size as f32 / 2.0) * self.config.landmark_frequency) as usize;
+        let attempts = attempts.max(4);
         for _ in 0..attempts {
             let x = self.rng.range_usize(1, self.size.saturating_sub(2).max(1));
             let z = self.rng.range_usize(1, self.size.saturating_sub(2).max(1));
@@ -2075,7 +2238,7 @@ impl MegaStructureGenerator {
                 continue;
             }
             let district = self.district_at(x, z);
-            let stratum = biome_for_y(y);
+            let stratum = self.stratum_at(y);
             let label = match (district, stratum) {
                 (
                     DistrictType::Elite | DistrictType::Commercial,
@@ -2124,7 +2287,10 @@ impl MegaStructureGenerator {
         for scar in scars {
             self.paint_debris_field(scar[0], scar[2], scar[1], "debris_field");
         }
-        let random_fields = ((self.size as f32) * self.config.erosion_strength * 0.08) as usize;
+        let random_fields = ((self.size as f32)
+            * self.config.erosion_strength
+            * self.config.decay_story_density
+            * 0.08) as usize;
         for _ in 0..random_fields {
             let x = self.rng.range_usize(1, self.size.saturating_sub(2).max(1));
             let z = self.rng.range_usize(1, self.size.saturating_sub(2).max(1));
@@ -2158,7 +2324,10 @@ impl MegaStructureGenerator {
     }
 
     fn add_hanging_bridge_remnants(&mut self) {
-        let attempts = ((self.size as f32) * self.config.erosion_strength * 0.10) as usize;
+        let attempts = ((self.size as f32)
+            * self.config.erosion_strength
+            * self.config.decay_story_density
+            * 0.10) as usize;
         for _ in 0..attempts {
             let x = self.rng.range_usize(2, self.size.saturating_sub(5).max(2));
             let z = self.rng.range_usize(2, self.size.saturating_sub(5).max(2));
@@ -2194,8 +2363,10 @@ impl MegaStructureGenerator {
     }
 
     fn add_broken_facade_fields(&mut self) {
-        let attempts =
-            ((self.size * self.layers) as f32 * self.config.erosion_strength * 0.006) as usize;
+        let attempts = ((self.size * self.layers) as f32
+            * self.config.erosion_strength
+            * self.config.decay_story_density
+            * 0.006) as usize;
         for _ in 0..attempts {
             let x = self.rng.range_usize(1, self.size.saturating_sub(2).max(1));
             let z = self.rng.range_usize(1, self.size.saturating_sub(2).max(1));
@@ -2254,7 +2425,7 @@ impl MegaStructureGenerator {
                     let exposure = self.count_empty_neighbors(x, z, y);
                     let noise =
                         simplex::noise3(x as f32 * 0.2, y as f32 * 0.2, z as f32 * 0.2) * 0.5 + 0.5;
-                    let base_threshold = if biome_for_y(y) == BiomeStratum::Skyline {
+                    let base_threshold = if self.stratum_at(y) == BiomeStratum::Skyline {
                         0.3
                     } else {
                         0.6
@@ -2370,6 +2541,104 @@ impl MegaStructureGenerator {
         }
     }
 
+    fn district_records(&self) -> Vec<DistrictRecord> {
+        let mut footprint = [0usize; DistrictType::COUNT];
+        let mut occupied = [0usize; DistrictType::COUNT];
+        let mut min_bounds = [[usize::MAX; 2]; DistrictType::COUNT];
+        let mut max_bounds = [[0usize; 2]; DistrictType::COUNT];
+
+        for x in 0..self.size {
+            for z in 0..self.size {
+                let district = self.district_at(x, z);
+                let index = district as usize;
+                footprint[index] += 1;
+                min_bounds[index][0] = min_bounds[index][0].min(x);
+                min_bounds[index][1] = min_bounds[index][1].min(z);
+                max_bounds[index][0] = max_bounds[index][0].max(x);
+                max_bounds[index][1] = max_bounds[index][1].max(z);
+                for y in 0..self.layers {
+                    if self.get(x, z, y) != CellType::Empty {
+                        occupied[index] += 1;
+                    }
+                }
+            }
+        }
+
+        [
+            DistrictType::Industrial,
+            DistrictType::Residential,
+            DistrictType::Commercial,
+            DistrictType::Slum,
+            DistrictType::Elite,
+        ]
+        .into_iter()
+        .filter(|district| footprint[*district as usize] > 0)
+        .enumerate()
+        .map(|(id, district)| {
+            let index = district as usize;
+            let total = (footprint[index] * self.layers).max(1);
+            DistrictRecord {
+                id,
+                kind: district.name().to_owned(),
+                bounds_min: min_bounds[index],
+                bounds_max: max_bounds[index],
+                footprint_cells: footprint[index],
+                occupied_cells: occupied[index],
+                occupied_ratio: occupied[index] as f32 / total as f32,
+                dominant_grammar: district_grammar(district).to_owned(),
+                generated_features: district_feature_names(district, &self.pattern_counts),
+            }
+        })
+        .collect()
+    }
+
+    fn stratum_records(&self) -> Vec<StratumRecord> {
+        let mut y_min = [usize::MAX; BiomeStratum::COUNT];
+        let mut y_max = [0usize; BiomeStratum::COUNT];
+        let mut cell_count = [0usize; BiomeStratum::COUNT];
+        let mut occupied = [0usize; BiomeStratum::COUNT];
+
+        for y in 0..self.layers {
+            let stratum = self.stratum_at(y);
+            let index = stratum as usize;
+            y_min[index] = y_min[index].min(y);
+            y_max[index] = y_max[index].max(y);
+            cell_count[index] += self.size * self.size;
+            for x in 0..self.size {
+                for z in 0..self.size {
+                    if self.get(x, z, y) != CellType::Empty {
+                        occupied[index] += 1;
+                    }
+                }
+            }
+        }
+
+        [
+            BiomeStratum::Underground,
+            BiomeStratum::Surface,
+            BiomeStratum::Midrise,
+            BiomeStratum::Skyline,
+        ]
+        .into_iter()
+        .filter(|stratum| cell_count[*stratum as usize] > 0)
+        .enumerate()
+        .map(|(id, stratum)| {
+            let index = stratum as usize;
+            StratumRecord {
+                id,
+                name: stratum.name().to_owned(),
+                y_min: y_min[index],
+                y_max: y_max[index],
+                cell_count: cell_count[index],
+                occupied_cells: occupied[index],
+                occupied_ratio: occupied[index] as f32 / cell_count[index].max(1) as f32,
+                dominant_grammar: stratum_grammar(stratum).to_owned(),
+                generated_features: stratum_feature_names(stratum, &self.pattern_counts),
+            }
+        })
+        .collect()
+    }
+
     pub fn saved_structure(&self) -> SavedStructure {
         let mut grid = vec![vec![vec![0u8; self.layers]; self.size]; self.size];
         let mut cell_counts = [0usize; CellType::COUNT];
@@ -2394,9 +2663,11 @@ impl MegaStructureGenerator {
         }
         let mut stratum_counts = [0usize; BiomeStratum::COUNT];
         for y in 0..self.layers {
-            stratum_counts[biome_for_y(y) as usize] += self.size * self.size;
+            stratum_counts[self.stratum_at(y) as usize] += self.size * self.size;
         }
         let total_cells = (self.size * self.size * self.layers).max(1);
+        let districts = self.district_records();
+        let strata = self.stratum_records();
         let metadata = StructureMetadata {
             schema_version: STRUCTURE_SCHEMA_VERSION.to_owned(),
             profile: self.config.profile.to_string(),
@@ -2413,6 +2684,8 @@ impl MegaStructureGenerator {
             transit_node_count: self.transit_nodes.len(),
             transit_edge_count: self.transit_edges.len(),
             transit_attachment_count: self.transit_attachments.len(),
+            district_record_count: districts.len(),
+            stratum_record_count: strata.len(),
             occupied_cell_ratio: occupied as f32 / total_cells as f32,
         };
         SavedStructure {
@@ -2424,6 +2697,8 @@ impl MegaStructureGenerator {
             connections: self.connections.clone(),
             rooms: self.rooms.clone(),
             transit_graph: self.transit_graph(),
+            districts,
+            strata,
         }
     }
 
@@ -2523,6 +2798,116 @@ fn room_counts_map(rooms: &[RoomRecord]) -> BTreeMap<String, usize> {
     counts
 }
 
+fn district_grammar(district: DistrictType) -> &'static str {
+    match district {
+        DistrictType::Industrial => {
+            "service-trunk infrastructure, pipe trunks, vents, machine rooms"
+        }
+        DistrictType::Residential => "habitation modules, shared corridors, shrine pockets",
+        DistrictType::Commercial => "market arteries, neon facades, public concourses",
+        DistrictType::Slum => "stacked patchwork corridors, cables, improvised bridges",
+        DistrictType::Elite => "clean void courts, skyline security, glass facades",
+    }
+}
+
+fn stratum_grammar(stratum: BiomeStratum) -> &'static str {
+    match stratum {
+        BiomeStratum::Underground => "maintenance tunnels, pipe junctions, debris basins",
+        BiomeStratum::Surface => "market access, service checks, dense public circulation",
+        BiomeStratum::Midrise => "habitation, transit annexes, data relay infrastructure",
+        BiomeStratum::Skyline => "skybridges, vaults, antennae, exposed windward decay",
+    }
+}
+
+fn district_feature_names(
+    district: DistrictType,
+    pattern_counts: &BTreeMap<String, usize>,
+) -> Vec<String> {
+    let candidates: &[&str] = match district {
+        DistrictType::Industrial => &[
+            "industrial_service_trunk",
+            "PIPE_JUNCTION",
+            "SERVICE_DEPOT",
+            "MACHINE_ROOM",
+            "MAINTENANCE_SHAFT",
+        ],
+        DistrictType::Residential => &[
+            "HABITATION_MODULE",
+            "SHRINE",
+            "CORRIDOR_DEAD_END",
+            "TRANSIT_SERVICE_NODE",
+            "debris_field",
+        ],
+        DistrictType::Commercial => &[
+            "MARKET_HALL",
+            "MARKET_CONCOURSE",
+            "MARKET_STALL",
+            "DATA_RELAY",
+            "broken_facade",
+        ],
+        DistrictType::Slum => &[
+            "slum_patchwalk",
+            "PATCHWORK_JUNCTION",
+            "PATCH_BAZAAR",
+            "HABITATION_CLUSTER",
+            "cable",
+        ],
+        DistrictType::Elite => &[
+            "SKYLINE_VOID_COURT",
+            "SKY_SECURITY_GATE",
+            "DATA_VAULT",
+            "SKY_VAULT",
+            "skybridge",
+        ],
+    };
+    present_features(candidates, pattern_counts)
+}
+
+fn stratum_feature_names(
+    stratum: BiomeStratum,
+    pattern_counts: &BTreeMap<String, usize>,
+) -> Vec<String> {
+    let candidates: &[&str] = match stratum {
+        BiomeStratum::Underground => &[
+            "service_tunnel",
+            "PIPE_JUNCTION",
+            "MAINTENANCE_CHECKPOINT",
+            "MAINTENANCE_SHAFT",
+            "debris_field",
+        ],
+        BiomeStratum::Surface => &[
+            "artery",
+            "MARKET_STALL",
+            "PATCH_BAZAAR",
+            "SHRINE",
+            "collapse_scar",
+        ],
+        BiomeStratum::Midrise => &[
+            "artery",
+            "DATA_RELAY",
+            "TRANSIT_ANNEX",
+            "HABITATION_MODULE",
+            "broken_facade",
+        ],
+        BiomeStratum::Skyline => &[
+            "skybridge",
+            "express_spine",
+            "SKY_SECURITY_GATE",
+            "DATA_VAULT",
+            "hanging_bridge_remnant",
+        ],
+    };
+    present_features(candidates, pattern_counts)
+}
+
+fn present_features(candidates: &[&str], pattern_counts: &BTreeMap<String, usize>) -> Vec<String> {
+    candidates
+        .iter()
+        .filter(|candidate| pattern_counts.contains_key(**candidate))
+        .map(|candidate| (*candidate).to_owned())
+        .collect()
+}
+
 fn route_layer_for_hubs(start: (usize, usize), end: (usize, usize), layers: usize) -> usize {
     let distance = start.0.abs_diff(end.0) + start.1.abs_diff(end.1);
     if distance > 24 {
@@ -2554,6 +2939,32 @@ fn route_room_label(kind: &str, district: DistrictType, stratum: BiomeStratum) -
         ("artery", DistrictType::Slum, _) => "PATCHWORK_JUNCTION",
         (_, _, BiomeStratum::Underground) => "SERVICE_TUNNEL_ROOM",
         _ => "TRANSIT_ANNEX",
+    }
+}
+
+fn route_aware_room_label(
+    kind: &str,
+    district: DistrictType,
+    stratum: BiomeStratum,
+    landmark_frequency: f32,
+    noise: f32,
+) -> &'static str {
+    if noise < 0.08 * landmark_frequency
+        && matches!(stratum, BiomeStratum::Midrise | BiomeStratum::Skyline)
+    {
+        return "DATA_VAULT";
+    }
+    match (kind, district, stratum) {
+        ("service_tunnel" | "vertical_transit_core", DistrictType::Industrial, _) => {
+            "PIPE_JUNCTION"
+        }
+        ("service_tunnel", _, _) => "MAINTENANCE_CHECKPOINT",
+        ("artery", DistrictType::Commercial, _) => "MARKET_STALL",
+        ("artery", DistrictType::Slum, _) => "PATCH_BAZAAR",
+        ("artery", DistrictType::Elite, _) => "SECURITY_GATE",
+        ("skybridge" | "express_spine", DistrictType::Elite, _) => "SKY_SECURITY_GATE",
+        ("skybridge" | "express_spine", _, BiomeStratum::Skyline) => "DATA_RELAY",
+        _ => "TRANSIT_SERVICE_NODE",
     }
 }
 
@@ -2797,6 +3208,125 @@ mod tests {
             assert!(attachment.position[0] < saved.size);
             assert!(attachment.position[1] < saved.layers);
             assert!(attachment.position[2] < saved.size);
+        }
+    }
+
+    #[test]
+    fn route_aware_generation_attaches_features_to_routes() {
+        let saved = generated("ABCD1234").saved_structure();
+        assert!(saved
+            .transit_graph
+            .attachments
+            .iter()
+            .any(|attachment| attachment.attachment_kind == "route_aware_feature"));
+        assert!(saved.rooms.iter().any(|room| {
+            matches!(
+                room.label.as_str(),
+                "PIPE_JUNCTION"
+                    | "MAINTENANCE_CHECKPOINT"
+                    | "MARKET_STALL"
+                    | "PATCH_BAZAAR"
+                    | "SECURITY_GATE"
+                    | "SKY_SECURITY_GATE"
+                    | "DATA_RELAY"
+                    | "TRANSIT_SERVICE_NODE"
+                    | "DATA_VAULT"
+            )
+        }));
+    }
+
+    #[test]
+    fn district_and_stratum_records_describe_generated_space() {
+        let saved = generated("ABCD1234").saved_structure();
+        assert_eq!(saved.metadata.district_record_count, saved.districts.len());
+        assert_eq!(saved.metadata.stratum_record_count, saved.strata.len());
+        assert_eq!(
+            saved
+                .districts
+                .iter()
+                .map(|district| district.footprint_cells)
+                .sum::<usize>(),
+            saved.size * saved.size
+        );
+        assert_eq!(
+            saved
+                .strata
+                .iter()
+                .map(|stratum| stratum.cell_count)
+                .sum::<usize>(),
+            saved.size * saved.size * saved.layers
+        );
+        for district in &saved.districts {
+            assert!(district.bounds_min[0] <= district.bounds_max[0]);
+            assert!(district.bounds_min[1] <= district.bounds_max[1]);
+            assert!(district.bounds_max[0] < saved.size);
+            assert!(district.bounds_max[1] < saved.size);
+            assert!(!district.dominant_grammar.is_empty());
+            assert!((0.0..=1.0).contains(&district.occupied_ratio));
+        }
+        for stratum in &saved.strata {
+            assert!(stratum.y_min <= stratum.y_max);
+            assert!(stratum.y_max < saved.layers);
+            assert!(!stratum.dominant_grammar.is_empty());
+            assert!((0.0..=1.0).contains(&stratum.occupied_ratio));
+        }
+        assert!(saved
+            .districts
+            .iter()
+            .chain(saved.districts.iter())
+            .any(|district| !district.generated_features.is_empty()));
+        assert!(saved
+            .strata
+            .iter()
+            .any(|stratum| !stratum.generated_features.is_empty()));
+    }
+
+    #[test]
+    fn exported_json_schema_keeps_semantic_sections() {
+        let saved = generated("ABCD1234").saved_structure();
+        let value: serde_json::Value =
+            serde_json::from_str(&structure::to_json(&saved).unwrap()).unwrap();
+        assert_eq!(
+            value["metadata"]["schema_version"],
+            serde_json::json!(STRUCTURE_SCHEMA_VERSION)
+        );
+        for key in [
+            "seed",
+            "size",
+            "layers",
+            "metadata",
+            "grid",
+            "connections",
+            "rooms",
+            "transit_graph",
+            "districts",
+            "strata",
+        ] {
+            assert!(value.get(key).is_some(), "missing top-level key {key}");
+        }
+        for key in [
+            "route_density",
+            "landmark_frequency",
+            "decay_story_density",
+            "district_contrast",
+            "strata_separation",
+        ] {
+            assert!(
+                value["metadata"]["config"].get(key).is_some(),
+                "missing config key {key}"
+            );
+        }
+        for key in [
+            "transit_node_count",
+            "transit_edge_count",
+            "transit_attachment_count",
+            "district_record_count",
+            "stratum_record_count",
+        ] {
+            assert!(
+                value["metadata"].get(key).is_some(),
+                "missing metadata key {key}"
+            );
         }
     }
 
