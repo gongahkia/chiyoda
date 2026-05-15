@@ -2577,6 +2577,7 @@ impl MegaStructureGenerator {
 
     fn phase5_story_details(&mut self) {
         self.add_landmark_rooms();
+        self.apply_landmark_aware_geometry();
         self.add_debris_fields();
         self.add_hanging_bridge_remnants();
         self.add_broken_facade_fields();
@@ -2632,6 +2633,137 @@ impl MegaStructureGenerator {
             }
         }
         self.record_pattern(label);
+    }
+
+    fn apply_landmark_aware_geometry(&mut self) {
+        let rooms = self.rooms.clone();
+        for room in rooms {
+            match room.label.as_str() {
+                "SHRINE" => self.carve_landmark_plaza(room.position, "shrine_plaza"),
+                "DATA_VAULT" | "SKY_VAULT" => self.harden_landmark_vault(room.position),
+                "MAINTENANCE_SHAFT" | "MACHINE_ROOM" => {
+                    self.extend_landmark_service_shaft(room.position)
+                }
+                label if label.contains("MARKET") || label.contains("BAZAAR") => {
+                    self.widen_landmark_market_routes(room.position)
+                }
+                _ => {}
+            }
+        }
+
+        let hazards = self.hazard_zones.clone();
+        for hazard in hazards {
+            let center = [
+                (hazard.bounds_min[0] + hazard.bounds_max[0]) / 2,
+                (hazard.bounds_min[1] + hazard.bounds_max[1]) / 2,
+                (hazard.bounds_min[2] + hazard.bounds_max[2]) / 2,
+            ];
+            self.scar_landmark_hazard(center, &hazard.kind);
+        }
+    }
+
+    fn carve_landmark_plaza(&mut self, position: [usize; 3], pattern: &str) {
+        let [x, y, z] = position;
+        for dx in -2isize..=2 {
+            for dz in -2isize..=2 {
+                if dx.abs() + dz.abs() > 3 {
+                    continue;
+                }
+                if let Some((nx, nz)) = self.offset_xz(x, z, dx, dz) {
+                    self.set(nx, nz, y, CellType::Horizontal, true);
+                    if y + 1 < self.layers && (dx == 0 || dz == 0) {
+                        self.set(nx, nz, y + 1, CellType::Cable, false);
+                    }
+                }
+            }
+        }
+        self.push_connection(pattern, position, position);
+        self.record_pattern("landmark_plaza");
+    }
+
+    fn harden_landmark_vault(&mut self, position: [usize; 3]) {
+        let route_ids = self.nearby_route_ids(position, 8);
+        for route_id in route_ids {
+            let Some(edge) = self.transit_edges.get(route_id).cloned() else {
+                continue;
+            };
+            for point in edge.points.iter().step_by(2) {
+                for (dx, dz) in [(0isize, 0isize), (1, 0), (-1, 0), (0, 1), (0, -1)] {
+                    if let Some((nx, nz)) = self.offset_xz(point[0], point[2], dx, dz) {
+                        self.set(nx, nz, point[1], CellType::Facade, false);
+                        if point[1] + 1 < self.layers && edge.role == "restricted_spine" {
+                            self.set(nx, nz, point[1] + 1, CellType::Antenna, false);
+                        }
+                    }
+                }
+            }
+        }
+        self.push_connection("landmark_vault_spine", position, position);
+        self.record_pattern("landmark_vault_spine");
+    }
+
+    fn extend_landmark_service_shaft(&mut self, position: [usize; 3]) {
+        let [x, y, z] = position;
+        let low = y.saturating_sub(3);
+        let high = (y + 3).min(self.layers - 1);
+        for ny in low..=high {
+            self.set(x, z, ny, CellType::Pipe, false);
+            if x + 1 < self.size {
+                self.set(x + 1, z, ny, CellType::Vent, false);
+            }
+        }
+        self.push_connection("landmark_service_shaft", [x, low, z], [x, high, z]);
+        self.record_pattern("landmark_service_shaft");
+    }
+
+    fn widen_landmark_market_routes(&mut self, position: [usize; 3]) {
+        let route_ids = self.nearby_route_ids(position, 7);
+        for route_id in route_ids {
+            let Some(edge) = self.transit_edges.get(route_id).cloned() else {
+                continue;
+            };
+            for point in edge.points.iter().step_by(2) {
+                for (dx, dz) in [(1isize, 0isize), (-1, 0), (0, 1), (0, -1)] {
+                    if let Some((nx, nz)) = self.offset_xz(point[0], point[2], dx, dz) {
+                        self.set(nx, nz, point[1], CellType::Facade, false);
+                    }
+                }
+            }
+        }
+        self.push_connection("landmark_market_route_widening", position, position);
+        self.record_pattern("landmark_market_route_widening");
+    }
+
+    fn scar_landmark_hazard(&mut self, position: [usize; 3], hazard_kind: &str) {
+        let [x, y, z] = position;
+        for dx in -2isize..=2 {
+            for dz in -2isize..=2 {
+                if dx.abs() + dz.abs() > 3 {
+                    continue;
+                }
+                if let Some((nx, nz)) = self.offset_xz(x, z, dx, dz) {
+                    let scar = match hazard_kind {
+                        "security_sweep" => CellType::Facade,
+                        "blackout_pocket" => CellType::Cable,
+                        "vent_heat_plume" => CellType::Vent,
+                        _ => CellType::Debris,
+                    };
+                    self.set(nx, nz, y, scar, scar == CellType::Facade);
+                    if y > 0 && matches!(scar, CellType::Debris | CellType::Cable) {
+                        self.set(nx, nz, y - 1, CellType::Debris, false);
+                    }
+                }
+            }
+        }
+        self.push_connection("landmark_hazard_scar", position, position);
+        self.record_pattern("landmark_hazard_scar");
+    }
+
+    fn offset_xz(&self, x: usize, z: usize, dx: isize, dz: isize) -> Option<(usize, usize)> {
+        let nx = x as isize + dx;
+        let nz = z as isize + dz;
+        (nx >= 0 && nz >= 0 && nx < self.size as isize && nz < self.size as isize)
+            .then_some((nx as usize, nz as usize))
     }
 
     fn add_debris_fields(&mut self) {
@@ -4964,6 +5096,21 @@ mod tests {
         assert!(saved.path_analysis.faction_territory_connectivity >= 0.5);
         assert_eq!(saved.path_analysis.main_path_room_reachability, 1.0);
         assert!(saved.path_analysis.quality_score >= 0.75);
+    }
+
+    #[test]
+    fn landmark_aware_generation_shapes_surrounding_geometry() {
+        let saved = generated("ABCD1234").saved_structure();
+        assert!(saved.metadata.pattern_counts.contains_key("landmark_plaza"));
+        assert!(saved
+            .metadata
+            .pattern_counts
+            .contains_key("landmark_hazard_scar"));
+        assert!(saved
+            .metadata
+            .pattern_counts
+            .iter()
+            .any(|(name, count)| { name.starts_with("landmark_") && *count > 0 }));
     }
 
     #[test]
