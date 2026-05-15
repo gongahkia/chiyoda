@@ -24,6 +24,13 @@ struct RenderWorld {
     translucent_chunks: Vec<SpatialChunk>,
 }
 
+struct SemanticLabel {
+    text: String,
+    position: Vec3,
+    color: Color,
+    priority: u8,
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum OverlayMode {
     None,
@@ -1314,105 +1321,156 @@ fn draw_overlay(app: &AppState) {
             draw_text(label, 184.0, y, 20.0, LIGHTGRAY);
         }
     }
-
-    if app.show_labels {
-        draw_semantic_labels(app);
-    }
 }
 
-fn draw_semantic_labels(app: &AppState) {
-    let panel_width = 430.0;
-    let x = (screen_width() - panel_width - 12.0).max(12.0);
-    let mut y = 18.0;
+fn draw_projected_semantic_labels(app: &AppState, camera: &Camera3D) {
+    if !app.show_labels {
+        return;
+    }
     let saved = &app.saved_structure;
-    draw_rectangle(
-        x - 8.0,
-        y - 12.0,
-        panel_width,
-        360.0,
-        Color::new(0.0, 0.0, 0.0, 0.68),
-    );
-    draw_text("Semantic Labels", x, y + 12.0, 24.0, WHITE);
-    y += 42.0;
-
     if let Some(phase) = active_phase(saved) {
+        draw_rectangle(
+            screen_width() * 0.5 - 180.0,
+            12.0,
+            360.0,
+            30.0,
+            Color::new(0.0, 0.0, 0.0, 0.62),
+        );
         draw_text(
             &format!("Phase: {} @{:02}:00", phase.name, phase.cycle_hour),
-            x,
-            y,
+            screen_width() * 0.5 - 164.0,
+            34.0,
             20.0,
             Color::new(0.55, 0.90, 1.0, 1.0),
         );
-        y += 22.0;
     }
 
-    draw_text("Landmarks", x, y, 21.0, Color::new(1.0, 0.92, 0.55, 1.0));
-    y += 22.0;
+    let mut labels = collect_semantic_labels(app);
+    labels.sort_by(|a, b| b.priority.cmp(&a.priority));
+    let max_distance = app.generator.size.max(app.generator.layers) as f32 * 2.8;
+    let mut placed = Vec::new();
+    for label in labels {
+        let Some(screen) = project_world_label(camera, label.position, max_distance) else {
+            continue;
+        };
+        if placed
+            .iter()
+            .any(|placed: &Vec2| placed.distance(screen) < 28.0)
+        {
+            continue;
+        }
+        draw_label_box(screen, &label.text, label.color);
+        placed.push(screen);
+        if placed.len() >= 18 {
+            break;
+        }
+    }
+}
+
+fn collect_semantic_labels(app: &AppState) -> Vec<SemanticLabel> {
+    let saved = &app.saved_structure;
+    let mut labels = Vec::new();
     for landmark in saved.narrative_landmarks.iter().take(5) {
-        draw_text(
-            &format!(
-                "{}: {} ({}, {}, {})",
-                landmark.kind,
-                landmark.name,
-                landmark.position[0],
-                landmark.position[1],
-                landmark.position[2]
-            ),
-            x,
-            y,
-            17.0,
-            LIGHTGRAY,
-        );
-        y += 19.0;
+        labels.push(SemanticLabel {
+            text: format!("{}: {}", landmark.kind, landmark.name),
+            position: point_to_vec3(landmark.position),
+            color: Color::new(1.0, 0.92, 0.55, 1.0),
+            priority: 4,
+        });
     }
-
-    y += 8.0;
-    draw_text("Routes", x, y, 21.0, Color::new(0.50, 1.0, 0.78, 1.0));
-    y += 22.0;
-    for edge in saved.transit_graph.edges.iter().take(5) {
-        draw_text(
-            &format!(
-                "#{} {} / {} / len {}",
-                edge.id, edge.role, edge.kind, edge.length
-            ),
-            x,
-            y,
-            17.0,
-            transit_role_color(&edge.role),
-        );
-        y += 19.0;
+    for route_id in saved.path_analysis.high_centrality_route_ids.iter().take(5) {
+        if let Some(edge) = saved.transit_graph.edges.get(*route_id) {
+            let position = edge
+                .points
+                .get(edge.points.len() / 2)
+                .copied()
+                .unwrap_or([0, 0, 0]);
+            labels.push(SemanticLabel {
+                text: format!("#{} {}", edge.id, edge.role),
+                position: point_to_vec3(position),
+                color: transit_role_color(&edge.role),
+                priority: 3,
+            });
+        }
     }
-
-    y += 8.0;
-    draw_text("Hazards", x, y, 21.0, Color::new(1.0, 0.46, 0.24, 1.0));
-    y += 22.0;
     for hazard in saved.hazard_zones.iter().take(4) {
-        draw_text(
-            &format!(
-                "#{} {} severity {:.2}",
-                hazard.id, hazard.kind, hazard.severity
+        labels.push(SemanticLabel {
+            text: format!("hazard: {} {:.2}", hazard.kind, hazard.severity),
+            position: vec3(
+                (hazard.bounds_min[0] + hazard.bounds_max[0]) as f32 * 0.5,
+                (hazard.bounds_min[1] + hazard.bounds_max[1]) as f32 * 0.5,
+                (hazard.bounds_min[2] + hazard.bounds_max[2]) as f32 * 0.5,
             ),
-            x,
-            y,
-            17.0,
-            hazard_color(&hazard.kind),
-        );
-        y += 19.0;
+            color: hazard_color(&hazard.kind),
+            priority: 3,
+        });
     }
-
-    y += 8.0;
-    draw_text("Factions", x, y, 21.0, Color::new(0.80, 0.82, 1.0, 1.0));
-    y += 22.0;
     for faction in saved.factions.iter().take(4) {
-        draw_text(
-            &format!("{} influence {:.2}", faction.name, faction.influence),
-            x,
-            y,
-            17.0,
-            LIGHTGRAY,
-        );
-        y += 19.0;
+        if let Some(route_id) = faction.controlled_route_ids.first() {
+            if let Some(edge) = saved.transit_graph.edges.get(*route_id) {
+                let position = edge
+                    .points
+                    .get(edge.points.len() / 2)
+                    .copied()
+                    .unwrap_or([0, 0, 0]);
+                labels.push(SemanticLabel {
+                    text: format!("{} {:.2}", faction.name, faction.influence),
+                    position: point_to_vec3(position) + vec3(0.0, 1.4, 0.0),
+                    color: Color::new(0.80, 0.82, 1.0, 1.0),
+                    priority: 2,
+                });
+            }
+        }
     }
+    if let Some((x, y, z)) = app.selected_cell {
+        let cell = app.generator.get(x, z, y);
+        let room = app
+            .generator
+            .nearest_room_label(x, y, z)
+            .unwrap_or("untyped");
+        labels.push(SemanticLabel {
+            text: format!("selected {} / {}", cell.name(), room),
+            position: vec3(x as f32, y as f32 + 1.2, z as f32),
+            color: YELLOW,
+            priority: 8,
+        });
+    }
+    labels
+}
+
+fn project_world_label(camera: &Camera3D, position: Vec3, max_distance: f32) -> Option<Vec2> {
+    if camera.position.distance(position) > max_distance {
+        return None;
+    }
+    let clip = camera.matrix() * vec4(position.x, position.y, position.z, 1.0);
+    if clip.w <= 0.0 {
+        return None;
+    }
+    let ndc = vec3(clip.x / clip.w, clip.y / clip.w, clip.z / clip.w);
+    if ndc.z < -1.0 || ndc.z > 1.0 || ndc.x.abs() > 1.05 || ndc.y.abs() > 1.05 {
+        return None;
+    }
+    Some(vec2(
+        (ndc.x + 1.0) * 0.5 * screen_width(),
+        (1.0 - ndc.y) * 0.5 * screen_height(),
+    ))
+}
+
+fn draw_label_box(position: Vec2, text: &str, color: Color) {
+    let metrics = measure_text(text, None, 18, 1.0);
+    let x =
+        (position.x - metrics.width * 0.5 - 8.0).clamp(8.0, screen_width() - metrics.width - 24.0);
+    let y = (position.y - 30.0).clamp(48.0, screen_height() - 28.0);
+    draw_line(position.x, position.y, x + 8.0, y + 14.0, 1.0, color);
+    draw_rectangle(
+        x,
+        y,
+        metrics.width + 16.0,
+        24.0,
+        Color::new(0.0, 0.0, 0.0, 0.66),
+    );
+    draw_rectangle_lines(x, y, metrics.width + 16.0, 24.0, 1.0, color);
+    draw_text(text, x + 8.0, y + 17.0, 18.0, color);
 }
 
 fn active_phase(structure: &SavedStructure) -> Option<&structure::TemporalPhaseRecord> {
@@ -1773,6 +1831,7 @@ pub async fn run(options: RuntimeOptions) {
         }
 
         draw_overlay(&app);
+        draw_projected_semantic_labels(&app, &render_camera);
         if app.screenshot_requested {
             take_screenshot(app.current_seed(), app.profile_name());
             app.screenshot_requested = false;
