@@ -4,7 +4,7 @@ use std::path::Path;
 use crate::scenario::{self, ScenarioRecord};
 use crate::structure::{self, SavedStructure, StructureResult, STRUCTURE_SCHEMA_VERSION};
 
-const SCENARIO_SCHEMA_VERSION: &str = "gibson.scenario.v1";
+const SCENARIO_SCHEMA_VERSION: &str = "gibson.scenario.v2";
 const MAX_CELL_ID: u8 = 11;
 
 pub fn validate_file(path: impl AsRef<Path>) -> StructureResult<Vec<String>> {
@@ -153,6 +153,22 @@ pub fn validate_scenario(scenario: &ScenarioRecord) -> StructureResult<()> {
         "scenario has no objective routes",
     )?;
     ensure(!scenario.landmarks.is_empty(), "scenario has no landmarks")?;
+    ensure(
+        !scenario.objective_chains.is_empty(),
+        "scenario has no objective chains",
+    )?;
+    ensure(
+        !scenario.route_constraints.is_empty(),
+        "scenario has no route constraints",
+    )?;
+    ensure(
+        !scenario.hazard_timings.is_empty(),
+        "scenario has no timed hazards",
+    )?;
+    ensure(
+        !scenario.alternate_endings.is_empty(),
+        "scenario has no alternate endings",
+    )?;
     Ok(())
 }
 

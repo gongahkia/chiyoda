@@ -14,11 +14,17 @@
     "objective_room_ids",
     "hazard_ids",
     "faction_conflicts",
-    "landmarks"
+    "landmarks",
+    "objective_chains",
+    "route_constraints",
+    "faction_choices",
+    "hazard_timings",
+    "failure_states",
+    "alternate_endings"
   ],
   "properties": {
     "schema_version": {
-      "const": "gibson.scenario.v1"
+      "const": "gibson.scenario.v2"
     },
     "seed": {
       "type": "string",
@@ -56,6 +62,57 @@
     "landmarks": {
       "type": "array",
       "minItems": 1
+    },
+    "objective_chains": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["id", "label", "route_ids", "room_ids", "landmark_ids", "required"]
+      }
+    },
+    "route_constraints": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["route_id", "constraint", "pressure"],
+        "properties": {
+          "route_id": { "type": "integer", "minimum": 0 },
+          "constraint": { "type": "string" },
+          "pressure": { "type": "number", "minimum": 0, "maximum": 1 }
+        }
+      }
+    },
+    "faction_choices": {
+      "type": "array"
+    },
+    "hazard_timings": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["hazard_id", "phase", "cycle_hour", "severity"],
+        "properties": {
+          "hazard_id": { "type": "integer", "minimum": 0 },
+          "phase": { "type": "string" },
+          "cycle_hour": { "type": "integer", "minimum": 0, "maximum": 23 },
+          "severity": { "type": "number", "minimum": 0, "maximum": 1 }
+        }
+      }
+    },
+    "failure_states": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string" }
+    },
+    "alternate_endings": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["label", "condition", "consequence"]
+      }
     }
   },
   "$defs": {

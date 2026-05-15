@@ -15,6 +15,12 @@ pub struct ScenarioRecord {
     pub hazard_ids: Vec<usize>,
     pub faction_conflicts: Vec<ScenarioConflictRecord>,
     pub landmarks: Vec<ScenarioLandmarkRecord>,
+    pub objective_chains: Vec<ScenarioObjectiveRecord>,
+    pub route_constraints: Vec<ScenarioRouteConstraintRecord>,
+    pub faction_choices: Vec<ScenarioFactionChoiceRecord>,
+    pub hazard_timings: Vec<ScenarioHazardTimingRecord>,
+    pub failure_states: Vec<String>,
+    pub alternate_endings: Vec<ScenarioEndingRecord>,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -31,6 +37,47 @@ pub struct ScenarioLandmarkRecord {
     pub name: String,
     pub kind: String,
     pub position: [usize; 3],
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct ScenarioObjectiveRecord {
+    pub id: usize,
+    pub label: String,
+    pub route_ids: Vec<usize>,
+    pub room_ids: Vec<usize>,
+    pub landmark_ids: Vec<usize>,
+    pub required: bool,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct ScenarioRouteConstraintRecord {
+    pub route_id: usize,
+    pub constraint: String,
+    pub pressure: f32,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct ScenarioFactionChoiceRecord {
+    pub faction_id: usize,
+    pub label: String,
+    pub benefit: String,
+    pub cost: String,
+    pub affected_route_ids: Vec<usize>,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct ScenarioHazardTimingRecord {
+    pub hazard_id: usize,
+    pub phase: String,
+    pub cycle_hour: usize,
+    pub severity: f32,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct ScenarioEndingRecord {
+    pub label: String,
+    pub condition: String,
+    pub consequence: String,
 }
 
 pub fn generate_scenario(structure: &SavedStructure) -> ScenarioRecord {
@@ -51,38 +98,49 @@ pub fn generate_scenario(structure: &SavedStructure) -> ScenarioRecord {
             position: landmark.position,
         })
         .collect();
+    let objective_route_ids = main_path
+        .map(|path| path.route_ids.clone())
+        .unwrap_or_default();
+    let objective_room_ids = main_path
+        .map(|path| path.room_ids.clone())
+        .unwrap_or_default();
+    let hazard_ids: Vec<_> = structure
+        .hazard_zones
+        .iter()
+        .filter(|hazard| hazard.severity >= 0.5)
+        .map(|hazard| hazard.id)
+        .take(12)
+        .collect();
+    let faction_conflicts: Vec<_> = structure
+        .contested_borders
+        .iter()
+        .take(12)
+        .map(|conflict| ScenarioConflictRecord {
+            border_id: conflict.border_id,
+            faction_ids: conflict.faction_ids.clone(),
+            intensity: conflict.intensity,
+            reason: conflict.reason.clone(),
+        })
+        .collect();
+    let objective_chains = objective_chains(&objective_route_ids, &objective_room_ids, &landmarks);
     ScenarioRecord {
-        schema_version: "gibson.scenario.v1".to_owned(),
+        schema_version: "gibson.scenario.v2".to_owned(),
         seed: structure.seed.clone(),
         profile: structure.metadata.profile.clone(),
         title: scenario_title(structure),
         start,
         goal,
-        objective_route_ids: main_path
-            .map(|path| path.route_ids.clone())
-            .unwrap_or_default(),
-        objective_room_ids: main_path
-            .map(|path| path.room_ids.clone())
-            .unwrap_or_default(),
-        hazard_ids: structure
-            .hazard_zones
-            .iter()
-            .filter(|hazard| hazard.severity >= 0.5)
-            .map(|hazard| hazard.id)
-            .take(12)
-            .collect(),
-        faction_conflicts: structure
-            .contested_borders
-            .iter()
-            .take(12)
-            .map(|conflict| ScenarioConflictRecord {
-                border_id: conflict.border_id,
-                faction_ids: conflict.faction_ids.clone(),
-                intensity: conflict.intensity,
-                reason: conflict.reason.clone(),
-            })
-            .collect(),
+        objective_route_ids: objective_route_ids.clone(),
+        objective_room_ids: objective_room_ids.clone(),
+        hazard_ids: hazard_ids.clone(),
+        faction_conflicts: faction_conflicts.clone(),
         landmarks,
+        objective_chains,
+        route_constraints: route_constraints(structure, &objective_route_ids),
+        faction_choices: faction_choices(structure, &faction_conflicts),
+        hazard_timings: hazard_timings(structure, &hazard_ids),
+        failure_states: failure_states(structure),
+        alternate_endings: alternate_endings(structure),
     }
 }
 
@@ -111,6 +169,177 @@ fn scenario_title(structure: &SavedStructure) -> String {
     format!("{} / {}", structure.seed, landmark)
 }
 
+fn objective_chains(
+    route_ids: &[usize],
+    room_ids: &[usize],
+    landmarks: &[ScenarioLandmarkRecord],
+) -> Vec<ScenarioObjectiveRecord> {
+    let landmark_ids: Vec<_> = landmarks.iter().map(|landmark| landmark.id).collect();
+    [
+        ("enter through maintenance access", 0usize, 3usize, true),
+        ("cross contested circulation", 3, 7, true),
+        ("reach the skyline objective", 7, route_ids.len(), true),
+    ]
+    .into_iter()
+    .enumerate()
+    .map(
+        |(id, (label, start, end, required))| ScenarioObjectiveRecord {
+            id,
+            label: label.to_owned(),
+            route_ids: slice_ids(route_ids, start, end),
+            room_ids: slice_ids(room_ids, start * 4, end * 8),
+            landmark_ids: slice_ids(&landmark_ids, id * 2, id * 2 + 3),
+            required,
+        },
+    )
+    .filter(|objective| !objective.route_ids.is_empty() || !objective.room_ids.is_empty())
+    .collect()
+}
+
+fn route_constraints(
+    structure: &SavedStructure,
+    objective_route_ids: &[usize],
+) -> Vec<ScenarioRouteConstraintRecord> {
+    objective_route_ids
+        .iter()
+        .filter_map(|route_id| structure.transit_graph.edges.get(*route_id))
+        .map(|edge| {
+            let constraint = match edge.role.as_str() {
+                "restricted_spine" => "corp checkpoint",
+                "market_run" => "crowd congestion",
+                "evacuation_route" => "exposed crossing",
+                "maintenance_backbone" => "access key required",
+                "service_loop" => "low clearance crawl",
+                _ => "route surveillance",
+            };
+            ScenarioRouteConstraintRecord {
+                route_id: edge.id,
+                constraint: constraint.to_owned(),
+                pressure: route_pressure(edge),
+            }
+        })
+        .collect()
+}
+
+fn faction_choices(
+    structure: &SavedStructure,
+    conflicts: &[ScenarioConflictRecord],
+) -> Vec<ScenarioFactionChoiceRecord> {
+    conflicts
+        .iter()
+        .take(5)
+        .filter_map(|conflict| {
+            let faction_id = *conflict.faction_ids.first()?;
+            let faction = structure.factions.get(faction_id)?;
+            Some(ScenarioFactionChoiceRecord {
+                faction_id,
+                label: format!("negotiate with {}", faction.name),
+                benefit: faction_benefit(&faction.agenda).to_owned(),
+                cost: "raises pressure with the opposing border faction".to_owned(),
+                affected_route_ids: structure
+                    .district_borders
+                    .iter()
+                    .find(|border| border.id == conflict.border_id)
+                    .map(|border| border.route_ids.clone())
+                    .unwrap_or_default(),
+            })
+        })
+        .collect()
+}
+
+fn hazard_timings(
+    structure: &SavedStructure,
+    hazard_ids: &[usize],
+) -> Vec<ScenarioHazardTimingRecord> {
+    hazard_ids
+        .iter()
+        .filter_map(|hazard_id| {
+            let hazard = structure.hazard_zones.get(*hazard_id)?;
+            let phase = structure
+                .temporal_state
+                .phases
+                .iter()
+                .find(|phase| phase.affected_hazard_ids.contains(hazard_id))
+                .or_else(|| structure.temporal_state.phases.first())?;
+            Some(ScenarioHazardTimingRecord {
+                hazard_id: *hazard_id,
+                phase: phase.name.clone(),
+                cycle_hour: phase.cycle_hour,
+                severity: hazard.severity,
+            })
+        })
+        .collect()
+}
+
+fn failure_states(structure: &SavedStructure) -> Vec<String> {
+    vec![
+        "objective route collapses before alternate path is found".to_owned(),
+        "corp checkpoint locks the restricted spine".to_owned(),
+        format!(
+            "topology quality drops below {:.2} after hazard escalation",
+            structure.path_analysis.quality_score
+        ),
+    ]
+}
+
+fn alternate_endings(structure: &SavedStructure) -> Vec<ScenarioEndingRecord> {
+    vec![
+        ScenarioEndingRecord {
+            label: "quiet extraction".to_owned(),
+            condition: "avoid severe hazards and keep faction conflicts cold".to_owned(),
+            consequence: "main route remains usable for future runs".to_owned(),
+        },
+        ScenarioEndingRecord {
+            label: "market uprising".to_owned(),
+            condition: "side with market or slum factions at contested borders".to_owned(),
+            consequence: "commercial corridors open while security thresholds harden".to_owned(),
+        },
+        ScenarioEndingRecord {
+            label: "skyline breach".to_owned(),
+            condition: format!(
+                "reach goal at ({}, {}, {})",
+                structure.size / 2,
+                structure.layers.saturating_sub(2),
+                structure.size / 2
+            ),
+            consequence: "the skyline vault becomes a new landmark for sequel exports".to_owned(),
+        },
+    ]
+}
+
+fn slice_ids(ids: &[usize], start: usize, end: usize) -> Vec<usize> {
+    ids.iter()
+        .skip(start)
+        .take(end.saturating_sub(start))
+        .copied()
+        .collect()
+}
+
+fn route_pressure(edge: &crate::structure::TransitEdgeRecord) -> f32 {
+    let base = match edge.role.as_str() {
+        "restricted_spine" => 0.9,
+        "evacuation_route" => 0.75,
+        "market_run" => 0.65,
+        "maintenance_backbone" => 0.55,
+        _ => 0.45,
+    };
+    (base + edge.length as f32 / 180.0).clamp(0.0, 1.0)
+}
+
+fn faction_benefit(agenda: &str) -> &'static str {
+    if agenda.contains("security") {
+        "temporary checkpoint credentials"
+    } else if agenda.contains("trade") {
+        "safe passage through market congestion"
+    } else if agenda.contains("repair") {
+        "restored power on one service loop"
+    } else if agenda.contains("salvage") {
+        "alternate crawl route through debris"
+    } else {
+        "local guides reveal a hidden landmark"
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -122,10 +351,14 @@ mod tests {
         let structure =
             generate_saved_structure("ABCD1234".to_owned(), GenerationConfig::default()).unwrap();
         let scenario = generate_scenario(&structure);
-        assert_eq!(scenario.schema_version, "gibson.scenario.v1");
+        assert_eq!(scenario.schema_version, "gibson.scenario.v2");
         assert_eq!(scenario.seed, structure.seed);
         assert!(!scenario.objective_route_ids.is_empty());
         assert!(!scenario.landmarks.is_empty());
+        assert!(!scenario.objective_chains.is_empty());
+        assert!(!scenario.route_constraints.is_empty());
+        assert!(!scenario.hazard_timings.is_empty());
+        assert!(!scenario.alternate_endings.is_empty());
         assert!(to_json(&scenario).unwrap().contains("faction_conflicts"));
     }
 }
