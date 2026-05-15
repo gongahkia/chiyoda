@@ -24,6 +24,27 @@ struct RenderWorld {
     translucent_chunks: Vec<SpatialChunk>,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum OverlayMode {
+    None,
+    Transit,
+    Districts,
+    Strata,
+    Debug,
+}
+
+impl OverlayMode {
+    fn name(self) -> &'static str {
+        match self {
+            Self::None => "off",
+            Self::Transit => "transit",
+            Self::Districts => "districts",
+            Self::Strata => "strata",
+            Self::Debug => "debug",
+        }
+    }
+}
+
 fn cell_style(
     generator: &MegaStructureGenerator,
     x: usize,
@@ -656,6 +677,7 @@ struct AppState {
     enable_postfx: bool,
     inspection_mode: bool,
     show_legend: bool,
+    overlay_mode: OverlayMode,
     selected_cell: Option<(usize, usize, usize)>,
     mouse_dragging: bool,
     last_mouse: Option<Vec2>,
@@ -702,6 +724,7 @@ impl AppState {
             enable_postfx: false,
             inspection_mode: false,
             show_legend: true,
+            overlay_mode: OverlayMode::None,
             selected_cell: None,
             mouse_dragging: false,
             last_mouse: None,
@@ -815,6 +838,118 @@ fn draw_world(app: &AppState, camera_position: Vec3) {
     }
 }
 
+fn draw_semantic_overlay(app: &AppState) {
+    match app.overlay_mode {
+        OverlayMode::None => {}
+        OverlayMode::Transit => draw_transit_overlay(app),
+        OverlayMode::Districts => draw_district_overlay(app),
+        OverlayMode::Strata => draw_strata_overlay(app),
+        OverlayMode::Debug => draw_debug_overlay(app),
+    }
+}
+
+fn draw_transit_overlay(app: &AppState) {
+    let graph = app.generator.transit_graph();
+    for edge in &graph.edges {
+        let color = transit_color(&edge.kind);
+        for pair in edge.points.windows(2) {
+            draw_line_3d(point_to_vec3(pair[0]), point_to_vec3(pair[1]), color);
+        }
+    }
+    for attachment in &graph.attachments {
+        draw_cube_wires(
+            point_to_vec3(attachment.position),
+            vec3(0.74, 0.74, 0.74),
+            Color::new(1.0, 0.86, 0.28, 1.0),
+        );
+    }
+    for node in &graph.nodes {
+        draw_cube_wires(
+            point_to_vec3(node.position),
+            vec3(0.92, 0.92, 0.92),
+            Color::new(0.20, 0.95, 1.0, 1.0),
+        );
+    }
+}
+
+fn draw_district_overlay(app: &AppState) {
+    for x in 0..app.generator.size {
+        for z in 0..app.generator.size {
+            let district = app.generator.district_at(x, z);
+            let rgb = DISTRICTS[district as usize].color_palette[0];
+            draw_cube_wires(
+                vec3(x as f32, 0.05, z as f32),
+                vec3(0.92, 0.10, 0.92),
+                Color::new(rgb.0, rgb.1, rgb.2, 0.88),
+            );
+        }
+    }
+}
+
+fn draw_strata_overlay(app: &AppState) {
+    for y in 0..app.generator.layers {
+        draw_cube_wires(
+            vec3(
+                app.generator.size as f32 * 0.5,
+                y as f32,
+                app.generator.size as f32 * 0.5,
+            ),
+            vec3(app.generator.size as f32, 0.06, app.generator.size as f32),
+            stratum_overlay_color(y, app.generator.layers),
+        );
+    }
+}
+
+fn draw_debug_overlay(app: &AppState) {
+    draw_transit_overlay(app);
+    for room in app.generator.rooms() {
+        draw_cube_wires(
+            point_to_vec3(room.position),
+            vec3(0.58, 0.58, 0.58),
+            room_color(&room.label),
+        );
+    }
+}
+
+fn point_to_vec3(point: [usize; 3]) -> Vec3 {
+    vec3(point[0] as f32, point[1] as f32, point[2] as f32)
+}
+
+fn transit_color(kind: &str) -> Color {
+    match kind {
+        "vertical_transit_core" => Color::new(0.35, 0.95, 1.0, 1.0),
+        "service_tunnel" => Color::new(0.95, 0.58, 0.18, 1.0),
+        "skybridge" => Color::new(0.48, 0.76, 1.0, 1.0),
+        "express_spine" => Color::new(1.0, 0.25, 0.86, 1.0),
+        _ => Color::new(1.0, 0.92, 0.35, 1.0),
+    }
+}
+
+fn room_color(label: &str) -> Color {
+    match label {
+        "DATA_VAULT" | "SKY_VAULT" => Color::new(0.35, 0.80, 1.0, 1.0),
+        "SHRINE" => Color::new(1.0, 0.72, 0.30, 1.0),
+        "MAINTENANCE_SHAFT" | "MACHINE_ROOM" => Color::new(0.95, 0.42, 0.18, 1.0),
+        label if label.contains("TRANSIT") || label.contains("CHOKEPOINT") => {
+            Color::new(0.20, 1.0, 0.78, 1.0)
+        }
+        _ => Color::new(0.86, 0.86, 0.60, 1.0),
+    }
+}
+
+fn stratum_overlay_color(y: usize, layers: usize) -> Color {
+    let normalized = y as f32 / layers.max(1) as f32;
+    if normalized < 0.20 {
+        Color::new(0.78, 0.34, 0.18, 0.9)
+    } else if normalized < 0.45 {
+        Color::new(0.92, 0.74, 0.36, 0.9)
+    } else if normalized < 0.75 {
+        Color::new(0.34, 0.72, 0.86, 0.9)
+    } else {
+        Color::new(0.76, 0.50, 1.0, 0.9)
+    }
+}
+
 fn draw_overlay(app: &AppState) {
     let padding = 12.0;
     let line_height = 22.0;
@@ -845,7 +980,8 @@ fn draw_overlay(app: &AppState) {
         "1-5: Presets | TAB: FPS | Space: Jump",
         "R: Regenerate | S: Screenshot | I: Inspect",
         "P: PostFX | [ ]: Fog | - =: Bloom",
-        "L: Legend | Q/Esc: Quit",
+        "L: Legend | T/Z/X/C: Graph/Zone/Strata/Debug",
+        "Q/Esc: Quit",
     ];
     let mut y = 70.0;
     for line in controls {
@@ -865,6 +1001,16 @@ fn draw_overlay(app: &AppState) {
         y,
         20.0,
         Color::new(1.0, 1.0, 0.55, 1.0),
+    );
+    y += line_height;
+
+    draw_rectangle(8.0, y - 18.0, 250.0, 22.0, Color::new(0.0, 0.0, 0.0, 0.55));
+    draw_text(
+        &format!("Overlay: {}", app.overlay_mode.name()),
+        padding,
+        y,
+        20.0,
+        Color::new(0.78, 0.78, 0.78, 1.0),
     );
     y += line_height;
 
@@ -946,12 +1092,12 @@ fn draw_overlay(app: &AppState) {
     }
 
     if app.show_legend {
-        let legend_y = screen_height() - 182.0;
+        let legend_y = screen_height() - 206.0;
         draw_rectangle(
             8.0,
             legend_y - 88.0,
             310.0,
-            258.0,
+            282.0,
             Color::new(0.0, 0.0, 0.0, 0.65),
         );
         draw_text("Structure", padding, legend_y - 62.0, 24.0, WHITE);
@@ -987,6 +1133,20 @@ fn draw_overlay(app: &AppState) {
             );
             draw_text(label, 42.0, ly, 20.0, LIGHTGRAY);
             ly += 22.0;
+        }
+        draw_text("Transit", padding + 142.0, legend_y + 24.0, 24.0, WHITE);
+        for (index, (label, color)) in [
+            ("Core", transit_color("vertical_transit_core")),
+            ("Tunnel", transit_color("service_tunnel")),
+            ("Sky", transit_color("skybridge")),
+            ("Express", transit_color("express_spine")),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let y = legend_y + 44.0 + index as f32 * 22.0;
+            draw_rectangle(158.0, y - 12.0, 16.0, 16.0, color);
+            draw_text(label, 184.0, y, 20.0, LIGHTGRAY);
         }
     }
 }
@@ -1140,6 +1300,34 @@ pub async fn run(options: RuntimeOptions) {
         if is_key_pressed(KeyCode::L) {
             app.show_legend = !app.show_legend;
         }
+        if is_key_pressed(KeyCode::T) {
+            app.overlay_mode = if app.overlay_mode == OverlayMode::Transit {
+                OverlayMode::None
+            } else {
+                OverlayMode::Transit
+            };
+        }
+        if is_key_pressed(KeyCode::Z) {
+            app.overlay_mode = if app.overlay_mode == OverlayMode::Districts {
+                OverlayMode::None
+            } else {
+                OverlayMode::Districts
+            };
+        }
+        if is_key_pressed(KeyCode::X) {
+            app.overlay_mode = if app.overlay_mode == OverlayMode::Strata {
+                OverlayMode::None
+            } else {
+                OverlayMode::Strata
+            };
+        }
+        if is_key_pressed(KeyCode::C) {
+            app.overlay_mode = if app.overlay_mode == OverlayMode::Debug {
+                OverlayMode::None
+            } else {
+                OverlayMode::Debug
+            };
+        }
         if is_key_down(KeyCode::LeftBracket) {
             app.fog_density = (app.fog_density - 0.01).max(0.0);
         }
@@ -1254,6 +1442,7 @@ pub async fn run(options: RuntimeOptions) {
         clear_background(Color::new(0.05, 0.05, 0.08, 1.0));
         let camera_position = render_camera.position;
         draw_world(&app, camera_position);
+        draw_semantic_overlay(&app);
 
         set_default_camera();
         clear_background(Color::new(0.05, 0.05, 0.08, 1.0));

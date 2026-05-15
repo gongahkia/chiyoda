@@ -5,6 +5,7 @@ use crate::config::GenerationConfig;
 use crate::seed::{seed_hash, Rng32};
 use crate::structure::{
     self, ConnectionRecord, RoomRecord, SavedStructure, StructureMetadata, StructureResult,
+    TransitAttachmentRecord, TransitEdgeRecord, TransitGraphRecord, TransitNodeRecord,
     STRUCTURE_SCHEMA_VERSION,
 };
 
@@ -907,6 +908,9 @@ pub struct MegaStructureGenerator {
     district_map: Vec<DistrictType>,
     connections: Vec<ConnectionRecord>,
     rooms: Vec<RoomRecord>,
+    transit_nodes: Vec<TransitNodeRecord>,
+    transit_edges: Vec<TransitEdgeRecord>,
+    transit_attachments: Vec<TransitAttachmentRecord>,
     pattern_counts: BTreeMap<String, usize>,
 }
 
@@ -932,6 +936,9 @@ impl MegaStructureGenerator {
             district_map: vec![DistrictType::Residential; size * size],
             connections: Vec::new(),
             rooms: Vec::new(),
+            transit_nodes: Vec::new(),
+            transit_edges: Vec::new(),
+            transit_attachments: Vec::new(),
             pattern_counts: BTreeMap::new(),
         };
         generator.generate_district_map();
@@ -971,13 +978,73 @@ impl MegaStructureGenerator {
         self.record_pattern(kind);
     }
 
-    fn push_room(&mut self, position: [usize; 3], district: DistrictType, label: &str) {
+    fn push_room(&mut self, position: [usize; 3], district: DistrictType, label: &str) -> usize {
+        let id = self.rooms.len();
         self.rooms.push(RoomRecord {
+            id,
             position,
             district: district.name().to_owned(),
             label: label.to_owned(),
         });
         self.record_pattern("landmark_shell");
+        id
+    }
+
+    fn push_transit_node(&mut self, kind: &str, position: [usize; 3]) -> usize {
+        let id = self.transit_nodes.len();
+        let district = self.district_at(
+            position[0].min(self.size - 1),
+            position[2].min(self.size - 1),
+        );
+        self.transit_nodes.push(TransitNodeRecord {
+            id,
+            kind: kind.to_owned(),
+            position,
+            district: district.name().to_owned(),
+            stratum: biome_for_y(position[1].min(self.layers - 1))
+                .name()
+                .to_owned(),
+        });
+        id
+    }
+
+    fn push_transit_edge(
+        &mut self,
+        kind: &str,
+        start_node: usize,
+        end_node: usize,
+        points: Vec<[usize; 3]>,
+    ) -> usize {
+        let id = self.transit_edges.len();
+        let stratum = points
+            .first()
+            .map(|point| biome_for_y(point[1].min(self.layers - 1)).name().to_owned())
+            .unwrap_or_else(|| "SURFACE".to_owned());
+        self.transit_edges.push(TransitEdgeRecord {
+            id,
+            kind: kind.to_owned(),
+            start_node,
+            end_node,
+            length: points.len(),
+            points,
+            stratum,
+        });
+        id
+    }
+
+    fn push_transit_attachment(
+        &mut self,
+        route_id: usize,
+        room_id: usize,
+        attachment_kind: &str,
+        position: [usize; 3],
+    ) {
+        self.transit_attachments.push(TransitAttachmentRecord {
+            route_id,
+            room_id,
+            attachment_kind: attachment_kind.to_owned(),
+            position,
+        });
     }
 
     fn support_at(&self, x: usize, z: usize, y: usize) -> bool {
@@ -1063,6 +1130,18 @@ impl MegaStructureGenerator {
             })
             .min_by_key(|(distance, _)| *distance)
             .map(|(_, label)| label)
+    }
+
+    pub(crate) fn rooms(&self) -> &[RoomRecord] {
+        &self.rooms
+    }
+
+    pub(crate) fn transit_graph(&self) -> TransitGraphRecord {
+        TransitGraphRecord {
+            nodes: self.transit_nodes.clone(),
+            edges: self.transit_edges.clone(),
+            attachments: self.transit_attachments.clone(),
+        }
     }
 
     fn phase1_skeleton(&mut self) {
@@ -1370,6 +1449,9 @@ impl MegaStructureGenerator {
     fn add_vertical_transit_core(&mut self, hub: (usize, usize)) {
         let (x, z) = hub;
         let district = self.district_at(x, z);
+        let bottom_node = self.push_transit_node("vertical_core_base", [x, 0, z]);
+        let top_node =
+            self.push_transit_node("vertical_core_top", [x, self.layers.saturating_sub(1), z]);
         for y in 0..self.layers {
             let cell = if y % 4 == 0 {
                 CellType::Elevator
@@ -1395,6 +1477,8 @@ impl MegaStructureGenerator {
             [x, 0, z],
             [x, self.layers.saturating_sub(1), z],
         );
+        let points = (0..self.layers).map(|y| [x, y, z]).collect();
+        self.push_transit_edge("vertical_transit_core", bottom_node, top_node, points);
     }
 
     fn carve_route(
@@ -1416,17 +1500,31 @@ impl MegaStructureGenerator {
             "skybridge" | "express_spine" => CellType::Bridge,
             _ => CellType::Horizontal,
         };
+        let start_node = self.push_transit_node("route_junction", [start_x, y, start_z]);
+        let end_node =
+            self.push_transit_node("route_junction", [end_x as usize, y, end_z as usize]);
+        let mut points = Vec::new();
 
         while x != end_x {
             self.paint_route_cell(x as usize, z as usize, y, route_cell, kind);
+            points.push([x as usize, y, z as usize]);
             x += (end_x - x).signum();
         }
         while z != end_z {
             self.paint_route_cell(x as usize, z as usize, y, route_cell, kind);
+            points.push([x as usize, y, z as usize]);
             z += (end_z - z).signum();
         }
         self.paint_route_cell(x as usize, z as usize, y, route_cell, kind);
-        self.attach_route_rooms(start_x, start_z, end_x as usize, end_z as usize, y, kind);
+        points.push([x as usize, y, z as usize]);
+        let route_id = self.push_transit_edge(kind, start_node, end_node, points);
+        self.attach_route_rooms(
+            route_id,
+            (start_x, start_z),
+            (end_x as usize, end_z as usize),
+            y,
+            kind,
+        );
 
         self.push_connection(
             kind,
@@ -1457,32 +1555,39 @@ impl MegaStructureGenerator {
 
     fn attach_route_rooms(
         &mut self,
-        start_x: usize,
-        start_z: usize,
-        end_x: usize,
-        end_z: usize,
+        route_id: usize,
+        start: (usize, usize),
+        end: (usize, usize),
         y: usize,
         kind: &str,
     ) {
-        let steps = start_x.abs_diff(end_x).max(start_z.abs_diff(end_z)).max(1);
+        let steps = start.0.abs_diff(end.0).max(start.1.abs_diff(end.1)).max(1);
         let interval = (steps / 3).max(2);
         for step in (0..=steps).step_by(interval) {
             let t = step as f32 / steps as f32;
-            let x = lerpf(start_x as f32, end_x as f32, t).round() as usize;
-            let z = lerpf(start_z as f32, end_z as f32, t).round() as usize;
+            let x = lerpf(start.0 as f32, end.0 as f32, t).round() as usize;
+            let z = lerpf(start.1 as f32, end.1 as f32, t).round() as usize;
             let district = self.district_at(x.min(self.size - 1), z.min(self.size - 1));
             let stratum = biome_for_y(y);
             let label = route_room_label(kind, district, stratum);
-            self.push_room(
+            let position = [x.min(self.size - 1), y, z.min(self.size - 1)];
+            let room_id = self.push_room(
                 [x.min(self.size - 1), y, z.min(self.size - 1)],
                 district,
                 label,
             );
+            self.push_transit_attachment(route_id, room_id, "route_room", position);
             self.paint_route_attachment(x, z, y, kind);
         }
-        self.add_route_dead_end(end_x, end_z, y, kind);
+        self.add_route_dead_end(route_id, end.0, end.1, y, kind);
         if steps > self.size / 3 {
-            self.add_route_chokepoint((start_x + end_x) / 2, (start_z + end_z) / 2, y, kind);
+            self.add_route_chokepoint(
+                route_id,
+                (start.0 + end.0) / 2,
+                (start.1 + end.1) / 2,
+                y,
+                kind,
+            );
         }
     }
 
@@ -1506,23 +1611,22 @@ impl MegaStructureGenerator {
         }
     }
 
-    fn add_route_dead_end(&mut self, x: usize, z: usize, y: usize, kind: &str) {
+    fn add_route_dead_end(&mut self, route_id: usize, x: usize, z: usize, y: usize, kind: &str) {
         let district = self.district_at(x.min(self.size - 1), z.min(self.size - 1));
         let label = match kind {
             "service_tunnel" => "MAINTENANCE_DEAD_END",
             "skybridge" | "express_spine" => "SKYBRIDGE_TERMINAL",
             _ => "CORRIDOR_DEAD_END",
         };
-        self.push_room(
-            [x.min(self.size - 1), y, z.min(self.size - 1)],
-            district,
-            label,
-        );
+        let position = [x.min(self.size - 1), y, z.min(self.size - 1)];
+        let room_id = self.push_room(position, district, label);
+        self.push_transit_node("dead_end", position);
+        self.push_transit_attachment(route_id, room_id, "dead_end", position);
         let connection_kind = kind_name(kind, "dead_end");
         self.push_connection(&connection_kind, [x, y, z], [x, y, z]);
     }
 
-    fn add_route_chokepoint(&mut self, x: usize, z: usize, y: usize, kind: &str) {
+    fn add_route_chokepoint(&mut self, route_id: usize, x: usize, z: usize, y: usize, kind: &str) {
         let x = x.min(self.size - 1);
         let z = z.min(self.size - 1);
         self.set(x, z, y, CellType::Stair, true);
@@ -1530,7 +1634,10 @@ impl MegaStructureGenerator {
             self.set(x, z, y + 1, CellType::Elevator, false);
         }
         let district = self.district_at(x, z);
-        self.push_room([x, y, z], district, "ROUTE_CHOKEPOINT");
+        let position = [x, y, z];
+        let room_id = self.push_room(position, district, "ROUTE_CHOKEPOINT");
+        self.push_transit_node("chokepoint", position);
+        self.push_transit_attachment(route_id, room_id, "chokepoint", position);
         let connection_kind = kind_name(kind, "chokepoint");
         self.push_connection(&connection_kind, [x, y, z], [x, y, z]);
     }
@@ -2303,17 +2410,21 @@ impl MegaStructureGenerator {
             pattern_counts: self.pattern_counts.clone(),
             room_count: self.rooms.len(),
             connection_count: self.connections.len(),
+            transit_node_count: self.transit_nodes.len(),
+            transit_edge_count: self.transit_edges.len(),
+            transit_attachment_count: self.transit_attachments.len(),
             occupied_cell_ratio: occupied as f32 / total_cells as f32,
         };
-        SavedStructure::new(
-            self.seed.clone(),
-            self.size,
-            self.layers,
+        SavedStructure {
+            seed: self.seed.clone(),
+            size: self.size,
+            layers: self.layers,
             metadata,
             grid,
-            self.connections.clone(),
-            self.rooms.clone(),
-        )
+            connections: self.connections.clone(),
+            rooms: self.rooms.clone(),
+            transit_graph: self.transit_graph(),
+        }
     }
 
     pub fn serialize(&self) -> serde_json::Result<String> {
@@ -2638,6 +2749,55 @@ mod tests {
                     | "TRANSIT_ANNEX"
             )
         }));
+    }
+
+    #[test]
+    fn exported_transit_graph_has_valid_topology() {
+        let saved = generated("ABCD1234").saved_structure();
+        assert_eq!(
+            saved.metadata.transit_node_count,
+            saved.transit_graph.nodes.len()
+        );
+        assert_eq!(
+            saved.metadata.transit_edge_count,
+            saved.transit_graph.edges.len()
+        );
+        assert_eq!(
+            saved.metadata.transit_attachment_count,
+            saved.transit_graph.attachments.len()
+        );
+        assert!(!saved.transit_graph.nodes.is_empty());
+        assert!(!saved.transit_graph.edges.is_empty());
+        assert!(!saved.transit_graph.attachments.is_empty());
+
+        for (expected_id, node) in saved.transit_graph.nodes.iter().enumerate() {
+            assert_eq!(node.id, expected_id);
+            assert!(node.position[0] < saved.size);
+            assert!(node.position[1] < saved.layers);
+            assert!(node.position[2] < saved.size);
+        }
+
+        for (expected_id, edge) in saved.transit_graph.edges.iter().enumerate() {
+            assert_eq!(edge.id, expected_id);
+            assert!(edge.start_node < saved.transit_graph.nodes.len());
+            assert!(edge.end_node < saved.transit_graph.nodes.len());
+            assert_eq!(edge.length, edge.points.len());
+            assert!(!edge.points.is_empty());
+            for point in &edge.points {
+                assert!(point[0] < saved.size);
+                assert!(point[1] < saved.layers);
+                assert!(point[2] < saved.size);
+            }
+        }
+
+        for attachment in &saved.transit_graph.attachments {
+            assert!(attachment.route_id < saved.transit_graph.edges.len());
+            assert!(attachment.room_id < saved.rooms.len());
+            assert_eq!(saved.rooms[attachment.room_id].id, attachment.room_id);
+            assert!(attachment.position[0] < saved.size);
+            assert!(attachment.position[1] < saved.layers);
+            assert!(attachment.position[2] < saved.size);
+        }
     }
 
     #[test]
