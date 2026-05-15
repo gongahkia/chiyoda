@@ -7,7 +7,7 @@ use crate::config::GenerationConfig;
 
 pub const CURRENT_SEED_FILE: &str = "current_seed.txt";
 pub const STRUCTURE_FILE: &str = "structure.json";
-pub const STRUCTURE_SCHEMA_VERSION: &str = "gibson.structure.v2";
+pub const STRUCTURE_SCHEMA_VERSION: &str = "gibson.structure.v3";
 
 pub type StructureResult<T> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
@@ -64,8 +64,11 @@ pub struct StructureMetadata {
     pub profile: String,
     pub config: GenerationConfig,
     pub district_counts: BTreeMap<String, usize>,
+    pub stratum_counts: BTreeMap<String, usize>,
     pub cell_counts: BTreeMap<String, usize>,
     pub material_counts: BTreeMap<String, usize>,
+    pub connection_counts: BTreeMap<String, usize>,
+    pub room_counts: BTreeMap<String, usize>,
     pub room_count: usize,
     pub connection_count: usize,
     pub occupied_cell_ratio: f32,

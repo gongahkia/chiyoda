@@ -30,7 +30,7 @@ Profiles are `balanced`, `dense`, `vertical`, `decayed`, and `neon`. JSON config
 
 ## Seed
 
-Randomly generated [megastructure](https://en.wikipedia.org/wiki/Megastructure)s are seeded at `current_seed.txt` and serialised at `structure.json` with generation metadata, counts, profile, and config snapshot.
+Randomly generated [megastructure](https://en.wikipedia.org/wiki/Megastructure)s are seeded at `current_seed.txt` and serialised at `structure.json` with generation metadata, counts, profile, config snapshot, circulation routes, strata, and semantic room labels.
 
 ## Reference
 

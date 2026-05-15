@@ -108,6 +108,19 @@ enum BiomeStratum {
     Skyline = 3,
 }
 
+impl BiomeStratum {
+    const COUNT: usize = 4;
+
+    fn name(self) -> &'static str {
+        match self {
+            Self::Underground => "UNDERGROUND",
+            Self::Surface => "SURFACE",
+            Self::Midrise => "MIDRISE",
+            Self::Skyline => "SKYLINE",
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u8)]
 enum WFCTile {
@@ -992,9 +1005,12 @@ impl MegaStructureGenerator {
     pub fn generate(&mut self) {
         self.phase1_skeleton();
         self.phase2_floorplans();
+        self.phase2b_circulation_graph();
         self.apply_floor_thickness();
+        self.phase2c_district_patterns();
         self.phase3_infrastructure();
         self.phase4_erosion();
+        self.phase4b_decay_signatures();
         self.ensure_structural_integrity();
         self.add_support_pillars();
         self.carve_traversal_space();
@@ -1234,14 +1250,307 @@ impl MegaStructureGenerator {
                     if adjacent {
                         self.set(x, z, y, cell, true);
                         if tile == WFCTile::RoomCenter as usize {
+                            let local_district = self.district_at(x, z);
                             self.rooms.push(RoomRecord {
                                 position: [x, y, z],
-                                district: district.name().to_owned(),
-                                label: "ROOM_CENTER".to_owned(),
+                                district: local_district.name().to_owned(),
+                                label: room_label(local_district, stratum).to_owned(),
                             });
                         }
                     }
                 }
+            }
+        }
+    }
+
+    fn phase2b_circulation_graph(&mut self) {
+        let hubs = self.select_transit_hubs();
+        for hub in &hubs {
+            self.add_vertical_transit_core(*hub);
+        }
+
+        for pair in hubs.windows(2) {
+            let start = pair[0];
+            let end = pair[1];
+            let y = route_layer_for_hubs(start, end, self.layers);
+            let kind = route_kind_for_y(y, self.layers);
+            self.carve_route(start.0, start.1, end.0, end.1, y, kind);
+        }
+
+        if hubs.len() > 2 {
+            let first = hubs[0];
+            let last = hubs[hubs.len() - 1];
+            let y = (self.layers * 2 / 3).clamp(1, self.layers.saturating_sub(1));
+            self.carve_route(first.0, first.1, last.0, last.1, y, "express_spine");
+        }
+    }
+
+    fn select_transit_hubs(&mut self) -> Vec<(usize, usize)> {
+        let mut hubs = Vec::new();
+        let target = (4 + (self.size / 14)).clamp(4, 8);
+        let center = self.size / 2;
+        hubs.push((center, center));
+
+        let stride = (self.size / 4).max(4);
+        for x in (stride / 2..self.size).step_by(stride) {
+            for z in (stride / 2..self.size).step_by(stride) {
+                if hubs.len() >= target {
+                    break;
+                }
+                let district = self.district_at(x, z);
+                let density_bias = match district {
+                    DistrictType::Commercial | DistrictType::Slum => 0.75,
+                    DistrictType::Industrial => 0.60,
+                    DistrictType::Residential => 0.45,
+                    DistrictType::Elite => 0.35,
+                };
+                let noise = hash_noise(self.seed_hash, x, z, 0);
+                if noise < density_bias {
+                    hubs.push((x, z));
+                }
+            }
+            if hubs.len() >= target {
+                break;
+            }
+        }
+
+        while hubs.len() < target {
+            hubs.push((
+                self.rng.range_usize(2, self.size.saturating_sub(3).max(2)),
+                self.rng.range_usize(2, self.size.saturating_sub(3).max(2)),
+            ));
+        }
+
+        hubs.sort_unstable();
+        hubs.dedup();
+        hubs
+    }
+
+    fn add_vertical_transit_core(&mut self, hub: (usize, usize)) {
+        let (x, z) = hub;
+        let district = self.district_at(x, z);
+        for y in 0..self.layers {
+            let cell = if y % 4 == 0 {
+                CellType::Elevator
+            } else {
+                CellType::Stair
+            };
+            self.set(x, z, y, cell, true);
+            if x + 1 < self.size {
+                self.set(x + 1, z, y, CellType::Vertical, true);
+            }
+            if z + 1 < self.size && district != DistrictType::Elite {
+                self.set(x, z + 1, y, CellType::Vertical, true);
+            }
+        }
+        let hub_y = (self.layers / 3).max(1);
+        self.rooms.push(RoomRecord {
+            position: [x, hub_y, z],
+            district: district.name().to_owned(),
+            label: format!("{}_TRANSIT_HUB", biome_for_y(hub_y).name()),
+        });
+        self.connections.push(ConnectionRecord {
+            kind: "vertical_transit_core".to_owned(),
+            start: [x, 0, z],
+            end: [x, self.layers.saturating_sub(1), z],
+        });
+    }
+
+    fn carve_route(
+        &mut self,
+        start_x: usize,
+        start_z: usize,
+        end_x: usize,
+        end_z: usize,
+        y: usize,
+        kind: &str,
+    ) {
+        let mut x = start_x as isize;
+        let mut z = start_z as isize;
+        let end_x = end_x as isize;
+        let end_z = end_z as isize;
+        let y = y.min(self.layers.saturating_sub(1));
+        let route_cell = match kind {
+            "service_tunnel" => CellType::Horizontal,
+            "skybridge" | "express_spine" => CellType::Bridge,
+            _ => CellType::Horizontal,
+        };
+
+        while x != end_x {
+            self.paint_route_cell(x as usize, z as usize, y, route_cell, kind);
+            x += (end_x - x).signum();
+        }
+        while z != end_z {
+            self.paint_route_cell(x as usize, z as usize, y, route_cell, kind);
+            z += (end_z - z).signum();
+        }
+        self.paint_route_cell(x as usize, z as usize, y, route_cell, kind);
+
+        self.connections.push(ConnectionRecord {
+            kind: kind.to_owned(),
+            start: [start_x, y, start_z],
+            end: [end_x as usize, y, end_z as usize],
+        });
+    }
+
+    fn paint_route_cell(&mut self, x: usize, z: usize, y: usize, route_cell: CellType, kind: &str) {
+        if x >= self.size || z >= self.size || y >= self.layers {
+            return;
+        }
+        self.set(x, z, y, route_cell, true);
+        if y > 0 && kind == "service_tunnel" {
+            self.set(x, z, y - 1, CellType::Pipe, false);
+        }
+        for (dx, dz) in [(1isize, 0isize), (0, 1)] {
+            let nx = x as isize + dx;
+            let nz = z as isize + dz;
+            if nx < 0 || nz < 0 || nx >= self.size as isize || nz >= self.size as isize {
+                continue;
+            }
+            if self.get(nx as usize, nz as usize, y) == CellType::Empty {
+                self.set(nx as usize, nz as usize, y, CellType::Horizontal, true);
+            }
+        }
+    }
+
+    fn phase2c_district_patterns(&mut self) {
+        self.add_industrial_service_trunks();
+        self.add_slum_patchwork_walkways();
+        self.add_elite_void_courts();
+        self.add_commercial_neon_facades();
+        self.add_stratum_markers();
+    }
+
+    fn add_industrial_service_trunks(&mut self) {
+        let step = (self.size / 6).max(4);
+        for x in (1..self.size).step_by(step) {
+            for z in 0..self.size {
+                if self.district_at(x, z) != DistrictType::Industrial {
+                    continue;
+                }
+                for y in 1..self.layers.saturating_sub(1) {
+                    if y % 3 == 0 || self.get(x, z, y) == CellType::Empty {
+                        self.set(x, z, y, CellType::Pipe, false);
+                    }
+                }
+                self.connections.push(ConnectionRecord {
+                    kind: "industrial_service_trunk".to_owned(),
+                    start: [x, 1, z],
+                    end: [x, self.layers.saturating_sub(2), z],
+                });
+            }
+        }
+    }
+
+    fn add_slum_patchwork_walkways(&mut self) {
+        let attempts = ((self.size as f32) * self.config.bridge_frequency * 0.55) as usize;
+        for _ in 0..attempts {
+            let x = self.rng.range_usize(1, self.size.saturating_sub(2).max(1));
+            let z = self.rng.range_usize(1, self.size.saturating_sub(2).max(1));
+            if self.district_at(x, z) != DistrictType::Slum {
+                continue;
+            }
+            let y = self.rng.range_usize(
+                2,
+                (self.layers * 2 / 3)
+                    .max(2)
+                    .min(self.layers.saturating_sub(1)),
+            );
+            let length = self.rng.range_usize(3, 8);
+            let horizontal = self.rng.next_f32() < 0.5;
+            let mut end = (x, z);
+            for offset in 0..length {
+                let nx = if horizontal {
+                    (x + offset).min(self.size - 1)
+                } else {
+                    x
+                };
+                let nz = if horizontal {
+                    z
+                } else {
+                    (z + offset).min(self.size - 1)
+                };
+                self.set(nx, nz, y, CellType::Bridge, true);
+                if y + 1 < self.layers && self.rng.next_f32() < 0.35 {
+                    self.set(nx, nz, y + 1, CellType::Cable, false);
+                }
+                end = (nx, nz);
+            }
+            self.connections.push(ConnectionRecord {
+                kind: "slum_patchwalk".to_owned(),
+                start: [x, y, z],
+                end: [end.0, y, end.1],
+            });
+        }
+    }
+
+    fn add_elite_void_courts(&mut self) {
+        let mut carved = 0usize;
+        for x in (3..self.size.saturating_sub(3)).step_by(7) {
+            for z in (3..self.size.saturating_sub(3)).step_by(7) {
+                if carved > self.size / 3 || self.district_at(x, z) != DistrictType::Elite {
+                    continue;
+                }
+                let radius = 1 + (hash_noise(self.seed_hash, x, z, 8) > 0.65) as usize;
+                let y_start = self.layers / 3;
+                for dx in -(radius as isize)..=(radius as isize) {
+                    for dz in -(radius as isize)..=(radius as isize) {
+                        let nx = (x as isize + dx).clamp(0, self.size as isize - 1) as usize;
+                        let nz = (z as isize + dz).clamp(0, self.size as isize - 1) as usize;
+                        for y in y_start..self.layers {
+                            let index = self.idx(nx, nz, y);
+                            self.grid[index] = CellType::Empty;
+                            self.support_map[index] = false;
+                        }
+                    }
+                }
+                self.rooms.push(RoomRecord {
+                    position: [x, y_start, z],
+                    district: DistrictType::Elite.name().to_owned(),
+                    label: "SKYLINE_VOID_COURT".to_owned(),
+                });
+                carved += 1;
+            }
+        }
+    }
+
+    fn add_commercial_neon_facades(&mut self) {
+        for x in 0..self.size {
+            for z in 0..self.size {
+                if self.district_at(x, z) != DistrictType::Commercial {
+                    continue;
+                }
+                for y in (self.layers / 4)..self.layers {
+                    if hash_noise(self.seed_hash, x, z, y) > 0.86
+                        && self.get(x, z, y) == CellType::Empty
+                    {
+                        self.set(x, z, y, CellType::Facade, false);
+                    }
+                }
+            }
+        }
+    }
+
+    fn add_stratum_markers(&mut self) {
+        for y in 0..self.layers {
+            match biome_for_y(y) {
+                BiomeStratum::Underground if y > 0 => {
+                    for x in (0..self.size).step_by(5) {
+                        let z = (self.seed_hash as usize + x + y) % self.size;
+                        if self.get(x, z, y) == CellType::Empty {
+                            self.set(x, z, y, CellType::Pipe, false);
+                        }
+                    }
+                }
+                BiomeStratum::Skyline => {
+                    for x in (2..self.size).step_by(9) {
+                        let z = (x * 3 + y + self.seed_hash as usize) % self.size;
+                        if self.get(x, z, y) != CellType::Empty && y + 1 < self.layers {
+                            self.set(x, z, y + 1, CellType::Antenna, false);
+                        }
+                    }
+                }
+                _ => {}
             }
         }
     }
@@ -1483,6 +1792,61 @@ impl MegaStructureGenerator {
         self.erosion_collapse_propagation();
     }
 
+    fn phase4b_decay_signatures(&mut self) {
+        let scars = ((self.size as f32) * self.config.erosion_strength * 0.18) as usize;
+        for _ in 0..scars {
+            let x = self.rng.range_usize(2, self.size.saturating_sub(3).max(2));
+            let z = self.rng.range_usize(2, self.size.saturating_sub(3).max(2));
+            let y = self
+                .rng
+                .range_usize(2, self.layers.saturating_sub(2).max(2));
+            if self.get(x, z, y) == CellType::Empty {
+                continue;
+            }
+            let radius = if self.rng.next_f32() < 0.25 { 2 } else { 1 };
+            let mut removed = 0usize;
+            for dx in -(radius as isize)..=(radius as isize) {
+                for dz in -(radius as isize)..=(radius as isize) {
+                    for dy in 0..=1 {
+                        let nx = x as isize + dx;
+                        let nz = z as isize + dz;
+                        let ny = y as isize + dy;
+                        if nx < 0
+                            || nz < 0
+                            || ny < 0
+                            || nx >= self.size as isize
+                            || nz >= self.size as isize
+                            || ny >= self.layers as isize
+                        {
+                            continue;
+                        }
+                        let index = self.idx(nx as usize, nz as usize, ny as usize);
+                        if self.grid[index] != CellType::Empty {
+                            self.grid[index] = CellType::Empty;
+                            self.support_map[index] = false;
+                            removed += 1;
+                        }
+                    }
+                }
+            }
+            if y > 0 {
+                for offset in 0..=radius {
+                    let nx = (x + offset).min(self.size - 1);
+                    if self.get(nx, z, y - 1) == CellType::Empty {
+                        self.set(nx, z, y - 1, CellType::Horizontal, false);
+                    }
+                }
+            }
+            if removed > 0 {
+                self.connections.push(ConnectionRecord {
+                    kind: "collapse_scar".to_owned(),
+                    start: [x, y, z],
+                    end: [x, y.saturating_add(1).min(self.layers - 1), z],
+                });
+            }
+        }
+    }
+
     fn count_empty_neighbors(&self, x: usize, z: usize, y: usize) -> usize {
         let directions = [
             (-1isize, 0isize, 0isize),
@@ -1662,14 +2026,21 @@ impl MegaStructureGenerator {
         for district in &self.district_map {
             district_counts[*district as usize] += 1;
         }
+        let mut stratum_counts = [0usize; BiomeStratum::COUNT];
+        for y in 0..self.layers {
+            stratum_counts[biome_for_y(y) as usize] += self.size * self.size;
+        }
         let total_cells = (self.size * self.size * self.layers).max(1);
         let metadata = StructureMetadata {
             schema_version: STRUCTURE_SCHEMA_VERSION.to_owned(),
             profile: self.config.profile.to_string(),
             config: self.config.clone(),
             district_counts: district_counts_map(district_counts),
+            stratum_counts: stratum_counts_map(stratum_counts),
             cell_counts: cell_counts_map(cell_counts),
             material_counts: material_counts_map(material_counts),
+            connection_counts: connection_counts_map(&self.connections),
+            room_counts: room_counts_map(&self.rooms),
             room_count: self.rooms.len(),
             connection_count: self.connections.len(),
             occupied_cell_ratio: occupied as f32 / total_cells as f32,
@@ -1750,6 +2121,68 @@ fn material_counts_map(counts: [usize; MaterialType::COUNT]) -> BTreeMap<String,
     .into_iter()
     .map(|material| (material.name().to_owned(), counts[material as usize]))
     .collect()
+}
+
+fn stratum_counts_map(counts: [usize; BiomeStratum::COUNT]) -> BTreeMap<String, usize> {
+    [
+        BiomeStratum::Underground,
+        BiomeStratum::Surface,
+        BiomeStratum::Midrise,
+        BiomeStratum::Skyline,
+    ]
+    .into_iter()
+    .map(|stratum| (stratum.name().to_owned(), counts[stratum as usize]))
+    .collect()
+}
+
+fn connection_counts_map(connections: &[ConnectionRecord]) -> BTreeMap<String, usize> {
+    let mut counts = BTreeMap::new();
+    for connection in connections {
+        *counts.entry(connection.kind.clone()).or_insert(0) += 1;
+    }
+    counts
+}
+
+fn room_counts_map(rooms: &[RoomRecord]) -> BTreeMap<String, usize> {
+    let mut counts = BTreeMap::new();
+    for room in rooms {
+        *counts.entry(room.label.clone()).or_insert(0) += 1;
+    }
+    counts
+}
+
+fn route_layer_for_hubs(start: (usize, usize), end: (usize, usize), layers: usize) -> usize {
+    let distance = start.0.abs_diff(end.0) + start.1.abs_diff(end.1);
+    if distance > 24 {
+        (layers * 2 / 3).max(1)
+    } else if distance > 12 {
+        (layers / 3).max(1)
+    } else {
+        1.min(layers.saturating_sub(1))
+    }
+}
+
+fn route_kind_for_y(y: usize, layers: usize) -> &'static str {
+    if y <= 2 {
+        "service_tunnel"
+    } else if y >= layers * 2 / 3 {
+        "skybridge"
+    } else {
+        "artery"
+    }
+}
+
+fn room_label(district: DistrictType, stratum: BiomeStratum) -> &'static str {
+    match (district, stratum) {
+        (_, BiomeStratum::Underground) => "SERVICE_TUNNEL_ROOM",
+        (DistrictType::Industrial, _) => "MACHINE_ROOM",
+        (DistrictType::Commercial, BiomeStratum::Surface | BiomeStratum::Midrise) => "MARKET_HALL",
+        (DistrictType::Slum, _) => "HABITATION_CLUSTER",
+        (DistrictType::Elite, BiomeStratum::Skyline) => "SKY_VAULT",
+        (DistrictType::Elite, _) => "ATRIUM_SUITE",
+        (DistrictType::Residential, _) => "HABITATION_MODULE",
+        _ => "ROOM_CENTER",
+    }
 }
 
 #[cfg(test)]
@@ -1867,6 +2300,43 @@ mod tests {
             (saved.metadata.occupied_cell_ratio - occupied as f32 / total_cells as f32).abs()
                 < f32::EPSILON
         );
+    }
+
+    #[test]
+    fn semantic_patterns_emit_routes_and_typed_rooms() {
+        let saved = generated("ABCD1234").saved_structure();
+        assert!(saved
+            .metadata
+            .connection_counts
+            .contains_key("vertical_transit_core"));
+        assert!(saved.metadata.connection_counts.keys().any(|kind| matches!(
+            kind.as_str(),
+            "artery" | "service_tunnel" | "skybridge" | "express_spine"
+        )));
+        assert!(saved.metadata.room_counts.keys().any(|label| {
+            matches!(
+                label.as_str(),
+                "MACHINE_ROOM"
+                    | "MARKET_HALL"
+                    | "HABITATION_CLUSTER"
+                    | "HABITATION_MODULE"
+                    | "SERVICE_TUNNEL_ROOM"
+                    | "ATRIUM_SUITE"
+                    | "SKY_VAULT"
+            )
+        }));
+    }
+
+    #[test]
+    fn strata_metadata_covers_every_cell() {
+        let saved = generated("ABCD1234").saved_structure();
+        assert_eq!(
+            saved.metadata.stratum_counts.values().sum::<usize>(),
+            saved.size * saved.size * saved.layers
+        );
+        for expected in ["UNDERGROUND", "SURFACE", "MIDRISE", "SKYLINE"] {
+            assert!(saved.metadata.stratum_counts.contains_key(expected));
+        }
     }
 
     #[test]
