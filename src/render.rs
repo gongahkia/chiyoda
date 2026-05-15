@@ -12,7 +12,7 @@ use crate::generation::{
     CHUNK_SIZE_Z, DISTRICTS, MATERIALS,
 };
 use crate::seed::generate_seed;
-use crate::structure::{self, StructureMetadata};
+use crate::structure::{self, SavedStructure, StructureMetadata};
 
 struct SpatialChunk {
     mesh: Mesh,
@@ -666,6 +666,7 @@ struct AppState {
     generator: MegaStructureGenerator,
     config: GenerationConfig,
     export_path: PathBuf,
+    saved_structure: SavedStructure,
     metadata: StructureMetadata,
     render_world: RenderWorld,
     orbital: OrbitalCamera,
@@ -677,6 +678,7 @@ struct AppState {
     enable_postfx: bool,
     inspection_mode: bool,
     show_legend: bool,
+    show_labels: bool,
     overlay_mode: OverlayMode,
     selected_cell: Option<(usize, usize, usize)>,
     mouse_dragging: bool,
@@ -689,8 +691,9 @@ impl AppState {
     async fn new(seed: String, config: GenerationConfig, export_path: PathBuf) -> Self {
         let mut generator = MegaStructureGenerator::with_config(seed, config.clone());
         generator.generate();
-        let metadata = generator.saved_structure().metadata;
-        if let Err(error) = save_current_outputs(&generator, &export_path) {
+        let saved_structure = generator.saved_structure();
+        let metadata = saved_structure.metadata.clone();
+        if let Err(error) = save_current_outputs(generator.seed(), &saved_structure, &export_path) {
             eprintln!("Failed to save generated structure: {error}");
         }
 
@@ -713,6 +716,7 @@ impl AppState {
             generator,
             config,
             export_path,
+            saved_structure,
             metadata,
             render_world,
             orbital,
@@ -724,6 +728,7 @@ impl AppState {
             enable_postfx: false,
             inspection_mode: false,
             show_legend: true,
+            show_labels: false,
             overlay_mode: OverlayMode::None,
             selected_cell: None,
             mouse_dragging: false,
@@ -737,8 +742,13 @@ impl AppState {
         let seed = generate_seed();
         self.generator = MegaStructureGenerator::with_config(seed, self.config.clone());
         self.generator.generate();
-        self.metadata = self.generator.saved_structure().metadata;
-        if let Err(error) = save_current_outputs(&self.generator, &self.export_path) {
+        self.saved_structure = self.generator.saved_structure();
+        self.metadata = self.saved_structure.metadata.clone();
+        if let Err(error) = save_current_outputs(
+            self.generator.seed(),
+            &self.saved_structure,
+            &self.export_path,
+        ) {
             eprintln!("Failed to save generated structure: {error}");
         }
         self.render_world = build_render_world(&self.generator);
@@ -767,12 +777,12 @@ impl AppState {
 }
 
 fn save_current_outputs(
-    generator: &MegaStructureGenerator,
+    seed: &str,
+    saved: &SavedStructure,
     export_path: &Path,
 ) -> structure::StructureResult<()> {
-    let saved = generator.saved_structure();
-    fs::write(structure::CURRENT_SEED_FILE, generator.seed())?;
-    structure::save_structure(export_path, &saved)
+    fs::write(structure::CURRENT_SEED_FILE, seed)?;
+    structure::save_structure(export_path, saved)
 }
 
 fn camera_ray(camera: &Camera3D, mouse_x: f32, mouse_y: f32) -> Vec3 {
@@ -1086,7 +1096,7 @@ fn draw_overlay(app: &AppState) {
         "1-5: Presets | TAB: FPS | Space: Jump",
         "R: Regenerate | S: Screenshot | I: Inspect",
         "P: PostFX | [ ]: Fog | - =: Bloom",
-        "L: Legend | T/Z/X/C: Graph/Zone/Strata/Debug",
+        "L: Legend | Y: Labels | T/Z/X/C: Graph/Zone/Strata/Debug",
         "Q/Esc: Quit",
     ];
     let mut y = 70.0;
@@ -1304,6 +1314,114 @@ fn draw_overlay(app: &AppState) {
             draw_text(label, 184.0, y, 20.0, LIGHTGRAY);
         }
     }
+
+    if app.show_labels {
+        draw_semantic_labels(app);
+    }
+}
+
+fn draw_semantic_labels(app: &AppState) {
+    let panel_width = 430.0;
+    let x = (screen_width() - panel_width - 12.0).max(12.0);
+    let mut y = 18.0;
+    let saved = &app.saved_structure;
+    draw_rectangle(
+        x - 8.0,
+        y - 12.0,
+        panel_width,
+        360.0,
+        Color::new(0.0, 0.0, 0.0, 0.68),
+    );
+    draw_text("Semantic Labels", x, y + 12.0, 24.0, WHITE);
+    y += 42.0;
+
+    if let Some(phase) = active_phase(saved) {
+        draw_text(
+            &format!("Phase: {} @{:02}:00", phase.name, phase.cycle_hour),
+            x,
+            y,
+            20.0,
+            Color::new(0.55, 0.90, 1.0, 1.0),
+        );
+        y += 22.0;
+    }
+
+    draw_text("Landmarks", x, y, 21.0, Color::new(1.0, 0.92, 0.55, 1.0));
+    y += 22.0;
+    for landmark in saved.narrative_landmarks.iter().take(5) {
+        draw_text(
+            &format!(
+                "{}: {} ({}, {}, {})",
+                landmark.kind,
+                landmark.name,
+                landmark.position[0],
+                landmark.position[1],
+                landmark.position[2]
+            ),
+            x,
+            y,
+            17.0,
+            LIGHTGRAY,
+        );
+        y += 19.0;
+    }
+
+    y += 8.0;
+    draw_text("Routes", x, y, 21.0, Color::new(0.50, 1.0, 0.78, 1.0));
+    y += 22.0;
+    for edge in saved.transit_graph.edges.iter().take(5) {
+        draw_text(
+            &format!(
+                "#{} {} / {} / len {}",
+                edge.id, edge.role, edge.kind, edge.length
+            ),
+            x,
+            y,
+            17.0,
+            transit_role_color(&edge.role),
+        );
+        y += 19.0;
+    }
+
+    y += 8.0;
+    draw_text("Hazards", x, y, 21.0, Color::new(1.0, 0.46, 0.24, 1.0));
+    y += 22.0;
+    for hazard in saved.hazard_zones.iter().take(4) {
+        draw_text(
+            &format!(
+                "#{} {} severity {:.2}",
+                hazard.id, hazard.kind, hazard.severity
+            ),
+            x,
+            y,
+            17.0,
+            hazard_color(&hazard.kind),
+        );
+        y += 19.0;
+    }
+
+    y += 8.0;
+    draw_text("Factions", x, y, 21.0, Color::new(0.80, 0.82, 1.0, 1.0));
+    y += 22.0;
+    for faction in saved.factions.iter().take(4) {
+        draw_text(
+            &format!("{} influence {:.2}", faction.name, faction.influence),
+            x,
+            y,
+            17.0,
+            LIGHTGRAY,
+        );
+        y += 19.0;
+    }
+}
+
+fn active_phase(structure: &SavedStructure) -> Option<&structure::TemporalPhaseRecord> {
+    let phases = &structure.temporal_state.phases;
+    if phases.is_empty() {
+        return None;
+    }
+    let index = ((get_time() / 8.0) as usize) % phases.len();
+    phases.get(index)
 }
 
 fn district_inspect_grammar(district: &str) -> &'static str {
@@ -1465,6 +1583,9 @@ pub async fn run(options: RuntimeOptions) {
         }
         if is_key_pressed(KeyCode::L) {
             app.show_legend = !app.show_legend;
+        }
+        if is_key_pressed(KeyCode::Y) {
+            app.show_labels = !app.show_labels;
         }
         if is_key_pressed(KeyCode::T) {
             app.overlay_mode = if app.overlay_mode == OverlayMode::Transit {
