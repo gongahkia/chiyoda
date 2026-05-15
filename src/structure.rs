@@ -7,7 +7,7 @@ use crate::config::GenerationConfig;
 
 pub const CURRENT_SEED_FILE: &str = "current_seed.txt";
 pub const STRUCTURE_FILE: &str = "structure.json";
-pub const STRUCTURE_SCHEMA_VERSION: &str = "gibson.structure.v8";
+pub const STRUCTURE_SCHEMA_VERSION: &str = "gibson.structure.v9";
 
 pub type StructureResult<T> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
@@ -158,6 +158,27 @@ pub struct HazardZoneRecord {
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct StabilityRatingRecord {
+    pub target_type: String,
+    pub target_id: String,
+    pub rating: f32,
+    pub load_bearing_frames: usize,
+    pub foundation_cells: usize,
+    pub suspended_decks: usize,
+    pub cantilever_risk: f32,
+    pub support_dependency: String,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct StructuralSystemRecord {
+    pub load_bearing_frames: Vec<[usize; 3]>,
+    pub foundation_zones: Vec<[usize; 2]>,
+    pub suspended_decks: Vec<[usize; 3]>,
+    pub support_dependency_summary: BTreeMap<String, usize>,
+    pub stability_ratings: Vec<StabilityRatingRecord>,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct SavedStructure {
     pub seed: String,
     pub size: usize,
@@ -174,6 +195,7 @@ pub struct SavedStructure {
     pub path_analysis: PathAnalysisRecord,
     pub infrastructure_flows: Vec<InfrastructureFlowRecord>,
     pub hazard_zones: Vec<HazardZoneRecord>,
+    pub structural_system: StructuralSystemRecord,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -199,6 +221,9 @@ pub struct StructureMetadata {
     pub room_cluster_count: usize,
     pub infrastructure_flow_count: usize,
     pub hazard_zone_count: usize,
+    pub structural_rating_count: usize,
+    pub load_bearing_frame_count: usize,
+    pub suspended_deck_count: usize,
     pub occupied_cell_ratio: f32,
 }
 

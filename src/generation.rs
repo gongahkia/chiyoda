@@ -6,8 +6,9 @@ use crate::seed::{seed_hash, Rng32};
 use crate::structure::{
     self, ConnectionRecord, DistrictBorderRecord, DistrictRecord, HazardZoneRecord,
     InfrastructureFlowRecord, MissionPathRecord, PathAnalysisRecord, RoomClusterRecord, RoomRecord,
-    SavedStructure, StratumRecord, StructureMetadata, StructureResult, TransitAttachmentRecord,
-    TransitEdgeRecord, TransitGraphRecord, TransitNodeRecord, STRUCTURE_SCHEMA_VERSION,
+    SavedStructure, StabilityRatingRecord, StratumRecord, StructuralSystemRecord,
+    StructureMetadata, StructureResult, TransitAttachmentRecord, TransitEdgeRecord,
+    TransitGraphRecord, TransitNodeRecord, STRUCTURE_SCHEMA_VERSION,
 };
 
 pub(crate) const CHUNK_SIZE_X: usize = 8;
@@ -3110,6 +3111,218 @@ impl MegaStructureGenerator {
         })
     }
 
+    fn structural_system(&self) -> StructuralSystemRecord {
+        let mut frames = Vec::new();
+        let mut foundations = Vec::new();
+        let mut suspended_decks = Vec::new();
+        let mut dependency_summary = BTreeMap::new();
+
+        for x in 0..self.size {
+            for z in 0..self.size {
+                let mut vertical_run = 0usize;
+                for y in 0..self.layers {
+                    match self.get(x, z, y) {
+                        CellType::Vertical | CellType::Elevator | CellType::Stair => {
+                            vertical_run += 1;
+                            if vertical_run >= 4 && y % 3 == 0 {
+                                frames.push([x, y, z]);
+                            }
+                        }
+                        CellType::Horizontal | CellType::Bridge
+                            if y > 2 && !self.has_support(x, z, y) =>
+                        {
+                            suspended_decks.push([x, y, z]);
+                        }
+                        _ => vertical_run = 0,
+                    }
+                }
+                if matches!(
+                    self.get(x, z, 0),
+                    CellType::Vertical
+                        | CellType::Elevator
+                        | CellType::Stair
+                        | CellType::Horizontal
+                ) {
+                    foundations.push([x, z]);
+                }
+            }
+        }
+
+        dependency_summary.insert("foundation_zones".to_owned(), foundations.len());
+        dependency_summary.insert("load_bearing_frames".to_owned(), frames.len());
+        dependency_summary.insert("suspended_decks".to_owned(), suspended_decks.len());
+        dependency_summary.insert("hazard_zones".to_owned(), self.hazard_zones.len());
+
+        StructuralSystemRecord {
+            stability_ratings: self.stability_ratings(&frames, &foundations, &suspended_decks),
+            load_bearing_frames: frames,
+            foundation_zones: foundations,
+            suspended_decks,
+            support_dependency_summary: dependency_summary,
+        }
+    }
+
+    fn stability_ratings(
+        &self,
+        frames: &[[usize; 3]],
+        foundations: &[[usize; 2]],
+        suspended_decks: &[[usize; 3]],
+    ) -> Vec<StabilityRatingRecord> {
+        let mut ratings = Vec::new();
+        for district in [
+            DistrictType::Industrial,
+            DistrictType::Residential,
+            DistrictType::Commercial,
+            DistrictType::Slum,
+            DistrictType::Elite,
+        ] {
+            let footprint = (0..self.size)
+                .flat_map(|x| (0..self.size).map(move |z| (x, z)))
+                .filter(|(x, z)| self.district_at(*x, *z) == district)
+                .count()
+                .max(1);
+            let frame_count = frames
+                .iter()
+                .filter(|point| self.district_at(point[0], point[2]) == district)
+                .count();
+            let foundation_count = foundations
+                .iter()
+                .filter(|point| self.district_at(point[0], point[1]) == district)
+                .count();
+            let suspended_count = suspended_decks
+                .iter()
+                .filter(|point| self.district_at(point[0], point[2]) == district)
+                .count();
+            let hazard_count = self
+                .hazard_zones
+                .iter()
+                .filter(|hazard| {
+                    self.district_at(hazard.bounds_min[0], hazard.bounds_min[2]) == district
+                })
+                .count();
+            let cantilever_risk = (suspended_count as f32
+                / (frame_count + foundation_count + 1) as f32)
+                .clamp(0.0, 1.0);
+            let rating = structural_rating(
+                frame_count,
+                foundation_count,
+                footprint,
+                cantilever_risk,
+                hazard_count,
+            );
+            ratings.push(StabilityRatingRecord {
+                target_type: "district".to_owned(),
+                target_id: district.name().to_owned(),
+                rating,
+                load_bearing_frames: frame_count,
+                foundation_cells: foundation_count,
+                suspended_decks: suspended_count,
+                cantilever_risk,
+                support_dependency: support_dependency_label(rating).to_owned(),
+            });
+        }
+
+        for stratum in [
+            BiomeStratum::Underground,
+            BiomeStratum::Surface,
+            BiomeStratum::Midrise,
+            BiomeStratum::Skyline,
+        ] {
+            let ys: Vec<_> = (0..self.layers)
+                .filter(|y| self.stratum_at(*y) == stratum)
+                .collect();
+            if ys.is_empty() {
+                continue;
+            }
+            let frame_count = frames
+                .iter()
+                .filter(|point| self.stratum_at(point[1]) == stratum)
+                .count();
+            let foundation_count =
+                foundations.len() * usize::from(stratum == BiomeStratum::Underground);
+            let suspended_count = suspended_decks
+                .iter()
+                .filter(|point| self.stratum_at(point[1]) == stratum)
+                .count();
+            let footprint = ys.len() * self.size * self.size;
+            let hazard_count = self
+                .hazard_zones
+                .iter()
+                .filter(|hazard| self.stratum_at(hazard.bounds_min[1]) == stratum)
+                .count();
+            let cantilever_risk = (suspended_count as f32
+                / (frame_count + foundation_count + 1) as f32)
+                .clamp(0.0, 1.0);
+            let rating = structural_rating(
+                frame_count,
+                foundation_count,
+                footprint,
+                cantilever_risk,
+                hazard_count,
+            );
+            ratings.push(StabilityRatingRecord {
+                target_type: "stratum".to_owned(),
+                target_id: stratum.name().to_owned(),
+                rating,
+                load_bearing_frames: frame_count,
+                foundation_cells: foundation_count,
+                suspended_decks: suspended_count,
+                cantilever_risk,
+                support_dependency: support_dependency_label(rating).to_owned(),
+            });
+        }
+
+        for edge in &self.transit_edges {
+            let frame_count = frames
+                .iter()
+                .filter(|frame| {
+                    edge.points
+                        .iter()
+                        .any(|point| point[0].abs_diff(frame[0]) + point[2].abs_diff(frame[2]) <= 2)
+                })
+                .count();
+            let foundation_count = foundations
+                .iter()
+                .filter(|foundation| {
+                    edge.points.iter().any(|point| {
+                        point[0].abs_diff(foundation[0]) + point[2].abs_diff(foundation[1]) <= 2
+                    })
+                })
+                .count();
+            let suspended_count = edge
+                .points
+                .iter()
+                .filter(|point| suspended_decks.contains(point))
+                .count();
+            let hazard_count = self
+                .hazard_zones
+                .iter()
+                .filter(|hazard| hazard.route_ids.contains(&edge.id))
+                .count();
+            let cantilever_risk =
+                (suspended_count as f32 / edge.points.len().max(1) as f32).clamp(0.0, 1.0);
+            let rating = structural_rating(
+                frame_count,
+                foundation_count,
+                edge.points.len().max(1),
+                cantilever_risk,
+                hazard_count,
+            );
+            ratings.push(StabilityRatingRecord {
+                target_type: "route".to_owned(),
+                target_id: edge.id.to_string(),
+                rating,
+                load_bearing_frames: frame_count,
+                foundation_cells: foundation_count,
+                suspended_decks: suspended_count,
+                cantilever_risk,
+                support_dependency: support_dependency_label(rating).to_owned(),
+            });
+        }
+
+        ratings
+    }
+
     pub fn saved_structure(&self) -> SavedStructure {
         let mut grid = vec![vec![vec![0u8; self.layers]; self.size]; self.size];
         let mut cell_counts = [0usize; CellType::COUNT];
@@ -3140,6 +3353,7 @@ impl MegaStructureGenerator {
         let districts = self.district_records();
         let strata = self.stratum_records();
         let (room_clusters, room_cluster_ids) = self.room_clusters();
+        let structural_system = self.structural_system();
         let rooms: Vec<_> = self
             .rooms
             .iter()
@@ -3172,6 +3386,9 @@ impl MegaStructureGenerator {
             room_cluster_count: room_clusters.len(),
             infrastructure_flow_count: self.infrastructure_flows.len(),
             hazard_zone_count: self.hazard_zones.len(),
+            structural_rating_count: structural_system.stability_ratings.len(),
+            load_bearing_frame_count: structural_system.load_bearing_frames.len(),
+            suspended_deck_count: structural_system.suspended_decks.len(),
             occupied_cell_ratio: occupied as f32 / total_cells as f32,
         };
         SavedStructure {
@@ -3190,6 +3407,7 @@ impl MegaStructureGenerator {
             path_analysis,
             infrastructure_flows: self.infrastructure_flows.clone(),
             hazard_zones: self.hazard_zones.clone(),
+            structural_system,
         }
     }
 
@@ -3510,6 +3728,30 @@ fn union(parent: &mut [usize], a: usize, b: usize) {
     let root_b = find_root(parent, b);
     if root_a != root_b {
         parent[root_b] = root_a;
+    }
+}
+
+fn structural_rating(
+    frame_count: usize,
+    foundation_count: usize,
+    footprint: usize,
+    cantilever_risk: f32,
+    hazard_count: usize,
+) -> f32 {
+    let support_score = ((frame_count * 2 + foundation_count) as f32 / footprint.max(1) as f32)
+        .sqrt()
+        .clamp(0.0, 1.0);
+    let hazard_penalty = (hazard_count as f32 * 0.06).clamp(0.0, 0.35);
+    (0.35 + support_score * 0.55 - cantilever_risk * 0.28 - hazard_penalty).clamp(0.0, 1.0)
+}
+
+fn support_dependency_label(rating: f32) -> &'static str {
+    if rating >= 0.72 {
+        "redundant frame grid"
+    } else if rating >= 0.48 {
+        "localized support dependency"
+    } else {
+        "critical cantilever dependency"
     }
 }
 
@@ -4041,6 +4283,38 @@ mod tests {
     }
 
     #[test]
+    fn structural_system_exports_stability_ratings() {
+        let saved = generated("ABCD1234").saved_structure();
+        assert_eq!(
+            saved.metadata.structural_rating_count,
+            saved.structural_system.stability_ratings.len()
+        );
+        assert_eq!(
+            saved.metadata.load_bearing_frame_count,
+            saved.structural_system.load_bearing_frames.len()
+        );
+        assert_eq!(
+            saved.metadata.suspended_deck_count,
+            saved.structural_system.suspended_decks.len()
+        );
+        assert!(!saved.structural_system.stability_ratings.is_empty());
+        assert!(saved
+            .structural_system
+            .support_dependency_summary
+            .contains_key("load_bearing_frames"));
+        assert!(saved
+            .structural_system
+            .stability_ratings
+            .iter()
+            .any(|rating| rating.target_type == "route"));
+        for rating in &saved.structural_system.stability_ratings {
+            assert!((0.0..=1.0).contains(&rating.rating));
+            assert!((0.0..=1.0).contains(&rating.cantilever_risk));
+            assert!(!rating.support_dependency.is_empty());
+        }
+    }
+
+    #[test]
     fn exported_json_schema_keeps_semantic_sections() {
         let saved = generated("ABCD1234").saved_structure();
         let value: serde_json::Value =
@@ -4065,6 +4339,7 @@ mod tests {
             "path_analysis",
             "infrastructure_flows",
             "hazard_zones",
+            "structural_system",
         ] {
             assert!(value.get(key).is_some(), "missing top-level key {key}");
         }
@@ -4090,6 +4365,9 @@ mod tests {
             "room_cluster_count",
             "infrastructure_flow_count",
             "hazard_zone_count",
+            "structural_rating_count",
+            "load_bearing_frame_count",
+            "suspended_deck_count",
         ] {
             assert!(
                 value["metadata"].get(key).is_some(),
