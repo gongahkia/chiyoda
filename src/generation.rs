@@ -7,9 +7,9 @@ use crate::structure::{
     self, ConnectionRecord, ContestedBorderRecord, DistrictBorderRecord, DistrictRecord,
     FactionRecord, HazardZoneRecord, InfrastructureFlowRecord, MissionPathRecord,
     PathAnalysisRecord, RoomClusterRecord, RoomRecord, SavedStructure, StabilityRatingRecord,
-    StratumRecord, StructuralSystemRecord, StructureMetadata, StructureResult, TerritoryRecord,
-    TransitAttachmentRecord, TransitEdgeRecord, TransitGraphRecord, TransitNodeRecord,
-    STRUCTURE_SCHEMA_VERSION,
+    StratumRecord, StructuralSystemRecord, StructureMetadata, StructureResult, TemporalPhaseRecord,
+    TemporalStateRecord, TerritoryRecord, TransitAttachmentRecord, TransitEdgeRecord,
+    TransitGraphRecord, TransitNodeRecord, STRUCTURE_SCHEMA_VERSION,
 };
 
 pub(crate) const CHUNK_SIZE_X: usize = 8;
@@ -3454,6 +3454,61 @@ impl MegaStructureGenerator {
         (hazards as f32 * 0.18).clamp(0.0, 1.0)
     }
 
+    fn temporal_state(
+        &self,
+        factions: &[FactionRecord],
+        contested_borders: &[ContestedBorderRecord],
+    ) -> TemporalStateRecord {
+        let phase_templates = [
+            (
+                "blackout",
+                2usize,
+                "unlit routes and scavenger movement intensify",
+            ),
+            (
+                "market_peak",
+                9,
+                "markets, border stalls, and commercial arteries surge",
+            ),
+            (
+                "patrol_cycle",
+                14,
+                "corp security closes gates and sweeps restricted spines",
+            ),
+            (
+                "ventilation_surge",
+                18,
+                "maintenance fans and heat plumes pulse through loops",
+            ),
+            (
+                "rain_ingress",
+                22,
+                "water ingress floods low service tunnels and sumps",
+            ),
+        ];
+        let phases = phase_templates
+            .into_iter()
+            .enumerate()
+            .map(|(id, (name, base_hour, description))| {
+                let cycle_hour = (base_hour + (self.seed_hash as usize % 3)) % 24;
+                TemporalPhaseRecord {
+                    id,
+                    name: name.to_owned(),
+                    cycle_hour,
+                    active_route_ids: temporal_routes(name, &self.transit_edges),
+                    active_flow_ids: temporal_flows(name, &self.infrastructure_flows),
+                    affected_hazard_ids: temporal_hazards(name, &self.hazard_zones),
+                    active_faction_ids: temporal_factions(name, factions, contested_borders),
+                    description: description.to_owned(),
+                }
+            })
+            .collect();
+        TemporalStateRecord {
+            cycle_seed: self.seed_hash,
+            phases,
+        }
+    }
+
     pub fn saved_structure(&self) -> SavedStructure {
         let mut grid = vec![vec![vec![0u8; self.layers]; self.size]; self.size];
         let mut cell_counts = [0usize; CellType::COUNT];
@@ -3486,6 +3541,7 @@ impl MegaStructureGenerator {
         let (room_clusters, room_cluster_ids) = self.room_clusters();
         let structural_system = self.structural_system();
         let (factions, territories, contested_borders) = self.ownership_layer(&room_clusters);
+        let temporal_state = self.temporal_state(&factions, &contested_borders);
         let rooms: Vec<_> = self
             .rooms
             .iter()
@@ -3524,6 +3580,7 @@ impl MegaStructureGenerator {
             faction_count: factions.len(),
             territory_count: territories.len(),
             contested_border_count: contested_borders.len(),
+            temporal_phase_count: temporal_state.phases.len(),
             occupied_cell_ratio: occupied as f32 / total_cells as f32,
         };
         SavedStructure {
@@ -3546,6 +3603,7 @@ impl MegaStructureGenerator {
             factions,
             territories,
             contested_borders,
+            temporal_state,
         }
     }
 
@@ -3972,6 +4030,86 @@ fn contested_reason(feature: &str) -> &'static str {
         "SURFACE_COMMONS" => "shared civic corridor",
         _ => "overlapping district claims",
     }
+}
+
+fn temporal_routes(phase: &str, routes: &[TransitEdgeRecord]) -> Vec<usize> {
+    routes
+        .iter()
+        .filter(|route| match phase {
+            "blackout" => matches!(route.role.as_str(), "service_loop" | "maintenance_backbone"),
+            "market_peak" => route.role == "market_run",
+            "patrol_cycle" => {
+                matches!(route.role.as_str(), "restricted_spine" | "evacuation_route")
+            }
+            "ventilation_surge" => route.role == "service_loop",
+            "rain_ingress" => {
+                route.kind == "service_tunnel" || route.role == "maintenance_backbone"
+            }
+            _ => false,
+        })
+        .map(|route| route.id)
+        .take(12)
+        .collect()
+}
+
+fn temporal_flows(phase: &str, flows: &[InfrastructureFlowRecord]) -> Vec<usize> {
+    flows
+        .iter()
+        .filter(|flow| match phase {
+            "blackout" => matches!(flow.kind.as_str(), "power_bus" | "data_spine"),
+            "market_peak" => flow.kind == "power_bus",
+            "patrol_cycle" => flow.kind == "data_spine",
+            "ventilation_surge" => flow.kind == "ventilation_loop",
+            "rain_ingress" => matches!(flow.kind.as_str(), "water_reclamation" | "waste_chute"),
+            _ => false,
+        })
+        .map(|flow| flow.id)
+        .take(12)
+        .collect()
+}
+
+fn temporal_hazards(phase: &str, hazards: &[HazardZoneRecord]) -> Vec<usize> {
+    hazards
+        .iter()
+        .filter(|hazard| match phase {
+            "blackout" => hazard.kind == "blackout_pocket",
+            "market_peak" => hazard.kind == "unstable_span",
+            "patrol_cycle" => hazard.kind == "security_sweep",
+            "ventilation_surge" => hazard.kind == "vent_heat_plume",
+            "rain_ingress" => hazard.kind == "flood_sump",
+            _ => false,
+        })
+        .map(|hazard| hazard.id)
+        .collect()
+}
+
+fn temporal_factions(
+    phase: &str,
+    factions: &[FactionRecord],
+    contested_borders: &[ContestedBorderRecord],
+) -> Vec<usize> {
+    let preferred = match phase {
+        "blackout" => "Scavenger Crews",
+        "market_peak" => "Market Syndicates",
+        "patrol_cycle" => "Corp Security",
+        "ventilation_surge" | "rain_ingress" => "Civic Maintenance",
+        _ => "Civic Maintenance",
+    };
+    let mut ids: Vec<_> = factions
+        .iter()
+        .filter(|faction| faction.name == preferred)
+        .map(|faction| faction.id)
+        .collect();
+    if phase == "market_peak" {
+        for border in contested_borders.iter().take(3) {
+            for faction_id in &border.faction_ids {
+                if !ids.contains(faction_id) {
+                    ids.push(*faction_id);
+                }
+            }
+        }
+    }
+    ids
 }
 
 fn route_layer_for_hubs(start: (usize, usize), end: (usize, usize), layers: usize) -> usize {
@@ -4571,6 +4709,49 @@ mod tests {
     }
 
     #[test]
+    fn temporal_state_exports_power_cycle_phases() {
+        let saved = generated("ABCD1234").saved_structure();
+        assert_eq!(
+            saved.metadata.temporal_phase_count,
+            saved.temporal_state.phases.len()
+        );
+        assert_eq!(saved.temporal_state.phases.len(), 5);
+        for expected in [
+            "blackout",
+            "market_peak",
+            "patrol_cycle",
+            "ventilation_surge",
+            "rain_ingress",
+        ] {
+            assert!(saved
+                .temporal_state
+                .phases
+                .iter()
+                .any(|phase| phase.name == expected));
+        }
+        for phase in &saved.temporal_state.phases {
+            assert!(phase.cycle_hour < 24);
+            assert!(!phase.description.is_empty());
+            assert!(phase
+                .active_route_ids
+                .iter()
+                .all(|route_id| *route_id < saved.transit_graph.edges.len()));
+            assert!(phase
+                .active_flow_ids
+                .iter()
+                .all(|flow_id| *flow_id < saved.infrastructure_flows.len()));
+            assert!(phase
+                .affected_hazard_ids
+                .iter()
+                .all(|hazard_id| *hazard_id < saved.hazard_zones.len()));
+            assert!(phase
+                .active_faction_ids
+                .iter()
+                .all(|faction_id| *faction_id < saved.factions.len()));
+        }
+    }
+
+    #[test]
     fn exported_json_schema_keeps_semantic_sections() {
         let saved = generated("ABCD1234").saved_structure();
         let value: serde_json::Value =
@@ -4599,6 +4780,7 @@ mod tests {
             "factions",
             "territories",
             "contested_borders",
+            "temporal_state",
         ] {
             assert!(value.get(key).is_some(), "missing top-level key {key}");
         }
@@ -4630,6 +4812,7 @@ mod tests {
             "faction_count",
             "territory_count",
             "contested_border_count",
+            "temporal_phase_count",
         ] {
             assert!(
                 value["metadata"].get(key).is_some(),

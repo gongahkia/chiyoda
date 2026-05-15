@@ -7,7 +7,7 @@ use crate::config::GenerationConfig;
 
 pub const CURRENT_SEED_FILE: &str = "current_seed.txt";
 pub const STRUCTURE_FILE: &str = "structure.json";
-pub const STRUCTURE_SCHEMA_VERSION: &str = "gibson.structure.v10";
+pub const STRUCTURE_SCHEMA_VERSION: &str = "gibson.structure.v11";
 
 pub type StructureResult<T> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
@@ -209,6 +209,24 @@ pub struct ContestedBorderRecord {
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct TemporalPhaseRecord {
+    pub id: usize,
+    pub name: String,
+    pub cycle_hour: usize,
+    pub active_route_ids: Vec<usize>,
+    pub active_flow_ids: Vec<usize>,
+    pub affected_hazard_ids: Vec<usize>,
+    pub active_faction_ids: Vec<usize>,
+    pub description: String,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct TemporalStateRecord {
+    pub cycle_seed: u64,
+    pub phases: Vec<TemporalPhaseRecord>,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct SavedStructure {
     pub seed: String,
     pub size: usize,
@@ -229,6 +247,7 @@ pub struct SavedStructure {
     pub factions: Vec<FactionRecord>,
     pub territories: Vec<TerritoryRecord>,
     pub contested_borders: Vec<ContestedBorderRecord>,
+    pub temporal_state: TemporalStateRecord,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -260,6 +279,7 @@ pub struct StructureMetadata {
     pub faction_count: usize,
     pub territory_count: usize,
     pub contested_border_count: usize,
+    pub temporal_phase_count: usize,
     pub occupied_cell_ratio: f32,
 }
 
