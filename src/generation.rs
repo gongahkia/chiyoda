@@ -6,10 +6,11 @@ use crate::seed::{seed_hash, Rng32};
 use crate::structure::{
     self, ConnectionRecord, ContestedBorderRecord, DistrictBorderRecord, DistrictRecord,
     FactionRecord, HazardZoneRecord, InfrastructureFlowRecord, MissionPathRecord,
-    PathAnalysisRecord, RoomClusterRecord, RoomRecord, SavedStructure, StabilityRatingRecord,
-    StratumRecord, StructuralSystemRecord, StructureMetadata, StructureResult, TemporalPhaseRecord,
-    TemporalStateRecord, TerritoryRecord, TransitAttachmentRecord, TransitEdgeRecord,
-    TransitGraphRecord, TransitNodeRecord, STRUCTURE_SCHEMA_VERSION,
+    NarrativeLandmarkRecord, PathAnalysisRecord, RoomClusterRecord, RoomRecord, SavedStructure,
+    StabilityRatingRecord, StratumRecord, StructuralSystemRecord, StructureMetadata,
+    StructureResult, TemporalPhaseRecord, TemporalStateRecord, TerritoryRecord,
+    TransitAttachmentRecord, TransitEdgeRecord, TransitGraphRecord, TransitNodeRecord,
+    STRUCTURE_SCHEMA_VERSION,
 };
 
 pub(crate) const CHUNK_SIZE_X: usize = 8;
@@ -3509,6 +3510,105 @@ impl MegaStructureGenerator {
         }
     }
 
+    fn narrative_landmarks(
+        &self,
+        room_clusters: &[RoomClusterRecord],
+        factions: &[FactionRecord],
+        contested_borders: &[ContestedBorderRecord],
+    ) -> Vec<NarrativeLandmarkRecord> {
+        let mut landmarks = Vec::new();
+        for edge in self.transit_edges.iter().take(8) {
+            let position = edge
+                .points
+                .get(edge.points.len() / 2)
+                .copied()
+                .unwrap_or([0, 0, 0]);
+            landmarks.push(NarrativeLandmarkRecord {
+                id: landmarks.len(),
+                name: named_place(self.seed_hash, "route", edge.id, &edge.role, position),
+                kind: "route".to_owned(),
+                position,
+                route_id: Some(edge.id),
+                cluster_id: None,
+                hazard_id: None,
+                border_id: None,
+                faction_id: None,
+                description: format!("{} controlling {}", edge.role, edge.kind),
+            });
+        }
+        for cluster in room_clusters.iter().take(8) {
+            landmarks.push(NarrativeLandmarkRecord {
+                id: landmarks.len(),
+                name: named_place(
+                    self.seed_hash,
+                    "cluster",
+                    cluster.id,
+                    &cluster.kind,
+                    cluster.anchor_position,
+                ),
+                kind: "cluster".to_owned(),
+                position: cluster.anchor_position,
+                route_id: cluster.route_ids.first().copied(),
+                cluster_id: Some(cluster.id),
+                hazard_id: None,
+                border_id: None,
+                faction_id: faction_id_by_name(factions, &cluster.owner_district),
+                description: format!("{} held in {}", cluster.kind, cluster.owner_district),
+            });
+        }
+        for hazard in self.hazard_zones.iter().take(6) {
+            let position = [
+                (hazard.bounds_min[0] + hazard.bounds_max[0]) / 2,
+                (hazard.bounds_min[1] + hazard.bounds_max[1]) / 2,
+                (hazard.bounds_min[2] + hazard.bounds_max[2]) / 2,
+            ];
+            landmarks.push(NarrativeLandmarkRecord {
+                id: landmarks.len(),
+                name: named_place(self.seed_hash, "hazard", hazard.id, &hazard.kind, position),
+                kind: "hazard".to_owned(),
+                position,
+                route_id: hazard.route_ids.first().copied(),
+                cluster_id: None,
+                hazard_id: Some(hazard.id),
+                border_id: None,
+                faction_id: None,
+                description: format!("{} severity {:.2}", hazard.kind, hazard.severity),
+            });
+        }
+        for contested in contested_borders.iter().take(6) {
+            if let Some(border) = self
+                .district_borders
+                .iter()
+                .find(|border| border.id == contested.border_id)
+            {
+                let position = [
+                    (border.bounds_min[0] + border.bounds_max[0]) / 2,
+                    border.y,
+                    (border.bounds_min[1] + border.bounds_max[1]) / 2,
+                ];
+                landmarks.push(NarrativeLandmarkRecord {
+                    id: landmarks.len(),
+                    name: named_place(
+                        self.seed_hash,
+                        "border",
+                        border.id,
+                        &border.feature,
+                        position,
+                    ),
+                    kind: "border".to_owned(),
+                    position,
+                    route_id: border.route_ids.first().copied(),
+                    cluster_id: None,
+                    hazard_id: None,
+                    border_id: Some(border.id),
+                    faction_id: contested.faction_ids.first().copied(),
+                    description: contested.reason.clone(),
+                });
+            }
+        }
+        landmarks
+    }
+
     pub fn saved_structure(&self) -> SavedStructure {
         let mut grid = vec![vec![vec![0u8; self.layers]; self.size]; self.size];
         let mut cell_counts = [0usize; CellType::COUNT];
@@ -3542,6 +3642,8 @@ impl MegaStructureGenerator {
         let structural_system = self.structural_system();
         let (factions, territories, contested_borders) = self.ownership_layer(&room_clusters);
         let temporal_state = self.temporal_state(&factions, &contested_borders);
+        let narrative_landmarks =
+            self.narrative_landmarks(&room_clusters, &factions, &contested_borders);
         let rooms: Vec<_> = self
             .rooms
             .iter()
@@ -3581,6 +3683,7 @@ impl MegaStructureGenerator {
             territory_count: territories.len(),
             contested_border_count: contested_borders.len(),
             temporal_phase_count: temporal_state.phases.len(),
+            narrative_landmark_count: narrative_landmarks.len(),
             occupied_cell_ratio: occupied as f32 / total_cells as f32,
         };
         SavedStructure {
@@ -3604,6 +3707,7 @@ impl MegaStructureGenerator {
             territories,
             contested_borders,
             temporal_state,
+            narrative_landmarks,
         }
     }
 
@@ -4110,6 +4214,42 @@ fn temporal_factions(
         }
     }
     ids
+}
+
+fn named_place(seed: u64, scope: &str, id: usize, kind: &str, position: [usize; 3]) -> String {
+    let prefixes = [
+        "West", "Blue", "K", "Low", "Cinder", "Glass", "Rain", "North",
+    ];
+    let nouns = match scope {
+        "route" => [
+            "Spine", "Run", "Lift", "Chain", "Artery", "Loop", "Crossing", "Rail",
+        ],
+        "cluster" => [
+            "Stack", "Shrine", "Block", "Market", "Vault", "Commons", "Nest", "Court",
+        ],
+        "hazard" => [
+            "Sump", "Scar", "Blackout", "Plume", "Break", "Sink", "Rift", "Drip",
+        ],
+        _ => [
+            "Gate",
+            "Border",
+            "Seam",
+            "Threshold",
+            "Mouth",
+            "Exchange",
+            "Pass",
+            "Line",
+        ],
+    };
+    let prefix = prefixes[(seed as usize + id + position[0]) % prefixes.len()];
+    let noun = nouns[(seed as usize + id * 3 + position[2]) % nouns.len()];
+    let code = (position[0] * 3 + position[1] * 5 + position[2] * 7 + id) % 97;
+    format!("{prefix} {noun} {code:02} {}", kind.to_ascii_lowercase())
+}
+
+fn faction_id_by_name(factions: &[FactionRecord], district: &str) -> Option<usize> {
+    let target = faction_for_district_name(district)?;
+    factions.get(target).map(|faction| faction.id)
 }
 
 fn route_layer_for_hubs(start: (usize, usize), end: (usize, usize), layers: usize) -> usize {
@@ -4752,6 +4892,46 @@ mod tests {
     }
 
     #[test]
+    fn narrative_landmarks_name_generated_places() {
+        let saved = generated("ABCD1234").saved_structure();
+        assert_eq!(
+            saved.metadata.narrative_landmark_count,
+            saved.narrative_landmarks.len()
+        );
+        assert!(!saved.narrative_landmarks.is_empty());
+        assert!(saved
+            .narrative_landmarks
+            .iter()
+            .any(|landmark| landmark.route_id.is_some()));
+        assert!(saved
+            .narrative_landmarks
+            .iter()
+            .any(|landmark| landmark.cluster_id.is_some()));
+        for landmark in &saved.narrative_landmarks {
+            assert!(!landmark.name.is_empty());
+            assert!(!landmark.description.is_empty());
+            assert!(landmark.position[0] < saved.size);
+            assert!(landmark.position[1] < saved.layers);
+            assert!(landmark.position[2] < saved.size);
+            if let Some(route_id) = landmark.route_id {
+                assert!(route_id < saved.transit_graph.edges.len());
+            }
+            if let Some(cluster_id) = landmark.cluster_id {
+                assert!(cluster_id < saved.room_clusters.len());
+            }
+            if let Some(hazard_id) = landmark.hazard_id {
+                assert!(hazard_id < saved.hazard_zones.len());
+            }
+            if let Some(border_id) = landmark.border_id {
+                assert!(border_id < saved.district_borders.len());
+            }
+            if let Some(faction_id) = landmark.faction_id {
+                assert!(faction_id < saved.factions.len());
+            }
+        }
+    }
+
+    #[test]
     fn exported_json_schema_keeps_semantic_sections() {
         let saved = generated("ABCD1234").saved_structure();
         let value: serde_json::Value =
@@ -4781,6 +4961,7 @@ mod tests {
             "territories",
             "contested_borders",
             "temporal_state",
+            "narrative_landmarks",
         ] {
             assert!(value.get(key).is_some(), "missing top-level key {key}");
         }
@@ -4813,6 +4994,7 @@ mod tests {
             "territory_count",
             "contested_border_count",
             "temporal_phase_count",
+            "narrative_landmark_count",
         ] {
             assert!(
                 value["metadata"].get(key).is_some(),

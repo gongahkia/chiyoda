@@ -7,7 +7,7 @@ use crate::config::GenerationConfig;
 
 pub const CURRENT_SEED_FILE: &str = "current_seed.txt";
 pub const STRUCTURE_FILE: &str = "structure.json";
-pub const STRUCTURE_SCHEMA_VERSION: &str = "gibson.structure.v11";
+pub const STRUCTURE_SCHEMA_VERSION: &str = "gibson.structure.v12";
 
 pub type StructureResult<T> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
@@ -227,6 +227,20 @@ pub struct TemporalStateRecord {
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct NarrativeLandmarkRecord {
+    pub id: usize,
+    pub name: String,
+    pub kind: String,
+    pub position: [usize; 3],
+    pub route_id: Option<usize>,
+    pub cluster_id: Option<usize>,
+    pub hazard_id: Option<usize>,
+    pub border_id: Option<usize>,
+    pub faction_id: Option<usize>,
+    pub description: String,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct SavedStructure {
     pub seed: String,
     pub size: usize,
@@ -248,6 +262,7 @@ pub struct SavedStructure {
     pub territories: Vec<TerritoryRecord>,
     pub contested_borders: Vec<ContestedBorderRecord>,
     pub temporal_state: TemporalStateRecord,
+    pub narrative_landmarks: Vec<NarrativeLandmarkRecord>,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -280,6 +295,7 @@ pub struct StructureMetadata {
     pub territory_count: usize,
     pub contested_border_count: usize,
     pub temporal_phase_count: usize,
+    pub narrative_landmark_count: usize,
     pub occupied_cell_ratio: f32,
 }
 
