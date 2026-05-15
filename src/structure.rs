@@ -7,7 +7,7 @@ use crate::config::GenerationConfig;
 
 pub const CURRENT_SEED_FILE: &str = "current_seed.txt";
 pub const STRUCTURE_FILE: &str = "structure.json";
-pub const STRUCTURE_SCHEMA_VERSION: &str = "gibson.structure.v9";
+pub const STRUCTURE_SCHEMA_VERSION: &str = "gibson.structure.v10";
 
 pub type StructureResult<T> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
@@ -179,6 +179,36 @@ pub struct StructuralSystemRecord {
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct FactionRecord {
+    pub id: usize,
+    pub name: String,
+    pub agenda: String,
+    pub influence: f32,
+    pub controlled_districts: Vec<String>,
+    pub controlled_cluster_ids: Vec<usize>,
+    pub controlled_route_ids: Vec<usize>,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct TerritoryRecord {
+    pub id: usize,
+    pub faction_id: usize,
+    pub kind: String,
+    pub district: Option<String>,
+    pub cluster_id: Option<usize>,
+    pub route_ids: Vec<usize>,
+    pub hazard_pressure: f32,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct ContestedBorderRecord {
+    pub border_id: usize,
+    pub faction_ids: Vec<usize>,
+    pub intensity: f32,
+    pub reason: String,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct SavedStructure {
     pub seed: String,
     pub size: usize,
@@ -196,6 +226,9 @@ pub struct SavedStructure {
     pub infrastructure_flows: Vec<InfrastructureFlowRecord>,
     pub hazard_zones: Vec<HazardZoneRecord>,
     pub structural_system: StructuralSystemRecord,
+    pub factions: Vec<FactionRecord>,
+    pub territories: Vec<TerritoryRecord>,
+    pub contested_borders: Vec<ContestedBorderRecord>,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -224,6 +257,9 @@ pub struct StructureMetadata {
     pub structural_rating_count: usize,
     pub load_bearing_frame_count: usize,
     pub suspended_deck_count: usize,
+    pub faction_count: usize,
+    pub territory_count: usize,
+    pub contested_border_count: usize,
     pub occupied_cell_ratio: f32,
 }
 

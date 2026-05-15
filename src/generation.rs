@@ -4,11 +4,12 @@ use std::collections::{BTreeMap, BTreeSet};
 use crate::config::GenerationConfig;
 use crate::seed::{seed_hash, Rng32};
 use crate::structure::{
-    self, ConnectionRecord, DistrictBorderRecord, DistrictRecord, HazardZoneRecord,
-    InfrastructureFlowRecord, MissionPathRecord, PathAnalysisRecord, RoomClusterRecord, RoomRecord,
-    SavedStructure, StabilityRatingRecord, StratumRecord, StructuralSystemRecord,
-    StructureMetadata, StructureResult, TransitAttachmentRecord, TransitEdgeRecord,
-    TransitGraphRecord, TransitNodeRecord, STRUCTURE_SCHEMA_VERSION,
+    self, ConnectionRecord, ContestedBorderRecord, DistrictBorderRecord, DistrictRecord,
+    FactionRecord, HazardZoneRecord, InfrastructureFlowRecord, MissionPathRecord,
+    PathAnalysisRecord, RoomClusterRecord, RoomRecord, SavedStructure, StabilityRatingRecord,
+    StratumRecord, StructuralSystemRecord, StructureMetadata, StructureResult, TerritoryRecord,
+    TransitAttachmentRecord, TransitEdgeRecord, TransitGraphRecord, TransitNodeRecord,
+    STRUCTURE_SCHEMA_VERSION,
 };
 
 pub(crate) const CHUNK_SIZE_X: usize = 8;
@@ -3323,6 +3324,136 @@ impl MegaStructureGenerator {
         ratings
     }
 
+    fn ownership_layer(
+        &self,
+        room_clusters: &[RoomClusterRecord],
+    ) -> (
+        Vec<FactionRecord>,
+        Vec<TerritoryRecord>,
+        Vec<ContestedBorderRecord>,
+    ) {
+        let mut factions: Vec<_> = faction_templates()
+            .into_iter()
+            .enumerate()
+            .map(|(id, (name, agenda))| FactionRecord {
+                id,
+                name: name.to_owned(),
+                agenda: agenda.to_owned(),
+                influence: 0.0,
+                controlled_districts: Vec::new(),
+                controlled_cluster_ids: Vec::new(),
+                controlled_route_ids: Vec::new(),
+            })
+            .collect();
+        let mut territories = Vec::new();
+
+        for district in [
+            DistrictType::Industrial,
+            DistrictType::Residential,
+            DistrictType::Commercial,
+            DistrictType::Slum,
+            DistrictType::Elite,
+        ] {
+            let faction_id = faction_for_district(district);
+            factions[faction_id]
+                .controlled_districts
+                .push(district.name().to_owned());
+            territories.push(TerritoryRecord {
+                id: territories.len(),
+                faction_id,
+                kind: "district".to_owned(),
+                district: Some(district.name().to_owned()),
+                cluster_id: None,
+                route_ids: self
+                    .transit_edges
+                    .iter()
+                    .filter(|edge| {
+                        edge.points.iter().any(|point| {
+                            self.district_at(
+                                point[0].min(self.size - 1),
+                                point[2].min(self.size - 1),
+                            ) == district
+                        })
+                    })
+                    .map(|edge| edge.id)
+                    .take(8)
+                    .collect(),
+                hazard_pressure: self.hazard_pressure_for_district(district),
+            });
+        }
+
+        for cluster in room_clusters {
+            let faction_id = faction_for_cluster(&cluster.kind, &cluster.owner_district);
+            factions[faction_id].controlled_cluster_ids.push(cluster.id);
+            for route_id in &cluster.route_ids {
+                if !factions[faction_id].controlled_route_ids.contains(route_id) {
+                    factions[faction_id].controlled_route_ids.push(*route_id);
+                }
+            }
+            territories.push(TerritoryRecord {
+                id: territories.len(),
+                faction_id,
+                kind: "cluster".to_owned(),
+                district: Some(cluster.owner_district.clone()),
+                cluster_id: Some(cluster.id),
+                route_ids: cluster.route_ids.clone(),
+                hazard_pressure: self
+                    .hazard_pressure_for_bounds(cluster.bounds_min, cluster.bounds_max),
+            });
+        }
+
+        for faction in &mut factions {
+            let footprint = faction.controlled_districts.len()
+                + faction.controlled_cluster_ids.len()
+                + faction.controlled_route_ids.len();
+            faction.influence = (footprint as f32
+                / (room_clusters.len() + self.transit_edges.len() + 1) as f32)
+                .clamp(0.0, 1.0);
+        }
+
+        let contested_borders = self
+            .district_borders
+            .iter()
+            .filter_map(|border| {
+                let left = faction_for_district_name(&border.from_district)?;
+                let right = faction_for_district_name(&border.to_district)?;
+                (left != right).then(|| ContestedBorderRecord {
+                    border_id: border.id,
+                    faction_ids: vec![left, right],
+                    intensity: contested_intensity(border, &self.hazard_zones),
+                    reason: contested_reason(&border.feature).to_owned(),
+                })
+            })
+            .collect();
+
+        (factions, territories, contested_borders)
+    }
+
+    fn hazard_pressure_for_district(&self, district: DistrictType) -> f32 {
+        let hazards = self
+            .hazard_zones
+            .iter()
+            .filter(|hazard| {
+                self.district_at(hazard.bounds_min[0], hazard.bounds_min[2]) == district
+            })
+            .count();
+        (hazards as f32 * 0.16).clamp(0.0, 1.0)
+    }
+
+    fn hazard_pressure_for_bounds(&self, bounds_min: [usize; 3], bounds_max: [usize; 3]) -> f32 {
+        let hazards = self
+            .hazard_zones
+            .iter()
+            .filter(|hazard| {
+                hazard.bounds_min[0] <= bounds_max[0]
+                    && hazard.bounds_max[0] >= bounds_min[0]
+                    && hazard.bounds_min[2] <= bounds_max[2]
+                    && hazard.bounds_max[2] >= bounds_min[2]
+            })
+            .count();
+        (hazards as f32 * 0.18).clamp(0.0, 1.0)
+    }
+
     pub fn saved_structure(&self) -> SavedStructure {
         let mut grid = vec![vec![vec![0u8; self.layers]; self.size]; self.size];
         let mut cell_counts = [0usize; CellType::COUNT];
@@ -3354,6 +3485,7 @@ impl MegaStructureGenerator {
         let strata = self.stratum_records();
         let (room_clusters, room_cluster_ids) = self.room_clusters();
         let structural_system = self.structural_system();
+        let (factions, territories, contested_borders) = self.ownership_layer(&room_clusters);
         let rooms: Vec<_> = self
             .rooms
             .iter()
@@ -3389,6 +3521,9 @@ impl MegaStructureGenerator {
             structural_rating_count: structural_system.stability_ratings.len(),
             load_bearing_frame_count: structural_system.load_bearing_frames.len(),
             suspended_deck_count: structural_system.suspended_decks.len(),
+            faction_count: factions.len(),
+            territory_count: territories.len(),
+            contested_border_count: contested_borders.len(),
             occupied_cell_ratio: occupied as f32 / total_cells as f32,
         };
         SavedStructure {
@@ -3408,6 +3543,9 @@ impl MegaStructureGenerator {
             infrastructure_flows: self.infrastructure_flows.clone(),
             hazard_zones: self.hazard_zones.clone(),
             structural_system,
+            factions,
+            territories,
+            contested_borders,
         }
     }
 
@@ -3752,6 +3890,87 @@ fn support_dependency_label(rating: f32) -> &'static str {
         "localized support dependency"
     } else {
         "critical cantilever dependency"
+    }
+}
+
+fn faction_templates() -> [(&'static str, &'static str); 5] {
+    [
+        (
+            "Civic Maintenance",
+            "keep core utilities and evacuation routes alive",
+        ),
+        (
+            "Market Syndicates",
+            "control trade arteries and border markets",
+        ),
+        (
+            "Shrine Communes",
+            "hold habitation shrines and repair pockets",
+        ),
+        (
+            "Corp Security",
+            "lock down skyline vaults and restricted spines",
+        ),
+        (
+            "Scavenger Crews",
+            "strip scrap zones, blackouts, and collapsed decks",
+        ),
+    ]
+}
+
+fn faction_for_district(district: DistrictType) -> usize {
+    match district {
+        DistrictType::Industrial => 0,
+        DistrictType::Residential => 2,
+        DistrictType::Commercial => 1,
+        DistrictType::Slum => 4,
+        DistrictType::Elite => 3,
+    }
+}
+
+fn faction_for_district_name(name: &str) -> Option<usize> {
+    match name {
+        "INDUSTRIAL" => Some(0),
+        "RESIDENTIAL" => Some(2),
+        "COMMERCIAL" => Some(1),
+        "SLUM" => Some(4),
+        "ELITE" => Some(3),
+        _ => None,
+    }
+}
+
+fn faction_for_cluster(kind: &str, district: &str) -> usize {
+    match kind {
+        "market_strip" => 1,
+        "shrine_pocket" | "habitation_block" => 2,
+        "data_vault_compound" => 3,
+        "machine_complex" | "transit_cluster" => 0,
+        _ if district == "SLUM" => 4,
+        _ if district == "ELITE" => 3,
+        _ => 1,
+    }
+}
+
+fn contested_intensity(border: &DistrictBorderRecord, hazards: &[HazardZoneRecord]) -> f32 {
+    let nearby_hazards = hazards
+        .iter()
+        .filter(|hazard| {
+            hazard.bounds_min[0] <= border.bounds_max[0] + 2
+                && hazard.bounds_max[0] + 2 >= border.bounds_min[0]
+                && hazard.bounds_min[2] <= border.bounds_max[1] + 2
+                && hazard.bounds_max[2] + 2 >= border.bounds_min[1]
+        })
+        .count();
+    (0.35 + border.route_ids.len() as f32 * 0.08 + nearby_hazards as f32 * 0.12).clamp(0.0, 1.0)
+}
+
+fn contested_reason(feature: &str) -> &'static str {
+    match feature {
+        "SECURITY_THRESHOLD" => "restricted access checkpoint",
+        "BORDER_MARKET" | "SCRAP_MARKET" => "trade revenue and salvage rights",
+        "SCRAP_ZONE" => "scrap extraction and collapse access",
+        "SURFACE_COMMONS" => "shared civic corridor",
+        _ => "overlapping district claims",
     }
 }
 
@@ -4315,6 +4534,43 @@ mod tests {
     }
 
     #[test]
+    fn ownership_layer_exports_factions_and_contested_borders() {
+        let saved = generated("ABCD1234").saved_structure();
+        assert_eq!(saved.metadata.faction_count, saved.factions.len());
+        assert_eq!(saved.metadata.territory_count, saved.territories.len());
+        assert_eq!(
+            saved.metadata.contested_border_count,
+            saved.contested_borders.len()
+        );
+        assert_eq!(saved.factions.len(), 5);
+        assert!(!saved.territories.is_empty());
+        assert!(!saved.contested_borders.is_empty());
+        assert!(saved
+            .factions
+            .iter()
+            .any(|faction| faction.name == "Corp Security"));
+        for faction in &saved.factions {
+            assert!((0.0..=1.0).contains(&faction.influence));
+            assert!(!faction.agenda.is_empty());
+        }
+        for territory in &saved.territories {
+            assert!(territory.faction_id < saved.factions.len());
+            assert!((0.0..=1.0).contains(&territory.hazard_pressure));
+            if let Some(cluster_id) = territory.cluster_id {
+                assert!(cluster_id < saved.room_clusters.len());
+            }
+        }
+        for border in &saved.contested_borders {
+            assert!(border.border_id < saved.district_borders.len());
+            assert!((0.0..=1.0).contains(&border.intensity));
+            assert!(border
+                .faction_ids
+                .iter()
+                .all(|faction_id| *faction_id < saved.factions.len()));
+        }
+    }
+
+    #[test]
     fn exported_json_schema_keeps_semantic_sections() {
         let saved = generated("ABCD1234").saved_structure();
         let value: serde_json::Value =
@@ -4340,6 +4596,9 @@ mod tests {
             "infrastructure_flows",
             "hazard_zones",
             "structural_system",
+            "factions",
+            "territories",
+            "contested_borders",
         ] {
             assert!(value.get(key).is_some(), "missing top-level key {key}");
         }
@@ -4368,6 +4627,9 @@ mod tests {
             "structural_rating_count",
             "load_bearing_frame_count",
             "suspended_deck_count",
+            "faction_count",
+            "territory_count",
+            "contested_border_count",
         ] {
             assert!(
                 value["metadata"].get(key).is_some(),
