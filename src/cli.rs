@@ -6,12 +6,22 @@ use crate::config::{GenerationConfig, GenerationProfile};
 use crate::seed::{generate_seed, validate_seed};
 use crate::structure::StructureResult;
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum InspectSection {
+    Summary,
+    Routes,
+    Landmarks,
+    Path,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct RuntimeOptions {
     pub seed: String,
     pub config: GenerationConfig,
     pub export_path: PathBuf,
     pub headless: bool,
+    pub inspect_path: Option<PathBuf>,
+    pub inspect_sections: Vec<InspectSection>,
 }
 
 impl RuntimeOptions {
@@ -26,6 +36,8 @@ impl RuntimeOptions {
         let mut config_path = None;
         let mut export_path = PathBuf::from(crate::structure::STRUCTURE_FILE);
         let mut headless = false;
+        let mut inspect_path = None;
+        let mut inspect_sections = Vec::new();
 
         let mut args = args.into_iter();
         while let Some(arg) = args.next() {
@@ -38,6 +50,13 @@ impl RuntimeOptions {
                 "--config" => config_path = Some(PathBuf::from(next_arg(&mut args, "--config")?)),
                 "--export" => export_path = PathBuf::from(next_arg(&mut args, "--export")?),
                 "--headless" => headless = true,
+                "--inspect" => {
+                    inspect_path = Some(PathBuf::from(next_arg(&mut args, "--inspect")?))
+                }
+                "--summary" => inspect_sections.push(InspectSection::Summary),
+                "--routes" => inspect_sections.push(InspectSection::Routes),
+                "--landmarks" => inspect_sections.push(InspectSection::Landmarks),
+                "--path" => inspect_sections.push(InspectSection::Path),
                 "--help" | "-h" => return Err(invalid_input(usage())),
                 value if value.starts_with("--") => {
                     return Err(invalid_input(format!("unknown option '{value}'")));
@@ -69,11 +88,17 @@ impl RuntimeOptions {
             config
         };
 
+        if inspect_path.is_some() && inspect_sections.is_empty() {
+            inspect_sections.push(InspectSection::Summary);
+        }
+
         Ok(Self {
             seed,
             config,
             export_path,
             headless,
+            inspect_path,
+            inspect_sections,
         })
     }
 }
@@ -88,7 +113,7 @@ fn invalid_input(message: impl Into<String>) -> Box<dyn Error + Send + Sync> {
 }
 
 pub fn usage() -> &'static str {
-    "Usage: gibson-rust [SEED] [--seed SEED] [--profile balanced|dense|vertical|decayed|neon] [--config path.json] [--export path.json] [--headless]"
+    "Usage: gibson-rust [SEED] [--seed SEED] [--profile balanced|dense|vertical|decayed|neon] [--config path.json] [--export path.json] [--headless] [--inspect structure.json] [--summary] [--routes] [--landmarks] [--path]"
 }
 
 #[cfg(test)]
@@ -115,6 +140,7 @@ mod tests {
         assert_eq!(options.seed, "ABCD1234");
         assert_eq!(options.config.profile, GenerationProfile::Balanced);
         assert!(!options.headless);
+        assert!(options.inspect_path.is_none());
     }
 
     #[test]
@@ -133,6 +159,36 @@ mod tests {
         assert_eq!(options.config.profile, GenerationProfile::Neon);
         assert_eq!(options.export_path, PathBuf::from("out.json"));
         assert!(options.headless);
+    }
+
+    #[test]
+    fn parses_inspection_sections() {
+        let options = RuntimeOptions::parse([
+            "--inspect".to_owned(),
+            "structure.json".to_owned(),
+            "--routes".to_owned(),
+            "--landmarks".to_owned(),
+            "--path".to_owned(),
+        ])
+        .unwrap();
+
+        assert_eq!(options.inspect_path, Some(PathBuf::from("structure.json")));
+        assert_eq!(
+            options.inspect_sections,
+            vec![
+                InspectSection::Routes,
+                InspectSection::Landmarks,
+                InspectSection::Path
+            ]
+        );
+    }
+
+    #[test]
+    fn defaults_inspection_to_summary() {
+        let options =
+            RuntimeOptions::parse(["--inspect".to_owned(), "structure.json".to_owned()]).unwrap();
+
+        assert_eq!(options.inspect_sections, vec![InspectSection::Summary]);
     }
 
     #[test]
