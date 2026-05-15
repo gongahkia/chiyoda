@@ -904,6 +904,8 @@ fn draw_strata_overlay(app: &AppState) {
 fn draw_debug_overlay(app: &AppState) {
     draw_transit_overlay(app);
     draw_border_overlay(app);
+    draw_flow_overlay(app);
+    draw_hazard_overlay(app);
     for cluster in app.generator.computed_room_clusters() {
         draw_cube_wires(
             point_to_vec3(cluster.anchor_position),
@@ -917,6 +919,31 @@ fn draw_debug_overlay(app: &AppState) {
             vec3(0.58, 0.58, 0.58),
             room_color(&room.label),
         );
+    }
+}
+
+fn draw_flow_overlay(app: &AppState) {
+    for flow in app.generator.infrastructure_flows() {
+        let color = flow_color(&flow.kind);
+        for pair in flow.sample_points.windows(2) {
+            draw_line_3d(point_to_vec3(pair[0]), point_to_vec3(pair[1]), color);
+        }
+    }
+}
+
+fn draw_hazard_overlay(app: &AppState) {
+    for hazard in app.generator.hazard_zones() {
+        let center = vec3(
+            (hazard.bounds_min[0] + hazard.bounds_max[0]) as f32 * 0.5,
+            (hazard.bounds_min[1] + hazard.bounds_max[1]) as f32 * 0.5,
+            (hazard.bounds_min[2] + hazard.bounds_max[2]) as f32 * 0.5,
+        );
+        let size = vec3(
+            (hazard.bounds_max[0].saturating_sub(hazard.bounds_min[0]) + 1) as f32,
+            0.5,
+            (hazard.bounds_max[2].saturating_sub(hazard.bounds_min[2]) + 1) as f32,
+        );
+        draw_cube_wires(center, size, hazard_color(&hazard.kind));
     }
 }
 
@@ -979,6 +1006,28 @@ fn cluster_color(kind: &str) -> Color {
         "data_vault_compound" => Color::new(0.30, 0.82, 1.0, 1.0),
         "transit_cluster" => Color::new(0.20, 1.0, 0.78, 1.0),
         _ => Color::new(0.86, 0.86, 0.60, 1.0),
+    }
+}
+
+fn flow_color(kind: &str) -> Color {
+    match kind {
+        "power_bus" => Color::new(1.0, 0.90, 0.22, 1.0),
+        "data_spine" => Color::new(0.24, 0.88, 1.0, 1.0),
+        "water_reclamation" => Color::new(0.24, 0.56, 1.0, 1.0),
+        "waste_chute" => Color::new(0.72, 0.48, 0.24, 1.0),
+        "ventilation_loop" => Color::new(0.70, 0.86, 0.88, 1.0),
+        _ => Color::new(0.85, 0.85, 0.85, 1.0),
+    }
+}
+
+fn hazard_color(kind: &str) -> Color {
+    match kind {
+        "flood_sump" => Color::new(0.20, 0.42, 1.0, 1.0),
+        "unstable_span" => Color::new(1.0, 0.38, 0.14, 1.0),
+        "security_sweep" => Color::new(1.0, 0.16, 0.62, 1.0),
+        "blackout_pocket" => Color::new(0.42, 0.30, 0.58, 1.0),
+        "vent_heat_plume" => Color::new(1.0, 0.68, 0.22, 1.0),
+        _ => Color::new(1.0, 0.24, 0.24, 1.0),
     }
 }
 

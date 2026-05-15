@@ -4,10 +4,10 @@ use std::collections::{BTreeMap, BTreeSet};
 use crate::config::GenerationConfig;
 use crate::seed::{seed_hash, Rng32};
 use crate::structure::{
-    self, ConnectionRecord, DistrictBorderRecord, DistrictRecord, MissionPathRecord,
-    PathAnalysisRecord, RoomClusterRecord, RoomRecord, SavedStructure, StratumRecord,
-    StructureMetadata, StructureResult, TransitAttachmentRecord, TransitEdgeRecord,
-    TransitGraphRecord, TransitNodeRecord, STRUCTURE_SCHEMA_VERSION,
+    self, ConnectionRecord, DistrictBorderRecord, DistrictRecord, HazardZoneRecord,
+    InfrastructureFlowRecord, MissionPathRecord, PathAnalysisRecord, RoomClusterRecord, RoomRecord,
+    SavedStructure, StratumRecord, StructureMetadata, StructureResult, TransitAttachmentRecord,
+    TransitEdgeRecord, TransitGraphRecord, TransitNodeRecord, STRUCTURE_SCHEMA_VERSION,
 };
 
 pub(crate) const CHUNK_SIZE_X: usize = 8;
@@ -930,6 +930,8 @@ pub struct MegaStructureGenerator {
     transit_edges: Vec<TransitEdgeRecord>,
     transit_attachments: Vec<TransitAttachmentRecord>,
     district_borders: Vec<DistrictBorderRecord>,
+    infrastructure_flows: Vec<InfrastructureFlowRecord>,
+    hazard_zones: Vec<HazardZoneRecord>,
     pattern_counts: BTreeMap<String, usize>,
 }
 
@@ -959,6 +961,8 @@ impl MegaStructureGenerator {
             transit_edges: Vec::new(),
             transit_attachments: Vec::new(),
             district_borders: Vec::new(),
+            infrastructure_flows: Vec::new(),
+            hazard_zones: Vec::new(),
             pattern_counts: BTreeMap::new(),
         };
         generator.generate_district_map();
@@ -1143,8 +1147,10 @@ impl MegaStructureGenerator {
         self.phase2c_district_patterns();
         self.phase2e_district_adjacency();
         self.phase3_infrastructure();
+        self.phase3b_infrastructure_flows();
         self.phase4_erosion();
         self.phase4b_decay_signatures();
+        self.phase4c_hazard_zones();
         self.ensure_structural_integrity();
         self.add_support_pillars();
         self.carve_traversal_space();
@@ -1227,6 +1233,14 @@ impl MegaStructureGenerator {
 
     pub(crate) fn computed_room_clusters(&self) -> Vec<RoomClusterRecord> {
         self.room_clusters().0
+    }
+
+    pub(crate) fn infrastructure_flows(&self) -> &[InfrastructureFlowRecord] {
+        &self.infrastructure_flows
+    }
+
+    pub(crate) fn hazard_zones(&self) -> &[HazardZoneRecord] {
+        &self.hazard_zones
     }
 
     fn phase1_skeleton(&mut self) {
@@ -2062,6 +2076,64 @@ impl MegaStructureGenerator {
         self.add_external_elevators();
     }
 
+    fn phase3b_infrastructure_flows(&mut self) {
+        let edges = self.transit_edges.clone();
+        for edge in edges {
+            let flow_kinds = flow_kinds_for_role(&edge.role);
+            for (offset, kind) in flow_kinds.iter().enumerate() {
+                self.add_infrastructure_flow(&edge, kind, offset);
+            }
+        }
+    }
+
+    fn add_infrastructure_flow(&mut self, edge: &TransitEdgeRecord, kind: &str, offset: usize) {
+        if edge.points.is_empty() {
+            return;
+        }
+        let stride = (edge.points.len() / 5).max(1);
+        let sample_points: Vec<_> = edge
+            .points
+            .iter()
+            .skip(offset.min(stride - 1))
+            .step_by(stride)
+            .copied()
+            .take(6)
+            .collect();
+        for point in &sample_points {
+            self.paint_flow_point(*point, kind);
+        }
+        let id = self.infrastructure_flows.len();
+        self.infrastructure_flows.push(InfrastructureFlowRecord {
+            id,
+            kind: kind.to_owned(),
+            route_id: edge.id,
+            intensity: flow_intensity(kind, edge.role.as_str(), self.config.neon_intensity),
+            source: edge.points.first().copied().unwrap_or([0, 0, 0]),
+            sink: edge.points.last().copied().unwrap_or([0, 0, 0]),
+            sample_points,
+        });
+        self.record_pattern(kind);
+    }
+
+    fn paint_flow_point(&mut self, point: [usize; 3], kind: &str) {
+        let x = point[0].min(self.size - 1);
+        let y = point[1].min(self.layers - 1);
+        let z = point[2].min(self.size - 1);
+        let cell = match kind {
+            "power_bus" | "data_spine" => CellType::Cable,
+            "water_reclamation" | "waste_chute" => CellType::Pipe,
+            "ventilation_loop" => CellType::Vent,
+            _ => CellType::Pipe,
+        };
+        self.set(x, z, y, cell, matches!(cell, CellType::Vent));
+        if kind == "data_spine" && y + 1 < self.layers {
+            self.set(x, z, y + 1, CellType::Antenna, false);
+        }
+        if kind == "waste_chute" && y > 0 {
+            self.set(x, z, y - 1, CellType::Debris, false);
+        }
+    }
+
     fn apply_floor_thickness(&mut self) {
         for x in 0..self.size {
             for z in 0..self.size {
@@ -2334,6 +2406,83 @@ impl MegaStructureGenerator {
                     [x, y.saturating_add(1).min(self.layers - 1), z],
                 );
             }
+        }
+    }
+
+    fn phase4c_hazard_zones(&mut self) {
+        let edges = self.transit_edges.clone();
+        for edge in edges {
+            if edge.points.is_empty() {
+                continue;
+            }
+            let probability =
+                hazard_probability_for_role(&edge.role) * self.config.decay_story_density;
+            if hash_noise(self.seed_hash, edge.id, edge.length, self.layers)
+                > probability.clamp(0.0, 0.95)
+            {
+                continue;
+            }
+            let anchor = edge.points[edge.points.len() / 2];
+            let kind = hazard_kind_for_edge(&edge);
+            self.add_hazard_zone(kind, anchor, vec![edge.id]);
+        }
+    }
+
+    fn add_hazard_zone(&mut self, kind: &str, anchor: [usize; 3], route_ids: Vec<usize>) {
+        let radius = if self.config.erosion_strength > 1.2 {
+            2
+        } else {
+            1
+        };
+        let mut bounds_min = anchor;
+        let mut bounds_max = anchor;
+        for dx in -(radius as isize)..=(radius as isize) {
+            for dz in -(radius as isize)..=(radius as isize) {
+                let nx = (anchor[0] as isize + dx).clamp(0, self.size as isize - 1) as usize;
+                let nz = (anchor[2] as isize + dz).clamp(0, self.size as isize - 1) as usize;
+                let y = anchor[1].min(self.layers - 1);
+                self.paint_hazard_cell(nx, nz, y, kind);
+                bounds_min[0] = bounds_min[0].min(nx);
+                bounds_min[2] = bounds_min[2].min(nz);
+                bounds_max[0] = bounds_max[0].max(nx);
+                bounds_max[2] = bounds_max[2].max(nz);
+            }
+        }
+        let room_ids = self
+            .rooms
+            .iter()
+            .filter(|room| {
+                room.position[0] >= bounds_min[0]
+                    && room.position[0] <= bounds_max[0]
+                    && room.position[2] >= bounds_min[2]
+                    && room.position[2] <= bounds_max[2]
+                    && room.position[1].abs_diff(anchor[1]) <= 2
+            })
+            .map(|room| room.id)
+            .collect();
+        let id = self.hazard_zones.len();
+        self.hazard_zones.push(HazardZoneRecord {
+            id,
+            kind: kind.to_owned(),
+            severity: (0.35 + self.config.erosion_strength * 0.22).clamp(0.0, 1.0),
+            bounds_min,
+            bounds_max,
+            route_ids,
+            room_ids,
+        });
+        self.record_pattern(kind);
+    }
+
+    fn paint_hazard_cell(&mut self, x: usize, z: usize, y: usize, kind: &str) {
+        let cell = match kind {
+            "flood_sump" | "unstable_span" => CellType::Debris,
+            "security_sweep" => CellType::Facade,
+            "blackout_pocket" => CellType::Cable,
+            _ => CellType::Vent,
+        };
+        self.set(x, z, y, cell, matches!(cell, CellType::Facade));
+        if kind == "vent_heat_plume" && y + 1 < self.layers {
+            self.set(x, z, y + 1, CellType::Vent, false);
         }
     }
 
@@ -3021,6 +3170,8 @@ impl MegaStructureGenerator {
             stratum_record_count: strata.len(),
             district_border_count: self.district_borders.len(),
             room_cluster_count: room_clusters.len(),
+            infrastructure_flow_count: self.infrastructure_flows.len(),
+            hazard_zone_count: self.hazard_zones.len(),
             occupied_cell_ratio: occupied as f32 / total_cells as f32,
         };
         SavedStructure {
@@ -3037,6 +3188,8 @@ impl MegaStructureGenerator {
             district_borders: self.district_borders.clone(),
             room_clusters,
             path_analysis,
+            infrastructure_flows: self.infrastructure_flows.clone(),
+            hazard_zones: self.hazard_zones.clone(),
         }
     }
 
@@ -3429,6 +3582,57 @@ fn route_aware_room_label(
     }
 }
 
+fn flow_kinds_for_role(role: &str) -> &'static [&'static str] {
+    match role {
+        "maintenance_backbone" => &["water_reclamation", "waste_chute", "ventilation_loop"],
+        "restricted_spine" => &["data_spine", "power_bus"],
+        "market_run" => &["power_bus", "water_reclamation"],
+        "service_loop" => &["waste_chute", "ventilation_loop"],
+        "evacuation_route" => &["power_bus", "ventilation_loop"],
+        _ => &["power_bus"],
+    }
+}
+
+fn flow_intensity(kind: &str, role: &str, neon_intensity: f32) -> f32 {
+    let base = match kind {
+        "data_spine" => 0.85,
+        "power_bus" => 0.75,
+        "water_reclamation" => 0.55,
+        "waste_chute" => 0.45,
+        "ventilation_loop" => 0.50,
+        _ => 0.40,
+    };
+    let role_bonus = match role {
+        "restricted_spine" | "primary_artery" => 0.15,
+        "maintenance_backbone" => 0.10,
+        _ => 0.0,
+    };
+    (base + role_bonus + neon_intensity * 0.025).clamp(0.0, 1.0)
+}
+
+fn hazard_probability_for_role(role: &str) -> f32 {
+    match role {
+        "maintenance_backbone" => 0.50,
+        "service_loop" => 0.40,
+        "market_run" => 0.30,
+        "restricted_spine" => 0.24,
+        "primary_artery" => 0.22,
+        "evacuation_route" => 0.18,
+        _ => 0.20,
+    }
+}
+
+fn hazard_kind_for_edge(edge: &TransitEdgeRecord) -> &'static str {
+    match edge.role.as_str() {
+        "maintenance_backbone" => "flood_sump",
+        "service_loop" => "vent_heat_plume",
+        "restricted_spine" => "security_sweep",
+        "market_run" => "blackout_pocket",
+        _ if edge.kind == "skybridge" => "unstable_span",
+        _ => "blackout_pocket",
+    }
+}
+
 fn kind_name(base: &str, suffix: &str) -> String {
     format!("{base}_{suffix}")
 }
@@ -3795,6 +3999,48 @@ mod tests {
     }
 
     #[test]
+    fn infrastructure_flows_and_hazards_add_generation_depth() {
+        let saved = generated_with(
+            "ABCD1234",
+            GenerationConfig::profile(crate::config::GenerationProfile::Decayed),
+        )
+        .saved_structure();
+        assert_eq!(
+            saved.metadata.infrastructure_flow_count,
+            saved.infrastructure_flows.len()
+        );
+        assert_eq!(saved.metadata.hazard_zone_count, saved.hazard_zones.len());
+        assert!(!saved.infrastructure_flows.is_empty());
+        assert!(!saved.hazard_zones.is_empty());
+        assert!(saved.infrastructure_flows.iter().any(|flow| matches!(
+            flow.kind.as_str(),
+            "power_bus" | "data_spine" | "water_reclamation" | "waste_chute" | "ventilation_loop"
+        )));
+        for flow in &saved.infrastructure_flows {
+            assert!(flow.route_id < saved.transit_graph.edges.len());
+            assert!((0.0..=1.0).contains(&flow.intensity));
+            assert!(!flow.sample_points.is_empty());
+            for point in &flow.sample_points {
+                assert!(point[0] < saved.size);
+                assert!(point[1] < saved.layers);
+                assert!(point[2] < saved.size);
+            }
+        }
+        for hazard in &saved.hazard_zones {
+            assert!((0.0..=1.0).contains(&hazard.severity));
+            assert!(hazard.bounds_max[0] < saved.size);
+            assert!(hazard.bounds_max[1] < saved.layers);
+            assert!(hazard.bounds_max[2] < saved.size);
+            for route_id in &hazard.route_ids {
+                assert!(*route_id < saved.transit_graph.edges.len());
+            }
+            for room_id in &hazard.room_ids {
+                assert!(*room_id < saved.rooms.len());
+            }
+        }
+    }
+
+    #[test]
     fn exported_json_schema_keeps_semantic_sections() {
         let saved = generated("ABCD1234").saved_structure();
         let value: serde_json::Value =
@@ -3817,6 +4063,8 @@ mod tests {
             "district_borders",
             "room_clusters",
             "path_analysis",
+            "infrastructure_flows",
+            "hazard_zones",
         ] {
             assert!(value.get(key).is_some(), "missing top-level key {key}");
         }
@@ -3840,6 +4088,8 @@ mod tests {
             "stratum_record_count",
             "district_border_count",
             "room_cluster_count",
+            "infrastructure_flow_count",
+            "hazard_zone_count",
         ] {
             assert!(
                 value["metadata"].get(key).is_some(),
