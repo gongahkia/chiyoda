@@ -3,41 +3,20 @@
 
 # `Gibson`
 
-Single-file [2288](./src/main.cpp) *([1969](./src/main.py) or [2912](./src/main.rs))*-line megastructure [generator](#seed).
+Rust megastructure [generator](#seed) for cyberpunk dense-urban forms.
 
 ## Stack
 
-* *Script*: [C++](https://en.wikipedia.org/wiki/C%2B%2B), [Python](https://www.python.org/), [Rust](https://rust-lang.org/)
-* *Graphics*: [OpenGL 3.3](https://www.khronos.org/opengl/wiki/History_of_OpenGL#OpenGL_3.3_(2010)), [GLFW](https://www.glfw.org/), [GLSL](https://www.khronos.org/opengl/wiki/OpenGL_Shading_Language), [Pygame](https://www.pygame.org/), [ModernGL](https://moderngl.readthedocs.io/), [PyOpenGL](https://pyopengl.sourceforge.net/)
-* *Math*: [PyGLM](https://github.com/Zuzu-Typ/PyGLM), [NumPy](https://numpy.org/) 
-* *Generation*: [pypi/noise](https://pypi.org/project/noise/), [Simplex noise](https://en.wikipedia.org/wiki/Simplex_noise), [Wave Function Collapse](https://github.com/mxgmn/WaveFunctionCollapse), [L-system](https://en.wikipedia.org/wiki/L-system), [Catmull-Rom spline](https://en.wikipedia.org/wiki/Centripetal_Catmull%E2%80%93Rom_spline)
-* *Build*: [Make](https://www.gnu.org/software/make/), [pkg-config](https://www.freedesktop.org/wiki/Software/pkg-config/)
-* *Platform*: [Cocoa](https://developer.apple.com/documentation/cocoa), [IOKit](https://developer.apple.com/documentation/iokit), [Core Video](https://developer.apple.com/documentation/corevideo)
+* *Language*: [Rust](https://rust-lang.org/)
+* *Graphics*: [Macroquad](https://macroquad.rs/), [miniquad](https://github.com/not-fl3/miniquad), [GLSL](https://www.khronos.org/opengl/wiki/OpenGL_Shading_Language)
+* *Generation*: [Simplex noise](https://en.wikipedia.org/wiki/Simplex_noise), [Wave Function Collapse](https://github.com/mxgmn/WaveFunctionCollapse), [L-system](https://en.wikipedia.org/wiki/L-system), [Catmull-Rom spline](https://en.wikipedia.org/wiki/Centripetal_Catmull%E2%80%93Rom_spline)
+* *Serialization*: [Serde](https://serde.rs/), [JSON](https://www.json.org/json-en.html)
 
 ## Screenshot
 
 ![](./asset/reference/v2/2.png)
 
 ## Usage
-
-### C++
-
-```console
-$ git clone https://github.com/gongahkia/gibson && cd gibson
-$ brew install glfw pkg-config
-$ make run
-```
-### Python
-
-```console
-$ git clone https://github.com/gongahkia/gibson && cd gibson
-$ python3.12 -m venv gibson_env
-$ source gibson_env/bin/activate
-$ uv pip install -r src/requirements.txt
-$ python3 src/main.py
-```
-
-### Rust
 
 ```console
 $ git clone https://github.com/gongahkia/gibson && cd gibson

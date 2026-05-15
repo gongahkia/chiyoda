@@ -1,6 +1,0 @@
-numpy
-noise
-pygame
-pyopengl
-moderngl
-PyGLM 
