@@ -1505,6 +1505,92 @@ impl MegaStructureGenerator {
             let y = (self.layers * 2 / 3).clamp(1, self.layers.saturating_sub(1));
             self.carve_route(first.0, first.1, last.0, last.1, y, "express_spine");
         }
+        self.add_ring_routes(&hubs);
+        self.add_vertical_transfer_links(&hubs);
+        self.ensure_service_to_skyline_path(&hubs);
+    }
+
+    fn add_ring_routes(&mut self, hubs: &[(usize, usize)]) {
+        if hubs.len() < 4 {
+            return;
+        }
+        let y = (self.layers / 3).max(1);
+        for pair in hubs
+            .iter()
+            .step_by(2)
+            .copied()
+            .collect::<Vec<_>>()
+            .windows(2)
+        {
+            self.carve_route(pair[0].0, pair[0].1, pair[1].0, pair[1].1, y, "ring_route");
+        }
+        if let (Some(first), Some(last)) = (hubs.first(), hubs.last()) {
+            self.carve_route(last.0, last.1, first.0, first.1, y, "ring_route");
+        }
+    }
+
+    fn add_vertical_transfer_links(&mut self, hubs: &[(usize, usize)]) {
+        for hub in hubs.iter().take(4) {
+            let low = (self.layers / 4).max(1);
+            let high = (self.layers * 3 / 4).min(self.layers.saturating_sub(1));
+            let start_node = self.push_transit_node("transfer_low", [hub.0, low, hub.1]);
+            let end_node = self.push_transit_node("transfer_high", [hub.0, high, hub.1]);
+            let points: Vec<_> = (low..=high).map(|y| [hub.0, y, hub.1]).collect();
+            for point in &points {
+                self.set(point[0], point[2], point[1], CellType::Elevator, true);
+            }
+            let route_id =
+                self.push_transit_edge("vertical_transfer", start_node, end_node, points);
+            let district = self.district_at(hub.0, hub.1);
+            let room_id = self.push_room([hub.0, high, hub.1], district, "VERTICAL_TRANSFER");
+            self.push_transit_attachment(
+                route_id,
+                room_id,
+                "vertical_transfer",
+                [hub.0, high, hub.1],
+            );
+            self.push_connection(
+                "vertical_transfer",
+                [hub.0, low, hub.1],
+                [hub.0, high, hub.1],
+            );
+        }
+    }
+
+    fn ensure_service_to_skyline_path(&mut self, hubs: &[(usize, usize)]) {
+        let start = hubs
+            .first()
+            .copied()
+            .unwrap_or((self.size / 2, self.size / 2));
+        let end = hubs.last().copied().unwrap_or(start);
+        self.carve_route(start.0, start.1, end.0, end.1, 1, "service_tunnel");
+        let skyline_y = self.layers.saturating_sub(2).max(1);
+        self.carve_route(end.0, end.1, start.0, start.1, skyline_y, "skybridge");
+        let start_node = self.push_transit_node("mission_transfer_low", [end.0, 1, end.1]);
+        let end_node = self.push_transit_node("mission_transfer_high", [end.0, skyline_y, end.1]);
+        let points: Vec<_> = (1..=skyline_y).map(|y| [end.0, y, end.1]).collect();
+        for point in &points {
+            self.set(point[0], point[2], point[1], CellType::Elevator, true);
+        }
+        let route_id =
+            self.push_transit_edge("mission_vertical_transfer", start_node, end_node, points);
+        let district = self.district_at(end.0, end.1);
+        let room_id = self.push_room(
+            [end.0, skyline_y, end.1],
+            district,
+            "SERVICE_TO_SKYLINE_LOCK",
+        );
+        self.push_transit_attachment(
+            route_id,
+            room_id,
+            "mission_transfer",
+            [end.0, skyline_y, end.1],
+        );
+        self.push_connection(
+            "mission_vertical_transfer",
+            [end.0, 1, end.1],
+            [end.0, skyline_y, end.1],
+        );
     }
 
     fn select_transit_hubs(&mut self) -> Vec<(usize, usize)> {
@@ -2999,6 +3085,9 @@ impl MegaStructureGenerator {
                 dead_end_count: 0,
                 chokepoint_count: 0,
                 reachable_room_count: 0,
+                alternate_path_count: 0,
+                vertical_transfer_count: 0,
+                guaranteed_service_to_skyline: false,
                 high_centrality_route_ids: Vec::new(),
                 main_path: None,
             };
@@ -3069,9 +3158,34 @@ impl MegaStructureGenerator {
                 .filter(|room| room.label == "ROUTE_CHOKEPOINT")
                 .count(),
             reachable_room_count: room_ids.len(),
+            alternate_path_count: self
+                .transit_edges
+                .iter()
+                .filter(|edge| edge.kind == "ring_route")
+                .count(),
+            vertical_transfer_count: self
+                .transit_edges
+                .iter()
+                .filter(|edge| edge.kind.contains("vertical_transfer"))
+                .count(),
+            guaranteed_service_to_skyline: self.has_service_to_skyline_path(),
             high_centrality_route_ids,
             main_path: self.main_mission_path(),
         }
+    }
+
+    fn has_service_to_skyline_path(&self) -> bool {
+        self.transit_edges
+            .iter()
+            .any(|edge| edge.kind == "service_tunnel")
+            && self
+                .transit_edges
+                .iter()
+                .any(|edge| edge.kind == "skybridge" && edge.stratum == "SKYLINE")
+            && self
+                .transit_edges
+                .iter()
+                .any(|edge| edge.kind == "mission_vertical_transfer")
     }
 
     fn main_mission_path(&self) -> Option<MissionPathRecord> {
@@ -3093,8 +3207,12 @@ impl MegaStructureGenerator {
                 edge.id == start.id
                     || edge.id == end.id
                     || matches!(edge.role.as_str(), "primary_artery" | "restricted_spine")
+                    || matches!(
+                        edge.kind.as_str(),
+                        "ring_route" | "vertical_transfer" | "mission_vertical_transfer"
+                    )
             })
-            .take(8)
+            .take(12)
             .map(|edge| edge.id)
             .collect();
         let route_set: BTreeSet<_> = route_ids.iter().copied().collect();
@@ -3948,6 +4066,12 @@ fn route_role_for(
     if kind == "express_spine" {
         return "restricted_spine";
     }
+    if kind == "ring_route" {
+        return "primary_artery";
+    }
+    if kind.contains("vertical_transfer") {
+        return "evacuation_route";
+    }
     let Some(start) = start else {
         return "primary_artery";
     };
@@ -4141,7 +4265,7 @@ fn temporal_routes(phase: &str, routes: &[TransitEdgeRecord]) -> Vec<usize> {
         .iter()
         .filter(|route| match phase {
             "blackout" => matches!(route.role.as_str(), "service_loop" | "maintenance_backbone"),
-            "market_peak" => route.role == "market_run",
+            "market_peak" => route.role == "market_run" || route.kind == "ring_route",
             "patrol_cycle" => {
                 matches!(route.role.as_str(), "restricted_spine" | "evacuation_route")
             }
@@ -4707,6 +4831,9 @@ mod tests {
         assert!(saved.path_analysis.connected_component_count > 0);
         assert!(saved.path_analysis.largest_component_edges > 0);
         assert!(saved.path_analysis.reachable_room_count > 0);
+        assert!(saved.path_analysis.alternate_path_count > 0);
+        assert!(saved.path_analysis.vertical_transfer_count > 0);
+        assert!(saved.path_analysis.guaranteed_service_to_skyline);
         assert!(!saved.path_analysis.high_centrality_route_ids.is_empty());
         assert!(saved.path_analysis.main_path.is_some());
 
