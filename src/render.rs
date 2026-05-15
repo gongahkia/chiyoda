@@ -1,0 +1,1228 @@
+use macroquad::models::{draw_cube_wires, draw_mesh, Mesh, Vertex};
+use macroquad::prelude::*;
+use std::fs;
+use std::time::{SystemTime, UNIX_EPOCH};
+
+use crate::generation::{
+    biome_rust_at, cell_to_material, clampf, is_walkable_floor_cell, mix_color, simplex, CellType,
+    MaterialType, MegaStructureGenerator, CAMERA_FOV_DEGREES, CHUNK_SIZE_X, CHUNK_SIZE_Y,
+    CHUNK_SIZE_Z, DISTRICTS, MATERIALS,
+};
+use crate::seed::generate_seed;
+
+struct SpatialChunk {
+    mesh: Mesh,
+    center: Vec3,
+}
+
+struct RenderWorld {
+    opaque_chunks: Vec<SpatialChunk>,
+    translucent_chunks: Vec<SpatialChunk>,
+}
+
+fn hash_noise(seed_hash: u64, x: usize, z: usize, y: usize) -> f32 {
+    let mut value = seed_hash
+        ^ ((x as u64).wrapping_mul(0x9E37_79B1))
+        ^ ((z as u64).wrapping_mul(0x85EB_CA77))
+        ^ ((y as u64).wrapping_mul(0xC2B2_AE3D));
+    value ^= value >> 33;
+    value = value.wrapping_mul(0xff51afd7ed558ccd);
+    value ^= value >> 33;
+    value = value.wrapping_mul(0xc4ceb9fe1a85ec53);
+    value ^= value >> 33;
+    (value as u32) as f32 / u32::MAX as f32
+}
+
+fn cell_style(
+    generator: &MegaStructureGenerator,
+    x: usize,
+    z: usize,
+    y: usize,
+    cell: CellType,
+) -> (Color, bool) {
+    let district = generator.district_at(x, z);
+    let district_props = DISTRICTS[district as usize];
+    let mut style = MATERIALS[cell_to_material(cell) as usize];
+    let base_tint = district_props.color_palette[(x + z + y) % district_props.color_palette.len()];
+    let noise = simplex::noise3(x as f32 * 0.12, y as f32 * 0.12, z as f32 * 0.12) * 0.5 + 0.5;
+    let patina = hash_noise(generator.seed_hash, x, z, y);
+    let mut color = mix_color(style.base_color, base_tint, 0.16 + noise * 0.10);
+
+    if cell == CellType::Facade && patina > 1.0 - district_props.neon_probability {
+        style = MATERIALS[MaterialType::Neon as usize];
+        color = match ((x + y + z) % 3) as i32 {
+            0 => (0.10, 0.92, 0.96),
+            1 => (0.92, 0.20, 0.84),
+            _ => (0.95, 0.92, 0.20),
+        };
+    } else {
+        let decay = biome_rust_at(y) * (0.06 + patina * 0.08);
+        color = (
+            clampf(color.0 * (1.0 - decay), 0.0, 1.0),
+            clampf(color.1 * (1.0 - decay * 0.9), 0.0, 1.0),
+            clampf(color.2 * (1.0 - decay * 0.7), 0.0, 1.0),
+        );
+    }
+
+    if matches!(cell, CellType::Pipe | CellType::Cable) {
+        color = mix_color(
+            color,
+            MATERIALS[MaterialType::Rust as usize].base_color,
+            0.30,
+        );
+    }
+
+    let is_translucent = style.alpha < 0.99;
+    (
+        Color::new(
+            clampf(color.0, 0.0, 1.0),
+            clampf(color.1, 0.0, 1.0),
+            clampf(color.2, 0.0, 1.0),
+            style.alpha,
+        ),
+        is_translucent,
+    )
+}
+
+fn face_vertex(position: Vec3, uv: Vec2, color: Color) -> Vertex {
+    Vertex::new2(position, uv, color)
+}
+
+fn push_face(
+    vertices: &mut Vec<Vertex>,
+    indices: &mut Vec<u16>,
+    quad: [Vec3; 4],
+    color: Color,
+    brightness: f32,
+) {
+    let base = vertices.len() as u16;
+    let shaded = Color::new(
+        clampf(color.r * brightness, 0.0, 1.0),
+        clampf(color.g * brightness, 0.0, 1.0),
+        clampf(color.b * brightness, 0.0, 1.0),
+        color.a,
+    );
+    vertices.push(face_vertex(quad[0], vec2(0.0, 0.0), shaded));
+    vertices.push(face_vertex(quad[1], vec2(1.0, 0.0), shaded));
+    vertices.push(face_vertex(quad[2], vec2(1.0, 1.0), shaded));
+    vertices.push(face_vertex(quad[3], vec2(0.0, 1.0), shaded));
+    indices.extend_from_slice(&[base, base + 1, base + 2, base, base + 2, base + 3]);
+}
+
+fn face_brightness(normal: Vec3) -> f32 {
+    let sun = vec3(0.5, 1.0, 0.3).normalize();
+    let fill = vec3(-0.3, 0.5, -0.7).normalize();
+    let direct = normal.dot(sun).max(0.0);
+    let secondary = normal.dot(fill).max(0.0) * 0.3;
+    0.32 + direct * 0.55 + secondary
+}
+
+fn build_mesh_chunk(
+    generator: &MegaStructureGenerator,
+    ox: usize,
+    oz: usize,
+    oy: usize,
+    translucent: bool,
+) -> Option<SpatialChunk> {
+    let max_x = (ox + CHUNK_SIZE_X).min(generator.size);
+    let max_z = (oz + CHUNK_SIZE_Z).min(generator.size);
+    let max_y = (oy + CHUNK_SIZE_Y).min(generator.layers);
+
+    let mut vertices = Vec::new();
+    let mut indices = Vec::new();
+    let directions = [
+        (1isize, 0isize, 0isize, vec3(1.0, 0.0, 0.0)),
+        (-1, 0, 0, vec3(-1.0, 0.0, 0.0)),
+        (0, 1, 0, vec3(0.0, 1.0, 0.0)),
+        (0, -1, 0, vec3(0.0, -1.0, 0.0)),
+        (0, 0, 1, vec3(0.0, 0.0, 1.0)),
+        (0, 0, -1, vec3(0.0, 0.0, -1.0)),
+    ];
+
+    for x in ox..max_x {
+        for z in oz..max_z {
+            for y in oy..max_y {
+                let cell = generator.get(x, z, y);
+                if cell == CellType::Empty {
+                    continue;
+                }
+                let (color, is_translucent) = cell_style(generator, x, z, y, cell);
+                if is_translucent != translucent {
+                    continue;
+                }
+                let center = vec3(x as f32, y as f32, z as f32);
+                let half = 0.46;
+                for (dx, dy, dz, normal) in directions {
+                    let nx = x as isize + dx;
+                    let ny = y as isize + dy;
+                    let nz = z as isize + dz;
+                    let neighbor = if nx < 0
+                        || ny < 0
+                        || nz < 0
+                        || nx >= generator.size as isize
+                        || ny >= generator.layers as isize
+                        || nz >= generator.size as isize
+                    {
+                        CellType::Empty
+                    } else {
+                        generator.get(nx as usize, nz as usize, ny as usize)
+                    };
+                    if neighbor != CellType::Empty {
+                        let (_, neighbor_translucent) = cell_style(
+                            generator,
+                            nx.max(0) as usize,
+                            nz.max(0) as usize,
+                            ny.max(0) as usize,
+                            neighbor,
+                        );
+                        if !neighbor_translucent || is_translucent == neighbor_translucent {
+                            continue;
+                        }
+                    }
+                    let quad = match (dx, dy, dz) {
+                        (1, 0, 0) => [
+                            center + vec3(half, -half, -half),
+                            center + vec3(half, -half, half),
+                            center + vec3(half, half, half),
+                            center + vec3(half, half, -half),
+                        ],
+                        (-1, 0, 0) => [
+                            center + vec3(-half, -half, half),
+                            center + vec3(-half, -half, -half),
+                            center + vec3(-half, half, -half),
+                            center + vec3(-half, half, half),
+                        ],
+                        (0, 1, 0) => [
+                            center + vec3(-half, half, -half),
+                            center + vec3(half, half, -half),
+                            center + vec3(half, half, half),
+                            center + vec3(-half, half, half),
+                        ],
+                        (0, -1, 0) => [
+                            center + vec3(-half, -half, half),
+                            center + vec3(half, -half, half),
+                            center + vec3(half, -half, -half),
+                            center + vec3(-half, -half, -half),
+                        ],
+                        (0, 0, 1) => [
+                            center + vec3(-half, -half, half),
+                            center + vec3(-half, half, half),
+                            center + vec3(half, half, half),
+                            center + vec3(half, -half, half),
+                        ],
+                        _ => [
+                            center + vec3(half, -half, -half),
+                            center + vec3(half, half, -half),
+                            center + vec3(-half, half, -half),
+                            center + vec3(-half, -half, -half),
+                        ],
+                    };
+                    push_face(
+                        &mut vertices,
+                        &mut indices,
+                        quad,
+                        color,
+                        face_brightness(normal),
+                    );
+                }
+            }
+        }
+    }
+
+    if vertices.is_empty() {
+        return None;
+    }
+
+    Some(SpatialChunk {
+        mesh: Mesh {
+            vertices,
+            indices,
+            texture: None,
+        },
+        center: vec3(
+            (ox + max_x) as f32 * 0.5,
+            (oy + max_y) as f32 * 0.5,
+            (oz + max_z) as f32 * 0.5,
+        ),
+    })
+}
+
+fn build_render_world(generator: &MegaStructureGenerator) -> RenderWorld {
+    let mut opaque_chunks = Vec::new();
+    let mut translucent_chunks = Vec::new();
+    for ox in (0..generator.size).step_by(CHUNK_SIZE_X) {
+        for oz in (0..generator.size).step_by(CHUNK_SIZE_Z) {
+            for oy in (0..generator.layers).step_by(CHUNK_SIZE_Y) {
+                if let Some(chunk) = build_mesh_chunk(generator, ox, oz, oy, false) {
+                    opaque_chunks.push(chunk);
+                }
+                if let Some(chunk) = build_mesh_chunk(generator, ox, oz, oy, true) {
+                    translucent_chunks.push(chunk);
+                }
+            }
+        }
+    }
+    RenderWorld {
+        opaque_chunks,
+        translucent_chunks,
+    }
+}
+
+struct OrbitalCamera {
+    target: Vec3,
+    distance: f32,
+    angle: f32,
+    pitch: f32,
+    target_angle: f32,
+    target_pitch: f32,
+    target_distance: f32,
+    angle_velocity: f32,
+    pitch_velocity: f32,
+    zoom_velocity: f32,
+    damping: f32,
+    min_distance: f32,
+    max_distance: f32,
+    position: Vec3,
+}
+
+impl OrbitalCamera {
+    fn new(target: Vec3, distance: f32) -> Self {
+        let mut camera = Self {
+            target,
+            distance,
+            angle: 45.0,
+            pitch: 30.0,
+            target_angle: 45.0,
+            target_pitch: 30.0,
+            target_distance: distance,
+            angle_velocity: 0.0,
+            pitch_velocity: 0.0,
+            zoom_velocity: 0.0,
+            damping: 0.85,
+            min_distance: distance * 0.3,
+            max_distance: distance * 5.0,
+            position: vec3(0.0, 0.0, 0.0),
+        };
+        camera.position = camera.calc_position();
+        camera
+    }
+
+    fn calc_position(&self) -> Vec3 {
+        let rad_angle = self.angle.to_radians();
+        let rad_pitch = self.pitch.to_radians();
+        let x = self.distance * rad_pitch.cos() * rad_angle.cos();
+        let y = self.distance * rad_pitch.sin();
+        let z = self.distance * rad_pitch.cos() * rad_angle.sin();
+        self.target + vec3(x, y, z)
+    }
+
+    fn update(&mut self, dt: f32) {
+        let ad = self.target_angle - self.angle;
+        let pd = self.target_pitch - self.pitch;
+        let zd = self.target_distance - self.distance;
+        self.angle_velocity += ad * dt * 5.0;
+        self.pitch_velocity += pd * dt * 5.0;
+        self.zoom_velocity += zd * dt * 3.0;
+        self.angle_velocity *= self.damping;
+        self.pitch_velocity *= self.damping;
+        self.zoom_velocity *= self.damping;
+        self.angle += self.angle_velocity * dt;
+        self.pitch += self.pitch_velocity * dt;
+        self.distance += self.zoom_velocity * dt;
+        self.pitch = clampf(self.pitch, -89.0, 89.0);
+        self.distance = clampf(self.distance, self.min_distance, self.max_distance);
+        self.target_distance = clampf(self.target_distance, self.min_distance, self.max_distance);
+        self.position = self.calc_position();
+    }
+
+    fn rotate(&mut self, da: f32, dp: f32) {
+        self.target_angle += da;
+        self.target_pitch += dp;
+    }
+
+    fn zoom(&mut self, delta: f32) {
+        let bound = self.target.max_element().max(10.0);
+        self.min_distance = bound * 0.3;
+        self.max_distance = bound * 4.0;
+        self.target_distance = clampf(
+            self.target_distance + delta,
+            self.min_distance,
+            self.max_distance,
+        );
+    }
+
+    fn pan(&mut self, dx: f32, dy: f32) {
+        let forward = (self.target - self.position).normalize();
+        let right = forward.cross(vec3(0.0, 1.0, 0.0)).normalize();
+        let up = right.cross(forward).normalize();
+        self.target += right * (dx * 0.12) + up * (dy * 0.12);
+    }
+
+    fn set_preset(&mut self, preset: usize) {
+        const PRESETS: [(f32, f32); 5] = [
+            (0.0, 89.0),
+            (0.0, 0.0),
+            (90.0, 0.0),
+            (45.0, 30.0),
+            (45.0, 35.264),
+        ];
+        let index = preset.min(PRESETS.len() - 1);
+        self.target_angle = PRESETS[index].0;
+        self.target_pitch = PRESETS[index].1;
+        self.angle_velocity = 0.0;
+        self.pitch_velocity = 0.0;
+    }
+
+    fn view_camera(&self, render_target: Option<RenderTarget>) -> Camera3D {
+        Camera3D {
+            position: self.position,
+            target: self.target,
+            up: vec3(0.0, 1.0, 0.0),
+            fovy: CAMERA_FOV_DEGREES.to_radians(),
+            projection: Projection::Perspective,
+            render_target,
+            z_near: 0.1,
+            z_far: 500.0,
+            ..Default::default()
+        }
+    }
+}
+
+struct FpsCamera {
+    position: Vec3,
+    yaw: f32,
+    pitch: f32,
+    speed: f32,
+    sensitivity: f32,
+    velocity_y: f32,
+    on_ground: bool,
+}
+
+impl FpsCamera {
+    const EYE_HEIGHT: f32 = 1.6;
+    const RADIUS: f32 = 0.3;
+    const GRAVITY: f32 = 9.8;
+    const JUMP_VELOCITY: f32 = 5.0;
+    const MAX_DELTA: f32 = 0.5;
+
+    fn new(position: Vec3) -> Self {
+        Self {
+            position,
+            yaw: -90.0,
+            pitch: 0.0,
+            speed: 5.0,
+            sensitivity: 0.1,
+            velocity_y: 0.0,
+            on_ground: false,
+        }
+    }
+
+    fn front(&self) -> Vec3 {
+        let yaw = self.yaw.to_radians();
+        let pitch = self.pitch.to_radians();
+        vec3(
+            yaw.cos() * pitch.cos(),
+            pitch.sin(),
+            yaw.sin() * pitch.cos(),
+        )
+        .normalize()
+    }
+
+    fn look_delta(&mut self, dx: f32, dy: f32) {
+        self.yaw += dx * self.sensitivity;
+        self.pitch -= dy * self.sensitivity;
+        self.pitch = clampf(self.pitch, -89.0, 89.0);
+    }
+
+    fn jump(&mut self) {
+        if self.on_ground {
+            self.velocity_y = Self::JUMP_VELOCITY;
+            self.on_ground = false;
+        }
+    }
+
+    fn collides_at(&self, position: Vec3, generator: &MegaStructureGenerator) -> bool {
+        let offsets = [
+            vec2(-Self::RADIUS, -Self::RADIUS),
+            vec2(Self::RADIUS, -Self::RADIUS),
+            vec2(-Self::RADIUS, Self::RADIUS),
+            vec2(Self::RADIUS, Self::RADIUS),
+        ];
+        for offset in offsets {
+            for height in [0.0, Self::EYE_HEIGHT] {
+                let gx = (position.x + offset.x).floor() as isize;
+                let gy = (position.y + height).floor() as isize;
+                let gz = (position.z + offset.y).floor() as isize;
+                if gx < 0
+                    || gy < 0
+                    || gz < 0
+                    || gx >= generator.size as isize
+                    || gy >= generator.layers as isize
+                    || gz >= generator.size as isize
+                {
+                    continue;
+                }
+                if generator.get(gx as usize, gz as usize, gy as usize) != CellType::Empty {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+    fn update(
+        &mut self,
+        dt: f32,
+        move_forward: f32,
+        move_right: f32,
+        generator: &MegaStructureGenerator,
+    ) {
+        let front = self.front();
+        let right = front.cross(vec3(0.0, 1.0, 0.0)).normalize();
+        let mut movement = (vec3(front.x, 0.0, front.z) * move_forward
+            + vec3(right.x, 0.0, right.z) * move_right)
+            * self.speed
+            * dt;
+        let length = movement.length();
+        if length > Self::MAX_DELTA {
+            movement *= Self::MAX_DELTA / length;
+        }
+
+        let mut next = self.position;
+        next.x += movement.x;
+        if self.collides_at(next, generator) {
+            next.x = self.position.x;
+        }
+        next.z += movement.z;
+        if self.collides_at(next, generator) {
+            next.z = self.position.z;
+        }
+
+        self.velocity_y -= Self::GRAVITY * dt;
+        let mut delta_y = self.velocity_y * dt;
+        delta_y = clampf(delta_y, -Self::MAX_DELTA, Self::MAX_DELTA);
+        next.y += delta_y;
+        if self.collides_at(next, generator) {
+            if self.velocity_y < 0.0 {
+                self.on_ground = true;
+            }
+            self.velocity_y = 0.0;
+            next.y = self.position.y;
+        } else {
+            self.on_ground = false;
+        }
+        if next.y < 0.0 {
+            next.y = 0.0;
+            self.velocity_y = 0.0;
+            self.on_ground = true;
+        }
+        self.position = next;
+    }
+
+    fn view_camera(&self, render_target: Option<RenderTarget>) -> Camera3D {
+        let eye = self.position + vec3(0.0, Self::EYE_HEIGHT, 0.0);
+        Camera3D {
+            position: eye,
+            target: eye + self.front(),
+            up: vec3(0.0, 1.0, 0.0),
+            fovy: CAMERA_FOV_DEGREES.to_radians(),
+            projection: Projection::Perspective,
+            render_target,
+            z_near: 0.1,
+            z_far: 500.0,
+            ..Default::default()
+        }
+    }
+}
+
+fn is_valid_spawn_cell(generator: &MegaStructureGenerator, x: usize, z: usize, y: usize) -> bool {
+    if x == 0 || z == 0 || x >= generator.size - 1 || z >= generator.size - 1 {
+        return false;
+    }
+    if y == 0 || y + 1 >= generator.layers {
+        return false;
+    }
+    is_walkable_floor_cell(generator.get(x, z, y - 1))
+        && generator.get(x, z, y) == CellType::Empty
+        && generator.get(x, z, y + 1) == CellType::Empty
+}
+
+fn find_fps_spawn(generator: &MegaStructureGenerator) -> Vec3 {
+    let center_x = generator.size as isize / 2;
+    let center_z = generator.size as isize / 2;
+    let center_y = generator.layers as isize / 3;
+    let directions = [(1isize, 0isize), (-1, 0), (0, 1), (0, -1)];
+    let mut best_score = i32::MIN;
+    let mut best_position = vec3(
+        generator.size as f32 / 2.0,
+        1.0,
+        generator.size as f32 / 2.0,
+    );
+    for y in 1..generator.layers - 1 {
+        for x in 1..generator.size - 1 {
+            for z in 1..generator.size - 1 {
+                if !is_valid_spawn_cell(generator, x, z, y) {
+                    continue;
+                }
+                let mut floor_links = 0;
+                let mut open_links = 0;
+                let mut sheltered_links = 0;
+                for (dx, dz) in directions {
+                    let nx = (x as isize + dx) as usize;
+                    let nz = (z as isize + dz) as usize;
+                    if is_walkable_floor_cell(generator.get(nx, nz, y - 1)) {
+                        floor_links += 1;
+                    }
+                    if generator.get(nx, nz, y) == CellType::Empty
+                        && generator.get(nx, nz, y + 1) == CellType::Empty
+                    {
+                        open_links += 1;
+                    }
+                    if generator.get(nx, nz, y - 1) != CellType::Empty
+                        || generator.get(nx, nz, y + 1) != CellType::Empty
+                    {
+                        sheltered_links += 1;
+                    }
+                }
+                let center_penalty = (x as isize - center_x).abs() as i32
+                    + (z as isize - center_z).abs() as i32
+                    + ((y as isize - center_y).abs() as i32 * 3);
+                let score =
+                    floor_links * 24 + open_links * 10 + sheltered_links * 4 - center_penalty;
+                if score > best_score {
+                    best_score = score;
+                    best_position = vec3(x as f32 + 0.5, y as f32, z as f32 + 0.5);
+                }
+            }
+        }
+    }
+    best_position
+}
+
+struct PostFxResources {
+    scene_target: RenderTarget,
+    material: Material,
+    width: u32,
+    height: u32,
+}
+
+impl PostFxResources {
+    async fn new(width: u32, height: u32) -> Self {
+        let scene_target = render_target_ex(
+            width,
+            height,
+            RenderTargetParams {
+                sample_count: 1,
+                depth: true,
+            },
+        );
+        scene_target.texture.set_filter(FilterMode::Linear);
+        let material = load_material(
+            ShaderSource::Glsl {
+                vertex: POST_VERTEX,
+                fragment: POST_FRAGMENT,
+            },
+            MaterialParams {
+                uniforms: vec![
+                    UniformDesc::new("FogDensity", UniformType::Float1),
+                    UniformDesc::new("BloomIntensity", UniformType::Float1),
+                    UniformDesc::new("Time", UniformType::Float1),
+                    UniformDesc::new("ScreenSize", UniformType::Float2),
+                ],
+                ..Default::default()
+            },
+        )
+        .expect("postfx material");
+        Self {
+            scene_target,
+            material,
+            width,
+            height,
+        }
+    }
+
+    async fn ensure_size(&mut self, width: u32, height: u32) {
+        if self.width == width && self.height == height {
+            return;
+        }
+        *self = Self::new(width, height).await;
+    }
+}
+
+struct AppState {
+    generator: MegaStructureGenerator,
+    render_world: RenderWorld,
+    orbital: OrbitalCamera,
+    fps: FpsCamera,
+    fps_mode: bool,
+    postfx: PostFxResources,
+    fog_density: f32,
+    bloom_intensity: f32,
+    enable_postfx: bool,
+    inspection_mode: bool,
+    show_legend: bool,
+    selected_cell: Option<(usize, usize, usize)>,
+    mouse_dragging: bool,
+    last_mouse: Option<Vec2>,
+    last_fps_mouse: Option<Vec2>,
+    screenshot_requested: bool,
+}
+
+impl AppState {
+    async fn new(seed: String) -> Self {
+        let mut generator = MegaStructureGenerator::new(seed);
+        generator.generate();
+        if let Err(error) = generator.save_outputs() {
+            eprintln!("Failed to save generated structure: {error}");
+        }
+
+        let render_world = build_render_world(&generator);
+        let center = vec3(
+            generator.size as f32 / 2.0,
+            generator.layers as f32 / 2.0,
+            generator.size as f32 / 2.0,
+        );
+        let distance = generator.size.max(generator.layers) as f32 * 1.5;
+        let orbital = OrbitalCamera::new(center, distance);
+        let fps = FpsCamera::new(find_fps_spawn(&generator));
+        let postfx = PostFxResources::new(
+            screen_width().max(1.0) as u32,
+            screen_height().max(1.0) as u32,
+        )
+        .await;
+
+        Self {
+            generator,
+            render_world,
+            orbital,
+            fps,
+            fps_mode: false,
+            postfx,
+            fog_density: 0.0,
+            bloom_intensity: 0.2,
+            enable_postfx: false,
+            inspection_mode: false,
+            show_legend: true,
+            selected_cell: None,
+            mouse_dragging: false,
+            last_mouse: None,
+            last_fps_mouse: None,
+            screenshot_requested: false,
+        }
+    }
+
+    async fn regenerate(&mut self) {
+        let seed = generate_seed();
+        self.generator = MegaStructureGenerator::new(seed);
+        self.generator.generate();
+        if let Err(error) = self.generator.save_outputs() {
+            eprintln!("Failed to save generated structure: {error}");
+        }
+        self.render_world = build_render_world(&self.generator);
+        let center = vec3(
+            self.generator.size as f32 / 2.0,
+            self.generator.layers as f32 / 2.0,
+            self.generator.size as f32 / 2.0,
+        );
+        let distance = self.generator.size.max(self.generator.layers) as f32 * 1.5;
+        self.orbital = OrbitalCamera::new(center, distance);
+        self.fps = FpsCamera::new(find_fps_spawn(&self.generator));
+        self.selected_cell = None;
+        self.mouse_dragging = false;
+        self.last_mouse = None;
+        self.last_fps_mouse = None;
+        self.screenshot_requested = false;
+    }
+
+    fn current_seed(&self) -> &str {
+        self.generator.seed()
+    }
+}
+
+fn camera_ray(camera: &Camera3D, mouse_x: f32, mouse_y: f32) -> Vec3 {
+    let aspect = (screen_width() / screen_height().max(1.0)).max(0.001);
+    let tan_half = (CAMERA_FOV_DEGREES.to_radians() * 0.5).tan();
+    let x = (2.0 * mouse_x / screen_width().max(1.0) - 1.0) * tan_half * aspect;
+    let y = (1.0 - 2.0 * mouse_y / screen_height().max(1.0)) * tan_half;
+    let forward = (camera.target - camera.position).normalize();
+    let right = forward.cross(camera.up).normalize();
+    let up = right.cross(forward).normalize();
+    (forward + right * x + up * y).normalize()
+}
+
+fn ray_cast(
+    generator: &MegaStructureGenerator,
+    camera: &Camera3D,
+    mouse_x: f32,
+    mouse_y: f32,
+) -> Option<(usize, usize, usize)> {
+    let ray = camera_ray(camera, mouse_x, mouse_y);
+    let mut position = camera.position;
+    for _ in 0..220 {
+        position += ray * 0.5;
+        let gx = position.x.round() as isize;
+        let gy = position.y.round() as isize;
+        let gz = position.z.round() as isize;
+        if gx < 0
+            || gy < 0
+            || gz < 0
+            || gx >= generator.size as isize
+            || gy >= generator.layers as isize
+            || gz >= generator.size as isize
+        {
+            continue;
+        }
+        if generator.get(gx as usize, gz as usize, gy as usize) != CellType::Empty {
+            return Some((gx as usize, gy as usize, gz as usize));
+        }
+    }
+    None
+}
+
+fn draw_world(app: &AppState, camera_position: Vec3) {
+    for chunk in &app.render_world.opaque_chunks {
+        draw_mesh(&chunk.mesh);
+    }
+    let mut translucent: Vec<&SpatialChunk> = app.render_world.translucent_chunks.iter().collect();
+    translucent.sort_by(|a, b| {
+        b.center
+            .distance_squared(camera_position)
+            .partial_cmp(&a.center.distance_squared(camera_position))
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    for chunk in translucent {
+        draw_mesh(&chunk.mesh);
+    }
+    if let Some((x, y, z)) = app.selected_cell {
+        draw_cube_wires(
+            vec3(x as f32, y as f32, z as f32),
+            vec3(0.96, 0.96, 0.96),
+            YELLOW,
+        );
+    }
+}
+
+fn draw_overlay(app: &AppState) {
+    let padding = 12.0;
+    let line_height = 22.0;
+    draw_rectangle(8.0, 8.0, 340.0, 28.0, Color::new(0.0, 0.0, 0.0, 0.65));
+    draw_text(
+        &format!("Seed: {}", app.current_seed()),
+        padding,
+        28.0,
+        24.0,
+        WHITE,
+    );
+
+    let controls = [
+        "Drag: Rotate | Wheel: Zoom | WASD: Pan",
+        "1-5: Presets | TAB: FPS | Space: Jump",
+        "R: Regenerate | S: Screenshot | I: Inspect",
+        "P: PostFX | [ ]: Fog | - =: Bloom",
+        "L: Legend | Q/Esc: Quit",
+    ];
+    let mut y = 48.0;
+    for line in controls {
+        draw_rectangle(8.0, y - 18.0, 420.0, 22.0, Color::new(0.0, 0.0, 0.0, 0.55));
+        draw_text(line, padding, y, 20.0, Color::new(0.80, 0.80, 0.80, 1.0));
+        y += line_height;
+    }
+
+    draw_rectangle(8.0, y - 18.0, 180.0, 22.0, Color::new(0.0, 0.0, 0.0, 0.65));
+    draw_text(
+        if app.fps_mode {
+            "Mode: FPS"
+        } else {
+            "Mode: Orbital"
+        },
+        padding,
+        y,
+        20.0,
+        Color::new(1.0, 1.0, 0.55, 1.0),
+    );
+    y += line_height;
+
+    if app.enable_postfx {
+        draw_rectangle(8.0, y - 18.0, 250.0, 22.0, Color::new(0.0, 0.0, 0.0, 0.55));
+        draw_text(
+            &format!(
+                "Fog: {:.2} | Bloom: {:.2}",
+                app.fog_density, app.bloom_intensity
+            ),
+            padding,
+            y,
+            20.0,
+            Color::new(0.78, 0.78, 0.78, 1.0),
+        );
+        y += line_height;
+    }
+
+    if app.inspection_mode {
+        draw_rectangle(8.0, y - 18.0, 180.0, 22.0, Color::new(0.0, 0.0, 0.0, 0.65));
+        draw_text(
+            "Inspection Enabled",
+            padding,
+            y,
+            20.0,
+            Color::new(0.85, 0.85, 0.45, 1.0),
+        );
+        y += line_height;
+    }
+
+    if let Some((x, yv, z)) = app.selected_cell {
+        let district = app.generator.district_at(x, z);
+        let cell = app.generator.get(x, z, yv);
+        draw_rectangle(8.0, y + 2.0, 320.0, 90.0, Color::new(0.0, 0.0, 0.0, 0.72));
+        draw_text(
+            "INSPECT",
+            padding,
+            y + 24.0,
+            24.0,
+            Color::new(1.0, 1.0, 0.55, 1.0),
+        );
+        draw_text(
+            &format!("Pos: ({}, {}, {})", x, yv, z),
+            padding,
+            y + 46.0,
+            20.0,
+            LIGHTGRAY,
+        );
+        draw_text(
+            &format!("Type: {}", cell.name()),
+            padding,
+            y + 66.0,
+            20.0,
+            LIGHTGRAY,
+        );
+        draw_text(
+            &format!("Zone: {}", district.name()),
+            padding,
+            y + 86.0,
+            20.0,
+            LIGHTGRAY,
+        );
+    }
+
+    if app.show_legend {
+        let legend_y = screen_height() - 182.0;
+        draw_rectangle(8.0, legend_y, 200.0, 170.0, Color::new(0.0, 0.0, 0.0, 0.65));
+        draw_text("Materials", padding, legend_y + 24.0, 24.0, WHITE);
+        let items = [
+            (
+                "Concrete",
+                MATERIALS[MaterialType::Concrete as usize].base_color,
+            ),
+            ("Glass", MATERIALS[MaterialType::Glass as usize].base_color),
+            ("Metal", MATERIALS[MaterialType::Metal as usize].base_color),
+            ("Neon", MATERIALS[MaterialType::Neon as usize].base_color),
+            ("Rust", MATERIALS[MaterialType::Rust as usize].base_color),
+            ("Steel", MATERIALS[MaterialType::Steel as usize].base_color),
+        ];
+        let mut ly = legend_y + 38.0;
+        for (label, rgb) in items {
+            draw_rectangle(
+                16.0,
+                ly - 12.0,
+                16.0,
+                16.0,
+                Color::new(rgb.0, rgb.1, rgb.2, 1.0),
+            );
+            draw_text(label, 42.0, ly, 20.0, LIGHTGRAY);
+            ly += 22.0;
+        }
+    }
+}
+
+fn take_screenshot(seed: &str) {
+    let _ = fs::create_dir_all("screenshots");
+    let image = get_screen_data();
+    let path = format!("screenshots/gibson_{}_{}.png", seed, timestamp_token());
+    image.export_png(&path);
+}
+
+fn timestamp_token() -> String {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs()
+        .to_string()
+}
+
+pub fn window_conf() -> Conf {
+    Conf {
+        window_title: "Gibson Rust".to_owned(),
+        window_width: 1600,
+        window_height: 900,
+        high_dpi: true,
+        window_resizable: true,
+        sample_count: 4,
+        ..Default::default()
+    }
+}
+
+const POST_VERTEX: &str = r#"#version 100
+attribute vec3 position;
+attribute vec2 texcoord;
+attribute vec4 color0;
+
+varying lowp vec2 uv;
+varying lowp vec4 color;
+
+uniform mat4 Model;
+uniform mat4 Projection;
+
+void main() {
+    gl_Position = Projection * Model * vec4(position, 1.0);
+    color = color0 / 255.0;
+    uv = texcoord;
+}
+"#;
+
+const POST_FRAGMENT: &str = r#"#version 100
+precision lowp float;
+
+varying vec2 uv;
+varying vec4 color;
+
+uniform sampler2D Texture;
+uniform float FogDensity;
+uniform float BloomIntensity;
+uniform float Time;
+uniform vec2 ScreenSize;
+
+void main() {
+    vec3 scene = texture2D(Texture, uv).rgb * color.rgb;
+    vec2 texel = 1.0 / max(ScreenSize, vec2(1.0, 1.0));
+    vec3 blur =
+        texture2D(Texture, uv + vec2(texel.x, 0.0)).rgb +
+        texture2D(Texture, uv - vec2(texel.x, 0.0)).rgb +
+        texture2D(Texture, uv + vec2(0.0, texel.y)).rgb +
+        texture2D(Texture, uv - vec2(0.0, texel.y)).rgb;
+    blur *= 0.25;
+
+    vec3 composed = scene + blur * BloomIntensity;
+    float fog = clamp(FogDensity * (1.1 - uv.y), 0.0, 1.0);
+    vec3 fog_color = vec3(0.10, 0.10, 0.12);
+    composed = mix(composed, fog_color, fog);
+
+    vec2 vignette_uv = uv * (1.0 - uv.yx);
+    float vignette = clamp(pow(16.0 * vignette_uv.x * vignette_uv.y, 0.22), 0.0, 1.0);
+    composed *= vignette;
+
+    float grain = fract(sin(dot(uv * (Time + 1.0), vec2(12.9898, 78.233))) * 43758.5453);
+    composed += vec3((grain - 0.5) * 0.025);
+    gl_FragColor = vec4(composed, 1.0);
+}
+"#;
+
+pub async fn run(seed: String) {
+    let mut app = AppState::new(seed).await;
+
+    loop {
+        app.postfx
+            .ensure_size(
+                screen_width().max(1.0) as u32,
+                screen_height().max(1.0) as u32,
+            )
+            .await;
+
+        let dt = get_frame_time().max(1.0 / 120.0);
+
+        if is_key_pressed(KeyCode::Escape) || is_key_pressed(KeyCode::Q) {
+            break;
+        }
+        if is_key_pressed(KeyCode::Tab) {
+            app.fps_mode = !app.fps_mode;
+            set_cursor_grab(app.fps_mode);
+            show_mouse(!app.fps_mode);
+            app.mouse_dragging = false;
+            app.last_mouse = None;
+            app.last_fps_mouse = None;
+            if app.fps_mode {
+                app.fps = FpsCamera::new(find_fps_spawn(&app.generator));
+            }
+        }
+        if is_key_pressed(KeyCode::R) {
+            app.regenerate().await;
+        }
+        if is_key_pressed(KeyCode::S) {
+            app.screenshot_requested = true;
+        }
+        if is_key_pressed(KeyCode::P) {
+            app.enable_postfx = !app.enable_postfx;
+        }
+        if is_key_pressed(KeyCode::I) {
+            app.inspection_mode = !app.inspection_mode;
+            app.mouse_dragging = false;
+            app.last_mouse = None;
+            if !app.inspection_mode {
+                app.selected_cell = None;
+            }
+        }
+        if is_key_pressed(KeyCode::L) {
+            app.show_legend = !app.show_legend;
+        }
+        if is_key_down(KeyCode::LeftBracket) {
+            app.fog_density = (app.fog_density - 0.01).max(0.0);
+        }
+        if is_key_down(KeyCode::RightBracket) {
+            app.fog_density = (app.fog_density + 0.01).min(2.0);
+        }
+        if is_key_down(KeyCode::Minus) {
+            app.bloom_intensity = (app.bloom_intensity - 0.01).max(0.0);
+        }
+        if is_key_down(KeyCode::Equal) {
+            app.bloom_intensity = (app.bloom_intensity + 0.01).min(2.0);
+        }
+
+        if !app.fps_mode {
+            if is_key_down(KeyCode::W) {
+                app.orbital.pan(0.0, 1.0);
+            }
+            if is_key_down(KeyCode::S) {
+                app.orbital.pan(0.0, -1.0);
+            }
+            if is_key_down(KeyCode::A) {
+                app.orbital.pan(-1.0, 0.0);
+            }
+            if is_key_down(KeyCode::D) {
+                app.orbital.pan(1.0, 0.0);
+            }
+
+            if is_key_pressed(KeyCode::Key1) {
+                app.orbital.set_preset(0);
+            }
+            if is_key_pressed(KeyCode::Key2) {
+                app.orbital.set_preset(1);
+            }
+            if is_key_pressed(KeyCode::Key3) {
+                app.orbital.set_preset(2);
+            }
+            if is_key_pressed(KeyCode::Key4) {
+                app.orbital.set_preset(3);
+            }
+            if is_key_pressed(KeyCode::Key5) {
+                app.orbital.set_preset(4);
+            }
+
+            let wheel = mouse_wheel().1;
+            if wheel.abs() > 0.01 {
+                app.orbital.zoom(-wheel * 3.0);
+            }
+
+            if app.inspection_mode {
+                if is_mouse_button_pressed(MouseButton::Left) {
+                    let camera = app.orbital.view_camera(None);
+                    let (mx, my) = mouse_position();
+                    app.selected_cell = ray_cast(&app.generator, &camera, mx, my);
+                }
+            } else {
+                if is_mouse_button_pressed(MouseButton::Left) {
+                    app.mouse_dragging = true;
+                    let (mx, my) = mouse_position();
+                    app.last_mouse = Some(vec2(mx, my));
+                }
+                if is_mouse_button_released(MouseButton::Left) {
+                    app.mouse_dragging = false;
+                    app.last_mouse = None;
+                }
+                if app.mouse_dragging {
+                    let (mx, my) = mouse_position();
+                    let current = vec2(mx, my);
+                    if let Some(previous) = app.last_mouse {
+                        let delta = current - previous;
+                        app.orbital.rotate(-delta.x * 0.3, -delta.y * 0.3);
+                    }
+                    app.last_mouse = Some(current);
+                }
+            }
+            app.orbital.update(dt);
+        } else {
+            let mut move_forward = 0.0;
+            let mut move_right = 0.0;
+            if is_key_down(KeyCode::W) {
+                move_forward += 1.0;
+            }
+            if is_key_down(KeyCode::S) {
+                move_forward -= 1.0;
+            }
+            if is_key_down(KeyCode::D) {
+                move_right += 1.0;
+            }
+            if is_key_down(KeyCode::A) {
+                move_right -= 1.0;
+            }
+            if is_key_pressed(KeyCode::Space) {
+                app.fps.jump();
+            }
+
+            let (mx, my) = mouse_position();
+            let mouse = vec2(mx, my);
+            if let Some(previous) = app.last_fps_mouse {
+                let delta = mouse - previous;
+                app.fps.look_delta(delta.x, delta.y);
+            }
+            app.last_fps_mouse = Some(mouse);
+            app.fps.update(dt, move_forward, move_right, &app.generator);
+        }
+
+        let render_camera = if app.fps_mode {
+            app.fps.view_camera(Some(app.postfx.scene_target.clone()))
+        } else {
+            app.orbital
+                .view_camera(Some(app.postfx.scene_target.clone()))
+        };
+        set_camera(&render_camera);
+        clear_background(Color::new(0.05, 0.05, 0.08, 1.0));
+        let camera_position = render_camera.position;
+        draw_world(&app, camera_position);
+
+        set_default_camera();
+        clear_background(Color::new(0.05, 0.05, 0.08, 1.0));
+
+        if app.enable_postfx {
+            app.postfx
+                .material
+                .set_uniform("FogDensity", app.fog_density);
+            app.postfx
+                .material
+                .set_uniform("BloomIntensity", app.bloom_intensity);
+            app.postfx.material.set_uniform("Time", get_time() as f32);
+            app.postfx
+                .material
+                .set_uniform("ScreenSize", vec2(screen_width(), screen_height()));
+            gl_use_material(&app.postfx.material);
+            draw_texture_ex(
+                &app.postfx.scene_target.texture,
+                0.0,
+                0.0,
+                WHITE,
+                DrawTextureParams {
+                    dest_size: Some(vec2(screen_width(), screen_height())),
+                    flip_y: true,
+                    ..Default::default()
+                },
+            );
+            gl_use_default_material();
+        } else {
+            draw_texture_ex(
+                &app.postfx.scene_target.texture,
+                0.0,
+                0.0,
+                WHITE,
+                DrawTextureParams {
+                    dest_size: Some(vec2(screen_width(), screen_height())),
+                    flip_y: true,
+                    ..Default::default()
+                },
+            );
+        }
+
+        draw_overlay(&app);
+        if app.screenshot_requested {
+            take_screenshot(app.current_seed());
+            app.screenshot_requested = false;
+        }
+        next_frame().await;
+    }
+}
