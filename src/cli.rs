@@ -19,6 +19,7 @@ pub struct RuntimeOptions {
     pub seed: String,
     pub config: GenerationConfig,
     pub export_path: PathBuf,
+    pub scenario_path: Option<PathBuf>,
     pub headless: bool,
     pub inspect_path: Option<PathBuf>,
     pub inspect_sections: Vec<InspectSection>,
@@ -35,6 +36,7 @@ impl RuntimeOptions {
         let mut profile = GenerationProfile::Balanced;
         let mut config_path = None;
         let mut export_path = PathBuf::from(crate::structure::STRUCTURE_FILE);
+        let mut scenario_path = None;
         let mut headless = false;
         let mut inspect_path = None;
         let mut inspect_sections = Vec::new();
@@ -49,6 +51,9 @@ impl RuntimeOptions {
                 }
                 "--config" => config_path = Some(PathBuf::from(next_arg(&mut args, "--config")?)),
                 "--export" => export_path = PathBuf::from(next_arg(&mut args, "--export")?),
+                "--scenario" => {
+                    scenario_path = Some(PathBuf::from(next_arg(&mut args, "--scenario")?))
+                }
                 "--headless" => headless = true,
                 "--inspect" => {
                     inspect_path = Some(PathBuf::from(next_arg(&mut args, "--inspect")?))
@@ -96,6 +101,7 @@ impl RuntimeOptions {
             seed,
             config,
             export_path,
+            scenario_path,
             headless,
             inspect_path,
             inspect_sections,
@@ -113,7 +119,7 @@ fn invalid_input(message: impl Into<String>) -> Box<dyn Error + Send + Sync> {
 }
 
 pub fn usage() -> &'static str {
-    "Usage: gibson-rust [SEED] [--seed SEED] [--profile balanced|dense|vertical|decayed|neon] [--config path.json] [--export path.json] [--headless] [--inspect structure.json] [--summary] [--routes] [--landmarks] [--path]"
+    "Usage: gibson-rust [SEED] [--seed SEED] [--profile balanced|dense|vertical|decayed|neon] [--config path.json] [--export path.json] [--scenario scenario.json] [--headless] [--inspect structure.json] [--summary] [--routes] [--landmarks] [--path]"
 }
 
 #[cfg(test)]
@@ -159,6 +165,20 @@ mod tests {
         assert_eq!(options.config.profile, GenerationProfile::Neon);
         assert_eq!(options.export_path, PathBuf::from("out.json"));
         assert!(options.headless);
+    }
+
+    #[test]
+    fn parses_scenario_export_path() {
+        let options = RuntimeOptions::parse([
+            "--seed".to_owned(),
+            "ABCD1234".to_owned(),
+            "--headless".to_owned(),
+            "--scenario".to_owned(),
+            "scenario.json".to_owned(),
+        ])
+        .unwrap();
+
+        assert_eq!(options.scenario_path, Some(PathBuf::from("scenario.json")));
     }
 
     #[test]

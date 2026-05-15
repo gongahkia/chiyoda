@@ -3,5 +3,6 @@ pub mod config;
 pub mod generation;
 pub mod inspect;
 pub mod render;
+pub mod scenario;
 pub mod seed;
 pub mod structure;
