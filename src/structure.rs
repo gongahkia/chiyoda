@@ -1,9 +1,13 @@
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::Path;
 
+use crate::config::GenerationConfig;
+
 pub const CURRENT_SEED_FILE: &str = "current_seed.txt";
 pub const STRUCTURE_FILE: &str = "structure.json";
+pub const STRUCTURE_SCHEMA_VERSION: &str = "gibson.structure.v2";
 
 pub type StructureResult<T> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
@@ -26,6 +30,7 @@ pub struct SavedStructure {
     pub seed: String,
     pub size: usize,
     pub layers: usize,
+    pub metadata: StructureMetadata,
     pub grid: Vec<Vec<Vec<u8>>>,
     pub connections: Vec<ConnectionRecord>,
     pub rooms: Vec<RoomRecord>,
@@ -36,6 +41,7 @@ impl SavedStructure {
         seed: String,
         size: usize,
         layers: usize,
+        metadata: StructureMetadata,
         grid: Vec<Vec<Vec<u8>>>,
         connections: Vec<ConnectionRecord>,
         rooms: Vec<RoomRecord>,
@@ -44,11 +50,25 @@ impl SavedStructure {
             seed,
             size,
             layers,
+            metadata,
             grid,
             connections,
             rooms,
         }
     }
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct StructureMetadata {
+    pub schema_version: String,
+    pub profile: String,
+    pub config: GenerationConfig,
+    pub district_counts: BTreeMap<String, usize>,
+    pub cell_counts: BTreeMap<String, usize>,
+    pub material_counts: BTreeMap<String, usize>,
+    pub room_count: usize,
+    pub connection_count: usize,
+    pub occupied_cell_ratio: f32,
 }
 
 pub fn to_json(structure: &SavedStructure) -> serde_json::Result<String> {

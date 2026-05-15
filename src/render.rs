@@ -1,14 +1,18 @@
 use macroquad::models::{draw_cube_wires, draw_mesh, Mesh, Vertex};
 use macroquad::prelude::*;
 use std::fs;
+use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use crate::cli::RuntimeOptions;
+use crate::config::GenerationConfig;
 use crate::generation::{
-    biome_rust_at, cell_to_material, clampf, is_walkable_floor_cell, mix_color, simplex, CellType,
+    biome_rust_at, clampf, hash_noise, is_walkable_floor_cell, mix_color, simplex, CellType,
     MaterialType, MegaStructureGenerator, CAMERA_FOV_DEGREES, CHUNK_SIZE_X, CHUNK_SIZE_Y,
     CHUNK_SIZE_Z, DISTRICTS, MATERIALS,
 };
 use crate::seed::generate_seed;
+use crate::structure::{self, StructureMetadata};
 
 struct SpatialChunk {
     mesh: Mesh,
@@ -20,19 +24,6 @@ struct RenderWorld {
     translucent_chunks: Vec<SpatialChunk>,
 }
 
-fn hash_noise(seed_hash: u64, x: usize, z: usize, y: usize) -> f32 {
-    let mut value = seed_hash
-        ^ ((x as u64).wrapping_mul(0x9E37_79B1))
-        ^ ((z as u64).wrapping_mul(0x85EB_CA77))
-        ^ ((y as u64).wrapping_mul(0xC2B2_AE3D));
-    value ^= value >> 33;
-    value = value.wrapping_mul(0xff51afd7ed558ccd);
-    value ^= value >> 33;
-    value = value.wrapping_mul(0xc4ceb9fe1a85ec53);
-    value ^= value >> 33;
-    (value as u32) as f32 / u32::MAX as f32
-}
-
 fn cell_style(
     generator: &MegaStructureGenerator,
     x: usize,
@@ -42,13 +33,14 @@ fn cell_style(
 ) -> (Color, bool) {
     let district = generator.district_at(x, z);
     let district_props = DISTRICTS[district as usize];
-    let mut style = MATERIALS[cell_to_material(cell) as usize];
+    let visual_material = generator.visual_material_at(x, z, y, cell);
+    let mut style = MATERIALS[visual_material as usize];
     let base_tint = district_props.color_palette[(x + z + y) % district_props.color_palette.len()];
     let noise = simplex::noise3(x as f32 * 0.12, y as f32 * 0.12, z as f32 * 0.12) * 0.5 + 0.5;
     let patina = hash_noise(generator.seed_hash, x, z, y);
     let mut color = mix_color(style.base_color, base_tint, 0.16 + noise * 0.10);
 
-    if cell == CellType::Facade && patina > 1.0 - district_props.neon_probability {
+    if visual_material == MaterialType::Neon {
         style = MATERIALS[MaterialType::Neon as usize];
         color = match ((x + y + z) % 3) as i32 {
             0 => (0.10, 0.92, 0.96),
@@ -651,6 +643,9 @@ impl PostFxResources {
 
 struct AppState {
     generator: MegaStructureGenerator,
+    config: GenerationConfig,
+    export_path: PathBuf,
+    metadata: StructureMetadata,
     render_world: RenderWorld,
     orbital: OrbitalCamera,
     fps: FpsCamera,
@@ -669,10 +664,11 @@ struct AppState {
 }
 
 impl AppState {
-    async fn new(seed: String) -> Self {
-        let mut generator = MegaStructureGenerator::new(seed);
+    async fn new(seed: String, config: GenerationConfig, export_path: PathBuf) -> Self {
+        let mut generator = MegaStructureGenerator::with_config(seed, config.clone());
         generator.generate();
-        if let Err(error) = generator.save_outputs() {
+        let metadata = generator.saved_structure().metadata;
+        if let Err(error) = save_current_outputs(&generator, &export_path) {
             eprintln!("Failed to save generated structure: {error}");
         }
 
@@ -693,6 +689,9 @@ impl AppState {
 
         Self {
             generator,
+            config,
+            export_path,
+            metadata,
             render_world,
             orbital,
             fps,
@@ -713,9 +712,10 @@ impl AppState {
 
     async fn regenerate(&mut self) {
         let seed = generate_seed();
-        self.generator = MegaStructureGenerator::new(seed);
+        self.generator = MegaStructureGenerator::with_config(seed, self.config.clone());
         self.generator.generate();
-        if let Err(error) = self.generator.save_outputs() {
+        self.metadata = self.generator.saved_structure().metadata;
+        if let Err(error) = save_current_outputs(&self.generator, &self.export_path) {
             eprintln!("Failed to save generated structure: {error}");
         }
         self.render_world = build_render_world(&self.generator);
@@ -737,6 +737,19 @@ impl AppState {
     fn current_seed(&self) -> &str {
         self.generator.seed()
     }
+
+    fn profile_name(&self) -> &str {
+        self.generator.config().profile.as_str()
+    }
+}
+
+fn save_current_outputs(
+    generator: &MegaStructureGenerator,
+    export_path: &Path,
+) -> structure::StructureResult<()> {
+    let saved = generator.saved_structure();
+    fs::write(structure::CURRENT_SEED_FILE, generator.seed())?;
+    structure::save_structure(export_path, &saved)
 }
 
 fn camera_ray(camera: &Camera3D, mouse_x: f32, mouse_y: f32) -> Vec3 {
@@ -805,13 +818,26 @@ fn draw_world(app: &AppState, camera_position: Vec3) {
 fn draw_overlay(app: &AppState) {
     let padding = 12.0;
     let line_height = 22.0;
-    draw_rectangle(8.0, 8.0, 340.0, 28.0, Color::new(0.0, 0.0, 0.0, 0.65));
+    draw_rectangle(8.0, 8.0, 430.0, 50.0, Color::new(0.0, 0.0, 0.0, 0.65));
     draw_text(
         &format!("Seed: {}", app.current_seed()),
         padding,
         28.0,
         24.0,
         WHITE,
+    );
+    draw_text(
+        &format!(
+            "Profile: {} | Occupied: {:.1}% | Rooms: {} | Links: {}",
+            app.profile_name(),
+            app.metadata.occupied_cell_ratio * 100.0,
+            app.metadata.room_count,
+            app.metadata.connection_count
+        ),
+        padding,
+        50.0,
+        18.0,
+        LIGHTGRAY,
     );
 
     let controls = [
@@ -821,7 +847,7 @@ fn draw_overlay(app: &AppState) {
         "P: PostFX | [ ]: Fog | - =: Bloom",
         "L: Legend | Q/Esc: Quit",
     ];
-    let mut y = 48.0;
+    let mut y = 70.0;
     for line in controls {
         draw_rectangle(8.0, y - 18.0, 420.0, 22.0, Color::new(0.0, 0.0, 0.0, 0.55));
         draw_text(line, padding, y, 20.0, Color::new(0.80, 0.80, 0.80, 1.0));
@@ -905,7 +931,23 @@ fn draw_overlay(app: &AppState) {
 
     if app.show_legend {
         let legend_y = screen_height() - 182.0;
-        draw_rectangle(8.0, legend_y, 200.0, 170.0, Color::new(0.0, 0.0, 0.0, 0.65));
+        draw_rectangle(
+            8.0,
+            legend_y - 88.0,
+            310.0,
+            258.0,
+            Color::new(0.0, 0.0, 0.0, 0.65),
+        );
+        draw_text("Structure", padding, legend_y - 62.0, 24.0, WHITE);
+        let mut sy = legend_y - 38.0;
+        for label in top_counts(&app.metadata.cell_counts, 3) {
+            draw_text(&label, padding, sy, 18.0, LIGHTGRAY);
+            sy += 19.0;
+        }
+        for label in top_counts(&app.metadata.district_counts, 2) {
+            draw_text(&label, padding + 140.0, sy - 57.0, 18.0, LIGHTGRAY);
+            sy += 19.0;
+        }
         draw_text("Materials", padding, legend_y + 24.0, 24.0, WHITE);
         let items = [
             (
@@ -933,11 +975,31 @@ fn draw_overlay(app: &AppState) {
     }
 }
 
-fn take_screenshot(seed: &str) {
+fn take_screenshot(seed: &str, profile: &str) {
     let _ = fs::create_dir_all("screenshots");
     let image = get_screen_data();
-    let path = format!("screenshots/gibson_{}_{}.png", seed, timestamp_token());
+    let profile_suffix = if profile == "balanced" {
+        String::new()
+    } else {
+        format!("_{profile}")
+    };
+    let path = format!(
+        "screenshots/gibson_{}{}_{}.png",
+        seed,
+        profile_suffix,
+        timestamp_token()
+    );
     image.export_png(&path);
+}
+
+fn top_counts(counts: &std::collections::BTreeMap<String, usize>, limit: usize) -> Vec<String> {
+    let mut pairs: Vec<_> = counts.iter().filter(|(_, count)| **count > 0).collect();
+    pairs.sort_by(|a, b| b.1.cmp(a.1));
+    pairs
+        .into_iter()
+        .take(limit)
+        .map(|(label, count)| format!("{label}: {count}"))
+        .collect()
 }
 
 fn timestamp_token() -> String {
@@ -1015,8 +1077,8 @@ void main() {
 }
 "#;
 
-pub async fn run(seed: String) {
-    let mut app = AppState::new(seed).await;
+pub async fn run(options: RuntimeOptions) {
+    let mut app = AppState::new(options.seed, options.config, options.export_path).await;
 
     loop {
         app.postfx
@@ -1220,7 +1282,7 @@ pub async fn run(seed: String) {
 
         draw_overlay(&app);
         if app.screenshot_requested {
-            take_screenshot(app.current_seed());
+            take_screenshot(app.current_seed(), app.profile_name());
             app.screenshot_requested = false;
         }
         next_frame().await;

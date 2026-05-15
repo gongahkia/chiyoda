@@ -1,10 +1,13 @@
 use macroquad::prelude::*;
+use std::collections::BTreeMap;
 
+use crate::config::GenerationConfig;
 use crate::seed::{seed_hash, Rng32};
-use crate::structure::{self, ConnectionRecord, RoomRecord, SavedStructure, StructureResult};
+use crate::structure::{
+    self, ConnectionRecord, RoomRecord, SavedStructure, StructureMetadata, StructureResult,
+    STRUCTURE_SCHEMA_VERSION,
+};
 
-pub(crate) const GRID_SIZE: usize = 30;
-pub(crate) const GRID_LAYERS: usize = 15;
 pub(crate) const CHUNK_SIZE_X: usize = 8;
 pub(crate) const CHUNK_SIZE_Z: usize = 8;
 pub(crate) const CHUNK_SIZE_Y: usize = 4;
@@ -27,6 +30,8 @@ pub(crate) enum CellType {
 }
 
 impl CellType {
+    const COUNT: usize = 11;
+
     pub(crate) fn name(self) -> &'static str {
         match self {
             Self::Empty => "EMPTY",
@@ -55,6 +60,21 @@ pub(crate) enum MaterialType {
     Steel = 5,
 }
 
+impl MaterialType {
+    const COUNT: usize = 6;
+
+    fn name(self) -> &'static str {
+        match self {
+            Self::Concrete => "CONCRETE",
+            Self::Glass => "GLASS",
+            Self::Metal => "METAL",
+            Self::Neon => "NEON",
+            Self::Rust => "RUST",
+            Self::Steel => "STEEL",
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u8)]
 pub(crate) enum DistrictType {
@@ -66,6 +86,8 @@ pub(crate) enum DistrictType {
 }
 
 impl DistrictType {
+    const COUNT: usize = 5;
+
     pub(crate) fn name(self) -> &'static str {
         match self {
             Self::Industrial => "INDUSTRIAL",
@@ -280,6 +302,19 @@ pub(crate) fn cell_to_material(cell: CellType) -> MaterialType {
         CellType::Stair | CellType::Antenna | CellType::Vent => MaterialType::Metal,
         CellType::Pipe => MaterialType::Rust,
     }
+}
+
+pub(crate) fn hash_noise(seed_hash: u64, x: usize, z: usize, y: usize) -> f32 {
+    let mut value = seed_hash
+        ^ ((x as u64).wrapping_mul(0x9E37_79B1))
+        ^ ((z as u64).wrapping_mul(0x85EB_CA77))
+        ^ ((y as u64).wrapping_mul(0xC2B2_AE3D));
+    value ^= value >> 33;
+    value = value.wrapping_mul(0xff51afd7ed558ccd);
+    value ^= value >> 33;
+    value = value.wrapping_mul(0xc4ceb9fe1a85ec53);
+    value ^= value >> 33;
+    (value as u32) as f32 / u32::MAX as f32
 }
 
 pub(crate) fn is_walkable_floor_cell(cell: CellType) -> bool {
@@ -544,6 +579,7 @@ fn wfc_count_options(possible: u16) -> usize {
 }
 
 struct WfcSolver {
+    size: usize,
     cells: Vec<WfcCell>,
     weights: [f32; WFC_TILE_COUNT],
     adjacency: [[u16; 4]; WFC_TILE_COUNT],
@@ -552,8 +588,16 @@ struct WfcSolver {
 }
 
 impl WfcSolver {
-    fn new(seed: u64, district: DistrictType, stratum: BiomeStratum) -> Self {
+    fn new(
+        seed: u64,
+        size: usize,
+        district: DistrictType,
+        stratum: BiomeStratum,
+        room_density: f32,
+    ) -> Self {
         let (adjacency, mut weights) = wfc_init_tables();
+        weights[WFCTile::RoomCenter as usize] *= room_density;
+        weights[WFCTile::FloorSolid as usize] *= room_density.clamp(0.5, 2.0);
         match district {
             DistrictType::Industrial => {
                 weights[WFCTile::CorridorNS as usize] *= 1.5;
@@ -585,12 +629,13 @@ impl WfcSolver {
                 collapsed_tile: None,
                 entropy: 0.0,
             };
-            GRID_SIZE * GRID_SIZE
+            size * size
         ];
         for cell in &mut cells {
             cell.entropy = wfc_calc_entropy(cell.possible, &weights);
         }
         Self {
+            size,
             cells,
             weights,
             adjacency,
@@ -599,12 +644,13 @@ impl WfcSolver {
         }
     }
 
-    fn idx(x: usize, z: usize) -> usize {
-        x * GRID_SIZE + z
+    fn idx(&self, x: usize, z: usize) -> usize {
+        x * self.size + z
     }
 
     fn constrain(&mut self, x: usize, z: usize, tile: WFCTile) {
-        let cell = &mut self.cells[Self::idx(x, z)];
+        let index = self.idx(x, z);
+        let cell = &mut self.cells[index];
         cell.possible = 1u16 << tile as usize;
         cell.collapsed_tile = Some(tile as usize);
         cell.entropy = 0.0;
@@ -618,7 +664,7 @@ impl WfcSolver {
             if iterations > 1000 {
                 break;
             }
-            let current_tile = match self.cells[Self::idx(x, z)].collapsed_tile {
+            let current_tile = match self.cells[self.idx(x, z)].collapsed_tile {
                 Some(tile) => tile,
                 None => {
                     iterations += 1;
@@ -628,12 +674,12 @@ impl WfcSolver {
             for (direction, (dx, dz)) in directions.iter().enumerate() {
                 let nx = x as isize + dx;
                 let nz = z as isize + dz;
-                if nx < 0 || nz < 0 || nx >= GRID_SIZE as isize || nz >= GRID_SIZE as isize {
+                if nx < 0 || nz < 0 || nx >= self.size as isize || nz >= self.size as isize {
                     continue;
                 }
                 let nx = nx as usize;
                 let nz = nz as usize;
-                let index = Self::idx(nx, nz);
+                let index = self.idx(nx, nz);
                 if self.cells[index].collapsed_tile.is_some() {
                     continue;
                 }
@@ -663,9 +709,9 @@ impl WfcSolver {
     fn collapse_one(&mut self) -> bool {
         let mut best = None;
         let mut best_entropy = f32::MAX;
-        for x in 0..GRID_SIZE {
-            for z in 0..GRID_SIZE {
-                let cell = self.cells[Self::idx(x, z)];
+        for x in 0..self.size {
+            for z in 0..self.size {
+                let cell = self.cells[self.idx(x, z)];
                 if cell.collapsed_tile.is_some() {
                     continue;
                 }
@@ -679,7 +725,7 @@ impl WfcSolver {
             Some(value) => value,
             None => return false,
         };
-        let possible = self.cells[Self::idx(bx, bz)].possible;
+        let possible = self.cells[self.idx(bx, bz)].possible;
         let mut total = 0.0;
         for index in 0..WFC_TILE_COUNT {
             if possible & (1u16 << index) != 0 {
@@ -698,7 +744,7 @@ impl WfcSolver {
                 break;
             }
         }
-        let index = Self::idx(bx, bz);
+        let index = self.idx(bx, bz);
         self.cells[index].collapsed_tile = Some(chosen);
         self.cells[index].possible = 1u16 << chosen;
         self.cells[index].entropy = 0.0;
@@ -837,6 +883,7 @@ pub struct MegaStructureGenerator {
     pub(crate) size: usize,
     pub(crate) layers: usize,
     seed: String,
+    config: GenerationConfig,
     pub(crate) seed_hash: u64,
     rng: Rng32,
     grid: Vec<CellType>,
@@ -848,16 +895,24 @@ pub struct MegaStructureGenerator {
 
 impl MegaStructureGenerator {
     pub fn new(seed: String) -> Self {
+        Self::with_config(seed, GenerationConfig::default())
+    }
+
+    pub fn with_config(seed: String, config: GenerationConfig) -> Self {
+        config.validate().expect("validated generation config");
         let hash = seed_hash(&seed);
+        let size = config.grid_size;
+        let layers = config.grid_layers;
         let mut generator = Self {
-            size: GRID_SIZE,
-            layers: GRID_LAYERS,
+            size,
+            layers,
             seed,
+            config,
             seed_hash: hash,
             rng: Rng32::new(hash),
-            grid: vec![CellType::Empty; GRID_SIZE * GRID_SIZE * GRID_LAYERS],
-            support_map: vec![false; GRID_SIZE * GRID_SIZE * GRID_LAYERS],
-            district_map: vec![DistrictType::Residential; GRID_SIZE * GRID_SIZE],
+            grid: vec![CellType::Empty; size * size * layers],
+            support_map: vec![false; size * size * layers],
+            district_map: vec![DistrictType::Residential; size * size],
             connections: Vec::new(),
             rooms: Vec::new(),
         };
@@ -891,6 +946,24 @@ impl MegaStructureGenerator {
 
     pub(crate) fn district_at(&self, x: usize, z: usize) -> DistrictType {
         self.district_map[self.district_idx(x, z)]
+    }
+
+    pub(crate) fn visual_material_at(
+        &self,
+        x: usize,
+        z: usize,
+        y: usize,
+        cell: CellType,
+    ) -> MaterialType {
+        if cell == CellType::Facade {
+            let district_props = DISTRICTS[self.district_at(x, z) as usize];
+            let neon_probability =
+                (district_props.neon_probability * self.config.neon_intensity).clamp(0.0, 0.95);
+            if hash_noise(self.seed_hash, x, z, y) > 1.0 - neon_probability {
+                return MaterialType::Neon;
+            }
+        }
+        cell_to_material(cell)
     }
 
     fn generate_district_map(&mut self) {
@@ -931,18 +1004,25 @@ impl MegaStructureGenerator {
         &self.seed
     }
 
+    pub fn config(&self) -> &GenerationConfig {
+        &self.config
+    }
+
     fn phase1_skeleton(&mut self) {
         for x in 0..self.size {
             for z in 0..self.size {
                 let district = self.district_at(x, z);
                 let props = DISTRICTS[district as usize];
-                let base_probability = 0.15 * props.core_density;
+                let base_probability =
+                    0.15 * props.core_density * self.config.district_density_scale;
                 let noise_mod = simplex::noise3(x as f32 * 0.1, z as f32 * 0.1, 3.0) * 0.1;
                 if self.rng.next_f32() >= (base_probability + noise_mod).max(0.02) {
                     continue;
                 }
 
-                let height_range = (self.layers as f32 * props.vertical_variation) as usize;
+                let height_range = (self.layers as f32
+                    * props.vertical_variation
+                    * self.config.verticality_scale) as usize;
                 let min_height = self.layers.saturating_sub(height_range).max(5);
                 let max_height = self.layers.saturating_sub(2).max(min_height);
                 let height = self.rng.range_usize(min_height, max_height);
@@ -1101,7 +1181,13 @@ impl MegaStructureGenerator {
         for y in 0..self.layers {
             let district = self.district_at(self.size / 2, self.size / 2);
             let stratum = biome_for_y(y);
-            let mut solver = WfcSolver::new(self.seed_hash ^ (y as u64 * 12345), district, stratum);
+            let mut solver = WfcSolver::new(
+                self.seed_hash ^ (y as u64 * 12345),
+                self.size,
+                district,
+                stratum,
+                self.config.wfc_room_density,
+            );
             for x in 0..self.size {
                 for z in 0..self.size {
                     match self.get(x, z, y) {
@@ -1120,7 +1206,7 @@ impl MegaStructureGenerator {
                     if existing != CellType::Empty && existing != CellType::Horizontal {
                         continue;
                     }
-                    let tile = solver.cells[WfcSolver::idx(x, z)]
+                    let tile = solver.cells[solver.idx(x, z)]
                         .collapsed_tile
                         .unwrap_or(WFCTile::Empty as usize);
                     let cell = WfcSolver::tile_to_cell(tile);
@@ -1192,7 +1278,9 @@ impl MegaStructureGenerator {
     }
 
     fn add_spline_bridges(&mut self) {
-        for _ in 0..((self.size * self.layers) as f32 * 0.02) as usize {
+        for _ in
+            0..((self.size * self.layers) as f32 * 0.02 * self.config.bridge_frequency) as usize
+        {
             let y = self
                 .rng
                 .range_usize(3, self.layers.saturating_sub(2).max(3));
@@ -1239,7 +1327,7 @@ impl MegaStructureGenerator {
     }
 
     fn add_spline_cables(&mut self) {
-        for _ in 0..((self.size as f32) * 0.5) as usize {
+        for _ in 0..((self.size as f32) * 0.5 * self.config.cable_frequency) as usize {
             let mut cores = Vec::new();
             for x in 0..self.size {
                 for z in 0..self.size {
@@ -1289,7 +1377,8 @@ impl MegaStructureGenerator {
     }
 
     fn add_spline_pipes(&mut self) {
-        for _ in 0..((self.size * self.layers) as f32 * 0.03) as usize {
+        for _ in 0..((self.size * self.layers) as f32 * 0.03 * self.config.pipe_frequency) as usize
+        {
             let x = self.rng.range_usize(0, self.size.saturating_sub(1));
             let z = self.rng.range_usize(0, self.size.saturating_sub(1));
             let y = self.rng.range_usize(1, self.layers.saturating_sub(2));
@@ -1435,11 +1524,13 @@ impl MegaStructureGenerator {
                     let exposure = self.count_empty_neighbors(x, z, y);
                     let noise =
                         simplex::noise3(x as f32 * 0.2, y as f32 * 0.2, z as f32 * 0.2) * 0.5 + 0.5;
-                    let threshold = if biome_for_y(y) == BiomeStratum::Skyline {
+                    let base_threshold = if biome_for_y(y) == BiomeStratum::Skyline {
                         0.3
                     } else {
                         0.6
                     };
+                    let threshold =
+                        (base_threshold / self.config.erosion_strength.max(0.01)).clamp(0.05, 0.95);
                     if exposure >= 4 && noise > threshold {
                         let index = self.idx(x, z, y);
                         self.grid[index] = CellType::Empty;
@@ -1551,17 +1642,43 @@ impl MegaStructureGenerator {
 
     pub fn saved_structure(&self) -> SavedStructure {
         let mut grid = vec![vec![vec![0u8; self.layers]; self.size]; self.size];
+        let mut cell_counts = [0usize; CellType::COUNT];
+        let mut material_counts = [0usize; MaterialType::COUNT];
+        let mut occupied = 0usize;
         for (x, x_cells) in grid.iter_mut().enumerate().take(self.size) {
             for (z, z_cells) in x_cells.iter_mut().enumerate().take(self.size) {
                 for (y, cell) in z_cells.iter_mut().enumerate().take(self.layers) {
-                    *cell = self.get(x, z, y) as u8;
+                    let cell_type = self.get(x, z, y);
+                    *cell = cell_type as u8;
+                    cell_counts[cell_type as usize] += 1;
+                    if cell_type != CellType::Empty {
+                        occupied += 1;
+                        material_counts[self.visual_material_at(x, z, y, cell_type) as usize] += 1;
+                    }
                 }
             }
         }
+        let mut district_counts = [0usize; DistrictType::COUNT];
+        for district in &self.district_map {
+            district_counts[*district as usize] += 1;
+        }
+        let total_cells = (self.size * self.size * self.layers).max(1);
+        let metadata = StructureMetadata {
+            schema_version: STRUCTURE_SCHEMA_VERSION.to_owned(),
+            profile: self.config.profile.to_string(),
+            config: self.config.clone(),
+            district_counts: district_counts_map(district_counts),
+            cell_counts: cell_counts_map(cell_counts),
+            material_counts: material_counts_map(material_counts),
+            room_count: self.rooms.len(),
+            connection_count: self.connections.len(),
+            occupied_cell_ratio: occupied as f32 / total_cells as f32,
+        };
         SavedStructure::new(
             self.seed.clone(),
             self.size,
             self.layers,
+            metadata,
             grid,
             self.connections.clone(),
             self.rooms.clone(),
@@ -1577,6 +1694,64 @@ impl MegaStructureGenerator {
     }
 }
 
+pub fn generate_saved_structure(
+    seed: String,
+    config: GenerationConfig,
+) -> StructureResult<SavedStructure> {
+    config
+        .validate()
+        .map_err(|error| -> Box<dyn std::error::Error + Send + Sync> { error.into() })?;
+    let mut generator = MegaStructureGenerator::with_config(seed, config);
+    generator.generate();
+    Ok(generator.saved_structure())
+}
+
+fn cell_counts_map(counts: [usize; CellType::COUNT]) -> BTreeMap<String, usize> {
+    [
+        CellType::Empty,
+        CellType::Vertical,
+        CellType::Horizontal,
+        CellType::Bridge,
+        CellType::Facade,
+        CellType::Stair,
+        CellType::Pipe,
+        CellType::Antenna,
+        CellType::Cable,
+        CellType::Vent,
+        CellType::Elevator,
+    ]
+    .into_iter()
+    .map(|cell| (cell.name().to_owned(), counts[cell as usize]))
+    .collect()
+}
+
+fn district_counts_map(counts: [usize; DistrictType::COUNT]) -> BTreeMap<String, usize> {
+    [
+        DistrictType::Industrial,
+        DistrictType::Residential,
+        DistrictType::Commercial,
+        DistrictType::Slum,
+        DistrictType::Elite,
+    ]
+    .into_iter()
+    .map(|district| (district.name().to_owned(), counts[district as usize]))
+    .collect()
+}
+
+fn material_counts_map(counts: [usize; MaterialType::COUNT]) -> BTreeMap<String, usize> {
+    [
+        MaterialType::Concrete,
+        MaterialType::Glass,
+        MaterialType::Metal,
+        MaterialType::Neon,
+        MaterialType::Rust,
+        MaterialType::Steel,
+    ]
+    .into_iter()
+    .map(|material| (material.name().to_owned(), counts[material as usize]))
+    .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1586,6 +1761,12 @@ mod tests {
 
     fn generated(seed: &str) -> MegaStructureGenerator {
         let mut generator = MegaStructureGenerator::new(seed.to_owned());
+        generator.generate();
+        generator
+    }
+
+    fn generated_with(seed: &str, config: GenerationConfig) -> MegaStructureGenerator {
+        let mut generator = MegaStructureGenerator::with_config(seed.to_owned(), config);
         generator.generate();
         generator
     }
@@ -1616,18 +1797,76 @@ mod tests {
     #[test]
     fn saved_structure_has_valid_dimensions_and_cell_ranges() {
         let saved = generated("ABCD1234").saved_structure();
-        assert_eq!(saved.size, GRID_SIZE);
-        assert_eq!(saved.layers, GRID_LAYERS);
-        assert_eq!(saved.grid.len(), GRID_SIZE);
+        let default_config = GenerationConfig::default();
+        assert_eq!(saved.size, default_config.grid_size);
+        assert_eq!(saved.layers, default_config.grid_layers);
+        assert_eq!(saved.grid.len(), default_config.grid_size);
         for x in &saved.grid {
-            assert_eq!(x.len(), GRID_SIZE);
+            assert_eq!(x.len(), default_config.grid_size);
             for z in x {
-                assert_eq!(z.len(), GRID_LAYERS);
+                assert_eq!(z.len(), default_config.grid_layers);
                 for cell in z {
                     assert!(*cell <= CellType::Elevator as u8);
                 }
             }
         }
+    }
+
+    #[test]
+    fn built_in_profiles_generate_valid_structures() {
+        for profile in crate::config::GenerationProfile::all() {
+            let config = GenerationConfig::profile(profile);
+            let saved = generated_with("ABCD1234", config.clone()).saved_structure();
+            assert_eq!(saved.size, config.grid_size);
+            assert_eq!(saved.layers, config.grid_layers);
+            assert_eq!(saved.metadata.profile, profile.as_str());
+            assert_eq!(saved.grid.len(), config.grid_size);
+            assert!(saved
+                .grid
+                .iter()
+                .flatten()
+                .flatten()
+                .all(|cell| *cell <= CellType::Elevator as u8));
+        }
+    }
+
+    #[test]
+    fn same_seed_and_config_are_deterministic_but_profiles_change_output() {
+        let dense = GenerationConfig::profile(crate::config::GenerationProfile::Dense);
+        let first = generated_with("ABCD1234", dense.clone())
+            .serialize()
+            .unwrap();
+        let second = generated_with("ABCD1234", dense).serialize().unwrap();
+        assert_eq!(first, second);
+
+        let balanced = generated_with("ABCD1234", GenerationConfig::default())
+            .serialize()
+            .unwrap();
+        assert_ne!(first, balanced);
+    }
+
+    #[test]
+    fn headless_generation_metadata_matches_exported_structure() {
+        let saved =
+            generate_saved_structure("ABCD1234".to_owned(), GenerationConfig::default()).unwrap();
+        let occupied = saved
+            .grid
+            .iter()
+            .flatten()
+            .flatten()
+            .filter(|cell| **cell != CellType::Empty as u8)
+            .count();
+        let total_cells = saved.size * saved.size * saved.layers;
+        assert_eq!(saved.metadata.room_count, saved.rooms.len());
+        assert_eq!(saved.metadata.connection_count, saved.connections.len());
+        assert_eq!(
+            saved.metadata.cell_counts.values().sum::<usize>(),
+            total_cells
+        );
+        assert!(
+            (saved.metadata.occupied_cell_ratio - occupied as f32 / total_cells as f32).abs()
+                < f32::EPSILON
+        );
     }
 
     #[test]

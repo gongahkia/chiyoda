@@ -22,11 +22,15 @@ Rust megastructure [generator](#seed) for cyberpunk dense-urban forms.
 $ git clone https://github.com/gongahkia/gibson && cd gibson
 $ cargo run --release
 $ cargo run --release -- ABCD1234
+$ cargo run --release -- --seed ABCD1234 --profile neon
+$ cargo run --release -- --seed ABCD1234 --profile dense --headless --export structure.json
 ```
+
+Profiles are `balanced`, `dense`, `vertical`, `decayed`, and `neon`. JSON config files can override profile defaults with `--config path.json`.
 
 ## Seed
 
-Randomly generated [megastructure](https://en.wikipedia.org/wiki/Megastructure)s are seeded at `current_seed.txt` and serialised at `structure.json`.
+Randomly generated [megastructure](https://en.wikipedia.org/wiki/Megastructure)s are seeded at `current_seed.txt` and serialised at `structure.json` with generation metadata, counts, profile, and config snapshot.
 
 ## Reference
 

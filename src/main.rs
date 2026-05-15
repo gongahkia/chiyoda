@@ -1,22 +1,33 @@
-use gibson_rust::seed::{generate_seed, validate_seed};
+use gibson_rust::cli::{usage, RuntimeOptions};
+use gibson_rust::generation::generate_saved_structure;
+use gibson_rust::structure::{self, CURRENT_SEED_FILE};
 
-fn window_conf() -> macroquad::prelude::Conf {
-    gibson_rust::render::window_conf()
-}
-
-#[macroquad::main(window_conf)]
-async fn main() {
-    let args: Vec<String> = std::env::args().collect();
-    let seed = if args.len() > 1 {
-        let candidate = args[1].to_uppercase();
-        if !validate_seed(&candidate) {
-            eprintln!("Invalid seed '{}'. Must be 8 alphanumeric chars.", args[1]);
-            std::process::exit(1);
+fn main() {
+    let options = match RuntimeOptions::from_env() {
+        Ok(options) => options,
+        Err(error) => {
+            eprintln!("{error}");
+            eprintln!("{}", usage());
+            std::process::exit(2);
         }
-        candidate
-    } else {
-        generate_seed()
     };
 
-    gibson_rust::render::run(seed).await;
+    if options.headless {
+        if let Err(error) = export_headless(&options) {
+            eprintln!("Failed to export generated structure: {error}");
+            std::process::exit(1);
+        }
+        return;
+    }
+
+    macroquad::Window::from_config(
+        gibson_rust::render::window_conf(),
+        gibson_rust::render::run(options),
+    );
+}
+
+fn export_headless(options: &RuntimeOptions) -> structure::StructureResult<()> {
+    let saved = generate_saved_structure(options.seed.clone(), options.config.clone())?;
+    std::fs::write(CURRENT_SEED_FILE, &options.seed)?;
+    structure::save_structure(&options.export_path, &saved)
 }
