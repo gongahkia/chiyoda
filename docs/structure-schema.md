@@ -1,0 +1,71 @@
+# Gibson Structure Schema
+
+This document describes the canonical exported artifact, `structure.json`.
+
+Current schema: `gibson.structure.v13`
+
+Generate an export:
+
+```bash
+cargo run --release -- --seed ABCD1234 --profile balanced --headless --export structure.json
+```
+
+Example exports are checked in under `examples/exports/` for `balanced`, `decayed`, and `vertical` profiles.
+
+## Top-Level Shape
+
+- `seed`: 8-character alphanumeric seed used for deterministic generation.
+- `size`: horizontal grid width/depth.
+- `layers`: vertical layer count.
+- `metadata`: aggregate counts, active config snapshot, and schema version.
+- `grid`: `[x][z][y]` cell IDs.
+- `connections`: legacy connection records retained for compatibility.
+- `rooms`: typed semantic rooms, each with an optional `cluster_id`.
+- `transit_graph`: first-class route nodes, edges, edge roles, path points, and route-room attachments.
+- `districts`: district records with bounds, occupancy, grammar, and generated feature summaries.
+- `strata`: vertical strata records for underground, surface, midrise, and skyline logic.
+- `district_borders`: generated transition zones between adjacent districts.
+- `room_clusters`: grouped rooms such as market strips, habitation blocks, shrine pockets, and data-vault compounds.
+- `path_analysis`: traversal quality summary and main service-to-skyline mission path.
+- `infrastructure_flows`: route-carried utility systems such as power, data, water, waste, and ventilation.
+- `hazard_zones`: exported dynamic/structural risks such as blackouts, sumps, and security sweeps.
+- `structural_system`: load-bearing frames, foundations, suspended decks, and stability ratings.
+- `factions`: faction definitions and influence summaries.
+- `territories`: district/cluster ownership records.
+- `contested_borders`: faction conflicts at district transition zones.
+- `temporal_state`: deterministic power-cycle phases.
+- `narrative_landmarks`: named places attached to routes, clusters, hazards, and borders.
+
+## Cell IDs
+
+- `0`: `EMPTY`
+- `1`: `VERTICAL`
+- `2`: `HORIZONTAL`
+- `3`: `BRIDGE`
+- `4`: `FACADE`
+- `5`: `STAIR`
+- `6`: `PIPE`
+- `7`: `ANTENNA`
+- `8`: `CABLE`
+- `9`: `VENT`
+- `10`: `ELEVATOR`
+- `11`: `DEBRIS`
+
+## Transit Graph
+
+Each transit edge has:
+
+- `kind`: geometric route type, for example `service_tunnel`, `artery`, `skybridge`, `ring_route`, or `mission_vertical_transfer`.
+- `role`: planning role, for example `primary_artery`, `service_loop`, `restricted_spine`, `evacuation_route`, `market_run`, or `maintenance_backbone`.
+- `points`: ordered `[x, y, z]` samples through the structure.
+- `stratum`: dominant vertical stratum.
+
+`path_analysis.guaranteed_service_to_skyline` should be `true` for valid exports.
+
+## Semantic Layers
+
+District, stratum, route, cluster, faction, temporal, structural, and narrative records are additive views over the same generated grid. Consumers should treat `grid` as geometry and these records as semantic indexes into that geometry.
+
+## Stability
+
+The schema is intentionally explicit and versioned. When adding or removing public fields, bump `STRUCTURE_SCHEMA_VERSION` and update this document plus the example exports.
