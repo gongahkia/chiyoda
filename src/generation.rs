@@ -27,10 +27,11 @@ pub(crate) enum CellType {
     Cable = 8,
     Vent = 9,
     Elevator = 10,
+    Debris = 11,
 }
 
 impl CellType {
-    const COUNT: usize = 11;
+    const COUNT: usize = 12;
 
     pub(crate) fn name(self) -> &'static str {
         match self {
@@ -45,6 +46,7 @@ impl CellType {
             Self::Cable => "CABLE",
             Self::Vent => "VENT",
             Self::Elevator => "ELEVATOR",
+            Self::Debris => "DEBRIS",
         }
     }
 }
@@ -313,7 +315,7 @@ pub(crate) fn cell_to_material(cell: CellType) -> MaterialType {
         CellType::Bridge | CellType::Cable => MaterialType::Steel,
         CellType::Facade | CellType::Elevator => MaterialType::Glass,
         CellType::Stair | CellType::Antenna | CellType::Vent => MaterialType::Metal,
-        CellType::Pipe => MaterialType::Rust,
+        CellType::Pipe | CellType::Debris => MaterialType::Rust,
     }
 }
 
@@ -346,6 +348,7 @@ fn is_traversal_carveable_cell(cell: CellType) -> bool {
             | CellType::Cable
             | CellType::Vent
             | CellType::Elevator
+            | CellType::Debris
     )
 }
 
@@ -974,7 +977,7 @@ impl MegaStructureGenerator {
             district: district.name().to_owned(),
             label: label.to_owned(),
         });
-        self.record_pattern(label);
+        self.record_pattern("landmark_shell");
     }
 
     fn support_at(&self, x: usize, z: usize, y: usize) -> bool {
@@ -1038,6 +1041,7 @@ impl MegaStructureGenerator {
         self.ensure_structural_integrity();
         self.add_support_pillars();
         self.carve_traversal_space();
+        self.phase5_story_details();
     }
 
     pub fn seed(&self) -> &str {
@@ -1945,6 +1949,163 @@ impl MegaStructureGenerator {
         }
     }
 
+    fn phase5_story_details(&mut self) {
+        self.add_landmark_rooms();
+        self.add_debris_fields();
+        self.add_hanging_bridge_remnants();
+        self.add_broken_facade_fields();
+    }
+
+    fn add_landmark_rooms(&mut self) {
+        let attempts = (self.size / 2).max(8);
+        for _ in 0..attempts {
+            let x = self.rng.range_usize(1, self.size.saturating_sub(2).max(1));
+            let z = self.rng.range_usize(1, self.size.saturating_sub(2).max(1));
+            let y = self
+                .rng
+                .range_usize(1, self.layers.saturating_sub(2).max(1));
+            if self.get(x, z, y) == CellType::Empty {
+                continue;
+            }
+            let district = self.district_at(x, z);
+            let stratum = biome_for_y(y);
+            let label = match (district, stratum) {
+                (
+                    DistrictType::Elite | DistrictType::Commercial,
+                    BiomeStratum::Midrise | BiomeStratum::Skyline,
+                ) => "DATA_VAULT",
+                (
+                    DistrictType::Slum | DistrictType::Residential,
+                    BiomeStratum::Underground | BiomeStratum::Surface,
+                ) => "SHRINE",
+                (DistrictType::Industrial, BiomeStratum::Underground | BiomeStratum::Surface) => {
+                    "MAINTENANCE_SHAFT"
+                }
+                _ => continue,
+            };
+            self.push_room([x, y, z], district, label);
+            self.mark_landmark_shell(x, z, y, label);
+        }
+    }
+
+    fn mark_landmark_shell(&mut self, x: usize, z: usize, y: usize, label: &str) {
+        for (dx, dz) in [(1isize, 0isize), (-1, 0), (0, 1), (0, -1)] {
+            let nx = x as isize + dx;
+            let nz = z as isize + dz;
+            if nx < 0 || nz < 0 || nx >= self.size as isize || nz >= self.size as isize {
+                continue;
+            }
+            let shell_cell = match label {
+                "DATA_VAULT" => CellType::Facade,
+                "SHRINE" => CellType::Cable,
+                _ => CellType::Pipe,
+            };
+            if self.get(nx as usize, nz as usize, y) == CellType::Empty {
+                self.set(nx as usize, nz as usize, y, shell_cell, false);
+            }
+        }
+        self.record_pattern(label);
+    }
+
+    fn add_debris_fields(&mut self) {
+        let scars: Vec<_> = self
+            .connections
+            .iter()
+            .filter(|connection| connection.kind == "collapse_scar")
+            .map(|connection| connection.start)
+            .collect();
+        for scar in scars {
+            self.paint_debris_field(scar[0], scar[2], scar[1], "debris_field");
+        }
+        let random_fields = ((self.size as f32) * self.config.erosion_strength * 0.08) as usize;
+        for _ in 0..random_fields {
+            let x = self.rng.range_usize(1, self.size.saturating_sub(2).max(1));
+            let z = self.rng.range_usize(1, self.size.saturating_sub(2).max(1));
+            let y = self.rng.range_usize(0, (self.layers / 2).max(1));
+            self.paint_debris_field(x, z, y, "debris_field");
+        }
+    }
+
+    fn paint_debris_field(&mut self, x: usize, z: usize, y: usize, pattern: &str) {
+        let radius = if self.config.erosion_strength > 1.25 {
+            2
+        } else {
+            1
+        };
+        for dx in -(radius as isize)..=(radius as isize) {
+            for dz in -(radius as isize)..=(radius as isize) {
+                let nx = x as isize + dx;
+                let nz = z as isize + dz;
+                if nx < 0 || nz < 0 || nx >= self.size as isize || nz >= self.size as isize {
+                    continue;
+                }
+                let debris_y = y.saturating_sub((dx.abs() + dz.abs()) as usize % 2);
+                if self.get(nx as usize, nz as usize, debris_y) == CellType::Empty
+                    || self.rng.next_f32() < 0.45
+                {
+                    self.set(nx as usize, nz as usize, debris_y, CellType::Debris, false);
+                }
+            }
+        }
+        self.record_pattern(pattern);
+    }
+
+    fn add_hanging_bridge_remnants(&mut self) {
+        let attempts = ((self.size as f32) * self.config.erosion_strength * 0.10) as usize;
+        for _ in 0..attempts {
+            let x = self.rng.range_usize(2, self.size.saturating_sub(5).max(2));
+            let z = self.rng.range_usize(2, self.size.saturating_sub(5).max(2));
+            let y = self.rng.range_usize(
+                (self.layers / 2).max(2),
+                self.layers.saturating_sub(2).max(2),
+            );
+            let length = self.rng.range_usize(2, 5);
+            let horizontal = self.rng.next_f32() < 0.5;
+            let mut end = (x, z);
+            for offset in 0..length {
+                let nx = if horizontal {
+                    (x + offset).min(self.size - 1)
+                } else {
+                    x
+                };
+                let nz = if horizontal {
+                    z
+                } else {
+                    (z + offset).min(self.size - 1)
+                };
+                self.set(nx, nz, y, CellType::Bridge, false);
+                if y > 0 {
+                    self.set(nx, nz, y - 1, CellType::Cable, false);
+                }
+                if offset == length - 1 && y > 1 {
+                    self.set(nx, nz, y - 2, CellType::Debris, false);
+                }
+                end = (nx, nz);
+            }
+            self.push_connection("hanging_bridge_remnant", [x, y, z], [end.0, y, end.1]);
+        }
+    }
+
+    fn add_broken_facade_fields(&mut self) {
+        let attempts =
+            ((self.size * self.layers) as f32 * self.config.erosion_strength * 0.006) as usize;
+        for _ in 0..attempts {
+            let x = self.rng.range_usize(1, self.size.saturating_sub(2).max(1));
+            let z = self.rng.range_usize(1, self.size.saturating_sub(2).max(1));
+            let y = self
+                .rng
+                .range_usize(2, self.layers.saturating_sub(1).max(2));
+            if self.get(x, z, y) == CellType::Empty {
+                continue;
+            }
+            self.set(x, z, y, CellType::Debris, false);
+            if y + 1 < self.layers && self.get(x, z, y + 1) == CellType::Empty {
+                self.set(x, z, y + 1, CellType::Facade, false);
+            }
+            self.push_connection("broken_facade", [x, y, z], [x, y, z]);
+        }
+    }
+
     fn count_empty_neighbors(&self, x: usize, z: usize, y: usize) -> usize {
         let directions = [
             (-1isize, 0isize, 0isize),
@@ -2189,6 +2350,7 @@ fn cell_counts_map(counts: [usize; CellType::COUNT]) -> BTreeMap<String, usize> 
         CellType::Cable,
         CellType::Vent,
         CellType::Elevator,
+        CellType::Debris,
     ]
     .into_iter()
     .map(|cell| (cell.name().to_owned(), counts[cell as usize]))
@@ -2355,7 +2517,7 @@ mod tests {
             for z in x {
                 assert_eq!(z.len(), default_config.grid_layers);
                 for cell in z {
-                    assert!(*cell <= CellType::Elevator as u8);
+                    assert!(*cell <= CellType::Debris as u8);
                 }
             }
         }
@@ -2375,7 +2537,7 @@ mod tests {
                 .iter()
                 .flatten()
                 .flatten()
-                .all(|cell| *cell <= CellType::Elevator as u8));
+                .all(|cell| *cell <= CellType::Debris as u8));
         }
     }
 
@@ -2448,7 +2610,25 @@ mod tests {
         assert!(saved.metadata.pattern_counts.keys().any(|pattern| {
             matches!(
                 pattern.as_str(),
-                "ROUTE_CHOKEPOINT"
+                "artery"
+                    | "service_tunnel"
+                    | "skybridge"
+                    | "express_spine"
+                    | "vertical_transit_core"
+                    | "slum_patchwalk"
+                    | "industrial_service_trunk"
+                    | "bridge"
+                    | "pipe"
+                    | "cable"
+                    | "collapse_scar"
+                    | "debris_field"
+                    | "hanging_bridge_remnant"
+                    | "broken_facade"
+                    | "landmark_shell"
+                    | "DATA_VAULT"
+                    | "SHRINE"
+                    | "MAINTENANCE_SHAFT"
+                    | "ROUTE_CHOKEPOINT"
                     | "MAINTENANCE_DEAD_END"
                     | "CORRIDOR_DEAD_END"
                     | "SKYBRIDGE_TERMINAL"
@@ -2456,6 +2636,36 @@ mod tests {
                     | "PATCHWORK_JUNCTION"
                     | "SERVICE_DEPOT"
                     | "TRANSIT_ANNEX"
+            )
+        }));
+    }
+
+    #[test]
+    fn decay_profiles_emit_debris_and_remnant_patterns() {
+        let saved = generated_with(
+            "ABCD1234",
+            GenerationConfig::profile(crate::config::GenerationProfile::Decayed),
+        )
+        .saved_structure();
+        assert!(
+            saved
+                .metadata
+                .cell_counts
+                .get("DEBRIS")
+                .copied()
+                .unwrap_or_default()
+                > 0
+        );
+        assert!(saved.metadata.pattern_counts.keys().any(|pattern| {
+            matches!(
+                pattern.as_str(),
+                "debris_field"
+                    | "hanging_bridge_remnant"
+                    | "broken_facade"
+                    | "ROUTE_CHOKEPOINT"
+                    | "MAINTENANCE_DEAD_END"
+                    | "CORRIDOR_DEAD_END"
+                    | "SKYBRIDGE_TERMINAL"
             )
         }));
     }
