@@ -2,7 +2,7 @@
 
 This document describes the canonical exported artifact, `structure.json`.
 
-Current schema: `gibson.structure.v16`
+Current schema: `gibson.structure.v17`
 
 Generate an export:
 
@@ -35,7 +35,8 @@ Example exports are checked in under `examples/exports/` for `balanced`, `decaye
 - `hazard_zones`: exported dynamic/structural risks such as blackouts, sumps, and security sweeps.
 - `structural_system`: load-bearing frames, foundations, suspended decks, and stability ratings.
 - `failure_zones`: propagated structural failures from collapse scars and unstable spans.
-- `rule_packs`: applied built-in procedural grammar weights by profile, district, and stratum.
+- `rule_packs`: applied procedural grammar weights by profile, district, and stratum.
+- `rule_influences`: target-level traces explaining which rule pack influenced each exported district, route, cluster, hazard, and landmark.
 
 Editable rule-pack JSON files live under `rules/`. They can define profile, district, and stratum grammar weights for future authoring workflows; when no external rule file is supplied, Gibson falls back to the built-in Rust rule packs.
 - `factions`: faction definitions and influence summaries.

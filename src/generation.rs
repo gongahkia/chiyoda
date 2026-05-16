@@ -2,15 +2,16 @@ use macroquad::prelude::*;
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::config::GenerationConfig;
+use crate::rules::CompiledRulePackSet;
 use crate::seed::{seed_hash, Rng32};
 use crate::structure::{
     self, ConnectionRecord, ContestedBorderRecord, DistrictBorderRecord, DistrictLifecycleRecord,
     DistrictRecord, FactionRecord, FailurePropagationRecord, HazardZoneRecord,
     InfrastructureFlowRecord, MacroMassingRecord, MesoPlacementRecord, MicroDetailRecord,
     MissionPathRecord, NarrativeLandmarkRecord, PathAnalysisRecord, ResourceNetworkRecord,
-    RoomClusterRecord, RoomRecord, RouteSimulationRecord, RulePackRecord, SavedStructure,
-    StabilityRatingRecord, StratumRecord, StructuralSystemRecord, StructureMetadata,
-    StructureResult, TemporalPhaseRecord, TemporalStateRecord, TerritoryRecord,
+    RoomClusterRecord, RoomRecord, RouteSimulationRecord, RuleInfluenceRecord, RulePackRecord,
+    SavedStructure, StabilityRatingRecord, StratumRecord, StructuralSystemRecord,
+    StructureMetadata, StructureResult, TemporalPhaseRecord, TemporalStateRecord, TerritoryRecord,
     TransitAttachmentRecord, TransitEdgeRecord, TransitGraphRecord, TransitNodeRecord,
     STRUCTURE_SCHEMA_VERSION,
 };
@@ -924,6 +925,7 @@ pub struct MegaStructureGenerator {
     pub(crate) layers: usize,
     seed: String,
     config: GenerationConfig,
+    rule_packs: CompiledRulePackSet,
     pub(crate) seed_hash: u64,
     rng: Rng32,
     grid: Vec<CellType>,
@@ -946,6 +948,14 @@ impl MegaStructureGenerator {
     }
 
     pub fn with_config(seed: String, config: GenerationConfig) -> Self {
+        Self::with_config_and_rules(seed, config, CompiledRulePackSet::default())
+    }
+
+    pub fn with_config_and_rules(
+        seed: String,
+        config: GenerationConfig,
+        rule_packs: CompiledRulePackSet,
+    ) -> Self {
         config.validate().expect("validated generation config");
         let hash = seed_hash(&seed);
         let size = config.grid_size;
@@ -955,6 +965,7 @@ impl MegaStructureGenerator {
             layers,
             seed,
             config,
+            rule_packs,
             seed_hash: hash,
             rng: Rng32::new(hash),
             grid: vec![CellType::Empty; size * size * layers],
@@ -3270,6 +3281,22 @@ impl MegaStructureGenerator {
     }
 
     fn rule_pack_for(&self, district: DistrictType, stratum: BiomeStratum) -> RulePackRecord {
+        if let Some(pack) =
+            self.rule_packs
+                .find(self.config.profile, district.name(), stratum.name())
+        {
+            return RulePackRecord {
+                id: 0,
+                name: pack.name.clone(),
+                district: pack.district.clone(),
+                stratum: pack.stratum.clone(),
+                profile: pack.profile.to_string(),
+                density_weight: pack.density_weight,
+                route_weight: pack.route_weight,
+                decay_weight: pack.decay_weight,
+                detail_weight: pack.detail_weight.clamp(0.1, 1.5),
+            };
+        }
         let mut density_weight: f32 = match district {
             DistrictType::Slum => 1.35,
             DistrictType::Commercial => 1.18,
@@ -3317,6 +3344,135 @@ impl MegaStructureGenerator {
             route_weight,
             decay_weight,
             detail_weight: detail_weight.clamp(0.1, 1.0),
+        }
+    }
+
+    fn rule_pack_grammar(&self, rule_pack: &RulePackRecord) -> Vec<String> {
+        self.rule_packs
+            .find(self.config.profile, &rule_pack.district, &rule_pack.stratum)
+            .map(|pack| pack.grammar.clone())
+            .unwrap_or_default()
+    }
+
+    fn rule_influence_records(
+        &self,
+        rule_packs: &[RulePackRecord],
+        districts: &[DistrictRecord],
+        room_clusters: &[RoomClusterRecord],
+        hazards: &[HazardZoneRecord],
+        landmarks: &[NarrativeLandmarkRecord],
+    ) -> Vec<RuleInfluenceRecord> {
+        let mut influences = Vec::new();
+        for district in districts {
+            if let Some(influence) = self.rule_influence_for(
+                "district",
+                district.id.to_string(),
+                self.district_from_name(&district.kind),
+                BiomeStratum::Surface,
+                rule_packs,
+                "district dominant grammar",
+            ) {
+                influences.push(influence);
+            }
+        }
+        for edge in &self.transit_edges {
+            if let Some(point) = edge.points.get(edge.points.len() / 2) {
+                if let Some(influence) = self.rule_influence_for(
+                    "route",
+                    edge.id.to_string(),
+                    self.district_at(point[0].min(self.size - 1), point[2].min(self.size - 1)),
+                    self.stratum_at(point[1].min(self.layers - 1)),
+                    rule_packs,
+                    "route role and density",
+                ) {
+                    influences.push(influence);
+                }
+            }
+        }
+        for cluster in room_clusters {
+            let anchor = cluster.anchor_position;
+            if let Some(influence) = self.rule_influence_for(
+                "cluster",
+                cluster.id.to_string(),
+                self.district_at(anchor[0].min(self.size - 1), anchor[2].min(self.size - 1)),
+                self.stratum_at(anchor[1].min(self.layers - 1)),
+                rule_packs,
+                "room cluster semantics",
+            ) {
+                influences.push(influence);
+            }
+        }
+        for hazard in hazards {
+            if let Some(influence) = self.rule_influence_for(
+                "hazard",
+                hazard.id.to_string(),
+                self.district_at(
+                    hazard.bounds_min[0].min(self.size - 1),
+                    hazard.bounds_min[2].min(self.size - 1),
+                ),
+                self.stratum_at(hazard.bounds_min[1].min(self.layers - 1)),
+                rule_packs,
+                "hazard and decay pressure",
+            ) {
+                influences.push(influence);
+            }
+        }
+        for landmark in landmarks {
+            if let Some(influence) = self.rule_influence_for(
+                "landmark",
+                landmark.id.to_string(),
+                self.district_at(
+                    landmark.position[0].min(self.size - 1),
+                    landmark.position[2].min(self.size - 1),
+                ),
+                self.stratum_at(landmark.position[1].min(self.layers - 1)),
+                rule_packs,
+                "landmark grammar",
+            ) {
+                influences.push(influence);
+            }
+        }
+        for (id, influence) in influences.iter_mut().enumerate() {
+            influence.id = id;
+        }
+        influences
+    }
+
+    fn rule_influence_for(
+        &self,
+        target_type: &str,
+        target_id: String,
+        district: DistrictType,
+        stratum: BiomeStratum,
+        rule_packs: &[RulePackRecord],
+        reason: &str,
+    ) -> Option<RuleInfluenceRecord> {
+        let rule_pack = self.rule_pack_for(district, stratum);
+        let exported = rule_packs.iter().find(|pack| {
+            pack.name == rule_pack.name
+                && pack.district == rule_pack.district
+                && pack.stratum == rule_pack.stratum
+        })?;
+        Some(RuleInfluenceRecord {
+            id: 0,
+            target_type: target_type.to_owned(),
+            target_id,
+            rule_pack_id: exported.id,
+            rule_pack_name: exported.name.clone(),
+            district: exported.district.clone(),
+            stratum: exported.stratum.clone(),
+            grammar: self.rule_pack_grammar(exported),
+            reason: reason.to_owned(),
+        })
+    }
+
+    fn district_from_name(&self, name: &str) -> DistrictType {
+        match name {
+            "INDUSTRIAL" => DistrictType::Industrial,
+            "COMMERCIAL" => DistrictType::Commercial,
+            "SLUM" => DistrictType::Slum,
+            "ELITE" => DistrictType::Elite,
+            _ => DistrictType::Residential,
         }
     }
 
@@ -4535,6 +4691,13 @@ impl MegaStructureGenerator {
             self.route_simulation(&temporal_state, &resource_networks, &failure_zones);
         let narrative_landmarks =
             self.narrative_landmarks(&room_clusters, &factions, &contested_borders);
+        let rule_influences = self.rule_influence_records(
+            &rule_packs,
+            &districts,
+            &room_clusters,
+            &self.hazard_zones,
+            &narrative_landmarks,
+        );
         let rooms: Vec<_> = self
             .rooms
             .iter()
@@ -4584,6 +4747,7 @@ impl MegaStructureGenerator {
             suspended_deck_count: structural_system.suspended_decks.len(),
             failure_zone_count: failure_zones.len(),
             rule_pack_count: rule_packs.len(),
+            rule_influence_count: rule_influences.len(),
             faction_count: factions.len(),
             territory_count: territories.len(),
             contested_border_count: contested_borders.len(),
@@ -4616,6 +4780,7 @@ impl MegaStructureGenerator {
             structural_system,
             failure_zones,
             rule_packs,
+            rule_influences,
             factions,
             territories,
             contested_borders,
@@ -4637,10 +4802,18 @@ pub fn generate_saved_structure(
     seed: String,
     config: GenerationConfig,
 ) -> StructureResult<SavedStructure> {
+    generate_saved_structure_with_rules(seed, config, CompiledRulePackSet::default())
+}
+
+pub fn generate_saved_structure_with_rules(
+    seed: String,
+    config: GenerationConfig,
+    rule_packs: CompiledRulePackSet,
+) -> StructureResult<SavedStructure> {
     config
         .validate()
         .map_err(|error| -> Box<dyn std::error::Error + Send + Sync> { error.into() })?;
-    let mut generator = MegaStructureGenerator::with_config(seed, config);
+    let mut generator = MegaStructureGenerator::with_config_and_rules(seed, config, rule_packs);
     generator.generate();
     Ok(generator.saved_structure())
 }
@@ -5963,6 +6136,37 @@ mod tests {
             .rule_packs
             .iter()
             .all(|pack| pack.detail_weight > 0.0 && pack.decay_weight > 0.0));
+        assert_eq!(
+            saved.metadata.rule_influence_count,
+            saved.rule_influences.len()
+        );
+        assert!(saved
+            .rule_influences
+            .iter()
+            .any(|influence| influence.target_type == "route"));
+    }
+
+    #[test]
+    fn external_rule_packs_override_matching_generation_weights() {
+        let rules =
+            crate::rules::CompiledRulePackSet::from_json_file("rules/kowloon-decay.json").unwrap();
+        let saved = generate_saved_structure_with_rules(
+            "ABCD1234".to_owned(),
+            GenerationConfig::profile(crate::config::GenerationProfile::Decayed),
+            rules,
+        )
+        .unwrap();
+        assert!(saved
+            .rule_packs
+            .iter()
+            .any(|pack| pack.name == "kowloon_decay_slum_surface"));
+        assert!(saved.rule_influences.iter().any(|influence| {
+            influence.rule_pack_name == "kowloon_decay_slum_surface"
+                && influence
+                    .grammar
+                    .iter()
+                    .any(|rule| rule.contains("corridors"))
+        }));
     }
 
     #[test]
@@ -6170,6 +6374,7 @@ mod tests {
             "structural_system",
             "failure_zones",
             "rule_packs",
+            "rule_influences",
             "factions",
             "territories",
             "contested_borders",
@@ -6211,6 +6416,7 @@ mod tests {
             "suspended_deck_count",
             "failure_zone_count",
             "rule_pack_count",
+            "rule_influence_count",
             "faction_count",
             "territory_count",
             "contested_border_count",

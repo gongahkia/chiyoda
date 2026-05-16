@@ -1,5 +1,5 @@
 {
-  "schema_version": "gibson.structure.v16",
+  "schema_version": "gibson.structure.v17",
   "seed": "ABCD1234",
   "profile": "balanced",
   "size": 30,

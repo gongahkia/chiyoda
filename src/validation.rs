@@ -273,6 +273,24 @@ pub fn validate_structure(structure: &SavedStructure) -> StructureResult<()> {
             ensure(value > 0.0, "rule pack weight must be positive")?;
         }
     }
+    ensure(
+        structure.rule_influences.len() == structure.metadata.rule_influence_count,
+        "rule influence count mismatch",
+    )?;
+    ensure(
+        !structure.rule_influences.is_empty(),
+        "no rule influence traces exported",
+    )?;
+    for influence in &structure.rule_influences {
+        ensure(
+            influence.rule_pack_id < structure.rule_packs.len(),
+            "rule influence references invalid rule pack",
+        )?;
+        ensure(
+            !influence.target_type.is_empty() && !influence.target_id.is_empty(),
+            "rule influence target is empty",
+        )?;
+    }
 
     ensure(
         structure.path_analysis.guaranteed_service_to_skyline,

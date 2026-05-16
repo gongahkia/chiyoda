@@ -7,7 +7,7 @@ use crate::config::GenerationConfig;
 
 pub const CURRENT_SEED_FILE: &str = "current_seed.txt";
 pub const STRUCTURE_FILE: &str = "structure.json";
-pub const STRUCTURE_SCHEMA_VERSION: &str = "gibson.structure.v16";
+pub const STRUCTURE_SCHEMA_VERSION: &str = "gibson.structure.v17";
 
 pub type StructureResult<T> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
@@ -281,6 +281,19 @@ pub struct RulePackRecord {
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct RuleInfluenceRecord {
+    pub id: usize,
+    pub target_type: String,
+    pub target_id: String,
+    pub rule_pack_id: usize,
+    pub rule_pack_name: String,
+    pub district: String,
+    pub stratum: String,
+    pub grammar: Vec<String>,
+    pub reason: String,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct FactionRecord {
     pub id: usize,
     pub name: String,
@@ -368,6 +381,7 @@ pub struct SavedStructure {
     pub structural_system: StructuralSystemRecord,
     pub failure_zones: Vec<FailurePropagationRecord>,
     pub rule_packs: Vec<RulePackRecord>,
+    pub rule_influences: Vec<RuleInfluenceRecord>,
     pub factions: Vec<FactionRecord>,
     pub territories: Vec<TerritoryRecord>,
     pub contested_borders: Vec<ContestedBorderRecord>,
@@ -409,6 +423,7 @@ pub struct StructureMetadata {
     pub suspended_deck_count: usize,
     pub failure_zone_count: usize,
     pub rule_pack_count: usize,
+    pub rule_influence_count: usize,
     pub faction_count: usize,
     pub territory_count: usize,
     pub contested_border_count: usize,
