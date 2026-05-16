@@ -1,0 +1,39 @@
+{
+  "name": "shrine-stack",
+  "description": "Mixed profile grammar for communal shrines, vertical pilgrim routes, and protected ritual pockets.",
+  "packs": [
+    {
+      "name": "shrine_stack_residential_midrise",
+      "profile": "balanced",
+      "district": "RESIDENTIAL",
+      "stratum": "MIDRISE",
+      "density_weight": 1.2,
+      "route_weight": 1.25,
+      "decay_weight": 0.95,
+      "detail_weight": 0.98,
+      "grammar": ["shrine pockets", "pilgrim balconies", "lantern cables", "communal stairs"]
+    },
+    {
+      "name": "shrine_stack_slum_skyline",
+      "profile": "balanced",
+      "district": "SLUM",
+      "stratum": "SKYLINE",
+      "density_weight": 1.35,
+      "route_weight": 1.15,
+      "decay_weight": 1.2,
+      "detail_weight": 1.05,
+      "grammar": ["antenna shrines", "wind bridges", "tarp chapels", "off-grid beacons"]
+    },
+    {
+      "name": "shrine_stack_commercial_surface",
+      "profile": "balanced",
+      "district": "COMMERCIAL",
+      "stratum": "SURFACE",
+      "density_weight": 1.25,
+      "route_weight": 1.4,
+      "decay_weight": 0.9,
+      "detail_weight": 1.0,
+      "grammar": ["offering markets", "queue alleys", "procession crossings", "neon prayer boards"]
+    }
+  ]
+}

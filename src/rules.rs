@@ -278,4 +278,19 @@ mod tests {
         };
         assert!(document.validate().is_err());
     }
+
+    #[test]
+    fn all_checked_in_rule_presets_compile() {
+        for entry in fs::read_dir("rules").unwrap() {
+            let path = entry.unwrap().path();
+            if path.extension().and_then(|extension| extension.to_str()) == Some("json") {
+                let compiled = CompiledRulePackSet::from_json_file(&path).unwrap();
+                assert!(
+                    !compiled.is_empty(),
+                    "expected compiled packs in {}",
+                    path.display()
+                );
+            }
+        }
+    }
 }

@@ -1,0 +1,39 @@
+{
+  "name": "flood-market",
+  "description": "Dense surface commerce grammar shaped by water ingress, improvised stalls, and rerouted utilities.",
+  "packs": [
+    {
+      "name": "flood_market_commercial_surface",
+      "profile": "dense",
+      "district": "COMMERCIAL",
+      "stratum": "SURFACE",
+      "density_weight": 1.65,
+      "route_weight": 1.75,
+      "decay_weight": 1.25,
+      "detail_weight": 1.0,
+      "grammar": ["wide market runs", "waterlogged stalls", "temporary catwalks", "signage reefs"]
+    },
+    {
+      "name": "flood_market_slum_surface",
+      "profile": "dense",
+      "district": "SLUM",
+      "stratum": "SURFACE",
+      "density_weight": 1.55,
+      "route_weight": 1.45,
+      "decay_weight": 1.35,
+      "detail_weight": 1.05,
+      "grammar": ["bucket bridges", "floating scrap stalls", "patched stairs", "cable drapes"]
+    },
+    {
+      "name": "flood_market_industrial_underground",
+      "profile": "dense",
+      "district": "INDUSTRIAL",
+      "stratum": "UNDERGROUND",
+      "density_weight": 1.1,
+      "route_weight": 1.4,
+      "decay_weight": 1.55,
+      "detail_weight": 0.85,
+      "grammar": ["flood pumps", "overflow tunnels", "pipe berms", "blocked service doors"]
+    }
+  ]
+}

@@ -1,0 +1,50 @@
+{
+  "name": "corp-arcology",
+  "description": "Clean vertical corporate grammar emphasizing protected spines, voids, and skyline compounds.",
+  "packs": [
+    {
+      "name": "corp_arcology_elite_skyline",
+      "profile": "vertical",
+      "district": "ELITE",
+      "stratum": "SKYLINE",
+      "density_weight": 0.62,
+      "route_weight": 0.95,
+      "decay_weight": 0.38,
+      "detail_weight": 0.68,
+      "grammar": ["glass terraces", "restricted spines", "clean atria", "antenna crowns"]
+    },
+    {
+      "name": "corp_arcology_elite_midrise",
+      "profile": "vertical",
+      "district": "ELITE",
+      "stratum": "MIDRISE",
+      "density_weight": 0.72,
+      "route_weight": 1.05,
+      "decay_weight": 0.42,
+      "detail_weight": 0.62,
+      "grammar": ["security thresholds", "private elevators", "facade ribs", "empty light wells"]
+    },
+    {
+      "name": "corp_arcology_commercial_surface",
+      "profile": "vertical",
+      "district": "COMMERCIAL",
+      "stratum": "SURFACE",
+      "density_weight": 1.0,
+      "route_weight": 1.35,
+      "decay_weight": 0.7,
+      "detail_weight": 0.82,
+      "grammar": ["lobby concourses", "retail bridges", "surveillance plazas", "neon wayfinding"]
+    },
+    {
+      "name": "corp_arcology_industrial_underground",
+      "profile": "vertical",
+      "district": "INDUSTRIAL",
+      "stratum": "UNDERGROUND",
+      "density_weight": 0.95,
+      "route_weight": 1.25,
+      "decay_weight": 0.75,
+      "detail_weight": 0.72,
+      "grammar": ["machine basements", "secured utility cores", "coolant trunks", "data risers"]
+    }
+  ]
+}
