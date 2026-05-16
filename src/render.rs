@@ -1308,8 +1308,9 @@ fn draw_overlay(app: &AppState) {
         let room_label = app.generator.nearest_room_label(x, yv, z);
         let route_label = app.generator.nearest_route_label(x, yv, z);
         let decay_label = app.generator.nearest_decay_feature(x, yv, z);
+        let rule_influence = selected_rule_influence(app, x, yv, z);
         let material = app.generator.visual_material_at(x, z, yv, cell).name();
-        let panel_height = 190.0
+        let panel_height = 230.0
             + if room_label.is_some() { 20.0 } else { 0.0 }
             + if route_label.is_some() { 20.0 } else { 0.0 }
             + if decay_label.is_some() { 20.0 } else { 0.0 };
@@ -1363,13 +1364,44 @@ fn draw_overlay(app: &AppState) {
             LIGHTGRAY,
         );
         draw_text(
-            &format!("Grammar: {}", district_inspect_grammar(district.name())),
+            &format!(
+                "Rule: {}",
+                rule_influence
+                    .map(|influence| influence.rule_pack_name.as_str())
+                    .unwrap_or("built-in fallback")
+            ),
             padding,
             y + 146.0,
             18.0,
             LIGHTGRAY,
         );
-        let mut detail_y = y + 168.0;
+        draw_text(
+            &format!(
+                "Influence: {}",
+                rule_influence
+                    .map(|influence| {
+                        format!("{} #{}", influence.target_type, influence.target_id)
+                    })
+                    .unwrap_or_else(|| "district fallback".to_owned())
+            ),
+            padding,
+            y + 166.0,
+            18.0,
+            LIGHTGRAY,
+        );
+        draw_text(
+            &format!(
+                "Grammar: {}",
+                rule_influence
+                    .map(rule_grammar_label)
+                    .unwrap_or_else(|| district_inspect_grammar(district.name()).to_owned())
+            ),
+            padding,
+            y + 186.0,
+            18.0,
+            LIGHTGRAY,
+        );
+        let mut detail_y = y + 208.0;
         if let Some(label) = room_label {
             draw_text(
                 &format!("Room: {}", label),
@@ -1748,6 +1780,106 @@ fn active_phase(structure: &SavedStructure) -> Option<&structure::TemporalPhaseR
     }
     let index = ((get_time() / 8.0) as usize) % phases.len();
     phases.get(index)
+}
+
+fn selected_rule_influence(
+    app: &AppState,
+    x: usize,
+    y: usize,
+    z: usize,
+) -> Option<&structure::RuleInfluenceRecord> {
+    let point = [x, y, z];
+    let saved = &app.saved_structure;
+
+    if let Some(edge) = saved.transit_graph.edges.iter().min_by_key(|edge| {
+        edge.points
+            .iter()
+            .map(|route_point| point_distance_manhattan(point, *route_point))
+            .min()
+            .unwrap_or(usize::MAX)
+    }) {
+        if edge
+            .points
+            .iter()
+            .any(|route_point| point_distance_manhattan(point, *route_point) <= 3)
+        {
+            if let Some(influence) = find_rule_influence(saved, "route", edge.id.to_string()) {
+                return Some(influence);
+            }
+        }
+    }
+
+    if let Some(cluster) = saved
+        .room_clusters
+        .iter()
+        .find(|cluster| point_in_bounds(point, cluster.bounds_min, cluster.bounds_max))
+    {
+        if let Some(influence) = find_rule_influence(saved, "cluster", cluster.id.to_string()) {
+            return Some(influence);
+        }
+    }
+
+    if let Some(hazard) = saved
+        .hazard_zones
+        .iter()
+        .find(|hazard| point_in_bounds(point, hazard.bounds_min, hazard.bounds_max))
+    {
+        if let Some(influence) = find_rule_influence(saved, "hazard", hazard.id.to_string()) {
+            return Some(influence);
+        }
+    }
+
+    if let Some(landmark) = saved
+        .narrative_landmarks
+        .iter()
+        .min_by_key(|landmark| point_distance_manhattan(point, landmark.position))
+    {
+        if point_distance_manhattan(point, landmark.position) <= 4 {
+            if let Some(influence) = find_rule_influence(saved, "landmark", landmark.id.to_string())
+            {
+                return Some(influence);
+            }
+        }
+    }
+
+    let district = app.generator.district_at(x, z).name();
+    saved
+        .districts
+        .iter()
+        .find(|record| record.kind == district)
+        .and_then(|record| find_rule_influence(saved, "district", record.id.to_string()))
+}
+
+fn find_rule_influence<'a>(
+    structure: &'a SavedStructure,
+    target_type: &str,
+    target_id: String,
+) -> Option<&'a structure::RuleInfluenceRecord> {
+    structure
+        .rule_influences
+        .iter()
+        .find(|influence| influence.target_type == target_type && influence.target_id == target_id)
+}
+
+fn point_in_bounds(point: [usize; 3], min: [usize; 3], max: [usize; 3]) -> bool {
+    point[0] >= min[0]
+        && point[0] <= max[0]
+        && point[1] >= min[1]
+        && point[1] <= max[1]
+        && point[2] >= min[2]
+        && point[2] <= max[2]
+}
+
+fn point_distance_manhattan(a: [usize; 3], b: [usize; 3]) -> usize {
+    a[0].abs_diff(b[0]) + a[1].abs_diff(b[1]) + a[2].abs_diff(b[2])
+}
+
+fn rule_grammar_label(influence: &structure::RuleInfluenceRecord) -> String {
+    if influence.grammar.is_empty() {
+        "built-in weights".to_owned()
+    } else {
+        truncate_text(&influence.grammar.join(" / "), 58)
+    }
 }
 
 fn district_inspect_grammar(district: &str) -> &'static str {
