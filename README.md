@@ -25,9 +25,11 @@ $ cargo run --release -- ABCD1234
 $ cargo run --release -- --seed ABCD1234 --profile neon
 $ cargo run --release -- --seed ABCD1234 --profile dense --headless --export structure.json
 $ cargo run --release -- --seed ABCD1234 --config presets/blackout-core.json --headless --bundle out/blackout
+$ cargo run --release -- --validate-rules rules/kowloon-decay.json
+$ cargo run --release -- --seed ABCD1234 --profile decayed --rules rules/kowloon-decay.json --headless --export structure.json
 ```
 
-Profiles are `balanced`, `dense`, `vertical`, `decayed`, and `neon`. JSON config files can override profile defaults with `--config path.json`; checked-in presets live under `presets/`.
+Profiles are `balanced`, `dense`, `vertical`, `decayed`, and `neon`. JSON config files can override profile defaults with `--config path.json`; checked-in config presets live under `presets/`, and editable procedural rule packs live under `rules/`.
 
 ## Seed
 

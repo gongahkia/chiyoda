@@ -1,7 +1,8 @@
 use gibson_rust::bundle::create_bundle;
 use gibson_rust::cli::{usage, RuntimeOptions};
-use gibson_rust::generation::generate_saved_structure;
+use gibson_rust::generation::generate_saved_structure_with_rules;
 use gibson_rust::inspect::{render_inspection, render_inspection_json};
+use gibson_rust::rules::validate_rule_file;
 use gibson_rust::scenario::{generate_scenario, save_scenario};
 use gibson_rust::structure::{self, CURRENT_SEED_FILE};
 use gibson_rust::validation::validate_file;
@@ -16,7 +17,13 @@ fn main() {
         }
     };
 
-    if options.bundle_path.is_some() {
+    if options.validate_rules_path.is_some() {
+        if let Err(error) = validate_rules(&options) {
+            eprintln!("Failed to validate rules: {error}");
+            std::process::exit(1);
+        }
+        return;
+    } else if options.bundle_path.is_some() {
         if let Err(error) = export_bundle(&options) {
             eprintln!("Failed to export bundle: {error}");
             std::process::exit(1);
@@ -53,7 +60,23 @@ fn export_bundle(options: &RuntimeOptions) -> structure::StructureResult<()> {
         .bundle_path
         .as_ref()
         .expect("bundle path checked before dispatch");
-    create_bundle(path, options.seed.clone(), options.config.clone())
+    create_bundle(
+        path,
+        options.seed.clone(),
+        options.config.clone(),
+        options.rule_packs.clone(),
+    )
+}
+
+fn validate_rules(options: &RuntimeOptions) -> structure::StructureResult<()> {
+    let path = options
+        .validate_rules_path
+        .as_ref()
+        .expect("rule validation path checked before dispatch");
+    for line in validate_rule_file(path)? {
+        println!("{line}");
+    }
+    Ok(())
 }
 
 fn validate_artifact(options: &RuntimeOptions) -> structure::StructureResult<()> {
@@ -68,7 +91,11 @@ fn validate_artifact(options: &RuntimeOptions) -> structure::StructureResult<()>
 }
 
 fn export_headless(options: &RuntimeOptions) -> structure::StructureResult<()> {
-    let saved = generate_saved_structure(options.seed.clone(), options.config.clone())?;
+    let saved = generate_saved_structure_with_rules(
+        options.seed.clone(),
+        options.config.clone(),
+        options.rule_packs.clone(),
+    )?;
     std::fs::write(CURRENT_SEED_FILE, &options.seed)?;
     structure::save_structure(&options.export_path, &saved)?;
     if let Some(path) = &options.scenario_path {

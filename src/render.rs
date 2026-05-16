@@ -11,6 +11,7 @@ use crate::generation::{
     MaterialType, MegaStructureGenerator, CAMERA_FOV_DEGREES, CHUNK_SIZE_X, CHUNK_SIZE_Y,
     CHUNK_SIZE_Z, DISTRICTS, MATERIALS,
 };
+use crate::rules::CompiledRulePackSet;
 use crate::seed::generate_seed;
 use crate::structure::{self, SavedStructure, StructureMetadata};
 
@@ -672,6 +673,7 @@ impl PostFxResources {
 struct AppState {
     generator: MegaStructureGenerator,
     config: GenerationConfig,
+    rule_packs: CompiledRulePackSet,
     export_path: PathBuf,
     saved_structure: SavedStructure,
     metadata: StructureMetadata,
@@ -695,8 +697,14 @@ struct AppState {
 }
 
 impl AppState {
-    async fn new(seed: String, config: GenerationConfig, export_path: PathBuf) -> Self {
-        let mut generator = MegaStructureGenerator::with_config(seed, config.clone());
+    async fn new(
+        seed: String,
+        config: GenerationConfig,
+        rule_packs: CompiledRulePackSet,
+        export_path: PathBuf,
+    ) -> Self {
+        let mut generator =
+            MegaStructureGenerator::with_config_and_rules(seed, config.clone(), rule_packs.clone());
         generator.generate();
         let saved_structure = generator.saved_structure();
         let metadata = saved_structure.metadata.clone();
@@ -722,6 +730,7 @@ impl AppState {
         Self {
             generator,
             config,
+            rule_packs,
             export_path,
             saved_structure,
             metadata,
@@ -747,7 +756,11 @@ impl AppState {
 
     async fn regenerate(&mut self) {
         let seed = generate_seed();
-        self.generator = MegaStructureGenerator::with_config(seed, self.config.clone());
+        self.generator = MegaStructureGenerator::with_config_and_rules(
+            seed,
+            self.config.clone(),
+            self.rule_packs.clone(),
+        );
         self.generator.generate();
         self.saved_structure = self.generator.saved_structure();
         self.metadata = self.saved_structure.metadata.clone();
@@ -1596,7 +1609,13 @@ void main() {
 "#;
 
 pub async fn run(options: RuntimeOptions) {
-    let mut app = AppState::new(options.seed, options.config, options.export_path).await;
+    let mut app = AppState::new(
+        options.seed,
+        options.config,
+        options.rule_packs,
+        options.export_path,
+    )
+    .await;
 
     loop {
         app.postfx

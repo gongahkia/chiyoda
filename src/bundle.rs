@@ -3,7 +3,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use crate::config::GenerationConfig;
-use crate::generation::generate_saved_structure;
+use crate::generation::generate_saved_structure_with_rules;
+use crate::rules::CompiledRulePackSet;
 use crate::scenario::{generate_scenario, save_scenario};
 use crate::structure::{self, SavedStructure, StructureResult};
 use crate::validation::{validate_scenario, validate_structure};
@@ -34,10 +35,11 @@ pub fn create_bundle(
     directory: impl AsRef<Path>,
     seed: String,
     config: GenerationConfig,
+    rule_packs: CompiledRulePackSet,
 ) -> StructureResult<()> {
     let directory = directory.as_ref();
     fs::create_dir_all(directory)?;
-    let structure = generate_saved_structure(seed.clone(), config)?;
+    let structure = generate_saved_structure_with_rules(seed.clone(), config, rule_packs)?;
     let scenario = generate_scenario(&structure);
 
     let structure_path = directory.join("structure.json");
@@ -151,7 +153,13 @@ mod tests {
             .unwrap_or_default()
             .as_nanos();
         let dir = std::env::temp_dir().join(format!("gibson_bundle_test_{nonce}"));
-        create_bundle(&dir, "ABCD1234".to_owned(), GenerationConfig::default()).unwrap();
+        create_bundle(
+            &dir,
+            "ABCD1234".to_owned(),
+            GenerationConfig::default(),
+            CompiledRulePackSet::default(),
+        )
+        .unwrap();
         for file in [
             "structure.json",
             "scenario.json",

@@ -3,6 +3,7 @@ use std::str::FromStr;
 use std::{error::Error, io};
 
 use crate::config::{GenerationConfig, GenerationProfile};
+use crate::rules::CompiledRulePackSet;
 use crate::seed::{generate_seed, validate_seed};
 use crate::structure::StructureResult;
 
@@ -25,8 +26,11 @@ pub struct RuntimeOptions {
     pub export_path: PathBuf,
     pub scenario_path: Option<PathBuf>,
     pub bundle_path: Option<PathBuf>,
+    pub rules_path: Option<PathBuf>,
+    pub rule_packs: CompiledRulePackSet,
     pub headless: bool,
     pub validate_path: Option<PathBuf>,
+    pub validate_rules_path: Option<PathBuf>,
     pub inspect_path: Option<PathBuf>,
     pub inspect_sections: Vec<InspectSection>,
     pub inspect_json: bool,
@@ -45,8 +49,10 @@ impl RuntimeOptions {
         let mut export_path = PathBuf::from(crate::structure::STRUCTURE_FILE);
         let mut scenario_path = None;
         let mut bundle_path = None;
+        let mut rules_path = None;
         let mut headless = false;
         let mut validate_path = None;
+        let mut validate_rules_path = None;
         let mut inspect_path = None;
         let mut inspect_sections = Vec::new();
         let mut inspect_json = false;
@@ -65,9 +71,14 @@ impl RuntimeOptions {
                     scenario_path = Some(PathBuf::from(next_arg(&mut args, "--scenario")?))
                 }
                 "--bundle" => bundle_path = Some(PathBuf::from(next_arg(&mut args, "--bundle")?)),
+                "--rules" => rules_path = Some(PathBuf::from(next_arg(&mut args, "--rules")?)),
                 "--headless" => headless = true,
                 "--validate" => {
                     validate_path = Some(PathBuf::from(next_arg(&mut args, "--validate")?))
+                }
+                "--validate-rules" => {
+                    validate_rules_path =
+                        Some(PathBuf::from(next_arg(&mut args, "--validate-rules")?))
                 }
                 "--inspect" => {
                     inspect_path = Some(PathBuf::from(next_arg(&mut args, "--inspect")?))
@@ -111,6 +122,11 @@ impl RuntimeOptions {
             config.validate().map_err(invalid_input)?;
             config
         };
+        let rule_packs = if let Some(path) = &rules_path {
+            CompiledRulePackSet::from_json_file(path)?
+        } else {
+            CompiledRulePackSet::default()
+        };
 
         if inspect_path.is_some() && inspect_sections.is_empty() {
             inspect_sections.push(InspectSection::Summary);
@@ -122,8 +138,11 @@ impl RuntimeOptions {
             export_path,
             scenario_path,
             bundle_path,
+            rules_path,
+            rule_packs,
             headless,
             validate_path,
+            validate_rules_path,
             inspect_path,
             inspect_sections,
             inspect_json,
@@ -141,7 +160,7 @@ fn invalid_input(message: impl Into<String>) -> Box<dyn Error + Send + Sync> {
 }
 
 pub fn usage() -> &'static str {
-    "Usage: gibson-rust [SEED] [--seed SEED] [--profile balanced|dense|vertical|decayed|neon] [--config path.json] [--export path.json] [--scenario scenario.json] [--bundle out/] [--headless] [--validate artifact.json] [--inspect structure.json] [--summary] [--routes] [--landmarks] [--path] [--simulation] [--factions] [--hazards] [--quality] [--json]"
+    "Usage: gibson-rust [SEED] [--seed SEED] [--profile balanced|dense|vertical|decayed|neon] [--config path.json] [--rules rules.json] [--export path.json] [--scenario scenario.json] [--bundle out/] [--headless] [--validate artifact.json] [--validate-rules rules.json] [--inspect structure.json] [--summary] [--routes] [--landmarks] [--path] [--simulation] [--factions] [--hazards] [--quality] [--json]"
 }
 
 #[cfg(test)]
@@ -222,6 +241,42 @@ mod tests {
         .unwrap();
 
         assert_eq!(options.bundle_path, Some(PathBuf::from("out")));
+    }
+
+    #[test]
+    fn parses_rule_pack_path_and_compiles_rules() {
+        let options = RuntimeOptions::parse([
+            "--seed".to_owned(),
+            "ABCD1234".to_owned(),
+            "--profile".to_owned(),
+            "decayed".to_owned(),
+            "--rules".to_owned(),
+            "rules/kowloon-decay.json".to_owned(),
+        ])
+        .unwrap();
+
+        assert_eq!(
+            options.rules_path,
+            Some(PathBuf::from("rules/kowloon-decay.json"))
+        );
+        assert!(options
+            .rule_packs
+            .find(GenerationProfile::Decayed, "SLUM", "SURFACE")
+            .is_some());
+    }
+
+    #[test]
+    fn parses_rule_validation_path() {
+        let options = RuntimeOptions::parse([
+            "--validate-rules".to_owned(),
+            "rules/kowloon-decay.json".to_owned(),
+        ])
+        .unwrap();
+
+        assert_eq!(
+            options.validate_rules_path,
+            Some(PathBuf::from("rules/kowloon-decay.json"))
+        );
     }
 
     #[test]
