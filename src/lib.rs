@@ -1,6 +1,7 @@
 pub mod bundle;
 pub mod cli;
 pub mod config;
+pub mod export_summary;
 pub mod generation;
 pub mod inspect;
 pub mod render;

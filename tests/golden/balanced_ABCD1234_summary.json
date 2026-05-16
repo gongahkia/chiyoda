@@ -1,0 +1,24 @@
+{
+  "schema_version": "gibson.structure.v16",
+  "seed": "ABCD1234",
+  "profile": "balanced",
+  "size": 30,
+  "layers": 15,
+  "counts": {
+    "factions": 5,
+    "failure_zones": 5,
+    "hazards": 6,
+    "landmarks": 28,
+    "macro_massing": 21,
+    "meso_placements": 86,
+    "micro_details": 88,
+    "resource_networks": 5,
+    "room_clusters": 106,
+    "rooms": 1162,
+    "route_nodes": 62,
+    "routes": 22,
+    "rule_packs": 20
+  },
+  "quality_milli": 912,
+  "occupied_milli": 789
+}
