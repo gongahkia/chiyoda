@@ -19,12 +19,13 @@
     "route_constraints",
     "faction_choices",
     "hazard_timings",
+    "resource_objectives",
     "failure_states",
     "alternate_endings"
   ],
   "properties": {
     "schema_version": {
-      "const": "gibson.scenario.v2"
+      "const": "gibson.scenario.v3"
     },
     "seed": {
       "type": "string",
@@ -100,6 +101,10 @@
           "severity": { "type": "number", "minimum": 0, "maximum": 1 }
         }
       }
+    },
+    "resource_objectives": {
+      "type": "array",
+      "minItems": 1
     },
     "failure_states": {
       "type": "array",

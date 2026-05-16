@@ -212,6 +212,20 @@ pub struct RouteSimulationRecord {
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct ResourceNetworkRecord {
+    pub id: usize,
+    pub kind: String,
+    pub source: [usize; 3],
+    pub sink: [usize; 3],
+    pub route_ids: Vec<usize>,
+    pub capacity: f32,
+    pub load: f32,
+    pub overloaded: bool,
+    pub outage: bool,
+    pub reroute_route_ids: Vec<usize>,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct HazardZoneRecord {
     pub id: usize,
     pub kind: String,
@@ -326,6 +340,7 @@ pub struct SavedStructure {
     pub path_analysis: PathAnalysisRecord,
     pub infrastructure_flows: Vec<InfrastructureFlowRecord>,
     pub route_simulation: Vec<RouteSimulationRecord>,
+    pub resource_networks: Vec<ResourceNetworkRecord>,
     pub hazard_zones: Vec<HazardZoneRecord>,
     pub structural_system: StructuralSystemRecord,
     pub factions: Vec<FactionRecord>,
@@ -362,6 +377,7 @@ pub struct StructureMetadata {
     pub room_cluster_count: usize,
     pub infrastructure_flow_count: usize,
     pub route_simulation_count: usize,
+    pub resource_network_count: usize,
     pub hazard_zone_count: usize,
     pub structural_rating_count: usize,
     pub load_bearing_frame_count: usize,

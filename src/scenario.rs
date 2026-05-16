@@ -19,6 +19,7 @@ pub struct ScenarioRecord {
     pub route_constraints: Vec<ScenarioRouteConstraintRecord>,
     pub faction_choices: Vec<ScenarioFactionChoiceRecord>,
     pub hazard_timings: Vec<ScenarioHazardTimingRecord>,
+    pub resource_objectives: Vec<ScenarioResourceObjectiveRecord>,
     pub failure_states: Vec<String>,
     pub alternate_endings: Vec<ScenarioEndingRecord>,
 }
@@ -80,6 +81,15 @@ pub struct ScenarioEndingRecord {
     pub consequence: String,
 }
 
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct ScenarioResourceObjectiveRecord {
+    pub network_id: usize,
+    pub kind: String,
+    pub route_ids: Vec<usize>,
+    pub objective: String,
+    pub outage: bool,
+}
+
 pub fn generate_scenario(structure: &SavedStructure) -> ScenarioRecord {
     let main_path = structure.path_analysis.main_path.as_ref();
     let start =
@@ -124,7 +134,7 @@ pub fn generate_scenario(structure: &SavedStructure) -> ScenarioRecord {
         .collect();
     let objective_chains = objective_chains(&objective_route_ids, &objective_room_ids, &landmarks);
     ScenarioRecord {
-        schema_version: "gibson.scenario.v2".to_owned(),
+        schema_version: "gibson.scenario.v3".to_owned(),
         seed: structure.seed.clone(),
         profile: structure.metadata.profile.clone(),
         title: scenario_title(structure),
@@ -139,6 +149,7 @@ pub fn generate_scenario(structure: &SavedStructure) -> ScenarioRecord {
         route_constraints: route_constraints(structure, &objective_route_ids),
         faction_choices: faction_choices(structure, &faction_conflicts),
         hazard_timings: hazard_timings(structure, &hazard_ids),
+        resource_objectives: resource_objectives(structure),
         failure_states: failure_states(structure),
         alternate_endings: alternate_endings(structure),
     }
@@ -271,6 +282,48 @@ fn hazard_timings(
         .collect()
 }
 
+fn resource_objectives(structure: &SavedStructure) -> Vec<ScenarioResourceObjectiveRecord> {
+    let mut objectives: Vec<_> = structure
+        .resource_networks
+        .iter()
+        .filter(|network| network.outage || network.overloaded)
+        .take(6)
+        .map(resource_objective)
+        .collect();
+    if objectives.is_empty() {
+        objectives.extend(
+            structure
+                .resource_networks
+                .iter()
+                .take(1)
+                .map(resource_objective),
+        );
+    }
+    objectives
+}
+
+fn resource_objective(
+    network: &crate::structure::ResourceNetworkRecord,
+) -> ScenarioResourceObjectiveRecord {
+    ScenarioResourceObjectiveRecord {
+        network_id: network.id,
+        kind: network.kind.clone(),
+        route_ids: if network.reroute_route_ids.is_empty() {
+            network.route_ids.clone()
+        } else {
+            network.reroute_route_ids.clone()
+        },
+        objective: if network.outage {
+            format!("restore {} through reroute", network.kind)
+        } else if network.overloaded {
+            format!("reduce {} overload", network.kind)
+        } else {
+            format!("keep {} stable", network.kind)
+        },
+        outage: network.outage,
+    }
+}
+
 fn failure_states(structure: &SavedStructure) -> Vec<String> {
     vec![
         "objective route collapses before alternate path is found".to_owned(),
@@ -351,13 +404,14 @@ mod tests {
         let structure =
             generate_saved_structure("ABCD1234".to_owned(), GenerationConfig::default()).unwrap();
         let scenario = generate_scenario(&structure);
-        assert_eq!(scenario.schema_version, "gibson.scenario.v2");
+        assert_eq!(scenario.schema_version, "gibson.scenario.v3");
         assert_eq!(scenario.seed, structure.seed);
         assert!(!scenario.objective_route_ids.is_empty());
         assert!(!scenario.landmarks.is_empty());
         assert!(!scenario.objective_chains.is_empty());
         assert!(!scenario.route_constraints.is_empty());
         assert!(!scenario.hazard_timings.is_empty());
+        assert!(!scenario.resource_objectives.is_empty());
         assert!(!scenario.alternate_endings.is_empty());
         assert!(to_json(&scenario).unwrap().contains("faction_conflicts"));
     }

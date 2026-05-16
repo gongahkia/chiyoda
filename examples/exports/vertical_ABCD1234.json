@@ -223,6 +223,7 @@
     "room_cluster_count": 140,
     "infrastructure_flow_count": 51,
     "route_simulation_count": 25,
+    "resource_network_count": 5,
     "hazard_zone_count": 3,
     "structural_rating_count": 34,
     "load_bearing_frame_count": 2451,
@@ -74672,11 +74673,14 @@
       "route_id": 13,
       "civilian_density": 0.421,
       "security_pressure": 0.88,
-      "blackout_risk": 0.2,
+      "blackout_risk": 0.5237209,
       "market_congestion": 0.555,
-      "evacuation_viability": 0.8416,
+      "evacuation_viability": 0.7338093,
       "active_phase_ids": [
-        2
+        0,
+        2,
+        3,
+        4
       ]
     },
     {
@@ -74783,10 +74787,14 @@
       "route_id": 23,
       "civilian_density": 0.421,
       "security_pressure": 0.88,
-      "blackout_risk": 0.2,
+      "blackout_risk": 0.5237209,
       "market_congestion": 0.555,
-      "evacuation_viability": 0.8416,
-      "active_phase_ids": []
+      "evacuation_viability": 0.7338093,
+      "active_phase_ids": [
+        0,
+        3,
+        4
+      ]
     },
     {
       "route_id": 24,
@@ -74796,6 +74804,184 @@
       "market_congestion": 0.415,
       "evacuation_viability": 1.0,
       "active_phase_ids": []
+    }
+  ],
+  "resource_networks": [
+    {
+      "id": 0,
+      "kind": "data_spine",
+      "source": [
+        3,
+        16,
+        10
+      ],
+      "sink": [
+        3,
+        22,
+        10
+      ],
+      "route_ids": [
+        13,
+        23
+      ],
+      "capacity": 1.72,
+      "load": 2.0,
+      "overloaded": true,
+      "outage": true,
+      "reroute_route_ids": [
+        14,
+        15,
+        16,
+        17
+      ]
+    },
+    {
+      "id": 1,
+      "kind": "power_bus",
+      "source": [
+        3,
+        0,
+        10
+      ],
+      "sink": [
+        15,
+        22,
+        15
+      ],
+      "route_ids": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20,
+        21,
+        23,
+        24
+      ],
+      "capacity": 16.56,
+      "load": 14.849999,
+      "overloaded": false,
+      "outage": false,
+      "reroute_route_ids": []
+    },
+    {
+      "id": 2,
+      "kind": "ventilation_loop",
+      "source": [
+        3,
+        0,
+        10
+      ],
+      "sink": [
+        15,
+        22,
+        15
+      ],
+      "route_ids": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        18,
+        19,
+        20,
+        21,
+        22,
+        24
+      ],
+      "capacity": 13.3,
+      "load": 10.474999,
+      "overloaded": false,
+      "outage": false,
+      "reroute_route_ids": [
+        14,
+        15,
+        16,
+        17
+      ]
+    },
+    {
+      "id": 3,
+      "kind": "waste_chute",
+      "source": [
+        3,
+        1,
+        10
+      ],
+      "sink": [
+        15,
+        1,
+        15
+      ],
+      "route_ids": [
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        22
+      ],
+      "capacity": 4.6200004,
+      "load": 3.825,
+      "overloaded": false,
+      "outage": false,
+      "reroute_route_ids": [
+        14,
+        15,
+        16,
+        17
+      ]
+    },
+    {
+      "id": 4,
+      "kind": "water_reclamation",
+      "source": [
+        3,
+        1,
+        10
+      ],
+      "sink": [
+        15,
+        1,
+        15
+      ],
+      "route_ids": [
+        7,
+        8,
+        10,
+        11,
+        22
+      ],
+      "capacity": 3.6000001,
+      "load": 3.375,
+      "overloaded": false,
+      "outage": false,
+      "reroute_route_ids": [
+        14,
+        15,
+        16,
+        17
+      ]
     }
   ],
   "hazard_zones": [
@@ -95727,7 +95913,9 @@
           10,
           11,
           12,
-          22
+          22,
+          13,
+          23
         ],
         "active_flow_ids": [
           0,
@@ -95820,7 +96008,9 @@
         "cycle_hour": 18,
         "active_route_ids": [
           9,
-          12
+          12,
+          13,
+          23
         ],
         "active_flow_ids": [
           1,
@@ -95851,7 +96041,9 @@
           8,
           10,
           11,
-          22
+          22,
+          13,
+          23
         ],
         "active_flow_ids": [
           14,

@@ -17,6 +17,7 @@
     "micro_details",
     "path_analysis",
     "route_simulation",
+    "resource_networks",
     "hazard_zones",
     "factions",
     "temporal_state",
@@ -140,6 +141,25 @@
             "type": "array",
             "items": { "type": "integer", "minimum": 0 }
           }
+        }
+      }
+    },
+    "resource_networks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "kind", "source", "sink", "route_ids", "capacity", "load", "overloaded", "outage", "reroute_route_ids"],
+        "properties": {
+          "id": { "type": "integer", "minimum": 0 },
+          "kind": { "type": "string" },
+          "source": { "$ref": "#/$defs/point3" },
+          "sink": { "$ref": "#/$defs/point3" },
+          "route_ids": { "type": "array", "items": { "type": "integer", "minimum": 0 } },
+          "capacity": { "type": "number", "exclusiveMinimum": 0 },
+          "load": { "type": "number", "minimum": 0 },
+          "overloaded": { "type": "boolean" },
+          "outage": { "type": "boolean" },
+          "reroute_route_ids": { "type": "array", "items": { "type": "integer", "minimum": 0 } }
         }
       }
     },

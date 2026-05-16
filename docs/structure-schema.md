@@ -31,6 +31,7 @@ Example exports are checked in under `examples/exports/` for `balanced`, `decaye
 - `path_analysis`: traversal quality summary and main service-to-skyline mission path.
 - `infrastructure_flows`: route-carried utility systems such as power, data, water, waste, and ventilation.
 - `route_simulation`: per-route civilian density, security pressure, blackout risk, market congestion, evacuation viability, and active temporal phases.
+- `resource_networks`: power/data/water/air-style constrained networks with load, capacity, outages, overloads, and reroutes.
 - `hazard_zones`: exported dynamic/structural risks such as blackouts, sumps, and security sweeps.
 - `structural_system`: load-bearing frames, foundations, suspended decks, and stability ratings.
 - `factions`: faction definitions and influence summaries.

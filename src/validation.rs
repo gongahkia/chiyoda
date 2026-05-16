@@ -4,7 +4,7 @@ use std::path::Path;
 use crate::scenario::{self, ScenarioRecord};
 use crate::structure::{self, SavedStructure, StructureResult, STRUCTURE_SCHEMA_VERSION};
 
-const SCENARIO_SCHEMA_VERSION: &str = "gibson.scenario.v2";
+const SCENARIO_SCHEMA_VERSION: &str = "gibson.scenario.v3";
 const MAX_CELL_ID: u8 = 11;
 
 pub fn validate_file(path: impl AsRef<Path>) -> StructureResult<Vec<String>> {
@@ -209,6 +209,38 @@ pub fn validate_structure(structure: &SavedStructure) -> StructureResult<()> {
             )?;
         }
     }
+    for network in &structure.resource_networks {
+        ensure(
+            network.capacity > 0.0,
+            "resource network capacity must be positive",
+        )?;
+        ensure(
+            network.load >= 0.0,
+            "resource network load cannot be negative",
+        )?;
+        ensure_point(
+            network.source,
+            structure.size,
+            structure.layers,
+            "resource source",
+        )?;
+        ensure_point(
+            network.sink,
+            structure.size,
+            structure.layers,
+            "resource sink",
+        )?;
+        for route_id in network
+            .route_ids
+            .iter()
+            .chain(network.reroute_route_ids.iter())
+        {
+            ensure(
+                *route_id < structure.transit_graph.edges.len(),
+                "resource network references invalid route",
+            )?;
+        }
+    }
 
     ensure(
         structure.path_analysis.guaranteed_service_to_skyline,
@@ -263,6 +295,10 @@ pub fn validate_scenario(scenario: &ScenarioRecord) -> StructureResult<()> {
     ensure(
         !scenario.hazard_timings.is_empty(),
         "scenario has no timed hazards",
+    )?;
+    ensure(
+        !scenario.resource_objectives.is_empty(),
+        "scenario has no resource objectives",
     )?;
     ensure(
         !scenario.alternate_endings.is_empty(),

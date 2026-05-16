@@ -7,11 +7,11 @@ use crate::structure::{
     self, ConnectionRecord, ContestedBorderRecord, DistrictBorderRecord, DistrictLifecycleRecord,
     DistrictRecord, FactionRecord, HazardZoneRecord, InfrastructureFlowRecord, MacroMassingRecord,
     MesoPlacementRecord, MicroDetailRecord, MissionPathRecord, NarrativeLandmarkRecord,
-    PathAnalysisRecord, RoomClusterRecord, RoomRecord, RouteSimulationRecord, SavedStructure,
-    StabilityRatingRecord, StratumRecord, StructuralSystemRecord, StructureMetadata,
-    StructureResult, TemporalPhaseRecord, TemporalStateRecord, TerritoryRecord,
-    TransitAttachmentRecord, TransitEdgeRecord, TransitGraphRecord, TransitNodeRecord,
-    STRUCTURE_SCHEMA_VERSION,
+    PathAnalysisRecord, ResourceNetworkRecord, RoomClusterRecord, RoomRecord,
+    RouteSimulationRecord, SavedStructure, StabilityRatingRecord, StratumRecord,
+    StructuralSystemRecord, StructureMetadata, StructureResult, TemporalPhaseRecord,
+    TemporalStateRecord, TerritoryRecord, TransitAttachmentRecord, TransitEdgeRecord,
+    TransitGraphRecord, TransitNodeRecord, STRUCTURE_SCHEMA_VERSION,
 };
 
 pub(crate) const CHUNK_SIZE_X: usize = 8;
@@ -4039,6 +4039,7 @@ impl MegaStructureGenerator {
         &self,
         factions: &[FactionRecord],
         contested_borders: &[ContestedBorderRecord],
+        resource_networks: &[ResourceNetworkRecord],
     ) -> TemporalStateRecord {
         let phase_templates = [
             (
@@ -4072,11 +4073,21 @@ impl MegaStructureGenerator {
             .enumerate()
             .map(|(id, (name, base_hour, description))| {
                 let cycle_hour = (base_hour + (self.seed_hash as usize % 3)) % 24;
+                let mut active_route_ids = temporal_routes(name, &self.transit_edges);
+                if matches!(name, "blackout" | "rain_ingress" | "ventilation_surge") {
+                    for network in resource_networks.iter().filter(|network| network.outage) {
+                        for route_id in &network.route_ids {
+                            if !active_route_ids.contains(route_id) {
+                                active_route_ids.push(*route_id);
+                            }
+                        }
+                    }
+                }
                 TemporalPhaseRecord {
                     id,
                     name: name.to_owned(),
                     cycle_hour,
-                    active_route_ids: temporal_routes(name, &self.transit_edges),
+                    active_route_ids,
                     active_flow_ids: temporal_flows(name, &self.infrastructure_flows),
                     affected_hazard_ids: temporal_hazards(name, &self.hazard_zones),
                     active_faction_ids: temporal_factions(name, factions, contested_borders),
@@ -4090,7 +4101,53 @@ impl MegaStructureGenerator {
         }
     }
 
-    fn route_simulation(&self, temporal_state: &TemporalStateRecord) -> Vec<RouteSimulationRecord> {
+    fn resource_networks(&self) -> Vec<ResourceNetworkRecord> {
+        let mut grouped: BTreeMap<String, Vec<&InfrastructureFlowRecord>> = BTreeMap::new();
+        for flow in &self.infrastructure_flows {
+            grouped.entry(flow.kind.clone()).or_default().push(flow);
+        }
+        grouped
+            .into_iter()
+            .enumerate()
+            .map(|(id, (kind, flows))| {
+                let route_ids: Vec<_> = flows.iter().map(|flow| flow.route_id).collect();
+                let load = flows.iter().map(|flow| flow.intensity).sum::<f32>();
+                let capacity = (flows.len() as f32 * resource_capacity_for_kind(&kind)).max(0.1);
+                let overloaded = load > capacity;
+                let outage = overloaded
+                    || route_ids.iter().any(|route_id| {
+                        self.hazard_zones.iter().any(|hazard| {
+                            hazard.route_ids.contains(route_id) && hazard.severity > 0.65
+                        })
+                    });
+                let reroute_route_ids = self
+                    .transit_edges
+                    .iter()
+                    .filter(|edge| !route_ids.contains(&edge.id) && edge.kind == "ring_route")
+                    .map(|edge| edge.id)
+                    .take(4)
+                    .collect();
+                ResourceNetworkRecord {
+                    id,
+                    kind,
+                    source: flows.first().map(|flow| flow.source).unwrap_or([0, 0, 0]),
+                    sink: flows.last().map(|flow| flow.sink).unwrap_or([0, 0, 0]),
+                    route_ids,
+                    capacity,
+                    load,
+                    overloaded,
+                    outage,
+                    reroute_route_ids,
+                }
+            })
+            .collect()
+    }
+
+    fn route_simulation(
+        &self,
+        temporal_state: &TemporalStateRecord,
+        resource_networks: &[ResourceNetworkRecord],
+    ) -> Vec<RouteSimulationRecord> {
         self.transit_edges
             .iter()
             .map(|edge| {
@@ -4114,17 +4171,22 @@ impl MegaStructureGenerator {
                     .collect();
                 let civilian_density = route_civilian_density(edge, attachment_count);
                 let security_pressure = route_security_pressure(edge, hazard_pressure);
-                let blackout_risk = route_blackout_risk(edge, hazard_pressure, temporal_state);
-                let market_congestion = route_market_congestion(edge, attachment_count);
-                let evacuation_viability =
-                    (1.0 - hazard_pressure * 0.38 - security_pressure * 0.18
-                        + if edge.role == "evacuation_route" {
-                            0.28
-                        } else {
-                            0.0
-                        }
-                        + if edge.kind == "ring_route" { 0.14 } else { 0.0 })
+                let outage_pressure = resource_outage_pressure(edge.id, resource_networks);
+                let blackout_risk = (route_blackout_risk(edge, hazard_pressure, temporal_state)
+                    + outage_pressure * 0.24)
                     .clamp(0.0, 1.0);
+                let market_congestion = route_market_congestion(edge, attachment_count);
+                let evacuation_viability = (1.0
+                    - hazard_pressure * 0.38
+                    - security_pressure * 0.18
+                    - outage_pressure * 0.18
+                    + if edge.role == "evacuation_route" {
+                        0.28
+                    } else {
+                        0.0
+                    }
+                    + if edge.kind == "ring_route" { 0.14 } else { 0.0 })
+                .clamp(0.0, 1.0);
                 RouteSimulationRecord {
                     route_id: edge.id,
                     civilian_density,
@@ -4273,8 +4335,9 @@ impl MegaStructureGenerator {
         let micro_details = self.micro_detail_records();
         let structural_system = self.structural_system();
         let (factions, territories, contested_borders) = self.ownership_layer(&room_clusters);
-        let temporal_state = self.temporal_state(&factions, &contested_borders);
-        let route_simulation = self.route_simulation(&temporal_state);
+        let resource_networks = self.resource_networks();
+        let temporal_state = self.temporal_state(&factions, &contested_borders, &resource_networks);
+        let route_simulation = self.route_simulation(&temporal_state, &resource_networks);
         let narrative_landmarks =
             self.narrative_landmarks(&room_clusters, &factions, &contested_borders);
         let rooms: Vec<_> = self
@@ -4318,6 +4381,7 @@ impl MegaStructureGenerator {
             room_cluster_count: room_clusters.len(),
             infrastructure_flow_count: self.infrastructure_flows.len(),
             route_simulation_count: route_simulation.len(),
+            resource_network_count: resource_networks.len(),
             hazard_zone_count: self.hazard_zones.len(),
             structural_rating_count: structural_system.stability_ratings.len(),
             load_bearing_frame_count: structural_system.load_bearing_frames.len(),
@@ -4349,6 +4413,7 @@ impl MegaStructureGenerator {
             path_analysis,
             infrastructure_flows: self.infrastructure_flows.clone(),
             route_simulation,
+            resource_networks,
             hazard_zones: self.hazard_zones.clone(),
             structural_system,
             factions,
@@ -5066,6 +5131,33 @@ fn flow_intensity(kind: &str, role: &str, neon_intensity: f32) -> f32 {
     (base + role_bonus + neon_intensity * 0.025).clamp(0.0, 1.0)
 }
 
+fn resource_capacity_for_kind(kind: &str) -> f32 {
+    match kind {
+        "power_bus" => 0.92,
+        "data_spine" => 0.86,
+        "water_reclamation" => 0.72,
+        "waste_chute" => 0.66,
+        "ventilation_loop" => 0.70,
+        _ => 0.60,
+    }
+}
+
+fn resource_outage_pressure(route_id: usize, networks: &[ResourceNetworkRecord]) -> f32 {
+    networks
+        .iter()
+        .filter(|network| network.route_ids.contains(&route_id))
+        .map(|network| {
+            let overload = (network.load / network.capacity.max(0.1) - 1.0).max(0.0);
+            if network.outage {
+                0.55 + overload * 0.30
+            } else {
+                overload * 0.20
+            }
+        })
+        .fold(0.0, f32::max)
+        .clamp(0.0, 1.0)
+}
+
 fn micro_detail_kind(edge: &TransitEdgeRecord, index: usize) -> &'static str {
     match edge.role.as_str() {
         "restricted_spine" => {
@@ -5740,6 +5832,28 @@ mod tests {
     }
 
     #[test]
+    fn resource_networks_export_load_outage_and_reroute_state() {
+        let saved = generated("ABCD1234").saved_structure();
+        assert_eq!(
+            saved.metadata.resource_network_count,
+            saved.resource_networks.len()
+        );
+        assert!(!saved.resource_networks.is_empty());
+        assert!(saved
+            .resource_networks
+            .iter()
+            .any(|network| network.overloaded || network.outage));
+        for network in &saved.resource_networks {
+            assert!(network.capacity > 0.0);
+            assert!(network.load >= 0.0);
+            assert!(network
+                .route_ids
+                .iter()
+                .all(|route_id| *route_id < saved.transit_graph.edges.len()));
+        }
+    }
+
+    #[test]
     fn narrative_landmarks_name_generated_places() {
         let saved = generated("ABCD1234").saved_structure();
         assert_eq!(
@@ -5808,6 +5922,7 @@ mod tests {
             "path_analysis",
             "infrastructure_flows",
             "route_simulation",
+            "resource_networks",
             "hazard_zones",
             "structural_system",
             "factions",
@@ -5844,6 +5959,7 @@ mod tests {
             "room_cluster_count",
             "infrastructure_flow_count",
             "route_simulation_count",
+            "resource_network_count",
             "hazard_zone_count",
             "structural_rating_count",
             "load_bearing_frame_count",
