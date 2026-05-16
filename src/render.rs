@@ -674,6 +674,10 @@ struct AppState {
     generator: MegaStructureGenerator,
     config: GenerationConfig,
     rule_packs: CompiledRulePackSet,
+    rule_path: Option<PathBuf>,
+    rule_browser: Vec<RuleBrowserEntry>,
+    selected_rule_index: usize,
+    show_rule_browser: bool,
     export_path: PathBuf,
     saved_structure: SavedStructure,
     metadata: StructureMetadata,
@@ -696,11 +700,22 @@ struct AppState {
     screenshot_requested: bool,
 }
 
+#[derive(Clone, Debug)]
+struct RuleBrowserEntry {
+    path: PathBuf,
+    name: String,
+    valid: bool,
+    pack_count: usize,
+    grammar_preview: Vec<String>,
+    status: String,
+}
+
 impl AppState {
     async fn new(
         seed: String,
         config: GenerationConfig,
         rule_packs: CompiledRulePackSet,
+        rule_path: Option<PathBuf>,
         export_path: PathBuf,
     ) -> Self {
         let mut generator =
@@ -726,11 +741,17 @@ impl AppState {
             screen_height().max(1.0) as u32,
         )
         .await;
+        let rule_browser = rule_browser_entries();
+        let selected_rule_index = selected_rule_index(&rule_browser, rule_path.as_ref());
 
         Self {
             generator,
             config,
             rule_packs,
+            rule_path,
+            rule_browser,
+            selected_rule_index,
+            show_rule_browser: false,
             export_path,
             saved_structure,
             metadata,
@@ -794,6 +815,15 @@ impl AppState {
     fn profile_name(&self) -> &str {
         self.generator.config().profile.as_str()
     }
+
+    fn current_rule_label(&self) -> String {
+        self.rule_path
+            .as_ref()
+            .and_then(|path| path.file_stem())
+            .and_then(|name| name.to_str())
+            .map(str::to_owned)
+            .unwrap_or_else(|| "built-in".to_owned())
+    }
 }
 
 fn save_current_outputs(
@@ -803,6 +833,62 @@ fn save_current_outputs(
 ) -> structure::StructureResult<()> {
     fs::write(structure::CURRENT_SEED_FILE, seed)?;
     structure::save_structure(export_path, saved)
+}
+
+fn rule_browser_entries() -> Vec<RuleBrowserEntry> {
+    let mut entries = Vec::new();
+    let Ok(read_dir) = fs::read_dir("rules") else {
+        return entries;
+    };
+    for entry in read_dir.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|extension| extension.to_str()) != Some("json") {
+            continue;
+        }
+        entries.push(rule_browser_entry(path));
+    }
+    entries.sort_by(|a, b| a.name.cmp(&b.name));
+    entries
+}
+
+fn rule_browser_entry(path: PathBuf) -> RuleBrowserEntry {
+    match CompiledRulePackSet::from_json_file(&path) {
+        Ok(compiled) => RuleBrowserEntry {
+            name: compiled.source_name.clone(),
+            pack_count: compiled.packs().len(),
+            grammar_preview: compiled
+                .packs()
+                .iter()
+                .flat_map(|pack| pack.grammar.iter().cloned())
+                .take(5)
+                .collect(),
+            status: "valid".to_owned(),
+            valid: true,
+            path,
+        },
+        Err(error) => RuleBrowserEntry {
+            name: path
+                .file_stem()
+                .and_then(|name| name.to_str())
+                .unwrap_or("unknown")
+                .to_owned(),
+            pack_count: 0,
+            grammar_preview: Vec::new(),
+            status: error.to_string(),
+            valid: false,
+            path,
+        },
+    }
+}
+
+fn selected_rule_index(entries: &[RuleBrowserEntry], rule_path: Option<&PathBuf>) -> usize {
+    let Some(rule_path) = rule_path else {
+        return 0;
+    };
+    entries
+        .iter()
+        .position(|entry| entry.path == *rule_path)
+        .unwrap_or(0)
 }
 
 fn camera_ray(camera: &Camera3D, mouse_x: f32, mouse_y: f32) -> Vec3 {
@@ -1115,7 +1201,7 @@ fn draw_overlay(app: &AppState) {
         "Drag: Rotate | Wheel: Zoom | WASD: Pan",
         "1-5: Presets | TAB: FPS | Space: Jump",
         "R: Regenerate | S: Screenshot | I: Inspect",
-        "P: PostFX | [ ]: Fog | - =: Bloom",
+        "G: Rule Browser | P: PostFX | [ ]: Fog",
         "L: Legend | Y: Labels | T/Z/X/C: Graph/Zone/Strata/Debug",
         "Q/Esc: Quit",
     ];
@@ -1334,6 +1420,120 @@ fn draw_overlay(app: &AppState) {
             draw_text(label, 184.0, y, 20.0, LIGHTGRAY);
         }
     }
+
+    if app.show_rule_browser {
+        draw_rule_browser_overlay(app);
+    }
+}
+
+fn draw_rule_browser_overlay(app: &AppState) {
+    let width = 520.0;
+    let height = 330.0;
+    let x = screen_width() - width - 16.0;
+    let y = 16.0;
+    draw_rectangle(x, y, width, height, Color::new(0.0, 0.0, 0.0, 0.78));
+    draw_rectangle_lines(x, y, width, height, 1.0, Color::new(0.45, 0.85, 1.0, 0.9));
+    draw_text("RULE PACKS", x + 16.0, y + 30.0, 26.0, WHITE);
+    draw_text(
+        &format!("Active: {}", app.current_rule_label()),
+        x + 16.0,
+        y + 56.0,
+        20.0,
+        Color::new(0.86, 0.90, 0.96, 1.0),
+    );
+    draw_text(
+        "G: close | switching/editing in next commits",
+        x + 16.0,
+        y + 80.0,
+        18.0,
+        Color::new(0.65, 0.72, 0.78, 1.0),
+    );
+
+    if app.rule_browser.is_empty() {
+        draw_text(
+            "No rules/*.json files found",
+            x + 16.0,
+            y + 118.0,
+            20.0,
+            Color::new(1.0, 0.55, 0.45, 1.0),
+        );
+        return;
+    }
+
+    let selected = app
+        .rule_browser
+        .get(app.selected_rule_index.min(app.rule_browser.len() - 1));
+    let mut row_y = y + 112.0;
+    for (index, entry) in app.rule_browser.iter().take(8).enumerate() {
+        let selected_row = index == app.selected_rule_index;
+        let color = if selected_row {
+            Color::new(1.0, 0.94, 0.45, 1.0)
+        } else if entry.valid {
+            LIGHTGRAY
+        } else {
+            Color::new(1.0, 0.45, 0.38, 1.0)
+        };
+        if selected_row {
+            draw_rectangle(
+                x + 12.0,
+                row_y - 18.0,
+                width - 24.0,
+                24.0,
+                Color::new(0.18, 0.24, 0.30, 0.82),
+            );
+        }
+        draw_text(
+            &format!(
+                "{} {} [{} packs]",
+                if selected_row { ">" } else { " " },
+                entry.name,
+                entry.pack_count
+            ),
+            x + 18.0,
+            row_y,
+            19.0,
+            color,
+        );
+        row_y += 25.0;
+    }
+
+    if let Some(entry) = selected {
+        let detail_y = y + 246.0;
+        draw_text(
+            &format!(
+                "Selected: {} | {}",
+                entry.path.display(),
+                if entry.valid { "valid" } else { "invalid" }
+            ),
+            x + 16.0,
+            detail_y,
+            18.0,
+            Color::new(0.78, 0.86, 0.95, 1.0),
+        );
+        draw_text(
+            &format!("Status: {}", truncate_text(&entry.status, 58)),
+            x + 16.0,
+            detail_y + 22.0,
+            18.0,
+            if entry.valid {
+                Color::new(0.58, 1.0, 0.72, 1.0)
+            } else {
+                Color::new(1.0, 0.55, 0.45, 1.0)
+            },
+        );
+        let grammar = if entry.grammar_preview.is_empty() {
+            "no grammar preview".to_owned()
+        } else {
+            entry.grammar_preview.join(" / ")
+        };
+        draw_text(
+            &format!("Grammar: {}", truncate_text(&grammar, 62)),
+            x + 16.0,
+            detail_y + 44.0,
+            18.0,
+            Color::new(0.86, 0.86, 0.78, 1.0),
+        );
+    }
 }
 
 fn draw_projected_semantic_labels(app: &AppState, camera: &Camera3D) {
@@ -1486,6 +1686,15 @@ fn draw_label_box(position: Vec2, text: &str, color: Color) {
     draw_text(text, x + 8.0, y + 17.0, 18.0, color);
 }
 
+fn truncate_text(text: &str, max_chars: usize) -> String {
+    if text.chars().count() <= max_chars {
+        return text.to_owned();
+    }
+    let mut truncated: String = text.chars().take(max_chars.saturating_sub(3)).collect();
+    truncated.push_str("...");
+    truncated
+}
+
 fn active_phase(structure: &SavedStructure) -> Option<&structure::TemporalPhaseRecord> {
     let phases = &structure.temporal_state.phases;
     if phases.is_empty() {
@@ -1613,6 +1822,7 @@ pub async fn run(options: RuntimeOptions) {
         options.seed,
         options.config,
         options.rule_packs,
+        options.rules_path,
         options.export_path,
     )
     .await;
@@ -1663,6 +1873,9 @@ pub async fn run(options: RuntimeOptions) {
         }
         if is_key_pressed(KeyCode::Y) {
             app.show_labels = !app.show_labels;
+        }
+        if is_key_pressed(KeyCode::G) {
+            app.show_rule_browser = !app.show_rule_browser;
         }
         if is_key_pressed(KeyCode::T) {
             app.overlay_mode = if app.overlay_mode == OverlayMode::Transit {
