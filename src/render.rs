@@ -678,6 +678,7 @@ struct AppState {
     rule_browser: Vec<RuleBrowserEntry>,
     selected_rule_index: usize,
     show_rule_browser: bool,
+    rule_status_message: String,
     export_path: PathBuf,
     saved_structure: SavedStructure,
     metadata: StructureMetadata,
@@ -752,6 +753,7 @@ impl AppState {
             rule_browser,
             selected_rule_index,
             show_rule_browser: false,
+            rule_status_message: "rule browser ready".to_owned(),
             export_path,
             saved_structure,
             metadata,
@@ -777,6 +779,10 @@ impl AppState {
 
     async fn regenerate(&mut self) {
         let seed = generate_seed();
+        self.regenerate_with_seed(seed).await;
+    }
+
+    async fn regenerate_with_seed(&mut self, seed: String) {
         self.generator = MegaStructureGenerator::with_config_and_rules(
             seed,
             self.config.clone(),
@@ -806,6 +812,39 @@ impl AppState {
         self.last_mouse = None;
         self.last_fps_mouse = None;
         self.screenshot_requested = false;
+    }
+
+    async fn select_rule_delta(&mut self, delta: isize) {
+        if self.rule_browser.is_empty() {
+            self.rule_status_message = "no rules/*.json files found".to_owned();
+            return;
+        }
+        let len = self.rule_browser.len() as isize;
+        self.selected_rule_index =
+            (self.selected_rule_index as isize + delta).rem_euclid(len) as usize;
+        self.apply_selected_rule_pack().await;
+    }
+
+    async fn apply_selected_rule_pack(&mut self) {
+        let Some(entry) = self.rule_browser.get(self.selected_rule_index).cloned() else {
+            return;
+        };
+        if !entry.valid {
+            self.rule_status_message = format!("cannot apply invalid rule file: {}", entry.status);
+            return;
+        }
+        match CompiledRulePackSet::from_json_file(&entry.path) {
+            Ok(compiled) => {
+                self.rule_packs = compiled;
+                self.rule_path = Some(entry.path.clone());
+                self.rule_status_message = format!("applied {}", entry.name);
+                let seed = self.current_seed().to_owned();
+                self.regenerate_with_seed(seed).await;
+            }
+            Err(error) => {
+                self.rule_status_message = format!("failed to apply {}: {error}", entry.name);
+            }
+        }
     }
 
     fn current_seed(&self) -> &str {
@@ -1428,7 +1467,7 @@ fn draw_overlay(app: &AppState) {
 
 fn draw_rule_browser_overlay(app: &AppState) {
     let width = 520.0;
-    let height = 330.0;
+    let height = 360.0;
     let x = screen_width() - width - 16.0;
     let y = 16.0;
     draw_rectangle(x, y, width, height, Color::new(0.0, 0.0, 0.0, 0.78));
@@ -1442,7 +1481,7 @@ fn draw_rule_browser_overlay(app: &AppState) {
         Color::new(0.86, 0.90, 0.96, 1.0),
     );
     draw_text(
-        "G: close | switching/editing in next commits",
+        "G: close | [ ] / arrows: select + regenerate",
         x + 16.0,
         y + 80.0,
         18.0,
@@ -1521,6 +1560,13 @@ fn draw_rule_browser_overlay(app: &AppState) {
                 Color::new(1.0, 0.55, 0.45, 1.0)
             },
         );
+        draw_text(
+            &format!("Apply: {}", truncate_text(&app.rule_status_message, 58)),
+            x + 16.0,
+            detail_y + 66.0,
+            18.0,
+            Color::new(0.70, 0.82, 1.0, 1.0),
+        );
         let grammar = if entry.grammar_preview.is_empty() {
             "no grammar preview".to_owned()
         } else {
@@ -1529,7 +1575,7 @@ fn draw_rule_browser_overlay(app: &AppState) {
         draw_text(
             &format!("Grammar: {}", truncate_text(&grammar, 62)),
             x + 16.0,
-            detail_y + 44.0,
+            detail_y + 88.0,
             18.0,
             Color::new(0.86, 0.86, 0.78, 1.0),
         );
@@ -1877,6 +1923,14 @@ pub async fn run(options: RuntimeOptions) {
         if is_key_pressed(KeyCode::G) {
             app.show_rule_browser = !app.show_rule_browser;
         }
+        if app.show_rule_browser {
+            if is_key_pressed(KeyCode::RightBracket) || is_key_pressed(KeyCode::Down) {
+                app.select_rule_delta(1).await;
+            }
+            if is_key_pressed(KeyCode::LeftBracket) || is_key_pressed(KeyCode::Up) {
+                app.select_rule_delta(-1).await;
+            }
+        }
         if is_key_pressed(KeyCode::T) {
             app.overlay_mode = if app.overlay_mode == OverlayMode::Transit {
                 OverlayMode::None
@@ -1905,10 +1959,10 @@ pub async fn run(options: RuntimeOptions) {
                 OverlayMode::Debug
             };
         }
-        if is_key_down(KeyCode::LeftBracket) {
+        if !app.show_rule_browser && is_key_down(KeyCode::LeftBracket) {
             app.fog_density = (app.fog_density - 0.01).max(0.0);
         }
-        if is_key_down(KeyCode::RightBracket) {
+        if !app.show_rule_browser && is_key_down(KeyCode::RightBracket) {
             app.fog_density = (app.fog_density + 0.01).min(2.0);
         }
         if is_key_down(KeyCode::Minus) {
