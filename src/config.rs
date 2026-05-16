@@ -12,7 +12,7 @@ pub const MAX_GRID_SIZE: usize = 80;
 pub const MIN_GRID_LAYERS: usize = 6;
 pub const MAX_GRID_LAYERS: usize = 48;
 
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum GenerationProfile {
     Balanced,
