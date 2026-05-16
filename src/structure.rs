@@ -268,6 +268,19 @@ pub struct FailurePropagationRecord {
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct RulePackRecord {
+    pub id: usize,
+    pub name: String,
+    pub district: String,
+    pub stratum: String,
+    pub profile: String,
+    pub density_weight: f32,
+    pub route_weight: f32,
+    pub decay_weight: f32,
+    pub detail_weight: f32,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct FactionRecord {
     pub id: usize,
     pub name: String,
@@ -354,6 +367,7 @@ pub struct SavedStructure {
     pub hazard_zones: Vec<HazardZoneRecord>,
     pub structural_system: StructuralSystemRecord,
     pub failure_zones: Vec<FailurePropagationRecord>,
+    pub rule_packs: Vec<RulePackRecord>,
     pub factions: Vec<FactionRecord>,
     pub territories: Vec<TerritoryRecord>,
     pub contested_borders: Vec<ContestedBorderRecord>,
@@ -394,6 +408,7 @@ pub struct StructureMetadata {
     pub load_bearing_frame_count: usize,
     pub suspended_deck_count: usize,
     pub failure_zone_count: usize,
+    pub rule_pack_count: usize,
     pub faction_count: usize,
     pub territory_count: usize,
     pub contested_border_count: usize,

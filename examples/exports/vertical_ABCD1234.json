@@ -39,24 +39,24 @@
     "cell_counts": {
       "ANTENNA": 89,
       "BRIDGE": 24,
-      "CABLE": 109,
-      "DEBRIS": 243,
+      "CABLE": 130,
+      "DEBRIS": 263,
       "ELEVATOR": 118,
-      "EMPTY": 5276,
-      "FACADE": 1319,
-      "HORIZONTAL": 2413,
+      "EMPTY": 5268,
+      "FACADE": 1307,
+      "HORIZONTAL": 2408,
       "PIPE": 1023,
-      "STAIR": 95,
-      "VENT": 648,
-      "VERTICAL": 10243
+      "STAIR": 92,
+      "VENT": 650,
+      "VERTICAL": 10228
     },
     "material_counts": {
-      "CONCRETE": 12656,
-      "GLASS": 1082,
-      "METAL": 832,
-      "NEON": 355,
-      "RUST": 1266,
-      "STEEL": 133
+      "CONCRETE": 12636,
+      "GLASS": 1072,
+      "METAL": 831,
+      "NEON": 353,
+      "RUST": 1286,
+      "STEEL": 154
     },
     "connection_counts": {
       "SCRAP_MARKET": 2,
@@ -75,7 +75,7 @@
       "express_spine_dead_end": 1,
       "hanging_bridge_remnant": 1,
       "industrial_service_trunk": 29,
-      "landmark_hazard_scar": 3,
+      "landmark_hazard_scar": 4,
       "landmark_market_route_widening": 222,
       "landmark_service_shaft": 163,
       "landmark_vault_spine": 122,
@@ -156,12 +156,12 @@
       "artery": 2,
       "artery_chokepoint": 1,
       "artery_dead_end": 2,
-      "barricade": 53,
-      "blackout_pocket": 2,
+      "barricade": 37,
+      "blackout_pocket": 3,
       "bridge": 19,
       "broken_facade": 2,
       "cable": 3,
-      "cable_bundle": 19,
+      "cable_bundle": 17,
       "collapse_scar": 2,
       "data_spine": 2,
       "debris_field": 3,
@@ -171,13 +171,13 @@
       "flood_sump": 1,
       "hanging_bridge_remnant": 1,
       "industrial_service_trunk": 29,
-      "landmark_hazard_scar": 6,
+      "landmark_hazard_scar": 8,
       "landmark_market_route_widening": 444,
       "landmark_plaza": 5,
       "landmark_service_shaft": 326,
       "landmark_shell": 1958,
       "landmark_vault_spine": 244,
-      "leak": 21,
+      "leak": 13,
       "macro_density_spine": 15,
       "macro_void": 8,
       "mission_vertical_transfer": 1,
@@ -196,12 +196,12 @@
       "service_tunnel_chokepoint": 1,
       "service_tunnel_dead_end": 5,
       "shrine_plaza": 5,
-      "signage": 10,
+      "signage": 8,
       "skybridge": 1,
       "skybridge_chokepoint": 1,
       "skybridge_dead_end": 1,
       "slum_patchwalk": 2,
-      "vent_cluster": 10,
+      "vent_cluster": 9,
       "ventilation_loop": 19,
       "vertical_transfer": 4,
       "vertical_transit_core": 7,
@@ -209,7 +209,7 @@
       "water_reclamation": 5
     },
     "room_count": 1958,
-    "connection_count": 857,
+    "connection_count": 858,
     "transit_node_count": 69,
     "transit_edge_count": 25,
     "transit_attachment_count": 157,
@@ -224,17 +224,18 @@
     "infrastructure_flow_count": 51,
     "route_simulation_count": 25,
     "resource_network_count": 5,
-    "hazard_zone_count": 3,
+    "hazard_zone_count": 4,
     "structural_rating_count": 34,
-    "load_bearing_frame_count": 2451,
+    "load_bearing_frame_count": 2450,
     "suspended_deck_count": 457,
     "failure_zone_count": 2,
+    "rule_pack_count": 20,
     "faction_count": 5,
     "territory_count": 145,
     "contested_border_count": 117,
     "temporal_phase_count": 5,
-    "narrative_landmark_count": 25,
-    "occupied_cell_ratio": 0.75574076
+    "narrative_landmark_count": 26,
+    "occupied_cell_ratio": 0.7561111
   },
   "grid": [
     [
@@ -2860,7 +2861,7 @@
         4,
         9,
         4,
-        5,
+        9,
         4,
         7,
         4,
@@ -3218,7 +3219,7 @@
         4,
         8,
         4,
-        5,
+        9,
         4,
         9,
         4,
@@ -7100,8 +7101,8 @@
         1,
         1,
         1,
-        1,
-        1,
+        11,
+        8,
         1,
         1,
         11,
@@ -7126,8 +7127,8 @@
         0,
         2,
         0,
-        0,
-        4,
+        11,
+        8,
         4,
         2,
         11,
@@ -7152,8 +7153,8 @@
         0,
         2,
         0,
-        0,
-        2,
+        11,
+        8,
         0,
         0,
         11,
@@ -7856,8 +7857,8 @@
         1,
         1,
         4,
-        2,
-        0,
+        11,
+        8,
         0,
         4,
         11,
@@ -7882,8 +7883,8 @@
         1,
         1,
         2,
-        1,
-        4,
+        11,
+        8,
         1,
         1,
         11,
@@ -7908,8 +7909,8 @@
         4,
         1,
         4,
-        0,
-        4,
+        11,
+        8,
         1,
         4,
         11,
@@ -7934,8 +7935,8 @@
         0,
         11,
         4,
-        1,
-        4,
+        11,
+        8,
         1,
         1,
         11,
@@ -7960,8 +7961,8 @@
         0,
         11,
         4,
-        2,
-        0,
+        11,
+        8,
         0,
         2,
         11,
@@ -8638,8 +8639,8 @@
         1,
         1,
         2,
-        0,
-        4,
+        11,
+        8,
         1,
         1,
         11,
@@ -8664,8 +8665,8 @@
         4,
         1,
         4,
-        0,
-        4,
+        11,
+        8,
         1,
         4,
         11,
@@ -8683,7 +8684,7 @@
         1
       ],
       [
-        5,
+        8,
         4,
         5,
         11,
@@ -8691,7 +8692,7 @@
         9,
         5,
         11,
-        4,
+        8,
         9,
         5,
         11,
@@ -8716,8 +8717,8 @@
         4,
         11,
         4,
-        1,
-        4,
+        11,
+        8,
         1,
         4,
         11,
@@ -8742,8 +8743,8 @@
         0,
         11,
         11,
-        2,
-        0,
+        11,
+        8,
         0,
         2,
         11,
@@ -9238,7 +9239,7 @@
         1,
         1,
         6,
-        8,
+        1,
         4,
         9,
         9,
@@ -9420,8 +9421,8 @@
         1,
         1,
         2,
-        1,
-        1,
+        11,
+        8,
         1,
         1,
         11,
@@ -9446,8 +9447,8 @@
         9,
         1,
         1,
-        1,
-        4,
+        11,
+        8,
         1,
         1,
         11,
@@ -9472,8 +9473,8 @@
         4,
         1,
         4,
-        1,
-        4,
+        11,
+        8,
         1,
         4,
         11,
@@ -9498,8 +9499,8 @@
         1,
         11,
         11,
-        1,
-        1,
+        11,
+        8,
         1,
         1,
         11,
@@ -9524,8 +9525,8 @@
         1,
         11,
         11,
-        1,
-        1,
+        11,
+        8,
         6,
         1,
         11,
@@ -10228,8 +10229,8 @@
         1,
         1,
         1,
-        1,
-        4,
+        11,
+        8,
         1,
         1,
         11,
@@ -10254,8 +10255,8 @@
         1,
         1,
         1,
-        1,
-        2,
+        11,
+        8,
         1,
         1,
         11,
@@ -10280,8 +10281,8 @@
         1,
         1,
         1,
-        1,
-        4,
+        11,
+        8,
         1,
         1,
         11,
@@ -34799,6 +34800,19 @@
         3,
         8,
         17
+      ]
+    },
+    {
+      "kind": "landmark_hazard_scar",
+      "start": [
+        10,
+        8,
+        24
+      ],
+      "end": [
+        10,
+        8,
+        24
       ]
     },
     {
@@ -61111,12 +61125,12 @@
         29
       ],
       "footprint_cells": 142,
-      "occupied_cells": 3193,
-      "occupied_ratio": 0.93691313,
+      "occupied_cells": 3195,
+      "occupied_ratio": 0.9375,
       "age_years": 94,
-      "maintenance_level": 0.3797955,
+      "maintenance_level": 0.3797251,
       "occupancy_pressure": 1.0,
-      "control_stability": 0.4936373,
+      "control_stability": 0.49362186,
       "dominant_grammar": "service-trunk infrastructure, pipe trunks, vents, machine rooms",
       "generated_features": [
         "industrial_service_trunk",
@@ -61136,12 +61150,12 @@
         29
       ],
       "footprint_cells": 158,
-      "occupied_cells": 2827,
-      "occupied_ratio": 0.7455169,
+      "occupied_cells": 2833,
+      "occupied_ratio": 0.74709916,
       "age_years": 70,
-      "maintenance_level": 0.71723866,
+      "maintenance_level": 0.7170488,
       "occupancy_pressure": 1.0,
-      "control_stability": 0.6475918,
+      "control_stability": 0.64755,
       "dominant_grammar": "habitation modules, shared corridors, shrine pockets",
       "generated_features": [
         "SHRINE",
@@ -61228,23 +61242,23 @@
     {
       "district": "INDUSTRIAL",
       "age_years": 94,
-      "maintenance_level": 0.3797955,
+      "maintenance_level": 0.3797251,
       "occupancy_pressure": 1.0,
-      "control_stability": 0.4936373,
-      "decay_bias": 1.4350078,
-      "repair_bias": 0.7962355,
-      "security_bias": 0.7651769,
+      "control_stability": 0.49362186,
+      "decay_bias": 1.4350536,
+      "repair_bias": 0.7961718,
+      "security_bias": 0.7651477,
       "density_bias": 1.388125
     },
     {
       "district": "RESIDENTIAL",
       "age_years": 70,
-      "maintenance_level": 0.71723866,
+      "maintenance_level": 0.7170488,
       "occupancy_pressure": 1.0,
-      "control_stability": 0.6475918,
-      "decay_bias": 1.1181698,
-      "repair_bias": 1.1215508,
-      "security_bias": 0.96500355,
+      "control_stability": 0.64755,
+      "decay_bias": 1.1182932,
+      "repair_bias": 1.121379,
+      "security_bias": 0.96492475,
       "density_bias": 1.3656249
     },
     {
@@ -61304,8 +61318,8 @@
       "y_min": 7,
       "y_max": 14,
       "cell_count": 7200,
-      "occupied_cells": 5362,
-      "occupied_ratio": 0.74472225,
+      "occupied_cells": 5370,
+      "occupied_ratio": 0.74583334,
       "dominant_grammar": "market access, service checks, dense public circulation",
       "generated_features": [
         "artery",
@@ -71975,7 +71989,7 @@
     "vertical_transfer_count": 5,
     "guaranteed_service_to_skyline": true,
     "route_redundancy_score": 1.0,
-    "reachable_landmark_count": 14,
+    "reachable_landmark_count": 15,
     "faction_territory_connectivity": 0.7586207,
     "main_path_room_reachability": 1.0,
     "quality_score": 0.94616723,
@@ -74698,10 +74712,10 @@
     {
       "route_id": 15,
       "civilian_density": 0.92999995,
-      "security_pressure": 0.44,
-      "blackout_risk": 0.2,
+      "security_pressure": 0.5842,
+      "blackout_risk": 0.3854,
       "market_congestion": 0.7,
-      "evacuation_viability": 1.0,
+      "evacuation_viability": 0.839144,
       "active_phase_ids": [
         1
       ]
@@ -75061,6 +75075,34 @@
         1800,
         1812,
         1829
+      ]
+    },
+    {
+      "id": 3,
+      "kind": "blackout_pocket",
+      "severity": 0.515,
+      "bounds_min": [
+        9,
+        8,
+        23
+      ],
+      "bounds_max": [
+        11,
+        8,
+        25
+      ],
+      "route_ids": [
+        15
+      ],
+      "room_ids": [
+        1669,
+        1697,
+        1772,
+        1786,
+        1803,
+        1873,
+        1874,
+        1884
       ]
     }
   ],
@@ -77069,11 +77111,6 @@
       [
         8,
         6,
-        23
-      ],
-      [
-        8,
-        9,
         23
       ],
       [
@@ -88249,10 +88286,6 @@
       ],
       [
         10,
-        24
-      ],
-      [
-        10,
         26
       ],
       [
@@ -91401,11 +91434,6 @@
       ],
       [
         8,
-        8,
-        25
-      ],
-      [
-        8,
         18,
         25
       ],
@@ -91528,6 +91556,11 @@
         10,
         23,
         21
+      ],
+      [
+        10,
+        7,
+        27
       ],
       [
         10,
@@ -92677,31 +92710,31 @@
     ],
     "support_dependency_summary": {
       "failure_zones": 2,
-      "foundation_zones": 766,
-      "hazard_zones": 3,
-      "load_bearing_frames": 2451,
+      "foundation_zones": 765,
+      "hazard_zones": 4,
+      "load_bearing_frames": 2450,
       "suspended_decks": 457
     },
     "stability_ratings": [
       {
         "target_type": "district",
         "target_id": "INDUSTRIAL",
-        "rating": 0.8234934,
+        "rating": 0.8234573,
         "load_bearing_frames": 336,
-        "foundation_cells": 121,
+        "foundation_cells": 120,
         "suspended_decks": 27,
-        "cantilever_risk": 0.058951966,
+        "cantilever_risk": 0.059080962,
         "support_dependency": "redundant frame grid"
       },
       {
         "target_type": "district",
         "target_id": "RESIDENTIAL",
-        "rating": 0.72946054,
-        "load_bearing_frames": 356,
+        "rating": 0.66935545,
+        "load_bearing_frames": 355,
         "foundation_cells": 125,
         "suspended_decks": 87,
-        "cantilever_risk": 0.18049793,
-        "support_dependency": "redundant frame grid"
+        "cantilever_risk": 0.18087319,
+        "support_dependency": "localized support dependency"
       },
       {
         "target_type": "district",
@@ -92736,21 +92769,21 @@
       {
         "target_type": "stratum",
         "target_id": "UNDERGROUND",
-        "rating": 0.5807459,
+        "rating": 0.5806759,
         "load_bearing_frames": 926,
-        "foundation_cells": 766,
+        "foundation_cells": 765,
         "suspended_decks": 23,
-        "cantilever_risk": 0.013585351,
+        "cantilever_risk": 0.01359338,
         "support_dependency": "localized support dependency"
       },
       {
         "target_type": "stratum",
         "target_id": "SURFACE",
-        "rating": 0.35045594,
-        "load_bearing_frames": 710,
+        "rating": 0.29019403,
+        "load_bearing_frames": 709,
         "foundation_cells": 0,
         "suspended_decks": 162,
-        "cantilever_risk": 0.2278481,
+        "cantilever_risk": 0.22816901,
         "support_dependency": "critical cantilever dependency"
       },
       {
@@ -92828,7 +92861,7 @@
         "target_id": "5",
         "rating": 0.71999997,
         "load_bearing_frames": 11,
-        "foundation_cells": 7,
+        "foundation_cells": 6,
         "suspended_decks": 0,
         "cantilever_risk": 0.0,
         "support_dependency": "localized support dependency"
@@ -92867,8 +92900,8 @@
         "target_type": "route",
         "target_id": "9",
         "rating": 0.84,
-        "load_bearing_frames": 194,
-        "foundation_cells": 61,
+        "load_bearing_frames": 193,
+        "foundation_cells": 60,
         "suspended_decks": 0,
         "cantilever_risk": 0.0,
         "support_dependency": "redundant frame grid"
@@ -92887,8 +92920,8 @@
         "target_type": "route",
         "target_id": "11",
         "rating": 0.84,
-        "load_bearing_frames": 89,
-        "foundation_cells": 29,
+        "load_bearing_frames": 88,
+        "foundation_cells": 28,
         "suspended_decks": 0,
         "cantilever_risk": 0.0,
         "support_dependency": "redundant frame grid"
@@ -92898,7 +92931,7 @@
         "target_id": "12",
         "rating": 0.9,
         "load_bearing_frames": 264,
-        "foundation_cells": 67,
+        "foundation_cells": 66,
         "suspended_decks": 0,
         "cantilever_risk": 0.0,
         "support_dependency": "redundant frame grid"
@@ -92926,9 +92959,9 @@
       {
         "target_type": "route",
         "target_id": "15",
-        "rating": 0.9,
-        "load_bearing_frames": 129,
-        "foundation_cells": 53,
+        "rating": 0.84,
+        "load_bearing_frames": 128,
+        "foundation_cells": 52,
         "suspended_decks": 0,
         "cantilever_risk": 0.0,
         "support_dependency": "redundant frame grid"
@@ -93059,6 +93092,228 @@
         11
       ],
       "affected_deck_count": 9
+    }
+  ],
+  "rule_packs": [
+    {
+      "id": 0,
+      "name": "vertical_industrial_underground",
+      "district": "INDUSTRIAL",
+      "stratum": "UNDERGROUND",
+      "profile": "vertical",
+      "density_weight": 1.05,
+      "route_weight": 1.22,
+      "decay_weight": 1.24,
+      "detail_weight": 0.7
+    },
+    {
+      "id": 1,
+      "name": "vertical_industrial_surface",
+      "district": "INDUSTRIAL",
+      "stratum": "SURFACE",
+      "profile": "vertical",
+      "density_weight": 1.05,
+      "route_weight": 1.1,
+      "decay_weight": 1.24,
+      "detail_weight": 0.7
+    },
+    {
+      "id": 2,
+      "name": "vertical_industrial_midrise",
+      "district": "INDUSTRIAL",
+      "stratum": "MIDRISE",
+      "profile": "vertical",
+      "density_weight": 1.05,
+      "route_weight": 1.0,
+      "decay_weight": 1.24,
+      "detail_weight": 0.7
+    },
+    {
+      "id": 3,
+      "name": "vertical_industrial_skyline",
+      "district": "INDUSTRIAL",
+      "stratum": "SKYLINE",
+      "profile": "vertical",
+      "density_weight": 1.05,
+      "route_weight": 0.79120004,
+      "decay_weight": 1.24,
+      "detail_weight": 0.78
+    },
+    {
+      "id": 4,
+      "name": "vertical_residential_underground",
+      "district": "RESIDENTIAL",
+      "stratum": "UNDERGROUND",
+      "profile": "vertical",
+      "density_weight": 1.0,
+      "route_weight": 1.22,
+      "decay_weight": 1.0,
+      "detail_weight": 0.7
+    },
+    {
+      "id": 5,
+      "name": "vertical_residential_surface",
+      "district": "RESIDENTIAL",
+      "stratum": "SURFACE",
+      "profile": "vertical",
+      "density_weight": 1.0,
+      "route_weight": 1.1,
+      "decay_weight": 1.0,
+      "detail_weight": 0.7
+    },
+    {
+      "id": 6,
+      "name": "vertical_residential_midrise",
+      "district": "RESIDENTIAL",
+      "stratum": "MIDRISE",
+      "profile": "vertical",
+      "density_weight": 1.0,
+      "route_weight": 1.0,
+      "decay_weight": 1.0,
+      "detail_weight": 0.7
+    },
+    {
+      "id": 7,
+      "name": "vertical_residential_skyline",
+      "district": "RESIDENTIAL",
+      "stratum": "SKYLINE",
+      "profile": "vertical",
+      "density_weight": 1.0,
+      "route_weight": 0.79120004,
+      "decay_weight": 1.0,
+      "detail_weight": 0.78
+    },
+    {
+      "id": 8,
+      "name": "vertical_commercial_underground",
+      "district": "COMMERCIAL",
+      "stratum": "UNDERGROUND",
+      "profile": "vertical",
+      "density_weight": 1.18,
+      "route_weight": 1.22,
+      "decay_weight": 1.0,
+      "detail_weight": 0.7
+    },
+    {
+      "id": 9,
+      "name": "vertical_commercial_surface",
+      "district": "COMMERCIAL",
+      "stratum": "SURFACE",
+      "profile": "vertical",
+      "density_weight": 1.18,
+      "route_weight": 1.1,
+      "decay_weight": 1.0,
+      "detail_weight": 0.7
+    },
+    {
+      "id": 10,
+      "name": "vertical_commercial_midrise",
+      "district": "COMMERCIAL",
+      "stratum": "MIDRISE",
+      "profile": "vertical",
+      "density_weight": 1.18,
+      "route_weight": 1.0,
+      "decay_weight": 1.0,
+      "detail_weight": 0.7
+    },
+    {
+      "id": 11,
+      "name": "vertical_commercial_skyline",
+      "district": "COMMERCIAL",
+      "stratum": "SKYLINE",
+      "profile": "vertical",
+      "density_weight": 1.18,
+      "route_weight": 0.79120004,
+      "decay_weight": 1.0,
+      "detail_weight": 0.78
+    },
+    {
+      "id": 12,
+      "name": "vertical_slum_underground",
+      "district": "SLUM",
+      "stratum": "UNDERGROUND",
+      "profile": "vertical",
+      "density_weight": 1.35,
+      "route_weight": 1.22,
+      "decay_weight": 1.24,
+      "detail_weight": 0.7
+    },
+    {
+      "id": 13,
+      "name": "vertical_slum_surface",
+      "district": "SLUM",
+      "stratum": "SURFACE",
+      "profile": "vertical",
+      "density_weight": 1.35,
+      "route_weight": 1.1,
+      "decay_weight": 1.24,
+      "detail_weight": 0.7
+    },
+    {
+      "id": 14,
+      "name": "vertical_slum_midrise",
+      "district": "SLUM",
+      "stratum": "MIDRISE",
+      "profile": "vertical",
+      "density_weight": 1.35,
+      "route_weight": 1.0,
+      "decay_weight": 1.24,
+      "detail_weight": 0.7
+    },
+    {
+      "id": 15,
+      "name": "vertical_slum_skyline",
+      "district": "SLUM",
+      "stratum": "SKYLINE",
+      "profile": "vertical",
+      "density_weight": 1.35,
+      "route_weight": 0.79120004,
+      "decay_weight": 1.24,
+      "detail_weight": 0.78
+    },
+    {
+      "id": 16,
+      "name": "vertical_elite_underground",
+      "district": "ELITE",
+      "stratum": "UNDERGROUND",
+      "profile": "vertical",
+      "density_weight": 0.72,
+      "route_weight": 1.22,
+      "decay_weight": 0.62,
+      "detail_weight": 0.7
+    },
+    {
+      "id": 17,
+      "name": "vertical_elite_surface",
+      "district": "ELITE",
+      "stratum": "SURFACE",
+      "profile": "vertical",
+      "density_weight": 0.72,
+      "route_weight": 1.1,
+      "decay_weight": 0.62,
+      "detail_weight": 0.7
+    },
+    {
+      "id": 18,
+      "name": "vertical_elite_midrise",
+      "district": "ELITE",
+      "stratum": "MIDRISE",
+      "profile": "vertical",
+      "density_weight": 0.72,
+      "route_weight": 1.0,
+      "decay_weight": 0.62,
+      "detail_weight": 0.7
+    },
+    {
+      "id": 19,
+      "name": "vertical_elite_skyline",
+      "district": "ELITE",
+      "stratum": "SKYLINE",
+      "profile": "vertical",
+      "density_weight": 0.72,
+      "route_weight": 0.79120004,
+      "decay_weight": 0.62,
+      "detail_weight": 0.78
     }
   ],
   "factions": [
@@ -93352,7 +93607,7 @@
         11,
         12
       ],
-      "hazard_pressure": 0.16
+      "hazard_pressure": 0.32
     },
     {
       "id": 2,
@@ -93417,7 +93672,7 @@
       "district": "ELITE",
       "cluster_id": 1,
       "route_ids": [],
-      "hazard_pressure": 0.54
+      "hazard_pressure": 0.72
     },
     {
       "id": 7,
@@ -93426,7 +93681,7 @@
       "district": "RESIDENTIAL",
       "cluster_id": 2,
       "route_ids": [],
-      "hazard_pressure": 0.54
+      "hazard_pressure": 0.72
     },
     {
       "id": 8,
@@ -93435,7 +93690,7 @@
       "district": "RESIDENTIAL",
       "cluster_id": 3,
       "route_ids": [],
-      "hazard_pressure": 0.54
+      "hazard_pressure": 0.72
     },
     {
       "id": 9,
@@ -93444,7 +93699,7 @@
       "district": "RESIDENTIAL",
       "cluster_id": 4,
       "route_ids": [],
-      "hazard_pressure": 0.54
+      "hazard_pressure": 0.72
     },
     {
       "id": 10,
@@ -93453,7 +93708,7 @@
       "district": "SLUM",
       "cluster_id": 5,
       "route_ids": [],
-      "hazard_pressure": 0.54
+      "hazard_pressure": 0.72
     },
     {
       "id": 11,
@@ -93462,7 +93717,7 @@
       "district": "SLUM",
       "cluster_id": 6,
       "route_ids": [],
-      "hazard_pressure": 0.54
+      "hazard_pressure": 0.72
     },
     {
       "id": 12,
@@ -93471,7 +93726,7 @@
       "district": "SLUM",
       "cluster_id": 7,
       "route_ids": [],
-      "hazard_pressure": 0.54
+      "hazard_pressure": 0.72
     },
     {
       "id": 13,
@@ -93526,7 +93781,7 @@
       "district": "COMMERCIAL",
       "cluster_id": 12,
       "route_ids": [],
-      "hazard_pressure": 0.54
+      "hazard_pressure": 0.72
     },
     {
       "id": 18,
@@ -93590,7 +93845,7 @@
       "district": "ELITE",
       "cluster_id": 18,
       "route_ids": [],
-      "hazard_pressure": 0.54
+      "hazard_pressure": 0.72
     },
     {
       "id": 24,
@@ -93599,7 +93854,7 @@
       "district": "INDUSTRIAL",
       "cluster_id": 19,
       "route_ids": [],
-      "hazard_pressure": 0.54
+      "hazard_pressure": 0.72
     },
     {
       "id": 25,
@@ -93608,7 +93863,7 @@
       "district": "INDUSTRIAL",
       "cluster_id": 20,
       "route_ids": [],
-      "hazard_pressure": 0.54
+      "hazard_pressure": 0.72
     },
     {
       "id": 26,
@@ -93619,7 +93874,7 @@
       "route_ids": [
         9
       ],
-      "hazard_pressure": 0.54
+      "hazard_pressure": 0.72
     },
     {
       "id": 27,
@@ -93630,7 +93885,7 @@
       "route_ids": [
         12
       ],
-      "hazard_pressure": 0.18
+      "hazard_pressure": 0.36
     },
     {
       "id": 28,
@@ -93641,7 +93896,7 @@
       "route_ids": [
         15
       ],
-      "hazard_pressure": 0.18
+      "hazard_pressure": 0.36
     },
     {
       "id": 29,
@@ -93661,7 +93916,7 @@
       "district": "INDUSTRIAL",
       "cluster_id": 25,
       "route_ids": [],
-      "hazard_pressure": 0.54
+      "hazard_pressure": 0.72
     },
     {
       "id": 31,
@@ -93682,7 +93937,7 @@
       "district": "INDUSTRIAL",
       "cluster_id": 27,
       "route_ids": [],
-      "hazard_pressure": 0.54
+      "hazard_pressure": 0.72
     },
     {
       "id": 33,
@@ -93736,7 +93991,7 @@
       "district": "RESIDENTIAL",
       "cluster_id": 32,
       "route_ids": [],
-      "hazard_pressure": 0.54
+      "hazard_pressure": 0.72
     },
     {
       "id": 38,
@@ -93745,7 +94000,7 @@
       "district": "SLUM",
       "cluster_id": 33,
       "route_ids": [],
-      "hazard_pressure": 0.54
+      "hazard_pressure": 0.72
     },
     {
       "id": 39,
@@ -93754,7 +94009,7 @@
       "district": "COMMERCIAL",
       "cluster_id": 34,
       "route_ids": [],
-      "hazard_pressure": 0.54
+      "hazard_pressure": 0.72
     },
     {
       "id": 40,
@@ -93774,7 +94029,7 @@
       "district": "COMMERCIAL",
       "cluster_id": 36,
       "route_ids": [],
-      "hazard_pressure": 0.54
+      "hazard_pressure": 0.72
     },
     {
       "id": 42,
@@ -93783,7 +94038,7 @@
       "district": "COMMERCIAL",
       "cluster_id": 37,
       "route_ids": [],
-      "hazard_pressure": 0.36
+      "hazard_pressure": 0.54
     },
     {
       "id": 43,
@@ -93836,7 +94091,7 @@
       "district": "COMMERCIAL",
       "cluster_id": 42,
       "route_ids": [],
-      "hazard_pressure": 0.54
+      "hazard_pressure": 0.72
     },
     {
       "id": 48,
@@ -93867,7 +94122,7 @@
       "district": "COMMERCIAL",
       "cluster_id": 45,
       "route_ids": [],
-      "hazard_pressure": 0.54
+      "hazard_pressure": 0.72
     },
     {
       "id": 51,
@@ -93909,7 +94164,7 @@
       "district": "COMMERCIAL",
       "cluster_id": 49,
       "route_ids": [],
-      "hazard_pressure": 0.54
+      "hazard_pressure": 0.72
     },
     {
       "id": 55,
@@ -94028,7 +94283,7 @@
       "district": "ELITE",
       "cluster_id": 60,
       "route_ids": [],
-      "hazard_pressure": 0.54
+      "hazard_pressure": 0.72
     },
     {
       "id": 66,
@@ -94136,7 +94391,7 @@
       "district": "ELITE",
       "cluster_id": 70,
       "route_ids": [],
-      "hazard_pressure": 0.54
+      "hazard_pressure": 0.72
     },
     {
       "id": 76,
@@ -94214,7 +94469,7 @@
       "route_ids": [
         5
       ],
-      "hazard_pressure": 0.18
+      "hazard_pressure": 0.36
     },
     {
       "id": 83,
@@ -94258,7 +94513,7 @@
       "route_ids": [
         5
       ],
-      "hazard_pressure": 0.18
+      "hazard_pressure": 0.36
     },
     {
       "id": 87,
@@ -94291,7 +94546,7 @@
       "route_ids": [
         5
       ],
-      "hazard_pressure": 0.18
+      "hazard_pressure": 0.36
     },
     {
       "id": 90,
@@ -94344,7 +94599,7 @@
       "route_ids": [
         5
       ],
-      "hazard_pressure": 0.18
+      "hazard_pressure": 0.36
     },
     {
       "id": 95,
@@ -94367,7 +94622,7 @@
         10,
         11
       ],
-      "hazard_pressure": 0.36
+      "hazard_pressure": 0.54
     },
     {
       "id": 97,
@@ -94387,7 +94642,7 @@
       "district": "INDUSTRIAL",
       "cluster_id": 93,
       "route_ids": [],
-      "hazard_pressure": 0.54
+      "hazard_pressure": 0.72
     },
     {
       "id": 99,
@@ -94782,7 +95037,7 @@
       "district": "INDUSTRIAL",
       "cluster_id": 130,
       "route_ids": [],
-      "hazard_pressure": 0.18
+      "hazard_pressure": 0.36
     },
     {
       "id": 136,
@@ -95177,7 +95432,7 @@
         0,
         2
       ],
-      "intensity": 0.78999996,
+      "intensity": 0.90999997,
       "reason": "shared civic corridor"
     },
     {
@@ -95240,7 +95495,7 @@
         1,
         2
       ],
-      "intensity": 0.78999996,
+      "intensity": 0.90999997,
       "reason": "shared civic corridor"
     },
     {
@@ -95249,7 +95504,7 @@
         2,
         0
       ],
-      "intensity": 0.78999996,
+      "intensity": 0.90999997,
       "reason": "shared civic corridor"
     },
     {
@@ -95258,7 +95513,7 @@
         1,
         0
       ],
-      "intensity": 0.78999996,
+      "intensity": 0.90999997,
       "reason": "trade revenue and salvage rights"
     },
     {
@@ -95339,7 +95594,7 @@
         2,
         0
       ],
-      "intensity": 0.78999996,
+      "intensity": 0.90999997,
       "reason": "shared civic corridor"
     },
     {
@@ -95348,7 +95603,7 @@
         0,
         4
       ],
-      "intensity": 0.78999996,
+      "intensity": 0.90999997,
       "reason": "scrap extraction and collapse access"
     },
     {
@@ -95357,7 +95612,7 @@
         2,
         0
       ],
-      "intensity": 0.78999996,
+      "intensity": 0.90999997,
       "reason": "shared civic corridor"
     },
     {
@@ -95501,7 +95756,7 @@
         4,
         0
       ],
-      "intensity": 0.78999996,
+      "intensity": 0.90999997,
       "reason": "scrap extraction and collapse access"
     },
     {
@@ -95971,7 +96226,8 @@
         ],
         "affected_hazard_ids": [
           0,
-          2
+          2,
+          3
         ],
         "active_faction_ids": [
           4
@@ -96414,6 +96670,22 @@
     },
     {
       "id": 19,
+      "name": "Blue Sink 47 blackout_pocket",
+      "kind": "hazard",
+      "position": [
+        10,
+        8,
+        24
+      ],
+      "route_id": 15,
+      "cluster_id": null,
+      "hazard_id": 3,
+      "border_id": null,
+      "faction_id": null,
+      "description": "blackout_pocket severity 0.51"
+    },
+    {
+      "id": 20,
       "name": "Cinder Mouth 30 surface_commons",
       "kind": "border",
       "position": [
@@ -96429,7 +96701,7 @@
       "description": "shared civic corridor"
     },
     {
-      "id": 20,
+      "id": 21,
       "name": "Glass Seam 05 security_threshold",
       "kind": "border",
       "position": [
@@ -96445,7 +96717,7 @@
       "description": "restricted access checkpoint"
     },
     {
-      "id": 21,
+      "id": 22,
       "name": "Rain Mouth 05 scrap_zone",
       "kind": "border",
       "position": [
@@ -96461,7 +96733,7 @@
       "description": "scrap extraction and collapse access"
     },
     {
-      "id": 22,
+      "id": 23,
       "name": "North Mouth 50 security_threshold",
       "kind": "border",
       "position": [
@@ -96477,7 +96749,7 @@
       "description": "restricted access checkpoint"
     },
     {
-      "id": 23,
+      "id": 24,
       "name": "West Mouth 46 surface_commons",
       "kind": "border",
       "position": [
@@ -96493,7 +96765,7 @@
       "description": "shared civic corridor"
     },
     {
-      "id": 24,
+      "id": 25,
       "name": "K Mouth 14 surface_commons",
       "kind": "border",
       "position": [

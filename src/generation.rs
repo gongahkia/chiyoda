@@ -8,10 +8,11 @@ use crate::structure::{
     DistrictRecord, FactionRecord, FailurePropagationRecord, HazardZoneRecord,
     InfrastructureFlowRecord, MacroMassingRecord, MesoPlacementRecord, MicroDetailRecord,
     MissionPathRecord, NarrativeLandmarkRecord, PathAnalysisRecord, ResourceNetworkRecord,
-    RoomClusterRecord, RoomRecord, RouteSimulationRecord, SavedStructure, StabilityRatingRecord,
-    StratumRecord, StructuralSystemRecord, StructureMetadata, StructureResult, TemporalPhaseRecord,
-    TemporalStateRecord, TerritoryRecord, TransitAttachmentRecord, TransitEdgeRecord,
-    TransitGraphRecord, TransitNodeRecord, STRUCTURE_SCHEMA_VERSION,
+    RoomClusterRecord, RoomRecord, RouteSimulationRecord, RulePackRecord, SavedStructure,
+    StabilityRatingRecord, StratumRecord, StructuralSystemRecord, StructureMetadata,
+    StructureResult, TemporalPhaseRecord, TemporalStateRecord, TerritoryRecord,
+    TransitAttachmentRecord, TransitEdgeRecord, TransitGraphRecord, TransitNodeRecord,
+    STRUCTURE_SCHEMA_VERSION,
 };
 
 pub(crate) const CHUNK_SIZE_X: usize = 8;
@@ -1650,9 +1651,13 @@ impl MegaStructureGenerator {
                     DistrictType::Elite => 0.35,
                 };
                 let lifecycle = self.lifecycle_for_district(district, 0.5);
+                let rule_pack = self.rule_pack_for(district, BiomeStratum::Surface);
                 let noise = hash_noise(self.seed_hash, x, z, 0);
                 if noise
-                    < (density_bias * lifecycle.density_bias * self.config.route_density)
+                    < (density_bias
+                        * lifecycle.density_bias
+                        * rule_pack.route_weight
+                        * self.config.route_density)
                         .clamp(0.05, 0.95)
                 {
                     hubs.push((x, z));
@@ -2219,6 +2224,14 @@ impl MegaStructureGenerator {
         for edge in edges {
             let stride = (edge.points.len() / 4).max(2);
             for (index, point) in edge.points.iter().enumerate().step_by(stride) {
+                let district =
+                    self.district_at(point[0].min(self.size - 1), point[2].min(self.size - 1));
+                let rule_pack = self.rule_pack_for(district, self.stratum_at(point[1]));
+                if hash_noise(self.seed_hash, edge.id + index, point[2], point[1])
+                    > rule_pack.detail_weight.clamp(0.15, 0.95)
+                {
+                    continue;
+                }
                 let kind = micro_detail_kind(&edge, index);
                 self.paint_micro_detail(*point, kind);
                 self.record_pattern(kind);
@@ -2586,8 +2599,10 @@ impl MegaStructureGenerator {
             let district =
                 self.district_at(anchor[0].min(self.size - 1), anchor[2].min(self.size - 1));
             let lifecycle = self.lifecycle_for_district(district, 0.5);
+            let rule_pack = self.rule_pack_for(district, self.stratum_at(anchor[1]));
             let probability = hazard_probability_for_role(&edge.role)
                 * lifecycle.decay_bias
+                * rule_pack.decay_weight
                 * (1.0 + self.failure_pressure_at(anchor) * 0.45)
                 * self.config.decay_story_density;
             if hash_noise(self.seed_hash, edge.id, edge.length, self.layers)
@@ -3228,6 +3243,80 @@ impl MegaStructureGenerator {
             repair_bias,
             security_bias,
             density_bias,
+        }
+    }
+
+    fn rule_pack_records(&self) -> Vec<RulePackRecord> {
+        let mut records = Vec::new();
+        for district in [
+            DistrictType::Industrial,
+            DistrictType::Residential,
+            DistrictType::Commercial,
+            DistrictType::Slum,
+            DistrictType::Elite,
+        ] {
+            for stratum in [
+                BiomeStratum::Underground,
+                BiomeStratum::Surface,
+                BiomeStratum::Midrise,
+                BiomeStratum::Skyline,
+            ] {
+                let mut record = self.rule_pack_for(district, stratum);
+                record.id = records.len();
+                records.push(record);
+            }
+        }
+        records
+    }
+
+    fn rule_pack_for(&self, district: DistrictType, stratum: BiomeStratum) -> RulePackRecord {
+        let mut density_weight: f32 = match district {
+            DistrictType::Slum => 1.35,
+            DistrictType::Commercial => 1.18,
+            DistrictType::Industrial => 1.05,
+            DistrictType::Residential => 1.0,
+            DistrictType::Elite => 0.72,
+        };
+        let mut route_weight: f32 = match stratum {
+            BiomeStratum::Underground => 1.22,
+            BiomeStratum::Surface => 1.10,
+            BiomeStratum::Midrise => 1.0,
+            BiomeStratum::Skyline => 0.86,
+        };
+        let mut decay_weight: f32 = match district {
+            DistrictType::Slum | DistrictType::Industrial => 1.24,
+            DistrictType::Elite => 0.62,
+            _ => 1.0,
+        };
+        let mut detail_weight: f32 = match self.config.profile {
+            crate::config::GenerationProfile::Dense => 0.86,
+            crate::config::GenerationProfile::Decayed => 0.78,
+            crate::config::GenerationProfile::Neon => 0.92,
+            _ => 0.70,
+        };
+        if stratum == BiomeStratum::Skyline {
+            detail_weight += 0.08;
+            route_weight *= 0.92;
+        }
+        if self.config.profile == crate::config::GenerationProfile::Decayed {
+            decay_weight *= 1.25;
+            density_weight *= 0.95;
+        }
+        RulePackRecord {
+            id: 0,
+            name: format!(
+                "{}_{}_{}",
+                self.config.profile,
+                district.name().to_lowercase(),
+                stratum.name().to_lowercase()
+            ),
+            district: district.name().to_owned(),
+            stratum: stratum.name().to_owned(),
+            profile: self.config.profile.to_string(),
+            density_weight,
+            route_weight,
+            decay_weight,
+            detail_weight: detail_weight.clamp(0.1, 1.0),
         }
     }
 
@@ -4431,6 +4520,7 @@ impl MegaStructureGenerator {
         let total_cells = (self.size * self.size * self.layers).max(1);
         let districts = self.district_records();
         let district_lifecycle = self.district_lifecycle_records(&districts);
+        let rule_packs = self.rule_pack_records();
         let strata = self.stratum_records();
         let (room_clusters, room_cluster_ids) = self.room_clusters();
         let macro_massing = self.macro_massing_records();
@@ -4493,6 +4583,7 @@ impl MegaStructureGenerator {
             load_bearing_frame_count: structural_system.load_bearing_frames.len(),
             suspended_deck_count: structural_system.suspended_decks.len(),
             failure_zone_count: failure_zones.len(),
+            rule_pack_count: rule_packs.len(),
             faction_count: factions.len(),
             territory_count: territories.len(),
             contested_border_count: contested_borders.len(),
@@ -4524,6 +4615,7 @@ impl MegaStructureGenerator {
             hazard_zones: self.hazard_zones.clone(),
             structural_system,
             failure_zones,
+            rule_packs,
             factions,
             territories,
             contested_borders,
@@ -5859,6 +5951,21 @@ mod tests {
     }
 
     #[test]
+    fn procedural_rule_packs_are_exported_and_weight_generation() {
+        let saved = generated("ABCD1234").saved_structure();
+        assert_eq!(saved.metadata.rule_pack_count, saved.rule_packs.len());
+        assert_eq!(saved.rule_packs.len(), 20);
+        assert!(saved
+            .rule_packs
+            .iter()
+            .any(|pack| pack.district == "SLUM" && pack.density_weight > 1.0));
+        assert!(saved
+            .rule_packs
+            .iter()
+            .all(|pack| pack.detail_weight > 0.0 && pack.decay_weight > 0.0));
+    }
+
+    #[test]
     fn ownership_layer_exports_factions_and_contested_borders() {
         let saved = generated("ABCD1234").saved_structure();
         assert_eq!(saved.metadata.faction_count, saved.factions.len());
@@ -6062,6 +6169,7 @@ mod tests {
             "hazard_zones",
             "structural_system",
             "failure_zones",
+            "rule_packs",
             "factions",
             "territories",
             "contested_borders",
@@ -6102,6 +6210,7 @@ mod tests {
             "load_bearing_frame_count",
             "suspended_deck_count",
             "failure_zone_count",
+            "rule_pack_count",
             "faction_count",
             "territory_count",
             "contested_border_count",

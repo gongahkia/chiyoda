@@ -259,6 +259,20 @@ pub fn validate_structure(structure: &SavedStructure) -> StructureResult<()> {
             )?;
         }
     }
+    ensure(
+        !structure.rule_packs.is_empty(),
+        "no applied rule packs exported",
+    )?;
+    for rule_pack in &structure.rule_packs {
+        for value in [
+            rule_pack.density_weight,
+            rule_pack.route_weight,
+            rule_pack.decay_weight,
+            rule_pack.detail_weight,
+        ] {
+            ensure(value > 0.0, "rule pack weight must be positive")?;
+        }
+    }
 
     ensure(
         structure.path_analysis.guaranteed_service_to_skyline,
