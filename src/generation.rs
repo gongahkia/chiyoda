@@ -4,8 +4,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use crate::config::GenerationConfig;
 use crate::seed::{seed_hash, Rng32};
 use crate::structure::{
-    self, ConnectionRecord, ContestedBorderRecord, DistrictBorderRecord, DistrictRecord,
-    FactionRecord, HazardZoneRecord, InfrastructureFlowRecord, MissionPathRecord,
+    self, ConnectionRecord, ContestedBorderRecord, DistrictBorderRecord, DistrictLifecycleRecord,
+    DistrictRecord, FactionRecord, HazardZoneRecord, InfrastructureFlowRecord, MissionPathRecord,
     NarrativeLandmarkRecord, PathAnalysisRecord, RoomClusterRecord, RoomRecord,
     RouteSimulationRecord, SavedStructure, StabilityRatingRecord, StratumRecord,
     StructuralSystemRecord, StructureMetadata, StructureResult, TemporalPhaseRecord,
@@ -1614,8 +1614,12 @@ impl MegaStructureGenerator {
                     DistrictType::Residential => 0.45,
                     DistrictType::Elite => 0.35,
                 };
+                let lifecycle = self.lifecycle_for_district(district, 0.5);
                 let noise = hash_noise(self.seed_hash, x, z, 0);
-                if noise < (density_bias * self.config.route_density).clamp(0.05, 0.95) {
+                if noise
+                    < (density_bias * lifecycle.density_bias * self.config.route_density)
+                        .clamp(0.05, 0.95)
+                {
                     hubs.push((x, z));
                 }
             }
@@ -2504,14 +2508,18 @@ impl MegaStructureGenerator {
             if edge.points.is_empty() {
                 continue;
             }
-            let probability =
-                hazard_probability_for_role(&edge.role) * self.config.decay_story_density;
+            let anchor = edge.points[edge.points.len() / 2];
+            let district =
+                self.district_at(anchor[0].min(self.size - 1), anchor[2].min(self.size - 1));
+            let lifecycle = self.lifecycle_for_district(district, 0.5);
+            let probability = hazard_probability_for_role(&edge.role)
+                * lifecycle.decay_bias
+                * self.config.decay_story_density;
             if hash_noise(self.seed_hash, edge.id, edge.length, self.layers)
                 > probability.clamp(0.0, 0.95)
             {
                 continue;
             }
-            let anchor = edge.points[edge.points.len() / 2];
             let kind = hazard_kind_for_edge(&edge);
             self.add_hazard_zone(kind, anchor, vec![edge.id]);
         }
@@ -3066,6 +3074,8 @@ impl MegaStructureGenerator {
         .map(|(id, district)| {
             let index = district as usize;
             let total = (footprint[index] * self.layers).max(1);
+            let occupied_ratio = occupied[index] as f32 / total as f32;
+            let lifecycle = self.lifecycle_for_district(district, occupied_ratio);
             DistrictRecord {
                 id,
                 kind: district.name().to_owned(),
@@ -3073,12 +3083,77 @@ impl MegaStructureGenerator {
                 bounds_max: max_bounds[index],
                 footprint_cells: footprint[index],
                 occupied_cells: occupied[index],
-                occupied_ratio: occupied[index] as f32 / total as f32,
+                occupied_ratio,
+                age_years: lifecycle.age_years,
+                maintenance_level: lifecycle.maintenance_level,
+                occupancy_pressure: lifecycle.occupancy_pressure,
+                control_stability: lifecycle.control_stability,
                 dominant_grammar: district_grammar(district).to_owned(),
                 generated_features: district_feature_names(district, &self.pattern_counts),
             }
         })
         .collect()
+    }
+
+    fn district_lifecycle_records(
+        &self,
+        districts: &[DistrictRecord],
+    ) -> Vec<DistrictLifecycleRecord> {
+        districts
+            .iter()
+            .map(|district| {
+                let district_type = district_type_from_name(&district.kind);
+                self.lifecycle_for_district(district_type, district.occupied_ratio)
+            })
+            .collect()
+    }
+
+    fn lifecycle_for_district(
+        &self,
+        district: DistrictType,
+        occupied_ratio: f32,
+    ) -> DistrictLifecycleRecord {
+        let index = district as usize;
+        let roll = hash_noise(self.seed_hash, index + 17, self.size, self.layers);
+        let (base_age, base_maintenance, base_control, base_occupancy) = match district {
+            DistrictType::Industrial => (72.0, 0.46, 0.55, 0.58),
+            DistrictType::Residential => (44.0, 0.62, 0.64, 0.68),
+            DistrictType::Commercial => (31.0, 0.70, 0.58, 0.74),
+            DistrictType::Slum => (96.0, 0.24, 0.32, 0.92),
+            DistrictType::Elite => (18.0, 0.86, 0.82, 0.42),
+        };
+        let age_years = (base_age + roll * 80.0).round() as usize;
+        let maintenance_level = (base_maintenance + hash_noise(self.seed_hash, index, 7, 1) * 0.22
+            - occupied_ratio * 0.12)
+            .clamp(0.05, 1.0);
+        let occupancy_pressure = (base_occupancy
+            + occupied_ratio * 0.55
+            + hash_noise(self.seed_hash, index, 11, 2) * 0.16)
+            .clamp(0.0, 1.0);
+        let control_stability = (base_control + maintenance_level * 0.22
+            - occupancy_pressure * 0.18
+            + hash_noise(self.seed_hash, index, 13, 3) * 0.10)
+            .clamp(0.0, 1.0);
+        let normalized_age = (age_years as f32 / 160.0).clamp(0.0, 1.0);
+        let decay_bias =
+            (0.65 + normalized_age * 0.65 + (1.0 - maintenance_level) * 0.65).clamp(0.25, 2.2);
+        let repair_bias =
+            (0.35 + maintenance_level * 0.85 + control_stability * 0.25).clamp(0.1, 1.6);
+        let security_bias =
+            (0.30 + control_stability * 0.75 + maintenance_level * 0.25).clamp(0.1, 1.6);
+        let density_bias =
+            (0.55 + occupancy_pressure * 0.75 + normalized_age * 0.15).clamp(0.35, 1.7);
+        DistrictLifecycleRecord {
+            district: district.name().to_owned(),
+            age_years,
+            maintenance_level,
+            occupancy_pressure,
+            control_stability,
+            decay_bias,
+            repair_bias,
+            security_bias,
+            density_bias,
+        }
     }
 
     fn stratum_records(&self) -> Vec<StratumRecord> {
@@ -3735,9 +3810,19 @@ impl MegaStructureGenerator {
             let footprint = faction.controlled_districts.len()
                 + faction.controlled_cluster_ids.len()
                 + faction.controlled_route_ids.len();
+            let control_bonus = faction
+                .controlled_districts
+                .iter()
+                .map(|district| {
+                    let district_type = district_type_from_name(district);
+                    self.lifecycle_for_district(district_type, 0.5)
+                        .control_stability
+                })
+                .sum::<f32>()
+                / faction.controlled_districts.len().max(1) as f32;
             faction.influence = (footprint as f32
                 / (room_clusters.len() + self.transit_edges.len() + 1) as f32)
-                .clamp(0.0, 1.0);
+                * (0.75 + control_bonus * 0.50).clamp(0.0, 1.0);
         }
 
         let contested_borders = self
@@ -4013,6 +4098,7 @@ impl MegaStructureGenerator {
         }
         let total_cells = (self.size * self.size * self.layers).max(1);
         let districts = self.district_records();
+        let district_lifecycle = self.district_lifecycle_records(&districts);
         let strata = self.stratum_records();
         let (room_clusters, room_cluster_ids) = self.room_clusters();
         let structural_system = self.structural_system();
@@ -4053,6 +4139,7 @@ impl MegaStructureGenerator {
             transit_edge_count: self.transit_edges.len(),
             transit_attachment_count: self.transit_attachments.len(),
             district_record_count: districts.len(),
+            district_lifecycle_count: district_lifecycle.len(),
             stratum_record_count: strata.len(),
             district_border_count: self.district_borders.len(),
             room_cluster_count: room_clusters.len(),
@@ -4079,6 +4166,7 @@ impl MegaStructureGenerator {
             rooms,
             transit_graph: self.transit_graph(),
             districts,
+            district_lifecycle,
             strata,
             district_borders: self.district_borders.clone(),
             room_clusters,
@@ -4200,6 +4288,17 @@ fn district_grammar(district: DistrictType) -> &'static str {
         DistrictType::Commercial => "market arteries, neon facades, public concourses",
         DistrictType::Slum => "stacked patchwork corridors, cables, improvised bridges",
         DistrictType::Elite => "clean void courts, skyline security, glass facades",
+    }
+}
+
+fn district_type_from_name(name: &str) -> DistrictType {
+    match name {
+        "INDUSTRIAL" => DistrictType::Industrial,
+        "RESIDENTIAL" => DistrictType::Residential,
+        "COMMERCIAL" => DistrictType::Commercial,
+        "SLUM" => DistrictType::Slum,
+        "ELITE" => DistrictType::Elite,
+        _ => DistrictType::Residential,
     }
 }
 
@@ -5094,6 +5193,11 @@ mod tests {
     fn district_and_stratum_records_describe_generated_space() {
         let saved = generated("ABCD1234").saved_structure();
         assert_eq!(saved.metadata.district_record_count, saved.districts.len());
+        assert_eq!(
+            saved.metadata.district_lifecycle_count,
+            saved.district_lifecycle.len()
+        );
+        assert_eq!(saved.district_lifecycle.len(), saved.districts.len());
         assert_eq!(saved.metadata.stratum_record_count, saved.strata.len());
         assert_eq!(
             saved
@@ -5116,8 +5220,22 @@ mod tests {
             assert!(district.bounds_min[1] <= district.bounds_max[1]);
             assert!(district.bounds_max[0] < saved.size);
             assert!(district.bounds_max[1] < saved.size);
+            assert!(district.age_years > 0);
+            assert!((0.0..=1.0).contains(&district.maintenance_level));
+            assert!((0.0..=1.0).contains(&district.occupancy_pressure));
+            assert!((0.0..=1.0).contains(&district.control_stability));
             assert!(!district.dominant_grammar.is_empty());
             assert!((0.0..=1.0).contains(&district.occupied_ratio));
+        }
+        for lifecycle in &saved.district_lifecycle {
+            assert!(lifecycle.age_years > 0);
+            assert!((0.0..=1.0).contains(&lifecycle.maintenance_level));
+            assert!((0.0..=1.0).contains(&lifecycle.occupancy_pressure));
+            assert!((0.0..=1.0).contains(&lifecycle.control_stability));
+            assert!(lifecycle.decay_bias > 0.0);
+            assert!(lifecycle.repair_bias > 0.0);
+            assert!(lifecycle.security_bias > 0.0);
+            assert!(lifecycle.density_bias > 0.0);
         }
         for stratum in &saved.strata {
             assert!(stratum.y_min <= stratum.y_max);
@@ -5458,6 +5576,7 @@ mod tests {
             "rooms",
             "transit_graph",
             "districts",
+            "district_lifecycle",
             "strata",
             "district_borders",
             "room_clusters",
@@ -5491,6 +5610,7 @@ mod tests {
             "transit_edge_count",
             "transit_attachment_count",
             "district_record_count",
+            "district_lifecycle_count",
             "stratum_record_count",
             "district_border_count",
             "room_cluster_count",

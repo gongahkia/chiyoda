@@ -7,7 +7,7 @@ use crate::config::GenerationConfig;
 
 pub const CURRENT_SEED_FILE: &str = "current_seed.txt";
 pub const STRUCTURE_FILE: &str = "structure.json";
-pub const STRUCTURE_SCHEMA_VERSION: &str = "gibson.structure.v15";
+pub const STRUCTURE_SCHEMA_VERSION: &str = "gibson.structure.v16";
 
 pub type StructureResult<T> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
@@ -72,8 +72,25 @@ pub struct DistrictRecord {
     pub footprint_cells: usize,
     pub occupied_cells: usize,
     pub occupied_ratio: f32,
+    pub age_years: usize,
+    pub maintenance_level: f32,
+    pub occupancy_pressure: f32,
+    pub control_stability: f32,
     pub dominant_grammar: String,
     pub generated_features: Vec<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct DistrictLifecycleRecord {
+    pub district: String,
+    pub age_years: usize,
+    pub maintenance_level: f32,
+    pub occupancy_pressure: f32,
+    pub control_stability: f32,
+    pub decay_bias: f32,
+    pub repair_bias: f32,
+    pub security_bias: f32,
+    pub density_bias: f32,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -270,6 +287,7 @@ pub struct SavedStructure {
     pub rooms: Vec<RoomRecord>,
     pub transit_graph: TransitGraphRecord,
     pub districts: Vec<DistrictRecord>,
+    pub district_lifecycle: Vec<DistrictLifecycleRecord>,
     pub strata: Vec<StratumRecord>,
     pub district_borders: Vec<DistrictBorderRecord>,
     pub room_clusters: Vec<RoomClusterRecord>,
@@ -303,6 +321,7 @@ pub struct StructureMetadata {
     pub transit_edge_count: usize,
     pub transit_attachment_count: usize,
     pub district_record_count: usize,
+    pub district_lifecycle_count: usize,
     pub stratum_record_count: usize,
     pub district_border_count: usize,
     pub room_cluster_count: usize,

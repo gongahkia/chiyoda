@@ -11,6 +11,7 @@
     "grid",
     "rooms",
     "transit_graph",
+    "district_lifecycle",
     "path_analysis",
     "route_simulation",
     "hazard_zones",
@@ -36,7 +37,7 @@
       "required": ["schema_version", "profile", "occupied_cell_ratio"],
       "properties": {
         "schema_version": {
-          "const": "gibson.structure.v15"
+          "const": "gibson.structure.v16"
         },
         "profile": {
           "type": "string"
@@ -72,6 +73,34 @@
         },
         "attachments": {
           "type": "array"
+        }
+      }
+    },
+    "district_lifecycle": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "district",
+          "age_years",
+          "maintenance_level",
+          "occupancy_pressure",
+          "control_stability",
+          "decay_bias",
+          "repair_bias",
+          "security_bias",
+          "density_bias"
+        ],
+        "properties": {
+          "district": { "type": "string" },
+          "age_years": { "type": "integer", "minimum": 0 },
+          "maintenance_level": { "type": "number", "minimum": 0, "maximum": 1 },
+          "occupancy_pressure": { "type": "number", "minimum": 0, "maximum": 1 },
+          "control_stability": { "type": "number", "minimum": 0, "maximum": 1 },
+          "decay_bias": { "type": "number", "exclusiveMinimum": 0 },
+          "repair_bias": { "type": "number", "exclusiveMinimum": 0 },
+          "security_bias": { "type": "number", "exclusiveMinimum": 0 },
+          "density_bias": { "type": "number", "exclusiveMinimum": 0 }
         }
       }
     },

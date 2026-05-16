@@ -79,6 +79,30 @@ pub fn validate_structure(structure: &SavedStructure) -> StructureResult<()> {
         )?;
         ensure_point(room.position, structure.size, structure.layers, "room")?;
     }
+    ensure(
+        structure.district_lifecycle.len() == structure.districts.len(),
+        "district lifecycle count must match district records",
+    )?;
+    for lifecycle in &structure.district_lifecycle {
+        for value in [
+            lifecycle.maintenance_level,
+            lifecycle.occupancy_pressure,
+            lifecycle.control_stability,
+        ] {
+            ensure(
+                (0.0..=1.0).contains(&value),
+                "district lifecycle metric out of range",
+            )?;
+        }
+        for value in [
+            lifecycle.decay_bias,
+            lifecycle.repair_bias,
+            lifecycle.security_bias,
+            lifecycle.density_bias,
+        ] {
+            ensure(value > 0.0, "district lifecycle bias must be positive")?;
+        }
+    }
     for edge in &structure.transit_graph.edges {
         ensure(
             edge.id < structure.transit_graph.edges.len(),

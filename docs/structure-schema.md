@@ -2,7 +2,7 @@
 
 This document describes the canonical exported artifact, `structure.json`.
 
-Current schema: `gibson.structure.v15`
+Current schema: `gibson.structure.v16`
 
 Generate an export:
 
@@ -23,6 +23,7 @@ Example exports are checked in under `examples/exports/` for `balanced`, `decaye
 - `rooms`: typed semantic rooms, each with an optional `cluster_id`.
 - `transit_graph`: first-class route nodes, edges, edge roles, path points, and route-room attachments.
 - `districts`: district records with bounds, occupancy, grammar, and generated feature summaries.
+- `district_lifecycle`: district age, maintenance, occupancy, control, and derived generation biases.
 - `strata`: vertical strata records for underground, surface, midrise, and skyline logic.
 - `district_borders`: generated transition zones between adjacent districts.
 - `room_clusters`: grouped rooms such as market strips, habitation blocks, shrine pockets, and data-vault compounds.
