@@ -1,3 +1,4 @@
+pub mod bundle;
 pub mod cli;
 pub mod config;
 pub mod generation;

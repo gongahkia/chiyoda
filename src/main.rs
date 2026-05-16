@@ -1,3 +1,4 @@
+use gibson_rust::bundle::create_bundle;
 use gibson_rust::cli::{usage, RuntimeOptions};
 use gibson_rust::generation::generate_saved_structure;
 use gibson_rust::inspect::render_inspection;
@@ -15,7 +16,13 @@ fn main() {
         }
     };
 
-    if options.validate_path.is_some() {
+    if options.bundle_path.is_some() {
+        if let Err(error) = export_bundle(&options) {
+            eprintln!("Failed to export bundle: {error}");
+            std::process::exit(1);
+        }
+        return;
+    } else if options.validate_path.is_some() {
         if let Err(error) = validate_artifact(&options) {
             eprintln!("Failed to validate artifact: {error}");
             std::process::exit(1);
@@ -39,6 +46,14 @@ fn main() {
         gibson_rust::render::window_conf(),
         gibson_rust::render::run(options),
     );
+}
+
+fn export_bundle(options: &RuntimeOptions) -> structure::StructureResult<()> {
+    let path = options
+        .bundle_path
+        .as_ref()
+        .expect("bundle path checked before dispatch");
+    create_bundle(path, options.seed.clone(), options.config.clone())
 }
 
 fn validate_artifact(options: &RuntimeOptions) -> structure::StructureResult<()> {

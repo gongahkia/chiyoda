@@ -20,6 +20,7 @@ pub struct RuntimeOptions {
     pub config: GenerationConfig,
     pub export_path: PathBuf,
     pub scenario_path: Option<PathBuf>,
+    pub bundle_path: Option<PathBuf>,
     pub headless: bool,
     pub validate_path: Option<PathBuf>,
     pub inspect_path: Option<PathBuf>,
@@ -38,6 +39,7 @@ impl RuntimeOptions {
         let mut config_path = None;
         let mut export_path = PathBuf::from(crate::structure::STRUCTURE_FILE);
         let mut scenario_path = None;
+        let mut bundle_path = None;
         let mut headless = false;
         let mut validate_path = None;
         let mut inspect_path = None;
@@ -56,6 +58,7 @@ impl RuntimeOptions {
                 "--scenario" => {
                     scenario_path = Some(PathBuf::from(next_arg(&mut args, "--scenario")?))
                 }
+                "--bundle" => bundle_path = Some(PathBuf::from(next_arg(&mut args, "--bundle")?)),
                 "--headless" => headless = true,
                 "--validate" => {
                     validate_path = Some(PathBuf::from(next_arg(&mut args, "--validate")?))
@@ -107,6 +110,7 @@ impl RuntimeOptions {
             config,
             export_path,
             scenario_path,
+            bundle_path,
             headless,
             validate_path,
             inspect_path,
@@ -125,7 +129,7 @@ fn invalid_input(message: impl Into<String>) -> Box<dyn Error + Send + Sync> {
 }
 
 pub fn usage() -> &'static str {
-    "Usage: gibson-rust [SEED] [--seed SEED] [--profile balanced|dense|vertical|decayed|neon] [--config path.json] [--export path.json] [--scenario scenario.json] [--headless] [--validate artifact.json] [--inspect structure.json] [--summary] [--routes] [--landmarks] [--path]"
+    "Usage: gibson-rust [SEED] [--seed SEED] [--profile balanced|dense|vertical|decayed|neon] [--config path.json] [--export path.json] [--scenario scenario.json] [--bundle out/] [--headless] [--validate artifact.json] [--inspect structure.json] [--summary] [--routes] [--landmarks] [--path]"
 }
 
 #[cfg(test)]
@@ -193,6 +197,19 @@ mod tests {
         .unwrap();
 
         assert_eq!(options.scenario_path, Some(PathBuf::from("scenario.json")));
+    }
+
+    #[test]
+    fn parses_bundle_path() {
+        let options = RuntimeOptions::parse([
+            "--seed".to_owned(),
+            "ABCD1234".to_owned(),
+            "--bundle".to_owned(),
+            "out".to_owned(),
+        ])
+        .unwrap();
+
+        assert_eq!(options.bundle_path, Some(PathBuf::from("out")));
     }
 
     #[test]
