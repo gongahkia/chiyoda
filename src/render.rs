@@ -11,7 +11,7 @@ use crate::generation::{
     MaterialType, MegaStructureGenerator, CAMERA_FOV_DEGREES, CHUNK_SIZE_X, CHUNK_SIZE_Y,
     CHUNK_SIZE_Z, DISTRICTS, MATERIALS,
 };
-use crate::rules::CompiledRulePackSet;
+use crate::rules::{CompiledRulePackSet, RulePackDocument};
 use crate::seed::generate_seed;
 use crate::structure::{self, SavedStructure, StructureMetadata};
 
@@ -679,6 +679,10 @@ struct AppState {
     selected_rule_index: usize,
     show_rule_browser: bool,
     rule_status_message: String,
+    rule_editor: Option<RulePackDocument>,
+    selected_editor_pack: usize,
+    selected_editor_weight: usize,
+    rule_editor_message: String,
     export_path: PathBuf,
     saved_structure: SavedStructure,
     metadata: StructureMetadata,
@@ -754,6 +758,10 @@ impl AppState {
             selected_rule_index,
             show_rule_browser: false,
             rule_status_message: "rule browser ready".to_owned(),
+            rule_editor: None,
+            selected_editor_pack: 0,
+            selected_editor_weight: 0,
+            rule_editor_message: "E: edit selected rule file".to_owned(),
             export_path,
             saved_structure,
             metadata,
@@ -822,6 +830,7 @@ impl AppState {
         let len = self.rule_browser.len() as isize;
         self.selected_rule_index =
             (self.selected_rule_index as isize + delta).rem_euclid(len) as usize;
+        self.rule_editor = None;
         self.apply_selected_rule_pack().await;
     }
 
@@ -838,6 +847,7 @@ impl AppState {
                 self.rule_packs = compiled;
                 self.rule_path = Some(entry.path.clone());
                 self.rule_status_message = format!("applied {}", entry.name);
+                self.rule_editor = None;
                 let seed = self.current_seed().to_owned();
                 self.regenerate_with_seed(seed).await;
             }
@@ -858,11 +868,99 @@ impl AppState {
             Ok(compiled) => {
                 self.rule_packs = compiled;
                 self.rule_status_message = format!("hot reloaded {}", path.display());
+                self.rule_editor = None;
                 let seed = self.current_seed().to_owned();
                 self.regenerate_with_seed(seed).await;
             }
             Err(error) => {
                 self.rule_status_message = format!("hot reload failed: {error}");
+            }
+        }
+    }
+
+    fn toggle_rule_editor(&mut self) {
+        if self.rule_editor.is_some() {
+            self.rule_editor = None;
+            self.rule_editor_message = "editor closed".to_owned();
+            return;
+        }
+        self.load_rule_editor_from_selection();
+    }
+
+    fn load_rule_editor_from_selection(&mut self) {
+        let Some(entry) = self.rule_browser.get(self.selected_rule_index) else {
+            self.rule_editor_message = "no selected rule file".to_owned();
+            return;
+        };
+        match RulePackDocument::from_json_file(&entry.path) {
+            Ok(document) => {
+                self.rule_editor = Some(document);
+                self.selected_editor_pack = 0;
+                self.selected_editor_weight = 0;
+                self.rule_editor_message = "editing selected rule file".to_owned();
+            }
+            Err(error) => {
+                self.rule_editor_message = format!("cannot edit rule file: {error}");
+            }
+        }
+    }
+
+    fn select_editor_weight(&mut self, weight_index: usize) {
+        self.selected_editor_weight = weight_index.min(3);
+    }
+
+    fn adjust_editor_weight(&mut self, delta: f32) {
+        let Some(document) = &mut self.rule_editor else {
+            return;
+        };
+        if document.packs.is_empty() {
+            return;
+        }
+        let pack_index = self.selected_editor_pack.min(document.packs.len() - 1);
+        let pack = &mut document.packs[pack_index];
+        let weight = match self.selected_editor_weight {
+            0 => &mut pack.density_weight,
+            1 => &mut pack.route_weight,
+            2 => &mut pack.decay_weight,
+            _ => &mut pack.detail_weight,
+        };
+        *weight = (*weight + delta).clamp(0.05, 4.0);
+        if self.selected_editor_weight == 3 {
+            *weight = (*weight).min(1.5);
+        }
+        self.rule_editor_message = format!("edited {}", pack.name);
+    }
+
+    async fn apply_and_export_rule_editor(&mut self) {
+        let Some(document) = self.rule_editor.clone() else {
+            self.rule_editor_message = "open editor with E first".to_owned();
+            return;
+        };
+        match document.compile() {
+            Ok(compiled) => {
+                let path = edited_rule_path(&document.name);
+                match fs::write(
+                    &path,
+                    serde_json::to_string_pretty(&document).unwrap_or_default(),
+                ) {
+                    Ok(()) => {
+                        self.rule_packs = compiled;
+                        self.rule_path = Some(path.clone());
+                        self.rule_browser = rule_browser_entries();
+                        self.selected_rule_index =
+                            selected_rule_index(&self.rule_browser, self.rule_path.as_ref());
+                        self.rule_status_message = format!("exported + applied {}", path.display());
+                        self.rule_editor_message = "editor export applied".to_owned();
+                        let seed = self.current_seed().to_owned();
+                        self.regenerate_with_seed(seed).await;
+                    }
+                    Err(error) => {
+                        self.rule_editor_message = format!("export failed: {error}");
+                    }
+                }
+            }
+            Err(error) => {
+                self.rule_editor_message = format!("edited rules invalid: {error}");
             }
         }
     }
@@ -948,6 +1046,20 @@ fn selected_rule_index(entries: &[RuleBrowserEntry], rule_path: Option<&PathBuf>
         .iter()
         .position(|entry| entry.path == *rule_path)
         .unwrap_or(0)
+}
+
+fn edited_rule_path(name: &str) -> PathBuf {
+    let safe_name: String = name
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || ch == '-' || ch == '_' {
+                ch
+            } else {
+                '-'
+            }
+        })
+        .collect();
+    PathBuf::from("rules").join(format!("edited-{safe_name}.json"))
 }
 
 fn camera_ray(camera: &Camera3D, mouse_x: f32, mouse_y: f32) -> Vec3 {
@@ -1631,7 +1743,78 @@ fn draw_rule_browser_overlay(app: &AppState) {
             18.0,
             Color::new(0.86, 0.86, 0.78, 1.0),
         );
+        draw_rule_editor_overlay(app, x, y + height + 10.0, width);
     }
+}
+
+fn draw_rule_editor_overlay(app: &AppState, x: f32, y: f32, width: f32) {
+    let Some(document) = &app.rule_editor else {
+        draw_text(
+            "Editor: E opens selected file | O exports edited copy",
+            x + 16.0,
+            y + 18.0,
+            18.0,
+            Color::new(0.70, 0.74, 0.78, 1.0),
+        );
+        return;
+    };
+    let height = 184.0;
+    draw_rectangle(x, y, width, height, Color::new(0.0, 0.0, 0.0, 0.78));
+    draw_rectangle_lines(x, y, width, height, 1.0, Color::new(1.0, 0.76, 0.32, 0.9));
+    draw_text("RULE EDITOR", x + 16.0, y + 28.0, 24.0, WHITE);
+    draw_text(
+        "1-4: weight | -/=: adjust | O: export+apply | E: close",
+        x + 16.0,
+        y + 52.0,
+        17.0,
+        Color::new(0.78, 0.82, 0.88, 1.0),
+    );
+    let Some(pack) = document.packs.get(
+        app.selected_editor_pack
+            .min(document.packs.len().saturating_sub(1)),
+    ) else {
+        return;
+    };
+    draw_text(
+        &format!("Pack: {}", truncate_text(&pack.name, 48)),
+        x + 16.0,
+        y + 78.0,
+        18.0,
+        LIGHTGRAY,
+    );
+    let weights = [
+        ("1 density", pack.density_weight),
+        ("2 route", pack.route_weight),
+        ("3 decay", pack.decay_weight),
+        ("4 detail", pack.detail_weight),
+    ];
+    for (index, (label, value)) in weights.into_iter().enumerate() {
+        let row_y = y + 104.0 + index as f32 * 20.0;
+        let selected = index == app.selected_editor_weight;
+        draw_text(
+            &format!(
+                "{}{}: {:.2}",
+                if selected { ">" } else { " " },
+                label,
+                value
+            ),
+            x + 18.0,
+            row_y,
+            18.0,
+            if selected {
+                Color::new(1.0, 0.94, 0.45, 1.0)
+            } else {
+                LIGHTGRAY
+            },
+        );
+    }
+    draw_text(
+        &truncate_text(&app.rule_editor_message, 56),
+        x + 180.0,
+        y + 104.0,
+        18.0,
+        Color::new(0.70, 0.88, 1.0, 1.0),
+    );
 }
 
 fn draw_projected_semantic_labels(app: &AppState, camera: &Camera3D) {
@@ -2082,6 +2265,30 @@ pub async fn run(options: RuntimeOptions) {
             app.show_rule_browser = !app.show_rule_browser;
         }
         if app.show_rule_browser {
+            if is_key_pressed(KeyCode::E) {
+                app.toggle_rule_editor();
+            }
+            if is_key_pressed(KeyCode::O) {
+                app.apply_and_export_rule_editor().await;
+            }
+            if is_key_pressed(KeyCode::Key1) {
+                app.select_editor_weight(0);
+            }
+            if is_key_pressed(KeyCode::Key2) {
+                app.select_editor_weight(1);
+            }
+            if is_key_pressed(KeyCode::Key3) {
+                app.select_editor_weight(2);
+            }
+            if is_key_pressed(KeyCode::Key4) {
+                app.select_editor_weight(3);
+            }
+            if is_key_pressed(KeyCode::Minus) {
+                app.adjust_editor_weight(-0.05);
+            }
+            if is_key_pressed(KeyCode::Equal) {
+                app.adjust_editor_weight(0.05);
+            }
             if is_key_pressed(KeyCode::RightBracket) || is_key_pressed(KeyCode::Down) {
                 app.select_rule_delta(1).await;
             }
@@ -2123,10 +2330,10 @@ pub async fn run(options: RuntimeOptions) {
         if !app.show_rule_browser && is_key_down(KeyCode::RightBracket) {
             app.fog_density = (app.fog_density + 0.01).min(2.0);
         }
-        if is_key_down(KeyCode::Minus) {
+        if !app.show_rule_browser && is_key_down(KeyCode::Minus) {
             app.bloom_intensity = (app.bloom_intensity - 0.01).max(0.0);
         }
-        if is_key_down(KeyCode::Equal) {
+        if !app.show_rule_browser && is_key_down(KeyCode::Equal) {
             app.bloom_intensity = (app.bloom_intensity + 0.01).min(2.0);
         }
 
@@ -2144,19 +2351,19 @@ pub async fn run(options: RuntimeOptions) {
                 app.orbital.pan(1.0, 0.0);
             }
 
-            if is_key_pressed(KeyCode::Key1) {
+            if !app.show_rule_browser && is_key_pressed(KeyCode::Key1) {
                 app.orbital.set_preset(0);
             }
-            if is_key_pressed(KeyCode::Key2) {
+            if !app.show_rule_browser && is_key_pressed(KeyCode::Key2) {
                 app.orbital.set_preset(1);
             }
-            if is_key_pressed(KeyCode::Key3) {
+            if !app.show_rule_browser && is_key_pressed(KeyCode::Key3) {
                 app.orbital.set_preset(2);
             }
-            if is_key_pressed(KeyCode::Key4) {
+            if !app.show_rule_browser && is_key_pressed(KeyCode::Key4) {
                 app.orbital.set_preset(3);
             }
-            if is_key_pressed(KeyCode::Key5) {
+            if !app.show_rule_browser && is_key_pressed(KeyCode::Key5) {
                 app.orbital.set_preset(4);
             }
 
