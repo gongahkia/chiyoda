@@ -24,9 +24,10 @@ $ cargo run --release
 $ cargo run --release -- ABCD1234
 $ cargo run --release -- --seed ABCD1234 --profile neon
 $ cargo run --release -- --seed ABCD1234 --profile dense --headless --export structure.json
+$ cargo run --release -- --seed ABCD1234 --config presets/blackout-core.json --headless --bundle out/blackout
 ```
 
-Profiles are `balanced`, `dense`, `vertical`, `decayed`, and `neon`. JSON config files can override profile defaults with `--config path.json`.
+Profiles are `balanced`, `dense`, `vertical`, `decayed`, and `neon`. JSON config files can override profile defaults with `--config path.json`; checked-in presets live under `presets/`.
 
 ## Seed
 

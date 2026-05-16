@@ -1,0 +1,18 @@
+{
+  "profile": "decayed",
+  "grid_size": 34,
+  "grid_layers": 16,
+  "district_density_scale": 1.45,
+  "verticality_scale": 0.85,
+  "bridge_frequency": 0.75,
+  "cable_frequency": 1.95,
+  "pipe_frequency": 1.85,
+  "erosion_strength": 2.2,
+  "neon_intensity": 0.35,
+  "wfc_room_density": 1.2,
+  "route_density": 1.25,
+  "landmark_frequency": 1.45,
+  "decay_story_density": 2.15,
+  "district_contrast": 1.55,
+  "strata_separation": 0.85
+}

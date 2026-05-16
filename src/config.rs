@@ -387,4 +387,18 @@ mod tests {
         assert_eq!(config.district_contrast, 1.2);
         assert_eq!(config.strata_separation, 1.3);
     }
+
+    #[test]
+    fn checked_in_presets_load_as_valid_configs() {
+        for preset in [
+            "presets/flooded-slum.json",
+            "presets/corp-skyline.json",
+            "presets/market-collapse.json",
+            "presets/blackout-core.json",
+        ] {
+            let config =
+                GenerationConfig::from_json_file(preset, GenerationProfile::Balanced).unwrap();
+            config.validate().unwrap();
+        }
+    }
 }
