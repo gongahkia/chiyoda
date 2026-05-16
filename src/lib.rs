@@ -5,6 +5,7 @@ pub mod export_summary;
 pub mod generation;
 pub mod inspect;
 pub mod render;
+pub mod rules;
 pub mod scenario;
 pub mod seed;
 pub mod structure;

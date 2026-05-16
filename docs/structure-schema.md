@@ -36,6 +36,8 @@ Example exports are checked in under `examples/exports/` for `balanced`, `decaye
 - `structural_system`: load-bearing frames, foundations, suspended decks, and stability ratings.
 - `failure_zones`: propagated structural failures from collapse scars and unstable spans.
 - `rule_packs`: applied built-in procedural grammar weights by profile, district, and stratum.
+
+Editable rule-pack JSON files live under `rules/`. They can define profile, district, and stratum grammar weights for future authoring workflows; when no external rule file is supplied, Gibson falls back to the built-in Rust rule packs.
 - `factions`: faction definitions and influence summaries.
 - `territories`: district/cluster ownership records.
 - `contested_borders`: faction conflicts at district transition zones.
