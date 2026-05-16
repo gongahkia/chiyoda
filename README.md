@@ -4,11 +4,11 @@
 
 # `Gibson`
 
-Rust megastructure [generator](#seed) for cyberpunk dense-urban forms.
+[Rust](#stack) megastructure [generator](#seed) for [cyberpunk dense-urban forms](#research).
 
 ## Stack
 
-* *Language*: [Rust](https://rust-lang.org/)
+* *Script*: [Rust](https://rust-lang.org/)
 * *Graphics*: [Macroquad](https://macroquad.rs/), [miniquad](https://github.com/not-fl3/miniquad), [GLSL](https://www.khronos.org/opengl/wiki/OpenGL_Shading_Language)
 * *Generation*: [Simplex noise](https://en.wikipedia.org/wiki/Simplex_noise), [Wave Function Collapse](https://github.com/mxgmn/WaveFunctionCollapse), [L-system](https://en.wikipedia.org/wiki/L-system), [Catmull-Rom spline](https://en.wikipedia.org/wiki/Centripetal_Catmull%E2%80%93Rom_spline)
 * *Serialization*: [Serde](https://serde.rs/), [JSON](https://www.json.org/json-en.html)
@@ -19,8 +19,17 @@ Rust megastructure [generator](#seed) for cyberpunk dense-urban forms.
 
 ## Usage
 
+The below instructions are for locally running `Gibson`.
+
+1. First install the repo on your machine.
+
 ```console
 $ git clone https://github.com/gongahkia/gibson && cd gibson
+```
+
+2. Then run any of the below to use `Gibson`'s functionality.
+
+```console
 $ cargo run --release
 $ cargo run --release -- ABCD1234
 $ cargo run --release -- --seed ABCD1234 --profile neon
@@ -32,21 +41,23 @@ $ cargo run --release -- --inspect structure.json --summary --routes --quality
 $ cargo run --release -- --validate structure.json
 ```
 
-Profiles are `balanced`, `dense`, `vertical`, `decayed`, and `neon`. JSON config files can override profile defaults with `--config path.json`; checked-in config presets live under `presets/`, and editable procedural rule packs live under `rules/`. For vast cyber-brutalist megastructures, try `rules/abyssal-concrete.json`, `rules/gravity-shaft.json`, `rules/autonomous-builder.json`, `rules/silicon-cathedral.json`, `rules/exclusion-maze.json`, or `rules/bridge-void.json`.
+## Controls
 
-Interactive controls include `R` to regenerate, `S` for screenshots, `I` to inspect cells, `T/Z/X/C` for semantic overlays, `G` for the in-renderer rule-pack browser, `[` and `]` or arrow keys to switch rule packs while the browser is open, `H` or `Shift+R` to hot reload edited rule JSON, and `E`/`1-4`/`-`/`=`/`O` to edit and export rule weights in-app.
+* `R` to regenerate
+* `S` for screenshots
+* `I` to inspect cells
+* `T/Z/X/C` for semantic overlays
+* `G` for an in-renderer rule-pack browser
+* `H` or `Shift+R` to hot reload edited rule JSON
+* `E`/`1-4`/`-`/`=`/`O` to edit and export rule weights
 
-CI runs on every push with `cargo fmt --check`, `cargo test --locked`, `cargo clippy --locked --all-targets --all-features -- -D warnings`, and `cargo build --release --locked`, then uploads the release binary as a workflow artifact.
+## Configuration
+
+`Gibson`'s predefined profiles are `balanced`, `dense`, `vertical`, `decayed`, and `neon`. 
 
 ## Seed
 
 Randomly generated [megastructure](https://en.wikipedia.org/wiki/Megastructure)s are seeded at `current_seed.txt` and serialised at `structure.json` with generation metadata, counts, profile, config snapshot, circulation routes, strata, semantic room labels, resource networks, hazards, rule packs, and rule influence traces.
-
-## Reference
-
-The name `Gibson` is in reference to American author [William Gibson](https://en.wikipedia.org/wiki/William_Gibson), whose debut novel [*Neuromancer*](https://en.wikipedia.org/wiki/Neuromancer) heavily influenced the [Cyberpunk](https://en.wikipedia.org/wiki/Cyberpunk) aesthetic, going on to inspire works such as [Tsutomu Nihei](https://en.wikipedia.org/wiki/Tsutomu_Nihei)'s (弐瓶 勉) [*Blame!*](https://en.wikipedia.org/wiki/Blame!) and [Masamune Shirow](https://en.wikipedia.org/wiki/Masamune_Shirow)'s (太田正典) [*Ghost in the Shell*](https://en.wikipedia.org/wiki/Ghost_in_the_Shell).
-
-![](./asset/logo/gibson.jpg)
 
 ## Research
 
@@ -60,3 +71,9 @@ The name `Gibson` is in reference to American author [William Gibson](https://en
 * [*CAE Simulates Complex Dense Urban Environments with Cesium*](https://cesium.com/blog/2022/02/15/cae-simulates-a-complex-dense-urban-environment/) by CAE (2022)
 * [*Simulation of Urban Density Scenario according to the Cadastral Map using K-Means Unsupervised Classification*](https://www.researchgate.net/publication/381057650_Simulation_of_Urban_Density_Scenario_according_to_the_Cadastral_Map_using_K-Means_unsupervised_classification) by M. A. El-Kenawy et al. (2023)
 * [*Parametric Modeling for Form-Based Planning in Dense Urban Environments*](https://www.mdpi.com/2071-1050/11/20/5678) by S. A. Abdul-Rahman et al. (2019)
+
+## Reference
+
+The name `Gibson` is in reference to American author [William Gibson](https://en.wikipedia.org/wiki/William_Gibson), whose debut novel [*Neuromancer*](https://en.wikipedia.org/wiki/Neuromancer) heavily influenced the [Cyberpunk](https://en.wikipedia.org/wiki/Cyberpunk) aesthetic, going on to inspire works such as [Tsutomu Nihei](https://en.wikipedia.org/wiki/Tsutomu_Nihei)'s (弐瓶 勉) [*Blame!*](https://en.wikipedia.org/wiki/Blame!) and [Masamune Shirow](https://en.wikipedia.org/wiki/Masamune_Shirow)'s (太田正典) [*Ghost in the Shell*](https://en.wikipedia.org/wiki/Ghost_in_the_Shell).
+
+![](./asset/logo/gibson.jpg)
