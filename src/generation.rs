@@ -5,12 +5,13 @@ use crate::config::GenerationConfig;
 use crate::seed::{seed_hash, Rng32};
 use crate::structure::{
     self, ConnectionRecord, ContestedBorderRecord, DistrictBorderRecord, DistrictLifecycleRecord,
-    DistrictRecord, FactionRecord, HazardZoneRecord, InfrastructureFlowRecord, MissionPathRecord,
-    NarrativeLandmarkRecord, PathAnalysisRecord, RoomClusterRecord, RoomRecord,
-    RouteSimulationRecord, SavedStructure, StabilityRatingRecord, StratumRecord,
-    StructuralSystemRecord, StructureMetadata, StructureResult, TemporalPhaseRecord,
-    TemporalStateRecord, TerritoryRecord, TransitAttachmentRecord, TransitEdgeRecord,
-    TransitGraphRecord, TransitNodeRecord, STRUCTURE_SCHEMA_VERSION,
+    DistrictRecord, FactionRecord, HazardZoneRecord, InfrastructureFlowRecord, MacroMassingRecord,
+    MesoPlacementRecord, MicroDetailRecord, MissionPathRecord, NarrativeLandmarkRecord,
+    PathAnalysisRecord, RoomClusterRecord, RoomRecord, RouteSimulationRecord, SavedStructure,
+    StabilityRatingRecord, StratumRecord, StructuralSystemRecord, StructureMetadata,
+    StructureResult, TemporalPhaseRecord, TemporalStateRecord, TerritoryRecord,
+    TransitAttachmentRecord, TransitEdgeRecord, TransitGraphRecord, TransitNodeRecord,
+    STRUCTURE_SCHEMA_VERSION,
 };
 
 pub(crate) const CHUNK_SIZE_X: usize = 8;
@@ -1143,6 +1144,7 @@ impl MegaStructureGenerator {
 
     pub fn generate(&mut self) {
         self.phase1_skeleton();
+        self.phase1b_macro_massing();
         self.phase2_floorplans();
         self.phase2b_circulation_graph();
         self.phase2d_route_aware_generation();
@@ -1151,6 +1153,7 @@ impl MegaStructureGenerator {
         self.phase2e_district_adjacency();
         self.phase3_infrastructure();
         self.phase3b_infrastructure_flows();
+        self.phase3c_micro_details();
         self.phase4_erosion();
         self.phase4b_decay_signatures();
         self.phase4c_hazard_zones();
@@ -1480,6 +1483,38 @@ impl MegaStructureGenerator {
                             );
                         }
                     }
+                }
+            }
+        }
+    }
+
+    fn phase1b_macro_massing(&mut self) {
+        let stride = (self.size / 5).max(4);
+        for x in (stride / 2..self.size.saturating_sub(1)).step_by(stride) {
+            for z in (stride / 2..self.size.saturating_sub(1)).step_by(stride) {
+                let district = self.district_at(x, z);
+                let lifecycle = self.lifecycle_for_district(district, 0.5);
+                let y_min = (self.layers / 4).max(1);
+                let y_max = (self.layers * 3 / 4).max(y_min + 1).min(self.layers - 1);
+                let roll = hash_noise(self.seed_hash, x, z, y_min);
+                if matches!(district, DistrictType::Elite | DistrictType::Commercial) && roll > 0.45
+                {
+                    for y in y_min..=y_max {
+                        for (dx, dz) in [(0isize, 0isize), (1, 0), (-1, 0), (0, 1), (0, -1)] {
+                            if let Some((nx, nz)) = self.offset_xz(x, z, dx, dz) {
+                                self.set(nx, nz, y, CellType::Empty, false);
+                            }
+                        }
+                    }
+                    self.push_connection("macro_void", [x, y_min, z], [x, y_max, z]);
+                } else if lifecycle.occupancy_pressure > 0.72 {
+                    for y in y_min..=y_max {
+                        self.set(x, z, y, CellType::Vertical, true);
+                        if x + 1 < self.size {
+                            self.set(x + 1, z, y, CellType::Horizontal, true);
+                        }
+                    }
+                    self.push_connection("macro_density_spine", [x, y_min, z], [x, y_max, z]);
                 }
             }
         }
@@ -2176,6 +2211,45 @@ impl MegaStructureGenerator {
             for (offset, kind) in flow_kinds.iter().enumerate() {
                 self.add_infrastructure_flow(&edge, kind, offset);
             }
+        }
+    }
+
+    fn phase3c_micro_details(&mut self) {
+        let edges = self.transit_edges.clone();
+        for edge in edges {
+            let stride = (edge.points.len() / 4).max(2);
+            for (index, point) in edge.points.iter().enumerate().step_by(stride) {
+                let kind = micro_detail_kind(&edge, index);
+                self.paint_micro_detail(*point, kind);
+                self.record_pattern(kind);
+            }
+        }
+    }
+
+    fn paint_micro_detail(&mut self, point: [usize; 3], kind: &str) {
+        let x = point[0].min(self.size - 1);
+        let y = point[1].min(self.layers - 1);
+        let z = point[2].min(self.size - 1);
+        let cell = match kind {
+            "signage" => CellType::Facade,
+            "barricade" => CellType::Stair,
+            "leak" => CellType::Pipe,
+            "antenna_cluster" => CellType::Antenna,
+            "vent_cluster" => CellType::Vent,
+            _ => CellType::Cable,
+        };
+        self.set(
+            x,
+            z,
+            y,
+            cell,
+            matches!(cell, CellType::Facade | CellType::Stair),
+        );
+        if y + 1 < self.layers && matches!(kind, "signage" | "antenna_cluster") {
+            self.set(x, z, y + 1, CellType::Antenna, false);
+        }
+        if y > 0 && matches!(kind, "leak" | "cable_bundle") {
+            self.set(x, z, y - 1, CellType::Cable, false);
         }
     }
 
@@ -3203,6 +3277,99 @@ impl MegaStructureGenerator {
         .collect()
     }
 
+    fn macro_massing_records(&self) -> Vec<MacroMassingRecord> {
+        self.connections
+            .iter()
+            .filter(|connection| {
+                matches!(
+                    connection.kind.as_str(),
+                    "macro_void" | "macro_density_spine"
+                )
+            })
+            .enumerate()
+            .map(|(id, connection)| {
+                let district = self.district_at(connection.start[0], connection.start[2]);
+                let height = connection.start[1].abs_diff(connection.end[1]).max(1);
+                MacroMassingRecord {
+                    id,
+                    kind: connection.kind.clone(),
+                    bounds_min: [
+                        connection.start[0].saturating_sub(1),
+                        connection.start[1].min(connection.end[1]),
+                        connection.start[2].saturating_sub(1),
+                    ],
+                    bounds_max: [
+                        (connection.start[0] + 1).min(self.size - 1),
+                        connection.start[1].max(connection.end[1]),
+                        (connection.start[2] + 1).min(self.size - 1),
+                    ],
+                    district: district.name().to_owned(),
+                    void_ratio: if connection.kind == "macro_void" {
+                        (height as f32 / self.layers.max(1) as f32).clamp(0.0, 1.0)
+                    } else {
+                        0.0
+                    },
+                }
+            })
+            .collect()
+    }
+
+    fn meso_placement_records(
+        &self,
+        room_clusters: &[RoomClusterRecord],
+    ) -> Vec<MesoPlacementRecord> {
+        let mut records = Vec::new();
+        for cluster in room_clusters.iter().take(64) {
+            records.push(MesoPlacementRecord {
+                id: records.len(),
+                kind: format!("cluster_{}", cluster.kind),
+                route_id: cluster.route_ids.first().copied(),
+                cluster_id: Some(cluster.id),
+                anchor: cluster.anchor_position,
+                influence_radius: cluster
+                    .bounds_max
+                    .iter()
+                    .zip(cluster.bounds_min.iter())
+                    .map(|(max, min)| max.saturating_sub(*min))
+                    .max()
+                    .unwrap_or(1)
+                    .max(1),
+            });
+        }
+        for edge in self.transit_edges.iter().take(64) {
+            records.push(MesoPlacementRecord {
+                id: records.len(),
+                kind: format!("route_{}", edge.role),
+                route_id: Some(edge.id),
+                cluster_id: None,
+                anchor: edge
+                    .points
+                    .get(edge.points.len() / 2)
+                    .copied()
+                    .unwrap_or([0, 0, 0]),
+                influence_radius: (edge.length / 6).clamp(1, 12),
+            });
+        }
+        records
+    }
+
+    fn micro_detail_records(&self) -> Vec<MicroDetailRecord> {
+        let mut records = Vec::new();
+        for edge in &self.transit_edges {
+            let stride = (edge.points.len() / 4).max(2);
+            for (index, point) in edge.points.iter().enumerate().step_by(stride).take(4) {
+                records.push(MicroDetailRecord {
+                    id: records.len(),
+                    kind: micro_detail_kind(edge, index).to_owned(),
+                    position: *point,
+                    route_id: Some(edge.id),
+                    intensity: (0.35 + edge.length as f32 / 80.0).clamp(0.0, 1.0),
+                });
+            }
+        }
+        records
+    }
+
     fn room_clusters(&self) -> (Vec<RoomClusterRecord>, Vec<Option<usize>>) {
         #[derive(Default)]
         struct ClusterBuilder {
@@ -4101,6 +4268,9 @@ impl MegaStructureGenerator {
         let district_lifecycle = self.district_lifecycle_records(&districts);
         let strata = self.stratum_records();
         let (room_clusters, room_cluster_ids) = self.room_clusters();
+        let macro_massing = self.macro_massing_records();
+        let meso_placements = self.meso_placement_records(&room_clusters);
+        let micro_details = self.micro_detail_records();
         let structural_system = self.structural_system();
         let (factions, territories, contested_borders) = self.ownership_layer(&room_clusters);
         let temporal_state = self.temporal_state(&factions, &contested_borders);
@@ -4141,6 +4311,9 @@ impl MegaStructureGenerator {
             district_record_count: districts.len(),
             district_lifecycle_count: district_lifecycle.len(),
             stratum_record_count: strata.len(),
+            macro_massing_count: macro_massing.len(),
+            meso_placement_count: meso_placements.len(),
+            micro_detail_count: micro_details.len(),
             district_border_count: self.district_borders.len(),
             room_cluster_count: room_clusters.len(),
             infrastructure_flow_count: self.infrastructure_flows.len(),
@@ -4168,6 +4341,9 @@ impl MegaStructureGenerator {
             districts,
             district_lifecycle,
             strata,
+            macro_massing,
+            meso_placements,
+            micro_details,
             district_borders: self.district_borders.clone(),
             room_clusters,
             path_analysis,
@@ -4890,6 +5066,24 @@ fn flow_intensity(kind: &str, role: &str, neon_intensity: f32) -> f32 {
     (base + role_bonus + neon_intensity * 0.025).clamp(0.0, 1.0)
 }
 
+fn micro_detail_kind(edge: &TransitEdgeRecord, index: usize) -> &'static str {
+    match edge.role.as_str() {
+        "restricted_spine" => {
+            if index.is_multiple_of(2) {
+                "signage"
+            } else {
+                "barricade"
+            }
+        }
+        "market_run" => "signage",
+        "maintenance_backbone" => "leak",
+        "service_loop" => "vent_cluster",
+        "evacuation_route" => "barricade",
+        _ if edge.stratum == "SKYLINE" => "antenna_cluster",
+        _ => "cable_bundle",
+    }
+}
+
 fn hazard_probability_for_role(role: &str) -> f32 {
     match role {
         "maintenance_backbone" => 0.50,
@@ -5335,6 +5529,34 @@ mod tests {
     }
 
     #[test]
+    fn multi_scale_generation_exports_macro_meso_and_micro_records() {
+        let saved = generated("ABCD1234").saved_structure();
+        assert_eq!(
+            saved.metadata.macro_massing_count,
+            saved.macro_massing.len()
+        );
+        assert_eq!(
+            saved.metadata.meso_placement_count,
+            saved.meso_placements.len()
+        );
+        assert_eq!(saved.metadata.micro_detail_count, saved.micro_details.len());
+        assert!(!saved.macro_massing.is_empty());
+        assert!(!saved.meso_placements.is_empty());
+        assert!(!saved.micro_details.is_empty());
+        assert!(saved
+            .micro_details
+            .iter()
+            .all(|detail| (0.0..=1.0).contains(&detail.intensity)));
+        assert!(
+            saved.metadata.pattern_counts.contains_key("macro_void")
+                || saved
+                    .metadata
+                    .pattern_counts
+                    .contains_key("macro_density_spine")
+        );
+    }
+
+    #[test]
     fn infrastructure_flows_and_hazards_add_generation_depth() {
         let saved = generated_with(
             "ABCD1234",
@@ -5578,6 +5800,9 @@ mod tests {
             "districts",
             "district_lifecycle",
             "strata",
+            "macro_massing",
+            "meso_placements",
+            "micro_details",
             "district_borders",
             "room_clusters",
             "path_analysis",
@@ -5612,6 +5837,9 @@ mod tests {
             "district_record_count",
             "district_lifecycle_count",
             "stratum_record_count",
+            "macro_massing_count",
+            "meso_placement_count",
+            "micro_detail_count",
             "district_border_count",
             "room_cluster_count",
             "infrastructure_flow_count",

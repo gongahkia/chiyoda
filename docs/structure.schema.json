@@ -12,6 +12,9 @@
     "rooms",
     "transit_graph",
     "district_lifecycle",
+    "macro_massing",
+    "meso_placements",
+    "micro_details",
     "path_analysis",
     "route_simulation",
     "hazard_zones",
@@ -103,6 +106,15 @@
           "density_bias": { "type": "number", "exclusiveMinimum": 0 }
         }
       }
+    },
+    "macro_massing": {
+      "type": "array"
+    },
+    "meso_placements": {
+      "type": "array"
+    },
+    "micro_details": {
+      "type": "array"
     },
     "route_simulation": {
       "type": "array",

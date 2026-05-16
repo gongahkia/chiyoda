@@ -25,6 +25,7 @@ Example exports are checked in under `examples/exports/` for `balanced`, `decaye
 - `districts`: district records with bounds, occupancy, grammar, and generated feature summaries.
 - `district_lifecycle`: district age, maintenance, occupancy, control, and derived generation biases.
 - `strata`: vertical strata records for underground, surface, midrise, and skyline logic.
+- `macro_massing`, `meso_placements`, `micro_details`: multi-scale generation summaries for massing voids/spines, route/cluster shaping, and corridor details.
 - `district_borders`: generated transition zones between adjacent districts.
 - `room_clusters`: grouped rooms such as market strips, habitation blocks, shrine pockets, and data-vault compounds.
 - `path_analysis`: traversal quality summary and main service-to-skyline mission path.

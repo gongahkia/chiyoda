@@ -103,6 +103,56 @@ pub fn validate_structure(structure: &SavedStructure) -> StructureResult<()> {
             ensure(value > 0.0, "district lifecycle bias must be positive")?;
         }
     }
+    for massing in &structure.macro_massing {
+        ensure_point(
+            massing.bounds_min,
+            structure.size,
+            structure.layers,
+            "macro massing",
+        )?;
+        ensure_point(
+            massing.bounds_max,
+            structure.size,
+            structure.layers,
+            "macro massing",
+        )?;
+        ensure(
+            (0.0..=1.0).contains(&massing.void_ratio),
+            "macro void ratio out of range",
+        )?;
+    }
+    for placement in &structure.meso_placements {
+        ensure_point(
+            placement.anchor,
+            structure.size,
+            structure.layers,
+            "meso placement",
+        )?;
+        if let Some(route_id) = placement.route_id {
+            ensure(
+                route_id < structure.transit_graph.edges.len(),
+                "meso placement invalid route",
+            )?;
+        }
+        if let Some(cluster_id) = placement.cluster_id {
+            ensure(
+                cluster_id < structure.room_clusters.len(),
+                "meso placement invalid cluster",
+            )?;
+        }
+    }
+    for detail in &structure.micro_details {
+        ensure_point(
+            detail.position,
+            structure.size,
+            structure.layers,
+            "micro detail",
+        )?;
+        ensure(
+            (0.0..=1.0).contains(&detail.intensity),
+            "micro detail intensity out of range",
+        )?;
+    }
     for edge in &structure.transit_graph.edges {
         ensure(
             edge.id < structure.transit_graph.edges.len(),

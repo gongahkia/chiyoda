@@ -107,6 +107,35 @@ pub struct StratumRecord {
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct MacroMassingRecord {
+    pub id: usize,
+    pub kind: String,
+    pub bounds_min: [usize; 3],
+    pub bounds_max: [usize; 3],
+    pub district: String,
+    pub void_ratio: f32,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct MesoPlacementRecord {
+    pub id: usize,
+    pub kind: String,
+    pub route_id: Option<usize>,
+    pub cluster_id: Option<usize>,
+    pub anchor: [usize; 3],
+    pub influence_radius: usize,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct MicroDetailRecord {
+    pub id: usize,
+    pub kind: String,
+    pub position: [usize; 3],
+    pub route_id: Option<usize>,
+    pub intensity: f32,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct DistrictBorderRecord {
     pub id: usize,
     pub from_district: String,
@@ -289,6 +318,9 @@ pub struct SavedStructure {
     pub districts: Vec<DistrictRecord>,
     pub district_lifecycle: Vec<DistrictLifecycleRecord>,
     pub strata: Vec<StratumRecord>,
+    pub macro_massing: Vec<MacroMassingRecord>,
+    pub meso_placements: Vec<MesoPlacementRecord>,
+    pub micro_details: Vec<MicroDetailRecord>,
     pub district_borders: Vec<DistrictBorderRecord>,
     pub room_clusters: Vec<RoomClusterRecord>,
     pub path_analysis: PathAnalysisRecord,
@@ -323,6 +355,9 @@ pub struct StructureMetadata {
     pub district_record_count: usize,
     pub district_lifecycle_count: usize,
     pub stratum_record_count: usize,
+    pub macro_massing_count: usize,
+    pub meso_placement_count: usize,
+    pub micro_detail_count: usize,
     pub district_border_count: usize,
     pub room_cluster_count: usize,
     pub infrastructure_flow_count: usize,
