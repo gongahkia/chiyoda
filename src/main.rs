@@ -1,7 +1,7 @@
 use gibson_rust::bundle::create_bundle;
 use gibson_rust::cli::{usage, RuntimeOptions};
 use gibson_rust::generation::generate_saved_structure;
-use gibson_rust::inspect::render_inspection;
+use gibson_rust::inspect::{render_inspection, render_inspection_json};
 use gibson_rust::scenario::{generate_scenario, save_scenario};
 use gibson_rust::structure::{self, CURRENT_SEED_FILE};
 use gibson_rust::validation::validate_file;
@@ -83,6 +83,13 @@ fn inspect_saved_structure(options: &RuntimeOptions) -> structure::StructureResu
         .as_ref()
         .expect("inspect path checked before dispatch");
     let saved = structure::load_structure(path)?;
-    println!("{}", render_inspection(&saved, &options.inspect_sections));
+    if options.inspect_json {
+        println!(
+            "{}",
+            render_inspection_json(&saved, &options.inspect_sections)?
+        );
+    } else {
+        println!("{}", render_inspection(&saved, &options.inspect_sections));
+    }
     Ok(())
 }

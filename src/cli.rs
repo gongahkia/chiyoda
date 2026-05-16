@@ -12,6 +12,10 @@ pub enum InspectSection {
     Routes,
     Landmarks,
     Path,
+    Simulation,
+    Factions,
+    Hazards,
+    Quality,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -25,6 +29,7 @@ pub struct RuntimeOptions {
     pub validate_path: Option<PathBuf>,
     pub inspect_path: Option<PathBuf>,
     pub inspect_sections: Vec<InspectSection>,
+    pub inspect_json: bool,
 }
 
 impl RuntimeOptions {
@@ -44,6 +49,7 @@ impl RuntimeOptions {
         let mut validate_path = None;
         let mut inspect_path = None;
         let mut inspect_sections = Vec::new();
+        let mut inspect_json = false;
 
         let mut args = args.into_iter();
         while let Some(arg) = args.next() {
@@ -70,6 +76,11 @@ impl RuntimeOptions {
                 "--routes" => inspect_sections.push(InspectSection::Routes),
                 "--landmarks" => inspect_sections.push(InspectSection::Landmarks),
                 "--path" => inspect_sections.push(InspectSection::Path),
+                "--simulation" => inspect_sections.push(InspectSection::Simulation),
+                "--factions" => inspect_sections.push(InspectSection::Factions),
+                "--hazards" => inspect_sections.push(InspectSection::Hazards),
+                "--quality" => inspect_sections.push(InspectSection::Quality),
+                "--json" => inspect_json = true,
                 "--help" | "-h" => return Err(invalid_input(usage())),
                 value if value.starts_with("--") => {
                     return Err(invalid_input(format!("unknown option '{value}'")));
@@ -115,6 +126,7 @@ impl RuntimeOptions {
             validate_path,
             inspect_path,
             inspect_sections,
+            inspect_json,
         })
     }
 }
@@ -129,7 +141,7 @@ fn invalid_input(message: impl Into<String>) -> Box<dyn Error + Send + Sync> {
 }
 
 pub fn usage() -> &'static str {
-    "Usage: gibson-rust [SEED] [--seed SEED] [--profile balanced|dense|vertical|decayed|neon] [--config path.json] [--export path.json] [--scenario scenario.json] [--bundle out/] [--headless] [--validate artifact.json] [--inspect structure.json] [--summary] [--routes] [--landmarks] [--path]"
+    "Usage: gibson-rust [SEED] [--seed SEED] [--profile balanced|dense|vertical|decayed|neon] [--config path.json] [--export path.json] [--scenario scenario.json] [--bundle out/] [--headless] [--validate artifact.json] [--inspect structure.json] [--summary] [--routes] [--landmarks] [--path] [--simulation] [--factions] [--hazards] [--quality] [--json]"
 }
 
 #[cfg(test)]
@@ -220,6 +232,8 @@ mod tests {
             "--routes".to_owned(),
             "--landmarks".to_owned(),
             "--path".to_owned(),
+            "--simulation".to_owned(),
+            "--json".to_owned(),
         ])
         .unwrap();
 
@@ -229,9 +243,11 @@ mod tests {
             vec![
                 InspectSection::Routes,
                 InspectSection::Landmarks,
-                InspectSection::Path
+                InspectSection::Path,
+                InspectSection::Simulation
             ]
         );
+        assert!(options.inspect_json);
     }
 
     #[test]
