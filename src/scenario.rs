@@ -20,6 +20,10 @@ pub struct ScenarioRecord {
     pub faction_choices: Vec<ScenarioFactionChoiceRecord>,
     pub hazard_timings: Vec<ScenarioHazardTimingRecord>,
     pub resource_objectives: Vec<ScenarioResourceObjectiveRecord>,
+    pub difficulty_score: f32,
+    pub estimated_duration_minutes: usize,
+    pub risk_breakdown: ScenarioRiskBreakdownRecord,
+    pub balance_notes: Vec<String>,
     pub failure_states: Vec<String>,
     pub alternate_endings: Vec<ScenarioEndingRecord>,
 }
@@ -90,6 +94,15 @@ pub struct ScenarioResourceObjectiveRecord {
     pub outage: bool,
 }
 
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct ScenarioRiskBreakdownRecord {
+    pub route_risk: f32,
+    pub hazard_risk: f32,
+    pub faction_risk: f32,
+    pub resource_risk: f32,
+    pub objective_complexity: f32,
+}
+
 pub fn generate_scenario(structure: &SavedStructure) -> ScenarioRecord {
     let main_path = structure.path_analysis.main_path.as_ref();
     let start =
@@ -133,6 +146,15 @@ pub fn generate_scenario(structure: &SavedStructure) -> ScenarioRecord {
         })
         .collect();
     let objective_chains = objective_chains(&objective_route_ids, &objective_room_ids, &landmarks);
+    let risk_breakdown = risk_breakdown(
+        structure,
+        &objective_route_ids,
+        &hazard_ids,
+        &faction_conflicts,
+    );
+    let difficulty_score = scenario_difficulty(&risk_breakdown);
+    let estimated_duration_minutes =
+        estimated_duration_minutes(&objective_route_ids, &objective_room_ids, difficulty_score);
     ScenarioRecord {
         schema_version: "gibson.scenario.v3".to_owned(),
         seed: structure.seed.clone(),
@@ -150,6 +172,10 @@ pub fn generate_scenario(structure: &SavedStructure) -> ScenarioRecord {
         faction_choices: faction_choices(structure, &faction_conflicts),
         hazard_timings: hazard_timings(structure, &hazard_ids),
         resource_objectives: resource_objectives(structure),
+        difficulty_score,
+        estimated_duration_minutes,
+        risk_breakdown: risk_breakdown.clone(),
+        balance_notes: balance_notes(difficulty_score, &risk_breakdown),
         failure_states: failure_states(structure),
         alternate_endings: alternate_endings(structure),
     }
@@ -324,6 +350,91 @@ fn resource_objective(
     }
 }
 
+fn risk_breakdown(
+    structure: &SavedStructure,
+    objective_route_ids: &[usize],
+    hazard_ids: &[usize],
+    conflicts: &[ScenarioConflictRecord],
+) -> ScenarioRiskBreakdownRecord {
+    let route_risks: Vec<_> = objective_route_ids
+        .iter()
+        .filter_map(|route_id| structure.route_simulation.get(*route_id))
+        .map(|simulation| 1.0 - simulation.evacuation_viability)
+        .collect();
+    let route_risk = average(&route_risks);
+    let hazard_risk = hazard_ids
+        .iter()
+        .filter_map(|hazard_id| structure.hazard_zones.get(*hazard_id))
+        .map(|hazard| hazard.severity)
+        .fold(0.0, f32::max);
+    let faction_risk = conflicts
+        .iter()
+        .map(|conflict| conflict.intensity)
+        .fold(0.0, f32::max);
+    let resource_risk = structure
+        .resource_networks
+        .iter()
+        .map(|network| {
+            let overload_pressure = (network.load / network.capacity - 1.0).max(0.0);
+            if network.outage {
+                0.70 + overload_pressure * 0.20
+            } else {
+                overload_pressure * 0.35
+            }
+        })
+        .fold(0.0, f32::max)
+        .clamp(0.0, 1.0);
+    let objective_complexity = (objective_route_ids.len() as f32 / 12.0
+        + structure.path_analysis.dead_end_count as f32 * 0.015)
+        .clamp(0.0, 1.0);
+
+    ScenarioRiskBreakdownRecord {
+        route_risk,
+        hazard_risk,
+        faction_risk,
+        resource_risk,
+        objective_complexity,
+    }
+}
+
+fn scenario_difficulty(risk: &ScenarioRiskBreakdownRecord) -> f32 {
+    (risk.route_risk * 0.28
+        + risk.hazard_risk * 0.22
+        + risk.faction_risk * 0.18
+        + risk.resource_risk * 0.18
+        + risk.objective_complexity * 0.14)
+        .clamp(0.0, 1.0)
+}
+
+fn estimated_duration_minutes(route_ids: &[usize], room_ids: &[usize], difficulty: f32) -> usize {
+    (18.0 + route_ids.len() as f32 * 3.0 + room_ids.len() as f32 * 0.35 + difficulty * 28.0)
+        .round()
+        .max(1.0) as usize
+}
+
+fn balance_notes(difficulty: f32, risk: &ScenarioRiskBreakdownRecord) -> Vec<String> {
+    let mut notes = vec![format!(
+        "difficulty {:.2} from route, hazard, faction, resource, and objective pressure",
+        difficulty
+    )];
+    if risk.resource_risk > 0.6 {
+        notes.push("resource outage pressure should become an explicit mission branch".to_owned());
+    }
+    if risk.hazard_risk > 0.6 {
+        notes.push("severe hazards require alternate route visibility".to_owned());
+    }
+    if risk.route_risk > 0.45 {
+        notes.push("route viability is low enough to reward bypass discovery".to_owned());
+    }
+    if risk.faction_risk > 0.6 {
+        notes.push("faction conflict can support negotiation or stealth choices".to_owned());
+    }
+    if notes.len() == 1 {
+        notes.push("scenario stays inside standard traversal bounds".to_owned());
+    }
+    notes
+}
+
 fn failure_states(structure: &SavedStructure) -> Vec<String> {
     vec![
         "objective route collapses before alternate path is found".to_owned(),
@@ -358,6 +469,14 @@ fn alternate_endings(structure: &SavedStructure) -> Vec<ScenarioEndingRecord> {
             consequence: "the skyline vault becomes a new landmark for sequel exports".to_owned(),
         },
     ]
+}
+
+fn average(values: &[f32]) -> f32 {
+    if values.is_empty() {
+        0.0
+    } else {
+        values.iter().sum::<f32>() / values.len() as f32
+    }
 }
 
 fn slice_ids(ids: &[usize], start: usize, end: usize) -> Vec<usize> {
@@ -412,6 +531,9 @@ mod tests {
         assert!(!scenario.route_constraints.is_empty());
         assert!(!scenario.hazard_timings.is_empty());
         assert!(!scenario.resource_objectives.is_empty());
+        assert!((0.0..=1.0).contains(&scenario.difficulty_score));
+        assert!(scenario.estimated_duration_minutes > 0);
+        assert!(!scenario.balance_notes.is_empty());
         assert!(!scenario.alternate_endings.is_empty());
         assert!(to_json(&scenario).unwrap().contains("faction_conflicts"));
     }

@@ -333,6 +333,27 @@ pub fn validate_scenario(scenario: &ScenarioRecord) -> StructureResult<()> {
         "scenario has no resource objectives",
     )?;
     ensure(
+        (0.0..=1.0).contains(&scenario.difficulty_score),
+        "scenario difficulty score out of range",
+    )?;
+    ensure(
+        scenario.estimated_duration_minutes > 0,
+        "scenario duration estimate must be positive",
+    )?;
+    ensure(
+        !scenario.balance_notes.is_empty(),
+        "scenario has no balance notes",
+    )?;
+    for value in [
+        scenario.risk_breakdown.route_risk,
+        scenario.risk_breakdown.hazard_risk,
+        scenario.risk_breakdown.faction_risk,
+        scenario.risk_breakdown.resource_risk,
+        scenario.risk_breakdown.objective_complexity,
+    ] {
+        ensure((0.0..=1.0).contains(&value), "scenario risk out of range")?;
+    }
+    ensure(
         !scenario.alternate_endings.is_empty(),
         "scenario has no alternate endings",
     )?;
