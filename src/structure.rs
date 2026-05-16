@@ -258,6 +258,16 @@ pub struct StructuralSystemRecord {
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct FailurePropagationRecord {
+    pub id: usize,
+    pub origin: [usize; 3],
+    pub radius: usize,
+    pub severity: f32,
+    pub affected_route_ids: Vec<usize>,
+    pub affected_deck_count: usize,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct FactionRecord {
     pub id: usize,
     pub name: String,
@@ -343,6 +353,7 @@ pub struct SavedStructure {
     pub resource_networks: Vec<ResourceNetworkRecord>,
     pub hazard_zones: Vec<HazardZoneRecord>,
     pub structural_system: StructuralSystemRecord,
+    pub failure_zones: Vec<FailurePropagationRecord>,
     pub factions: Vec<FactionRecord>,
     pub territories: Vec<TerritoryRecord>,
     pub contested_borders: Vec<ContestedBorderRecord>,
@@ -382,6 +393,7 @@ pub struct StructureMetadata {
     pub structural_rating_count: usize,
     pub load_bearing_frame_count: usize,
     pub suspended_deck_count: usize,
+    pub failure_zone_count: usize,
     pub faction_count: usize,
     pub territory_count: usize,
     pub contested_border_count: usize,

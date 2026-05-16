@@ -228,6 +228,7 @@
     "structural_rating_count": 34,
     "load_bearing_frame_count": 2451,
     "suspended_deck_count": 457,
+    "failure_zone_count": 2,
     "faction_count": 5,
     "territory_count": 145,
     "contested_border_count": 117,
@@ -71977,7 +71978,7 @@
     "reachable_landmark_count": 14,
     "faction_territory_connectivity": 0.7586207,
     "main_path_room_reachability": 1.0,
-    "quality_score": 0.9655172,
+    "quality_score": 0.94616723,
     "high_centrality_route_ids": [
       17,
       14,
@@ -74535,7 +74536,7 @@
       "route_id": 1,
       "civilian_density": 0.75299996,
       "security_pressure": 0.62,
-      "blackout_risk": 0.2,
+      "blackout_risk": 0.27740002,
       "market_congestion": 0.415,
       "evacuation_viability": 1.0,
       "active_phase_ids": [
@@ -74546,7 +74547,7 @@
       "route_id": 2,
       "civilian_density": 0.75299996,
       "security_pressure": 0.62,
-      "blackout_risk": 0.2,
+      "blackout_risk": 0.27740002,
       "market_congestion": 0.415,
       "evacuation_viability": 1.0,
       "active_phase_ids": [
@@ -74568,7 +74569,7 @@
       "route_id": 4,
       "civilian_density": 0.75299996,
       "security_pressure": 0.62,
-      "blackout_risk": 0.2,
+      "blackout_risk": 0.27740002,
       "market_congestion": 0.415,
       "evacuation_viability": 1.0,
       "active_phase_ids": [
@@ -74579,9 +74580,9 @@
       "route_id": 5,
       "civilian_density": 0.75299996,
       "security_pressure": 0.7642,
-      "blackout_risk": 0.3854,
+      "blackout_risk": 0.4628,
       "market_congestion": 0.415,
-      "evacuation_viability": 0.94674397,
+      "evacuation_viability": 0.804844,
       "active_phase_ids": [
         2
       ]
@@ -74625,9 +74626,9 @@
       "route_id": 9,
       "civilian_density": 0.63400006,
       "security_pressure": 0.22,
-      "blackout_risk": 0.65999997,
+      "blackout_risk": 0.73739994,
       "market_congestion": 0.53,
-      "evacuation_viability": 0.9604,
+      "evacuation_viability": 0.8185,
       "active_phase_ids": [
         0,
         3
@@ -74649,9 +74650,9 @@
       "route_id": 11,
       "civilian_density": 0.41099998,
       "security_pressure": 0.22,
-      "blackout_risk": 0.65999997,
+      "blackout_risk": 0.73739994,
       "market_congestion": 0.485,
-      "evacuation_viability": 0.9604,
+      "evacuation_viability": 0.8185,
       "active_phase_ids": [
         0,
         4
@@ -92675,6 +92676,7 @@
       ]
     ],
     "support_dependency_summary": {
+      "failure_zones": 2,
       "foundation_zones": 766,
       "hazard_zones": 3,
       "load_bearing_frames": 2451,
@@ -92694,7 +92696,7 @@
       {
         "target_type": "district",
         "target_id": "RESIDENTIAL",
-        "rating": 0.78946054,
+        "rating": 0.72946054,
         "load_bearing_frames": 356,
         "foundation_cells": 125,
         "suspended_decks": 87,
@@ -92704,7 +92706,7 @@
       {
         "target_type": "district",
         "target_id": "COMMERCIAL",
-        "rating": 0.81918985,
+        "rating": 0.75918984,
         "load_bearing_frames": 280,
         "foundation_cells": 114,
         "suspended_decks": 114,
@@ -92734,7 +92736,7 @@
       {
         "target_type": "stratum",
         "target_id": "UNDERGROUND",
-        "rating": 0.6407459,
+        "rating": 0.5807459,
         "load_bearing_frames": 926,
         "foundation_cells": 766,
         "suspended_decks": 23,
@@ -92744,7 +92746,7 @@
       {
         "target_type": "stratum",
         "target_id": "SURFACE",
-        "rating": 0.41045594,
+        "rating": 0.35045594,
         "load_bearing_frames": 710,
         "foundation_cells": 0,
         "suspended_decks": 162,
@@ -92784,7 +92786,7 @@
       {
         "target_type": "route",
         "target_id": "1",
-        "rating": 0.70502347,
+        "rating": 0.64502347,
         "load_bearing_frames": 4,
         "foundation_cells": 2,
         "suspended_decks": 0,
@@ -92794,7 +92796,7 @@
       {
         "target_type": "route",
         "target_id": "2",
-        "rating": 0.9,
+        "rating": 0.78,
         "load_bearing_frames": 15,
         "foundation_cells": 6,
         "suspended_decks": 0,
@@ -92814,7 +92816,7 @@
       {
         "target_type": "route",
         "target_id": "4",
-        "rating": 0.9,
+        "rating": 0.84,
         "load_bearing_frames": 20,
         "foundation_cells": 4,
         "suspended_decks": 0,
@@ -92824,12 +92826,12 @@
       {
         "target_type": "route",
         "target_id": "5",
-        "rating": 0.84,
+        "rating": 0.71999997,
         "load_bearing_frames": 11,
         "foundation_cells": 7,
         "suspended_decks": 0,
         "cantilever_risk": 0.0,
-        "support_dependency": "redundant frame grid"
+        "support_dependency": "localized support dependency"
       },
       {
         "target_type": "route",
@@ -92864,7 +92866,7 @@
       {
         "target_type": "route",
         "target_id": "9",
-        "rating": 0.9,
+        "rating": 0.84,
         "load_bearing_frames": 194,
         "foundation_cells": 61,
         "suspended_decks": 0,
@@ -92884,7 +92886,7 @@
       {
         "target_type": "route",
         "target_id": "11",
-        "rating": 0.9,
+        "rating": 0.84,
         "load_bearing_frames": 89,
         "foundation_cells": 29,
         "suspended_decks": 0,
@@ -93023,6 +93025,42 @@
       }
     ]
   },
+  "failure_zones": [
+    {
+      "id": 0,
+      "origin": [
+        6,
+        7,
+        20
+      ],
+      "radius": 5,
+      "severity": 0.645,
+      "affected_route_ids": [
+        1,
+        2,
+        4,
+        5
+      ],
+      "affected_deck_count": 7
+    },
+    {
+      "id": 1,
+      "origin": [
+        9,
+        3,
+        25
+      ],
+      "radius": 5,
+      "severity": 0.645,
+      "affected_route_ids": [
+        2,
+        5,
+        9,
+        11
+      ],
+      "affected_deck_count": 9
+    }
+  ],
   "factions": [
     {
       "id": 0,

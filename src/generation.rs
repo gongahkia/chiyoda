@@ -5,11 +5,11 @@ use crate::config::GenerationConfig;
 use crate::seed::{seed_hash, Rng32};
 use crate::structure::{
     self, ConnectionRecord, ContestedBorderRecord, DistrictBorderRecord, DistrictLifecycleRecord,
-    DistrictRecord, FactionRecord, HazardZoneRecord, InfrastructureFlowRecord, MacroMassingRecord,
-    MesoPlacementRecord, MicroDetailRecord, MissionPathRecord, NarrativeLandmarkRecord,
-    PathAnalysisRecord, ResourceNetworkRecord, RoomClusterRecord, RoomRecord,
-    RouteSimulationRecord, SavedStructure, StabilityRatingRecord, StratumRecord,
-    StructuralSystemRecord, StructureMetadata, StructureResult, TemporalPhaseRecord,
+    DistrictRecord, FactionRecord, FailurePropagationRecord, HazardZoneRecord,
+    InfrastructureFlowRecord, MacroMassingRecord, MesoPlacementRecord, MicroDetailRecord,
+    MissionPathRecord, NarrativeLandmarkRecord, PathAnalysisRecord, ResourceNetworkRecord,
+    RoomClusterRecord, RoomRecord, RouteSimulationRecord, SavedStructure, StabilityRatingRecord,
+    StratumRecord, StructuralSystemRecord, StructureMetadata, StructureResult, TemporalPhaseRecord,
     TemporalStateRecord, TerritoryRecord, TransitAttachmentRecord, TransitEdgeRecord,
     TransitGraphRecord, TransitNodeRecord, STRUCTURE_SCHEMA_VERSION,
 };
@@ -2588,6 +2588,7 @@ impl MegaStructureGenerator {
             let lifecycle = self.lifecycle_for_district(district, 0.5);
             let probability = hazard_probability_for_role(&edge.role)
                 * lifecycle.decay_bias
+                * (1.0 + self.failure_pressure_at(anchor) * 0.45)
                 * self.config.decay_story_density;
             if hash_noise(self.seed_hash, edge.id, edge.length, self.layers)
                 > probability.clamp(0.0, 0.95)
@@ -3370,6 +3371,74 @@ impl MegaStructureGenerator {
         records
     }
 
+    fn failure_propagation_records(&self) -> Vec<FailurePropagationRecord> {
+        let mut records = Vec::new();
+        for connection in self
+            .connections
+            .iter()
+            .filter(|connection| connection.kind == "collapse_scar")
+        {
+            let origin = connection.start;
+            let radius = (3.0 + self.config.erosion_strength * 2.0).round() as usize;
+            let affected_route_ids = self.nearby_route_ids(origin, radius + 3);
+            let affected_deck_count = self
+                .transit_edges
+                .iter()
+                .flat_map(|edge| edge.points.iter())
+                .filter(|point| {
+                    point[0].abs_diff(origin[0])
+                        + point[1].abs_diff(origin[1])
+                        + point[2].abs_diff(origin[2])
+                        <= radius
+                })
+                .count();
+            records.push(FailurePropagationRecord {
+                id: records.len(),
+                origin,
+                radius,
+                severity: (0.35
+                    + self.config.erosion_strength * 0.18
+                    + affected_route_ids.len() as f32 * 0.04)
+                    .clamp(0.0, 1.0),
+                affected_route_ids,
+                affected_deck_count,
+            });
+        }
+        for hazard in self
+            .hazard_zones
+            .iter()
+            .filter(|hazard| hazard.kind == "unstable_span")
+        {
+            let origin = [
+                (hazard.bounds_min[0] + hazard.bounds_max[0]) / 2,
+                (hazard.bounds_min[1] + hazard.bounds_max[1]) / 2,
+                (hazard.bounds_min[2] + hazard.bounds_max[2]) / 2,
+            ];
+            records.push(FailurePropagationRecord {
+                id: records.len(),
+                origin,
+                radius: 4,
+                severity: hazard.severity,
+                affected_route_ids: hazard.route_ids.clone(),
+                affected_deck_count: hazard.room_ids.len(),
+            });
+        }
+        records
+    }
+
+    fn failure_pressure_at(&self, point: [usize; 3]) -> f32 {
+        self.connections
+            .iter()
+            .filter(|connection| connection.kind == "collapse_scar")
+            .map(|connection| {
+                let distance = connection.start[0].abs_diff(point[0])
+                    + connection.start[1].abs_diff(point[1])
+                    + connection.start[2].abs_diff(point[2]);
+                (1.0 - distance as f32 / 10.0).clamp(0.0, 1.0)
+            })
+            .fold(0.0, f32::max)
+    }
+
     fn room_clusters(&self) -> (Vec<RoomClusterRecord>, Vec<Option<usize>>) {
         #[derive(Default)]
         struct ClusterBuilder {
@@ -3564,6 +3633,7 @@ impl MegaStructureGenerator {
         rooms: &[RoomRecord],
         territories: &[TerritoryRecord],
         landmarks: &[NarrativeLandmarkRecord],
+        failure_zones: &[FailurePropagationRecord],
     ) -> PathAnalysisRecord {
         let valid_route_ids: BTreeSet<_> = self.transit_edges.iter().map(|edge| edge.id).collect();
         analysis.reachable_landmark_count = landmarks
@@ -3623,6 +3693,13 @@ impl MegaStructureGenerator {
             + analysis.main_path_room_reachability)
             / 7.0)
             .clamp(0.0, 1.0);
+        let failure_penalty = (failure_zones
+            .iter()
+            .map(|failure| failure.severity)
+            .sum::<f32>()
+            * 0.015)
+            .clamp(0.0, 0.18);
+        analysis.quality_score = (analysis.quality_score - failure_penalty).clamp(0.0, 1.0);
         analysis
     }
 
@@ -3688,6 +3765,7 @@ impl MegaStructureGenerator {
         let mut foundations = Vec::new();
         let mut suspended_decks = Vec::new();
         let mut dependency_summary = BTreeMap::new();
+        let failure_zones = self.failure_propagation_records();
 
         for x in 0..self.size {
             for z in 0..self.size {
@@ -3724,9 +3802,15 @@ impl MegaStructureGenerator {
         dependency_summary.insert("load_bearing_frames".to_owned(), frames.len());
         dependency_summary.insert("suspended_decks".to_owned(), suspended_decks.len());
         dependency_summary.insert("hazard_zones".to_owned(), self.hazard_zones.len());
+        dependency_summary.insert("failure_zones".to_owned(), failure_zones.len());
 
         StructuralSystemRecord {
-            stability_ratings: self.stability_ratings(&frames, &foundations, &suspended_decks),
+            stability_ratings: self.stability_ratings(
+                &frames,
+                &foundations,
+                &suspended_decks,
+                &failure_zones,
+            ),
             load_bearing_frames: frames,
             foundation_zones: foundations,
             suspended_decks,
@@ -3739,6 +3823,7 @@ impl MegaStructureGenerator {
         frames: &[[usize; 3]],
         foundations: &[[usize; 2]],
         suspended_decks: &[[usize; 3]],
+        failure_zones: &[FailurePropagationRecord],
     ) -> Vec<StabilityRatingRecord> {
         let mut ratings = Vec::new();
         for district in [
@@ -3772,6 +3857,12 @@ impl MegaStructureGenerator {
                     self.district_at(hazard.bounds_min[0], hazard.bounds_min[2]) == district
                 })
                 .count();
+            let failure_count = failure_zones
+                .iter()
+                .filter(|failure| {
+                    self.district_at(failure.origin[0], failure.origin[2]) == district
+                })
+                .count();
             let cantilever_risk = (suspended_count as f32
                 / (frame_count + foundation_count + 1) as f32)
                 .clamp(0.0, 1.0);
@@ -3780,7 +3871,7 @@ impl MegaStructureGenerator {
                 foundation_count,
                 footprint,
                 cantilever_risk,
-                hazard_count,
+                hazard_count + failure_count,
             );
             ratings.push(StabilityRatingRecord {
                 target_type: "district".to_owned(),
@@ -3822,6 +3913,10 @@ impl MegaStructureGenerator {
                 .iter()
                 .filter(|hazard| self.stratum_at(hazard.bounds_min[1]) == stratum)
                 .count();
+            let failure_count = failure_zones
+                .iter()
+                .filter(|failure| self.stratum_at(failure.origin[1]) == stratum)
+                .count();
             let cantilever_risk = (suspended_count as f32
                 / (frame_count + foundation_count + 1) as f32)
                 .clamp(0.0, 1.0);
@@ -3830,7 +3925,7 @@ impl MegaStructureGenerator {
                 foundation_count,
                 footprint,
                 cantilever_risk,
-                hazard_count,
+                hazard_count + failure_count,
             );
             ratings.push(StabilityRatingRecord {
                 target_type: "stratum".to_owned(),
@@ -3871,6 +3966,10 @@ impl MegaStructureGenerator {
                 .iter()
                 .filter(|hazard| hazard.route_ids.contains(&edge.id))
                 .count();
+            let failure_count = failure_zones
+                .iter()
+                .filter(|failure| failure.affected_route_ids.contains(&edge.id))
+                .count();
             let cantilever_risk =
                 (suspended_count as f32 / edge.points.len().max(1) as f32).clamp(0.0, 1.0);
             let rating = structural_rating(
@@ -3878,7 +3977,7 @@ impl MegaStructureGenerator {
                 foundation_count,
                 edge.points.len().max(1),
                 cantilever_risk,
-                hazard_count,
+                hazard_count + failure_count,
             );
             ratings.push(StabilityRatingRecord {
                 target_type: "route".to_owned(),
@@ -4147,6 +4246,7 @@ impl MegaStructureGenerator {
         &self,
         temporal_state: &TemporalStateRecord,
         resource_networks: &[ResourceNetworkRecord],
+        failure_zones: &[FailurePropagationRecord],
     ) -> Vec<RouteSimulationRecord> {
         self.transit_edges
             .iter()
@@ -4172,14 +4272,17 @@ impl MegaStructureGenerator {
                 let civilian_density = route_civilian_density(edge, attachment_count);
                 let security_pressure = route_security_pressure(edge, hazard_pressure);
                 let outage_pressure = resource_outage_pressure(edge.id, resource_networks);
+                let failure_pressure = route_failure_pressure(edge.id, failure_zones);
                 let blackout_risk = (route_blackout_risk(edge, hazard_pressure, temporal_state)
-                    + outage_pressure * 0.24)
+                    + outage_pressure * 0.24
+                    + failure_pressure * 0.12)
                     .clamp(0.0, 1.0);
                 let market_congestion = route_market_congestion(edge, attachment_count);
                 let evacuation_viability = (1.0
                     - hazard_pressure * 0.38
                     - security_pressure * 0.18
                     - outage_pressure * 0.18
+                    - failure_pressure * 0.22
                     + if edge.role == "evacuation_route" {
                         0.28
                     } else {
@@ -4333,11 +4436,13 @@ impl MegaStructureGenerator {
         let macro_massing = self.macro_massing_records();
         let meso_placements = self.meso_placement_records(&room_clusters);
         let micro_details = self.micro_detail_records();
+        let failure_zones = self.failure_propagation_records();
         let structural_system = self.structural_system();
         let (factions, territories, contested_borders) = self.ownership_layer(&room_clusters);
         let resource_networks = self.resource_networks();
         let temporal_state = self.temporal_state(&factions, &contested_borders, &resource_networks);
-        let route_simulation = self.route_simulation(&temporal_state, &resource_networks);
+        let route_simulation =
+            self.route_simulation(&temporal_state, &resource_networks, &failure_zones);
         let narrative_landmarks =
             self.narrative_landmarks(&room_clusters, &factions, &contested_borders);
         let rooms: Vec<_> = self
@@ -4354,6 +4459,7 @@ impl MegaStructureGenerator {
             &rooms,
             &territories,
             &narrative_landmarks,
+            &failure_zones,
         );
         let metadata = StructureMetadata {
             schema_version: STRUCTURE_SCHEMA_VERSION.to_owned(),
@@ -4386,6 +4492,7 @@ impl MegaStructureGenerator {
             structural_rating_count: structural_system.stability_ratings.len(),
             load_bearing_frame_count: structural_system.load_bearing_frames.len(),
             suspended_deck_count: structural_system.suspended_decks.len(),
+            failure_zone_count: failure_zones.len(),
             faction_count: factions.len(),
             territory_count: territories.len(),
             contested_border_count: contested_borders.len(),
@@ -4416,6 +4523,7 @@ impl MegaStructureGenerator {
             resource_networks,
             hazard_zones: self.hazard_zones.clone(),
             structural_system,
+            failure_zones,
             factions,
             territories,
             contested_borders,
@@ -5158,6 +5266,14 @@ fn resource_outage_pressure(route_id: usize, networks: &[ResourceNetworkRecord])
         .clamp(0.0, 1.0)
 }
 
+fn route_failure_pressure(route_id: usize, failure_zones: &[FailurePropagationRecord]) -> f32 {
+    failure_zones
+        .iter()
+        .filter(|failure| failure.affected_route_ids.contains(&route_id))
+        .map(|failure| failure.severity)
+        .fold(0.0, f32::max)
+}
+
 fn micro_detail_kind(edge: &TransitEdgeRecord, index: usize) -> &'static str {
     match edge.role.as_str() {
         "restricted_spine" => {
@@ -5710,6 +5826,11 @@ mod tests {
             .structural_system
             .support_dependency_summary
             .contains_key("load_bearing_frames"));
+        assert_eq!(saved.metadata.failure_zone_count, saved.failure_zones.len());
+        assert!(saved
+            .structural_system
+            .support_dependency_summary
+            .contains_key("failure_zones"));
         assert!(saved
             .structural_system
             .stability_ratings
@@ -5720,6 +5841,21 @@ mod tests {
             assert!((0.0..=1.0).contains(&rating.cantilever_risk));
             assert!(!rating.support_dependency.is_empty());
         }
+    }
+
+    #[test]
+    fn structural_failures_propagate_to_routes_and_quality() {
+        let saved = generated("ABCD1234").saved_structure();
+        assert!(!saved.failure_zones.is_empty());
+        assert!(saved
+            .failure_zones
+            .iter()
+            .all(|failure| (0.0..=1.0).contains(&failure.severity)));
+        assert!(saved
+            .failure_zones
+            .iter()
+            .any(|failure| !failure.affected_route_ids.is_empty()));
+        assert!(saved.path_analysis.quality_score <= 1.0);
     }
 
     #[test]
@@ -5925,6 +6061,7 @@ mod tests {
             "resource_networks",
             "hazard_zones",
             "structural_system",
+            "failure_zones",
             "factions",
             "territories",
             "contested_borders",
@@ -5964,6 +6101,7 @@ mod tests {
             "structural_rating_count",
             "load_bearing_frame_count",
             "suspended_deck_count",
+            "failure_zone_count",
             "faction_count",
             "territory_count",
             "contested_border_count",

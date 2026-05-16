@@ -34,6 +34,7 @@ Example exports are checked in under `examples/exports/` for `balanced`, `decaye
 - `resource_networks`: power/data/water/air-style constrained networks with load, capacity, outages, overloads, and reroutes.
 - `hazard_zones`: exported dynamic/structural risks such as blackouts, sumps, and security sweeps.
 - `structural_system`: load-bearing frames, foundations, suspended decks, and stability ratings.
+- `failure_zones`: propagated structural failures from collapse scars and unstable spans.
 - `factions`: faction definitions and influence summaries.
 - `territories`: district/cluster ownership records.
 - `contested_borders`: faction conflicts at district transition zones.

@@ -19,6 +19,7 @@
     "route_simulation",
     "resource_networks",
     "hazard_zones",
+    "failure_zones",
     "factions",
     "temporal_state",
     "narrative_landmarks"
@@ -160,6 +161,21 @@
           "overloaded": { "type": "boolean" },
           "outage": { "type": "boolean" },
           "reroute_route_ids": { "type": "array", "items": { "type": "integer", "minimum": 0 } }
+        }
+      }
+    },
+    "failure_zones": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "origin", "radius", "severity", "affected_route_ids", "affected_deck_count"],
+        "properties": {
+          "id": { "type": "integer", "minimum": 0 },
+          "origin": { "$ref": "#/$defs/point3" },
+          "radius": { "type": "integer", "minimum": 0 },
+          "severity": { "type": "number", "minimum": 0, "maximum": 1 },
+          "affected_route_ids": { "type": "array", "items": { "type": "integer", "minimum": 0 } },
+          "affected_deck_count": { "type": "integer", "minimum": 0 }
         }
       }
     },

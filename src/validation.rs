@@ -241,6 +241,24 @@ pub fn validate_structure(structure: &SavedStructure) -> StructureResult<()> {
             )?;
         }
     }
+    for failure in &structure.failure_zones {
+        ensure_point(
+            failure.origin,
+            structure.size,
+            structure.layers,
+            "failure origin",
+        )?;
+        ensure(
+            (0.0..=1.0).contains(&failure.severity),
+            "failure severity out of range",
+        )?;
+        for route_id in &failure.affected_route_ids {
+            ensure(
+                *route_id < structure.transit_graph.edges.len(),
+                "failure zone references invalid route",
+            )?;
+        }
+    }
 
     ensure(
         structure.path_analysis.guaranteed_service_to_skyline,
