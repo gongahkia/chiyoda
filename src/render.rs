@@ -847,6 +847,26 @@ impl AppState {
         }
     }
 
+    async fn hot_reload_rules(&mut self) {
+        self.rule_browser = rule_browser_entries();
+        self.selected_rule_index = selected_rule_index(&self.rule_browser, self.rule_path.as_ref());
+        let Some(path) = self.rule_path.clone() else {
+            self.rule_status_message = "rescanned rules; no active external rule file".to_owned();
+            return;
+        };
+        match CompiledRulePackSet::from_json_file(&path) {
+            Ok(compiled) => {
+                self.rule_packs = compiled;
+                self.rule_status_message = format!("hot reloaded {}", path.display());
+                let seed = self.current_seed().to_owned();
+                self.regenerate_with_seed(seed).await;
+            }
+            Err(error) => {
+                self.rule_status_message = format!("hot reload failed: {error}");
+            }
+        }
+    }
+
     fn current_seed(&self) -> &str {
         self.generator.seed()
     }
@@ -1239,10 +1259,10 @@ fn draw_overlay(app: &AppState) {
     let controls = [
         "Drag: Rotate | Wheel: Zoom | WASD: Pan",
         "1-5: Presets | TAB: FPS | Space: Jump",
-        "R: Regenerate | S: Screenshot | I: Inspect",
+        "R: Regenerate | H/Shift+R: Reload Rules",
         "G: Rule Browser | P: PostFX | [ ]: Fog",
-        "L: Legend | Y: Labels | T/Z/X/C: Graph/Zone/Strata/Debug",
-        "Q/Esc: Quit",
+        "S: Screenshot | I: Inspect | L/Y: Legend/Labels",
+        "T/Z/X/C: Graph/Zone/Strata/Debug | Q/Esc: Quit",
     ];
     let mut y = 70.0;
     for line in controls {
@@ -1773,6 +1793,10 @@ fn truncate_text(text: &str, max_chars: usize) -> String {
     truncated
 }
 
+fn shift_down() -> bool {
+    is_key_down(KeyCode::LeftShift) || is_key_down(KeyCode::RightShift)
+}
+
 fn active_phase(structure: &SavedStructure) -> Option<&structure::TemporalPhaseRecord> {
     let phases = &structure.temporal_state.phases;
     if phases.is_empty() {
@@ -2029,7 +2053,9 @@ pub async fn run(options: RuntimeOptions) {
                 app.fps = FpsCamera::new(find_fps_spawn(&app.generator));
             }
         }
-        if is_key_pressed(KeyCode::R) {
+        if is_key_pressed(KeyCode::H) || (is_key_pressed(KeyCode::R) && shift_down()) {
+            app.hot_reload_rules().await;
+        } else if is_key_pressed(KeyCode::R) {
             app.regenerate().await;
         }
         if is_key_pressed(KeyCode::S) {
