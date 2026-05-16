@@ -29,7 +29,7 @@ $ cargo run --release -- --validate-rules rules/kowloon-decay.json
 $ cargo run --release -- --seed ABCD1234 --profile decayed --rules rules/kowloon-decay.json --headless --export structure.json
 ```
 
-Profiles are `balanced`, `dense`, `vertical`, `decayed`, and `neon`. JSON config files can override profile defaults with `--config path.json`; checked-in config presets live under `presets/`, and editable procedural rule packs live under `rules/`.
+Profiles are `balanced`, `dense`, `vertical`, `decayed`, and `neon`. JSON config files can override profile defaults with `--config path.json`; checked-in config presets live under `presets/`, and editable procedural rule packs live under `rules/`. For vast cyber-brutalist megastructures, try `rules/abyssal-concrete.json`, `rules/gravity-shaft.json`, `rules/autonomous-builder.json`, `rules/silicon-cathedral.json`, `rules/exclusion-maze.json`, or `rules/bridge-void.json`.
 
 ## Seed
 

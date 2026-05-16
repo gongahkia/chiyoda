@@ -1,0 +1,50 @@
+{
+  "name": "bridge-void",
+  "description": "Sparse megastructure grammar organized around enormous gaps, skybridges, hanging routes, and isolated towers.",
+  "packs": [
+    {
+      "name": "bridge_void_commercial_surface",
+      "profile": "vertical",
+      "district": "COMMERCIAL",
+      "stratum": "SURFACE",
+      "density_weight": 0.7,
+      "route_weight": 1.6,
+      "decay_weight": 0.9,
+      "detail_weight": 0.72,
+      "grammar": ["bridgehead markets", "void ramps", "suspended stalls", "wind barriers"]
+    },
+    {
+      "name": "bridge_void_residential_midrise",
+      "profile": "vertical",
+      "district": "RESIDENTIAL",
+      "stratum": "MIDRISE",
+      "density_weight": 0.72,
+      "route_weight": 1.55,
+      "decay_weight": 1.05,
+      "detail_weight": 0.75,
+      "grammar": ["hanging habitation ribs", "balcony chains", "empty tower gaps", "rope service walks"]
+    },
+    {
+      "name": "bridge_void_elite_skyline",
+      "profile": "vertical",
+      "district": "ELITE",
+      "stratum": "SKYLINE",
+      "density_weight": 0.42,
+      "route_weight": 1.4,
+      "decay_weight": 0.7,
+      "detail_weight": 0.7,
+      "grammar": ["long glass spans", "isolated crown towers", "aerial checkpoints", "antenna needles"]
+    },
+    {
+      "name": "bridge_void_industrial_underground",
+      "profile": "vertical",
+      "district": "INDUSTRIAL",
+      "stratum": "UNDERGROUND",
+      "density_weight": 0.75,
+      "route_weight": 1.25,
+      "decay_weight": 1.25,
+      "detail_weight": 0.75,
+      "grammar": ["deep anchor blocks", "tension cable rooms", "counterweight halls", "void drains"]
+    }
+  ]
+}

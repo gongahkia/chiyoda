@@ -1,0 +1,50 @@
+{
+  "name": "autonomous-builder",
+  "description": "Machine-built infrastructure grammar where construction systems keep expanding beyond human use.",
+  "packs": [
+    {
+      "name": "autonomous_builder_industrial_midrise",
+      "profile": "dense",
+      "district": "INDUSTRIAL",
+      "stratum": "MIDRISE",
+      "density_weight": 1.35,
+      "route_weight": 1.25,
+      "decay_weight": 0.65,
+      "detail_weight": 1.2,
+      "grammar": ["printer gantries", "unfinished support ribs", "crawler service rails", "fresh concrete seams"]
+    },
+    {
+      "name": "autonomous_builder_industrial_skyline",
+      "profile": "dense",
+      "district": "INDUSTRIAL",
+      "stratum": "SKYLINE",
+      "density_weight": 1.2,
+      "route_weight": 1.1,
+      "decay_weight": 0.55,
+      "detail_weight": 1.05,
+      "grammar": ["active crane forests", "fabricator towers", "antenna scaffolds", "unclaimed machine decks"]
+    },
+    {
+      "name": "autonomous_builder_slum_surface",
+      "profile": "dense",
+      "district": "SLUM",
+      "stratum": "SURFACE",
+      "density_weight": 1.45,
+      "route_weight": 1.25,
+      "decay_weight": 0.9,
+      "detail_weight": 1.1,
+      "grammar": ["squatter modules", "stolen machine rooms", "patched conveyor walks", "scrap partitions"]
+    },
+    {
+      "name": "autonomous_builder_commercial_midrise",
+      "profile": "dense",
+      "district": "COMMERCIAL",
+      "stratum": "MIDRISE",
+      "density_weight": 1.15,
+      "route_weight": 1.2,
+      "decay_weight": 0.7,
+      "detail_weight": 1.0,
+      "grammar": ["automated depots", "goods lifts", "sealed vendor capsules", "logistics corridors"]
+    }
+  ]
+}
