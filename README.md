@@ -1,5 +1,6 @@
 [![](https://img.shields.io/badge/gibson_1.0.0-passing-light_green)](https://github.com/gongahkia/gibson/releases/tag/1.0.0) 
 [![](https://img.shields.io/badge/gibson_2.0.0-passing-green)](https://github.com/gongahkia/gibson/releases/tag/2.0.0) 
+[![CI](https://github.com/gongahkia/gibson/actions/workflows/ci.yml/badge.svg)](https://github.com/gongahkia/gibson/actions/workflows/ci.yml)
 
 # `Gibson`
 
@@ -27,13 +28,19 @@ $ cargo run --release -- --seed ABCD1234 --profile dense --headless --export str
 $ cargo run --release -- --seed ABCD1234 --config presets/blackout-core.json --headless --bundle out/blackout
 $ cargo run --release -- --validate-rules rules/kowloon-decay.json
 $ cargo run --release -- --seed ABCD1234 --profile decayed --rules rules/kowloon-decay.json --headless --export structure.json
+$ cargo run --release -- --inspect structure.json --summary --routes --quality
+$ cargo run --release -- --validate structure.json
 ```
 
 Profiles are `balanced`, `dense`, `vertical`, `decayed`, and `neon`. JSON config files can override profile defaults with `--config path.json`; checked-in config presets live under `presets/`, and editable procedural rule packs live under `rules/`. For vast cyber-brutalist megastructures, try `rules/abyssal-concrete.json`, `rules/gravity-shaft.json`, `rules/autonomous-builder.json`, `rules/silicon-cathedral.json`, `rules/exclusion-maze.json`, or `rules/bridge-void.json`.
 
+Interactive controls include `R` to regenerate, `S` for screenshots, `I` to inspect cells, `T/Z/X/C` for semantic overlays, `G` for the in-renderer rule-pack browser, `[` and `]` or arrow keys to switch rule packs while the browser is open, `H` or `Shift+R` to hot reload edited rule JSON, and `E`/`1-4`/`-`/`=`/`O` to edit and export rule weights in-app.
+
+CI runs on every push with `cargo fmt --check`, `cargo test --locked`, `cargo clippy --locked --all-targets --all-features -- -D warnings`, and `cargo build --release --locked`, then uploads the release binary as a workflow artifact.
+
 ## Seed
 
-Randomly generated [megastructure](https://en.wikipedia.org/wiki/Megastructure)s are seeded at `current_seed.txt` and serialised at `structure.json` with generation metadata, counts, profile, config snapshot, circulation routes, strata, and semantic room labels.
+Randomly generated [megastructure](https://en.wikipedia.org/wiki/Megastructure)s are seeded at `current_seed.txt` and serialised at `structure.json` with generation metadata, counts, profile, config snapshot, circulation routes, strata, semantic room labels, resource networks, hazards, rule packs, and rule influence traces.
 
 ## Reference
 
