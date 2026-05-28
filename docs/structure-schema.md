@@ -89,9 +89,9 @@ Valid exports should satisfy the topology quality contract:
 
 ## Typologies
 
-`metadata.typology` and `typology_frame` describe the high-level megastructure family used by the generator. `dense_enclave` preserves the historical Kowloon-like default. Other supported typologies are `arcology_spire`, `linear_city`, `bridge_void`, `marine_platform`, `orbital_ring`, `underground_hive`, `mountain_burrow`, `desert_arcology`, `airport_city`, `dam_city`, and `shipyard_stack`.
+`metadata.typology` and `typology_frame` describe the high-level megastructure family used by the generator. `dense_enclave` preserves the historical Kowloon-like default. Other supported typologies are `arcology_spire`, `linear_city`, `bridge_void`, `marine_platform`, `orbital_ring`, `underground_hive`, `mountain_burrow`, `desert_arcology`, `airport_city`, `dam_city`, `shipyard_stack`, `volcanic_caldera`, `ice_shelf_city`, `canopy_babel`, `space_elevator_anchor`, `crawler_city`, `reef_atoll_arcology`, `stratosphere_platform`, and `sinkhole_citadel`.
 
-The typology frame exports primary axes, spine anchors, void bands, habitat bands, service anchors, and traversal contracts. Generation phases use this frame to bias district placement, occupancy, macro massing, and route roles such as `linear_express`, `station_loop`, `void_bridge`, `marine_causeway`, `pylon_service`, `rim_loop`, `spoke_transfer`, `hive_trunk`, `cliff_gallery`, `climate_spine`, `runway_spine`, `dam_wall_spine`, and `drydock_spine`.
+The typology frame exports primary axes, spine anchors, void bands, habitat bands, service anchors, and traversal contracts. Generation phases use this frame to bias district placement, occupancy, macro massing, and route roles such as `linear_express`, `station_loop`, `void_bridge`, `marine_causeway`, `pylon_service`, `rim_loop`, `spoke_transfer`, `hive_trunk`, `cliff_gallery`, `climate_spine`, `runway_spine`, `dam_wall_spine`, `drydock_spine`, `caldera_ring`, `meltwater_spine`, `canopy_walk`, `tether_core`, `crawler_track`, `reef_ring`, `pressure_deck`, and `sinkhole_ring`.
 
 `typology_quality` validates that the selected family meets its native contracts, and `section_quality` validates vertical/cross-section experience. Structural exports now include stress fields and load paths so hazards can be traced back to weak support chains.
 

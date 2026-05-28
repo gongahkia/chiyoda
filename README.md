@@ -56,7 +56,7 @@ $ cargo run --release -- --validate structure.json
 
 ## Configuration
 
-`Gibson`'s predefined profiles are `balanced`, `dense`, `vertical`, `decayed`, and `neon`. Megastructure typologies include `dense-enclave`, `arcology-spire`, `linear-city`, `bridge-void`, `marine-platform`, `orbital-ring`, `underground-hive`, `mountain-burrow`, `desert-arcology`, `airport-city`, `dam-city`, and `shipyard-stack`. Dynamic generation controls include `entity_density`, `entity_layout_pressure`, and `advanced_pattern_complexity`. Rule packs can target a typology and tune entity density, layout pressure, patrols, crowds, and builder swarms.
+`Gibson`'s predefined profiles are `balanced`, `dense`, `vertical`, `decayed`, and `neon`. Megastructure typologies include `dense-enclave`, `arcology-spire`, `linear-city`, `bridge-void`, `marine-platform`, `orbital-ring`, `underground-hive`, `mountain-burrow`, `desert-arcology`, `airport-city`, `dam-city`, `shipyard-stack`, `volcanic-caldera`, `ice-shelf-city`, `canopy-babel`, `space-elevator-anchor`, `crawler-city`, `reef-atoll-arcology`, `stratosphere-platform`, and `sinkhole-citadel`. Dynamic generation controls include `entity_density`, `entity_layout_pressure`, and `advanced_pattern_complexity`. Rule packs can target a typology and tune entity density, layout pressure, patrols, crowds, and builder swarms.
 
 ## Seed
 

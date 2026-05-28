@@ -461,6 +461,90 @@ fn typology_objectives(structure: &SavedStructure) -> Vec<ScenarioTypologyObject
             ),
             ("contain weld fire", &["drydock_spine"], &["weld_fire"]),
         ],
+        "volcanic_caldera" => &[
+            (
+                "seal lava-tube breach",
+                &["geothermal_shaft"],
+                &["lava_tube_breach"],
+            ),
+            ("clear ashfall ring choke", &["caldera_ring"], &["ashfall_choke"]),
+            (
+                "stabilize geothermal blowout",
+                &["geothermal_shaft"],
+                &["geothermal_blowout"],
+            ),
+        ],
+        "ice_shelf_city" => &[
+            (
+                "stabilize thermal fracture",
+                &["crevasse_bridge"],
+                &["thermal_fracture"],
+            ),
+            (
+                "reroute meltwater surge",
+                &["meltwater_spine"],
+                &["meltwater_surge"],
+            ),
+            (
+                "rescue crevasse bridge crew",
+                &["crevasse_bridge"],
+                &["crevasse_shear"],
+            ),
+        ],
+        "canopy_babel" => &[
+            ("contain canopy fire", &["canopy_walk"], &["canopy_fire"]),
+            ("repair trunk rot", &["root_service"], &["trunk_rot"]),
+            (
+                "reopen root-service collapse",
+                &["root_service"],
+                &["root_service_collapse"],
+            ),
+        ],
+        "space_elevator_anchor" => &[
+            ("arrest tether shear", &["tether_core"], &["tether_shear"]),
+            (
+                "unlock cargo transfer ring",
+                &["cargo_ring"],
+                &["cargo_ring_lockdown"],
+            ),
+            ("stabilize anchor quake", &["ground_anchor"], &["anchor_quake"]),
+        ],
+        "crawler_city" => &[
+            ("bridge track collapse", &["crawler_track"], &["track_collapse"]),
+            ("quench engine fire", &["engine_spine"], &["engine_fire"]),
+            ("unblock convoy deck", &["convoy_deck"], &["convoy_jam"]),
+        ],
+        "reef_atoll_arcology" => &[
+            ("reverse reef bleach", &["reef_ring"], &["reef_bleach"]),
+            (
+                "contain lagoon surge",
+                &["lagoon_causeway"],
+                &["lagoon_surge"],
+            ),
+            ("reinforce pylon scour", &["reef_ring"], &["pylon_scour"]),
+        ],
+        "stratosphere_platform" => &[
+            (
+                "patch lift-cell leak",
+                &["lift_cell_spine"],
+                &["lift_cell_leak"],
+            ),
+            ("hold wind shear line", &["pressure_deck"], &["wind_shear"]),
+            (
+                "seal pressure deck breach",
+                &["pressure_deck"],
+                &["pressure_deck_breach"],
+            ),
+        ],
+        "sinkhole_citadel" => &[
+            ("clear rim rockfall", &["sinkhole_ring"], &["rim_rockfall"]),
+            ("vent sump gas", &["descent_shaft"], &["sump_gas"]),
+            (
+                "rebuild descent collapse",
+                &["descent_shaft"],
+                &["descent_collapse"],
+            ),
+        ],
         _ => return Vec::new(),
     };
     specs

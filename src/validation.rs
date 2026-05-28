@@ -846,6 +846,86 @@ fn validate_typology_contracts(structure: &SavedStructure) -> StructureResult<()
                 "shipyard stack missing gantry loops",
             )
         }
+        MegastructureTypology::VolcanicCaldera => {
+            ensure(
+                route_count("caldera_ring") >= 4,
+                "volcanic caldera missing ring routes",
+            )?;
+            ensure(
+                route_count("geothermal_shaft") >= 1,
+                "volcanic caldera missing geothermal shaft",
+            )
+        }
+        MegastructureTypology::IceShelfCity => {
+            ensure(
+                route_count("meltwater_spine") >= 1,
+                "ice shelf city missing meltwater spine",
+            )?;
+            ensure(
+                route_count("crevasse_bridge") >= 2,
+                "ice shelf city missing crevasse bridges",
+            )
+        }
+        MegastructureTypology::CanopyBabel => {
+            ensure(
+                route_count("canopy_walk") >= 2,
+                "canopy babel missing canopy walks",
+            )?;
+            ensure(
+                route_count("root_service") >= 1,
+                "canopy babel missing root service",
+            )
+        }
+        MegastructureTypology::SpaceElevatorAnchor => {
+            ensure(
+                route_count("tether_core") >= 1,
+                "space elevator anchor missing tether core",
+            )?;
+            ensure(
+                route_count("cargo_ring") >= 1,
+                "space elevator anchor missing cargo ring",
+            )
+        }
+        MegastructureTypology::CrawlerCity => {
+            ensure(
+                route_count("crawler_track") >= 1,
+                "crawler city missing crawler track",
+            )?;
+            ensure(
+                route_count("engine_spine") >= 1,
+                "crawler city missing engine spine",
+            )
+        }
+        MegastructureTypology::ReefAtollArcology => {
+            ensure(
+                route_count("reef_ring") >= 4,
+                "reef atoll arcology missing reef ring",
+            )?;
+            ensure(
+                route_count("lagoon_causeway") >= 1,
+                "reef atoll arcology missing lagoon causeway",
+            )
+        }
+        MegastructureTypology::StratospherePlatform => {
+            ensure(
+                route_count("pressure_deck") >= 1,
+                "stratosphere platform missing pressure deck",
+            )?;
+            ensure(
+                route_count("lift_cell_spine") >= 1,
+                "stratosphere platform missing lift-cell spine",
+            )
+        }
+        MegastructureTypology::SinkholeCitadel => {
+            ensure(
+                route_count("sinkhole_ring") >= 4,
+                "sinkhole citadel missing rim ring",
+            )?;
+            ensure(
+                route_count("descent_shaft") >= 1,
+                "sinkhole citadel missing descent shaft",
+            )
+        }
     }
 }
 

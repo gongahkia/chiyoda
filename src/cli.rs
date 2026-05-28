@@ -172,7 +172,7 @@ fn invalid_input(message: impl Into<String>) -> Box<dyn Error + Send + Sync> {
 }
 
 pub fn usage() -> &'static str {
-    "Usage: gibson-rust [SEED] [--seed SEED] [--profile balanced|dense|vertical|decayed|neon] [--typology dense-enclave|arcology-spire|linear-city|bridge-void|marine-platform|orbital-ring|underground-hive|mountain-burrow|desert-arcology|airport-city|dam-city|shipyard-stack] [--config path.json] [--rules rules.json] [--export path.json] [--scenario scenario.json] [--bundle out/] [--headless] [--validate artifact.json] [--validate-rules rules.json] [--inspect structure.json] [--summary] [--routes] [--landmarks] [--path] [--simulation] [--factions] [--hazards] [--quality] [--entities] [--json]"
+    "Usage: gibson-rust [SEED] [--seed SEED] [--profile balanced|dense|vertical|decayed|neon] [--typology dense-enclave|arcology-spire|linear-city|bridge-void|marine-platform|orbital-ring|underground-hive|mountain-burrow|desert-arcology|airport-city|dam-city|shipyard-stack|volcanic-caldera|ice-shelf-city|canopy-babel|space-elevator-anchor|crawler-city|reef-atoll-arcology|stratosphere-platform|sinkhole-citadel] [--config path.json] [--rules rules.json] [--export path.json] [--scenario scenario.json] [--bundle out/] [--headless] [--validate artifact.json] [--validate-rules rules.json] [--inspect structure.json] [--summary] [--routes] [--landmarks] [--path] [--simulation] [--factions] [--hazards] [--quality] [--entities] [--json]"
 }
 
 #[cfg(test)]
