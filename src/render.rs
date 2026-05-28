@@ -1835,7 +1835,7 @@ fn draw_overlay(app: &AppState) {
         "R: Regenerate | H/Shift+R: Reload Rules",
         "G: Rule Browser | P: PostFX | [ ]: Fog",
         "S: Screenshot | I: Inspect | L/Y: Legend/Labels",
-        "T/Z/X/V/B/C: Graph/Zone/Strata/Entities/v22/Debug | Q/Esc: Quit",
+        "T/Z/X/V/B/C: Graph/Zone/Strata/Entities/Typology+/Debug | Q/Esc: Quit",
         "Entity V: U Pause | J Speed | N Phase | M/K Kind",
     ];
     let mut y = 92.0;
