@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::cli::RuntimeOptions;
-use crate::config::GenerationConfig;
+use crate::config::{GenerationConfig, MegastructureTypology};
 use crate::generation::{
     biome_rust_at, clampf, hash_noise, is_walkable_floor_cell, mix_color, simplex, CellType,
     MaterialType, MegaStructureGenerator, CAMERA_FOV_DEGREES, CHUNK_SIZE_X, CHUNK_SIZE_Y,
@@ -1055,6 +1055,18 @@ impl AppState {
         self.generator.config().typology.as_str()
     }
 
+    async fn cycle_typology(&mut self, delta: isize) {
+        let typologies = MegastructureTypology::all();
+        let current = typologies
+            .iter()
+            .position(|typology| *typology == self.config.typology)
+            .unwrap_or(0);
+        let next = (current as isize + delta).rem_euclid(typologies.len() as isize) as usize;
+        self.config.typology = typologies[next];
+        let seed = self.current_seed().to_owned();
+        self.regenerate_with_seed(seed).await;
+    }
+
     fn current_rule_label(&self) -> String {
         self.rule_path
             .as_ref()
@@ -1831,7 +1843,7 @@ fn draw_overlay(app: &AppState) {
 
     let controls = [
         "Drag: Rotate | Wheel: Zoom | WASD: Pan",
-        "1-5: Presets | TAB: FPS | Space: Jump",
+        "1-5: Camera Presets | ,/.: Typology | TAB: FPS | Space: Jump",
         "R: Regenerate | H/Shift+R: Reload Rules",
         "G: Rule Browser | P: PostFX | [ ]: Fog",
         "S: Screenshot | I: Inspect | L/Y: Legend/Labels",
@@ -2953,6 +2965,12 @@ pub async fn run(options: RuntimeOptions) {
         }
         if is_key_pressed(KeyCode::G) {
             app.show_rule_browser = !app.show_rule_browser;
+        }
+        if !app.show_rule_browser && is_key_pressed(KeyCode::Comma) {
+            app.cycle_typology(-1).await;
+        }
+        if !app.show_rule_browser && is_key_pressed(KeyCode::Period) {
+            app.cycle_typology(1).await;
         }
         if app.show_rule_browser {
             if is_key_pressed(KeyCode::E) {

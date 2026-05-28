@@ -60,6 +60,23 @@ impl MegastructureTypology {
     pub fn cli_values() -> &'static str {
         "dense-enclave|arcology-spire|linear-city|bridge-void|marine-platform|orbital-ring|underground-hive|mountain-burrow|desert-arcology|airport-city|dam-city|shipyard-stack"
     }
+
+    pub fn all() -> [Self; 12] {
+        [
+            Self::DenseEnclave,
+            Self::ArcologySpire,
+            Self::LinearCity,
+            Self::BridgeVoid,
+            Self::MarinePlatform,
+            Self::OrbitalRing,
+            Self::UndergroundHive,
+            Self::MountainBurrow,
+            Self::DesertArcology,
+            Self::AirportCity,
+            Self::DamCity,
+            Self::ShipyardStack,
+        ]
+    }
 }
 
 impl Default for MegastructureTypology {

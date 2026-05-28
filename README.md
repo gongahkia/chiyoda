@@ -45,6 +45,7 @@ $ cargo run --release -- --validate structure.json
 ## Controls
 
 * `R` to regenerate
+* `,`/`.` to cycle megastructure typology/generation pattern
 * `S` for screenshots
 * `I` to inspect cells
 * `T/Z/X/V/B/C` for semantic overlays; `B` cycles typology frame, construction eras, stress/load paths, section quality, and scenario consequences
