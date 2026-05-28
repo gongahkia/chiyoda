@@ -2278,8 +2278,8 @@ fn draw_simple_legend(title: &str, items: &[(&str, Color)], x: f32, y: f32) {
 }
 
 fn draw_rule_browser_overlay(app: &AppState) {
-    let width = 520.0;
-    let height = 360.0;
+    let width = screen_width().min(660.0) - 32.0;
+    let height = 430.0;
     let x = screen_width() - width - 16.0;
     let y = 16.0;
     draw_rectangle(x, y, width, height, Color::new(0.0, 0.0, 0.0, 0.78));
@@ -2311,12 +2311,19 @@ fn draw_rule_browser_overlay(app: &AppState) {
         return;
     }
 
-    let selected = app
-        .rule_browser
-        .get(app.selected_rule_index.min(app.rule_browser.len() - 1));
+    let selected_index = app.selected_rule_index.min(app.rule_browser.len() - 1);
+    let selected = app.rule_browser.get(selected_index);
+    let visible_rows = 7usize;
+    let first_row = selected_index.saturating_sub(visible_rows - 1);
     let mut row_y = y + 112.0;
-    for (index, entry) in app.rule_browser.iter().take(8).enumerate() {
-        let selected_row = index == app.selected_rule_index;
+    for (index, entry) in app
+        .rule_browser
+        .iter()
+        .enumerate()
+        .skip(first_row)
+        .take(visible_rows)
+    {
+        let selected_row = index == selected_index;
         let color = if selected_row {
             Color::new(1.0, 0.94, 0.45, 1.0)
         } else if entry.valid {
@@ -2334,11 +2341,14 @@ fn draw_rule_browser_overlay(app: &AppState) {
             );
         }
         draw_text(
-            &format!(
-                "{} {} [{} packs]",
-                if selected_row { ">" } else { " " },
-                entry.name,
-                entry.pack_count
+            &truncate_text(
+                &format!(
+                    "{} {} [{} packs]",
+                    if selected_row { ">" } else { " " },
+                    entry.name,
+                    entry.pack_count
+                ),
+                48,
             ),
             x + 18.0,
             row_y,
@@ -2349,12 +2359,22 @@ fn draw_rule_browser_overlay(app: &AppState) {
     }
 
     if let Some(entry) = selected {
-        let detail_y = y + 246.0;
+        let detail_y = row_y + 12.0;
+        draw_rectangle(
+            x + 12.0,
+            detail_y - 18.0,
+            width - 24.0,
+            118.0,
+            Color::new(0.02, 0.03, 0.04, 0.88),
+        );
         draw_text(
-            &format!(
-                "Selected: {} | {}",
-                entry.path.display(),
-                if entry.valid { "valid" } else { "invalid" }
+            &truncate_text(
+                &format!(
+                    "Selected: {} | {}",
+                    entry.path.display(),
+                    if entry.valid { "valid" } else { "invalid" }
+                ),
+                54,
             ),
             x + 16.0,
             detail_y,
@@ -2362,7 +2382,7 @@ fn draw_rule_browser_overlay(app: &AppState) {
             Color::new(0.78, 0.86, 0.95, 1.0),
         );
         draw_text(
-            &format!("Status: {}", truncate_text(&entry.status, 58)),
+            &format!("Status: {}", truncate_text(&entry.status, 46)),
             x + 16.0,
             detail_y + 22.0,
             18.0,
@@ -2373,9 +2393,9 @@ fn draw_rule_browser_overlay(app: &AppState) {
             },
         );
         draw_text(
-            &format!("Apply: {}", truncate_text(&app.rule_status_message, 58)),
+            &format!("Apply: {}", truncate_text(&app.rule_status_message, 46)),
             x + 16.0,
-            detail_y + 66.0,
+            detail_y + 64.0,
             18.0,
             Color::new(0.70, 0.82, 1.0, 1.0),
         );
@@ -2385,9 +2405,9 @@ fn draw_rule_browser_overlay(app: &AppState) {
             entry.grammar_preview.join(" / ")
         };
         draw_text(
-            &format!("Grammar: {}", truncate_text(&grammar, 62)),
+            &format!("Grammar: {}", truncate_text(&grammar, 48)),
             x + 16.0,
-            detail_y + 88.0,
+            detail_y + 86.0,
             18.0,
             Color::new(0.86, 0.86, 0.78, 1.0),
         );
