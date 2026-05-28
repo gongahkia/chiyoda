@@ -1304,6 +1304,82 @@ impl MegaStructureGenerator {
                     Some(DistrictType::Slum)
                 }
             }
+            MegastructureTypology::VolcanicCaldera => {
+                if radius < self.size as f32 * 0.18 {
+                    Some(DistrictType::Industrial)
+                } else if (radius - ring_radius).abs() <= corridor as f32 {
+                    Some(DistrictType::Commercial)
+                } else if z < center {
+                    Some(DistrictType::Residential)
+                } else {
+                    Some(DistrictType::Slum)
+                }
+            }
+            MegastructureTypology::IceShelfCity => {
+                if x % (corridor + 2) == 0 {
+                    Some(DistrictType::Industrial)
+                } else if z < center {
+                    Some(DistrictType::Residential)
+                } else {
+                    Some(DistrictType::Commercial)
+                }
+            }
+            MegastructureTypology::CanopyBabel => {
+                if dx <= corridor || dz <= corridor {
+                    Some(DistrictType::Industrial)
+                } else if radius < self.size as f32 * 0.32 {
+                    Some(DistrictType::Residential)
+                } else {
+                    Some(DistrictType::Commercial)
+                }
+            }
+            MegastructureTypology::SpaceElevatorAnchor => {
+                if dx <= corridor && dz <= corridor {
+                    Some(DistrictType::Elite)
+                } else if dx <= corridor || dz <= corridor {
+                    Some(DistrictType::Industrial)
+                } else if radius < self.size as f32 * 0.34 {
+                    Some(DistrictType::Commercial)
+                } else {
+                    Some(DistrictType::Residential)
+                }
+            }
+            MegastructureTypology::CrawlerCity => {
+                if dz <= corridor {
+                    Some(DistrictType::Industrial)
+                } else if (x / corridor.max(1)).is_multiple_of(2) {
+                    Some(DistrictType::Commercial)
+                } else {
+                    Some(DistrictType::Residential)
+                }
+            }
+            MegastructureTypology::ReefAtollArcology => {
+                if (radius - ring_radius).abs() <= corridor as f32 {
+                    Some(DistrictType::Residential)
+                } else if radius < ring_radius - corridor as f32 {
+                    Some(DistrictType::Commercial)
+                } else {
+                    Some(DistrictType::Industrial)
+                }
+            }
+            MegastructureTypology::StratospherePlatform => {
+                if dx <= corridor || dz <= corridor {
+                    Some(DistrictType::Industrial)
+                } else if radius < self.size as f32 * 0.28 {
+                    Some(DistrictType::Elite)
+                } else {
+                    Some(DistrictType::Residential)
+                }
+            }
+            MegastructureTypology::SinkholeCitadel => {
+                if radius < self.size as f32 * 0.18 {
+                    Some(DistrictType::Slum)
+                } else if (radius - self.size as f32 * 0.28).abs() <= corridor as f32 {
+                    Some(DistrictType::Commercial)
+                } else {
+                    Some(DistrictType::Residential)
+                }
+            }
         }
     }
 
@@ -1424,6 +1500,85 @@ impl MegaStructureGenerator {
                     1.0
                 } else {
                     0.58
+                }
+            }
+            MegastructureTypology::VolcanicCaldera => {
+                let caldera = self.size as f32 * 0.18;
+                if radius < caldera {
+                    0.08
+                } else if (radius - ring_radius).abs() <= corridor as f32 {
+                    1.55
+                } else if y <= self.layers / 3 {
+                    0.85
+                } else {
+                    0.36
+                }
+            }
+            MegastructureTypology::IceShelfCity => {
+                if y <= self.layers / 5 {
+                    1.28
+                } else if x % (corridor + 2) == 0 {
+                    1.05
+                } else {
+                    0.48
+                }
+            }
+            MegastructureTypology::CanopyBabel => {
+                if y >= self.layers / 2 {
+                    1.42
+                } else if dx <= corridor || dz <= corridor {
+                    1.2
+                } else {
+                    0.42
+                }
+            }
+            MegastructureTypology::SpaceElevatorAnchor => {
+                if dx <= corridor && dz <= corridor {
+                    1.75
+                } else if dx <= corridor || dz <= corridor {
+                    1.12
+                } else {
+                    0.52
+                }
+            }
+            MegastructureTypology::CrawlerCity => {
+                if dz <= corridor {
+                    1.48
+                } else if y <= self.layers / 3 {
+                    1.05
+                } else {
+                    0.38
+                }
+            }
+            MegastructureTypology::ReefAtollArcology => {
+                if (radius - ring_radius).abs() <= corridor as f32 {
+                    1.55
+                } else if radius < ring_radius - corridor as f32 {
+                    0.25
+                } else if y <= self.layers / 4 {
+                    1.0
+                } else {
+                    0.45
+                }
+            }
+            MegastructureTypology::StratospherePlatform => {
+                if y >= self.layers / 2 {
+                    1.35
+                } else if dx <= corridor || dz <= corridor {
+                    1.0
+                } else {
+                    0.24
+                }
+            }
+            MegastructureTypology::SinkholeCitadel => {
+                if radius < self.size as f32 * 0.16 {
+                    0.06
+                } else if (radius - self.size as f32 * 0.28).abs() <= corridor as f32 {
+                    1.5
+                } else if y < self.layers * 2 / 3 {
+                    0.85
+                } else {
+                    0.36
                 }
             }
         }

@@ -37,6 +37,14 @@ pub enum MegastructureTypology {
     AirportCity,
     DamCity,
     ShipyardStack,
+    VolcanicCaldera,
+    IceShelfCity,
+    CanopyBabel,
+    SpaceElevatorAnchor,
+    CrawlerCity,
+    ReefAtollArcology,
+    StratospherePlatform,
+    SinkholeCitadel,
 }
 
 impl MegastructureTypology {
@@ -54,14 +62,22 @@ impl MegastructureTypology {
             Self::AirportCity => "airport_city",
             Self::DamCity => "dam_city",
             Self::ShipyardStack => "shipyard_stack",
+            Self::VolcanicCaldera => "volcanic_caldera",
+            Self::IceShelfCity => "ice_shelf_city",
+            Self::CanopyBabel => "canopy_babel",
+            Self::SpaceElevatorAnchor => "space_elevator_anchor",
+            Self::CrawlerCity => "crawler_city",
+            Self::ReefAtollArcology => "reef_atoll_arcology",
+            Self::StratospherePlatform => "stratosphere_platform",
+            Self::SinkholeCitadel => "sinkhole_citadel",
         }
     }
 
     pub fn cli_values() -> &'static str {
-        "dense-enclave|arcology-spire|linear-city|bridge-void|marine-platform|orbital-ring|underground-hive|mountain-burrow|desert-arcology|airport-city|dam-city|shipyard-stack"
+        "dense-enclave|arcology-spire|linear-city|bridge-void|marine-platform|orbital-ring|underground-hive|mountain-burrow|desert-arcology|airport-city|dam-city|shipyard-stack|volcanic-caldera|ice-shelf-city|canopy-babel|space-elevator-anchor|crawler-city|reef-atoll-arcology|stratosphere-platform|sinkhole-citadel"
     }
 
-    pub fn all() -> [Self; 12] {
+    pub fn all() -> [Self; 20] {
         [
             Self::DenseEnclave,
             Self::ArcologySpire,
@@ -75,6 +91,14 @@ impl MegastructureTypology {
             Self::AirportCity,
             Self::DamCity,
             Self::ShipyardStack,
+            Self::VolcanicCaldera,
+            Self::IceShelfCity,
+            Self::CanopyBabel,
+            Self::SpaceElevatorAnchor,
+            Self::CrawlerCity,
+            Self::ReefAtollArcology,
+            Self::StratospherePlatform,
+            Self::SinkholeCitadel,
         ]
     }
 }
@@ -108,6 +132,14 @@ impl FromStr for MegastructureTypology {
             "airport_city" => Ok(Self::AirportCity),
             "dam_city" => Ok(Self::DamCity),
             "shipyard_stack" => Ok(Self::ShipyardStack),
+            "volcanic_caldera" => Ok(Self::VolcanicCaldera),
+            "ice_shelf_city" => Ok(Self::IceShelfCity),
+            "canopy_babel" => Ok(Self::CanopyBabel),
+            "space_elevator_anchor" => Ok(Self::SpaceElevatorAnchor),
+            "crawler_city" => Ok(Self::CrawlerCity),
+            "reef_atoll_arcology" => Ok(Self::ReefAtollArcology),
+            "stratosphere_platform" => Ok(Self::StratospherePlatform),
+            "sinkhole_citadel" => Ok(Self::SinkholeCitadel),
             _ => Err(format!("unknown typology '{value}'")),
         }
     }
