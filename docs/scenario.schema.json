@@ -7,6 +7,7 @@
     "schema_version",
     "seed",
     "profile",
+    "typology",
     "title",
     "start",
     "goal",
@@ -20,6 +21,10 @@
     "faction_choices",
     "hazard_timings",
     "resource_objectives",
+    "dynamic_events",
+    "entity_objectives",
+    "typology_objectives",
+    "scenario_consequences",
     "difficulty_score",
     "estimated_duration_minutes",
     "risk_breakdown",
@@ -29,13 +34,16 @@
   ],
   "properties": {
     "schema_version": {
-      "const": "gibson.scenario.v3"
+      "const": "gibson.scenario.v6"
     },
     "seed": {
       "type": "string",
       "pattern": "^[A-Z0-9]{8}$"
     },
     "profile": {
+      "type": "string"
+    },
+    "typology": {
       "type": "string"
     },
     "title": {
@@ -110,6 +118,83 @@
       "type": "array",
       "minItems": 1
     },
+    "dynamic_events": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "label",
+          "pressure_field_id",
+          "layout_mutation_id",
+          "phase_id",
+          "affected_route_ids",
+          "affected_room_ids",
+          "intensity"
+        ],
+        "properties": {
+          "id": { "type": "integer", "minimum": 0 },
+          "label": { "type": "string" },
+          "pressure_field_id": { "type": "integer", "minimum": 0 },
+          "layout_mutation_id": { "type": ["integer", "null"], "minimum": 0 },
+          "phase_id": { "type": ["integer", "null"], "minimum": 0 },
+          "affected_route_ids": { "type": "array", "items": { "type": "integer", "minimum": 0 } },
+          "affected_room_ids": { "type": "array", "items": { "type": "integer", "minimum": 0 } },
+          "intensity": { "type": "number", "minimum": 0, "maximum": 1 }
+        }
+      }
+    },
+    "entity_objectives": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["id", "label", "entity_id", "path_id", "route_ids", "required"],
+        "properties": {
+          "id": { "type": "integer", "minimum": 0 },
+          "label": { "type": "string" },
+          "entity_id": { "type": "integer", "minimum": 0 },
+          "path_id": { "type": "integer", "minimum": 0 },
+          "route_ids": { "type": "array", "minItems": 1, "items": { "type": "integer", "minimum": 0 } },
+          "required": { "type": "boolean" }
+        }
+      }
+    },
+    "typology_objectives": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "label", "typology", "route_ids", "hazard_ids", "room_ids", "required"],
+        "properties": {
+          "id": { "type": "integer", "minimum": 0 },
+          "label": { "type": "string" },
+          "typology": { "type": "string" },
+          "route_ids": { "type": "array", "items": { "type": "integer", "minimum": 0 } },
+          "hazard_ids": { "type": "array", "items": { "type": "integer", "minimum": 0 } },
+          "room_ids": { "type": "array", "items": { "type": "integer", "minimum": 0 } },
+          "required": { "type": "boolean" }
+        }
+      }
+    },
+    "scenario_consequences": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["id", "kind", "label", "route_ids", "room_ids", "hazard_ids", "layout_mutation_id", "reversible"],
+        "properties": {
+          "id": { "type": "integer", "minimum": 0 },
+          "kind": { "type": "string" },
+          "label": { "type": "string" },
+          "route_ids": { "type": "array", "items": { "type": "integer", "minimum": 0 } },
+          "room_ids": { "type": "array", "items": { "type": "integer", "minimum": 0 } },
+          "hazard_ids": { "type": "array", "items": { "type": "integer", "minimum": 0 } },
+          "layout_mutation_id": { "type": ["integer", "null"], "minimum": 0 },
+          "reversible": { "type": "boolean" }
+        }
+      }
+    },
     "difficulty_score": {
       "type": "number",
       "minimum": 0,
@@ -126,6 +211,7 @@
         "hazard_risk",
         "faction_risk",
         "resource_risk",
+        "dynamic_risk",
         "objective_complexity"
       ],
       "properties": {
@@ -133,6 +219,7 @@
         "hazard_risk": { "type": "number", "minimum": 0, "maximum": 1 },
         "faction_risk": { "type": "number", "minimum": 0, "maximum": 1 },
         "resource_risk": { "type": "number", "minimum": 0, "maximum": 1 },
+        "dynamic_risk": { "type": "number", "minimum": 0, "maximum": 1 },
         "objective_complexity": { "type": "number", "minimum": 0, "maximum": 1 }
       }
     },

@@ -1,0 +1,1587 @@
+{
+  "schema_version": "gibson.scenario.v6",
+  "seed": "ABCD1234",
+  "profile": "balanced",
+  "typology": "orbital_ring",
+  "title": "ABCD1234 / Blue Chain 58 evacuation_route",
+  "start": [
+    5,
+    1,
+    15
+  ],
+  "goal": [
+    15,
+    7,
+    5
+  ],
+  "objective_route_ids": [
+    8,
+    12,
+    15,
+    16,
+    17,
+    18,
+    19,
+    20,
+    21,
+    22,
+    23,
+    24
+  ],
+  "objective_room_ids": [
+    632,
+    633,
+    634,
+    635,
+    653,
+    654,
+    655,
+    656,
+    657,
+    658,
+    668,
+    669,
+    670,
+    671,
+    672,
+    673,
+    674,
+    675,
+    676,
+    677,
+    678,
+    679,
+    680,
+    681,
+    682,
+    683,
+    684,
+    685,
+    686,
+    687,
+    688,
+    689,
+    690,
+    691,
+    692,
+    693,
+    694,
+    695,
+    696,
+    697,
+    698,
+    699,
+    700,
+    701,
+    702,
+    703,
+    704,
+    705,
+    706,
+    707,
+    708,
+    709,
+    710,
+    711,
+    777,
+    778,
+    787,
+    788,
+    789,
+    794,
+    795,
+    796,
+    797,
+    798,
+    799,
+    800,
+    801,
+    802,
+    803,
+    804,
+    805,
+    806,
+    807,
+    808,
+    809,
+    810,
+    811,
+    812,
+    813,
+    814,
+    815
+  ],
+  "hazard_ids": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11
+  ],
+  "faction_conflicts": [
+    {
+      "border_id": 0,
+      "faction_ids": [
+        4,
+        0
+      ],
+      "intensity": 0.51,
+      "reason": "scrap extraction and collapse access"
+    },
+    {
+      "border_id": 1,
+      "faction_ids": [
+        3,
+        0
+      ],
+      "intensity": 0.59,
+      "reason": "trade revenue and salvage rights"
+    },
+    {
+      "border_id": 2,
+      "faction_ids": [
+        4,
+        0
+      ],
+      "intensity": 0.35,
+      "reason": "scrap extraction and collapse access"
+    },
+    {
+      "border_id": 3,
+      "faction_ids": [
+        4,
+        3
+      ],
+      "intensity": 0.35,
+      "reason": "trade revenue and salvage rights"
+    },
+    {
+      "border_id": 4,
+      "faction_ids": [
+        3,
+        0
+      ],
+      "intensity": 0.66999996,
+      "reason": "trade revenue and salvage rights"
+    },
+    {
+      "border_id": 5,
+      "faction_ids": [
+        3,
+        0
+      ],
+      "intensity": 0.66999996,
+      "reason": "trade revenue and salvage rights"
+    },
+    {
+      "border_id": 6,
+      "faction_ids": [
+        0,
+        4
+      ],
+      "intensity": 0.35,
+      "reason": "scrap extraction and collapse access"
+    },
+    {
+      "border_id": 7,
+      "faction_ids": [
+        4,
+        3
+      ],
+      "intensity": 0.35,
+      "reason": "trade revenue and salvage rights"
+    },
+    {
+      "border_id": 8,
+      "faction_ids": [
+        4,
+        0
+      ],
+      "intensity": 0.35,
+      "reason": "scrap extraction and collapse access"
+    },
+    {
+      "border_id": 9,
+      "faction_ids": [
+        4,
+        0
+      ],
+      "intensity": 0.47,
+      "reason": "scrap extraction and collapse access"
+    },
+    {
+      "border_id": 10,
+      "faction_ids": [
+        3,
+        0
+      ],
+      "intensity": 1.0,
+      "reason": "trade revenue and salvage rights"
+    },
+    {
+      "border_id": 11,
+      "faction_ids": [
+        3,
+        4
+      ],
+      "intensity": 1.0,
+      "reason": "trade revenue and salvage rights"
+    }
+  ],
+  "landmarks": [
+    {
+      "id": 0,
+      "name": "Blue Chain 58 evacuation_route",
+      "kind": "route",
+      "position": [
+        5,
+        7,
+        15
+      ]
+    },
+    {
+      "id": 1,
+      "name": "North Run 39 evacuation_route",
+      "kind": "route",
+      "position": [
+        10,
+        7,
+        10
+      ]
+    },
+    {
+      "id": 2,
+      "name": "West Crossing 13 evacuation_route",
+      "kind": "route",
+      "position": [
+        10,
+        7,
+        20
+      ]
+    },
+    {
+      "id": 3,
+      "name": "Rain Lift 21 evacuation_route",
+      "kind": "route",
+      "position": [
+        15,
+        7,
+        5
+      ]
+    },
+    {
+      "id": 4,
+      "name": "North Run 65 evacuation_route",
+      "kind": "route",
+      "position": [
+        15,
+        7,
+        25
+      ]
+    },
+    {
+      "id": 5,
+      "name": "Glass Loop 73 evacuation_route",
+      "kind": "route",
+      "position": [
+        20,
+        7,
+        10
+      ]
+    },
+    {
+      "id": 6,
+      "name": "Rain Lift 47 evacuation_route",
+      "kind": "route",
+      "position": [
+        20,
+        7,
+        20
+      ]
+    },
+    {
+      "id": 7,
+      "name": "Cinder Spine 28 evacuation_route",
+      "kind": "route",
+      "position": [
+        25,
+        7,
+        15
+      ]
+    },
+    {
+      "id": 8,
+      "name": "K Block 23 data_vault_compound",
+      "kind": "cluster",
+      "position": [
+        6,
+        12,
+        6
+      ]
+    },
+    {
+      "id": 9,
+      "name": "Blue Nest 37 data_vault_compound",
+      "kind": "cluster",
+      "position": [
+        20,
+        13,
+        15
+      ]
+    },
+    {
+      "id": 10,
+      "name": "Glass Shrine 49 habitation_block",
+      "kind": "cluster",
+      "position": [
+        15,
+        7,
+        23
+      ]
+    },
+    {
+      "id": 11,
+      "name": "Rain Court 04 habitation_block",
+      "kind": "cluster",
+      "position": [
+        15,
+        13,
+        26
+      ]
+    }
+  ],
+  "objective_chains": [
+    {
+      "id": 0,
+      "label": "enter through maintenance access",
+      "route_ids": [
+        8,
+        12,
+        15
+      ],
+      "room_ids": [
+        632,
+        633,
+        634,
+        635,
+        653,
+        654,
+        655,
+        656,
+        657,
+        658,
+        668,
+        669,
+        670,
+        671,
+        672,
+        673,
+        674,
+        675,
+        676,
+        677,
+        678,
+        679,
+        680,
+        681
+      ],
+      "landmark_ids": [
+        0,
+        1,
+        2
+      ],
+      "required": true
+    },
+    {
+      "id": 1,
+      "label": "cross contested circulation",
+      "route_ids": [
+        16,
+        17,
+        18,
+        19
+      ],
+      "room_ids": [
+        670,
+        671,
+        672,
+        673,
+        674,
+        675,
+        676,
+        677,
+        678,
+        679,
+        680,
+        681,
+        682,
+        683,
+        684,
+        685,
+        686,
+        687,
+        688,
+        689,
+        690,
+        691,
+        692,
+        693,
+        694,
+        695,
+        696,
+        697,
+        698,
+        699,
+        700,
+        701,
+        702,
+        703,
+        704,
+        705,
+        706,
+        707,
+        708,
+        709,
+        710,
+        711,
+        777,
+        778
+      ],
+      "landmark_ids": [
+        2,
+        3,
+        4
+      ],
+      "required": true
+    },
+    {
+      "id": 2,
+      "label": "reach the skyline objective",
+      "route_ids": [
+        20,
+        21,
+        22,
+        23,
+        24
+      ],
+      "room_ids": [
+        686,
+        687,
+        688,
+        689,
+        690,
+        691,
+        692,
+        693,
+        694,
+        695,
+        696,
+        697,
+        698,
+        699,
+        700,
+        701,
+        702,
+        703,
+        704,
+        705,
+        706,
+        707,
+        708,
+        709,
+        710,
+        711,
+        777,
+        778,
+        787,
+        788,
+        789,
+        794,
+        795,
+        796,
+        797,
+        798,
+        799,
+        800,
+        801,
+        802,
+        803,
+        804,
+        805,
+        806,
+        807,
+        808,
+        809,
+        810,
+        811,
+        812,
+        813,
+        814,
+        815
+      ],
+      "landmark_ids": [
+        4,
+        5,
+        6
+      ],
+      "required": true
+    }
+  ],
+  "route_constraints": [
+    {
+      "route_id": 8,
+      "constraint": "access key required",
+      "pressure": 0.6111111
+    },
+    {
+      "route_id": 12,
+      "constraint": "route surveillance",
+      "pressure": 0.56666666
+    },
+    {
+      "route_id": 15,
+      "constraint": "corp checkpoint",
+      "pressure": 1.0
+    },
+    {
+      "route_id": 16,
+      "constraint": "route surveillance",
+      "pressure": 0.5111111
+    },
+    {
+      "route_id": 17,
+      "constraint": "route surveillance",
+      "pressure": 0.5111111
+    },
+    {
+      "route_id": 18,
+      "constraint": "route surveillance",
+      "pressure": 0.5111111
+    },
+    {
+      "route_id": 19,
+      "constraint": "route surveillance",
+      "pressure": 0.56666666
+    },
+    {
+      "route_id": 20,
+      "constraint": "route surveillance",
+      "pressure": 0.5111111
+    },
+    {
+      "route_id": 21,
+      "constraint": "route surveillance",
+      "pressure": 0.5111111
+    },
+    {
+      "route_id": 22,
+      "constraint": "route surveillance",
+      "pressure": 0.5111111
+    },
+    {
+      "route_id": 23,
+      "constraint": "route surveillance",
+      "pressure": 0.5111111
+    },
+    {
+      "route_id": 24,
+      "constraint": "route surveillance",
+      "pressure": 0.5111111
+    }
+  ],
+  "faction_choices": [
+    {
+      "faction_id": 4,
+      "label": "negotiate with Scavenger Crews",
+      "benefit": "local guides reveal a hidden landmark",
+      "cost": "raises pressure with the opposing border faction",
+      "affected_route_ids": [
+        0,
+        32
+      ]
+    },
+    {
+      "faction_id": 3,
+      "label": "negotiate with Corp Security",
+      "benefit": "local guides reveal a hidden landmark",
+      "cost": "raises pressure with the opposing border faction",
+      "affected_route_ids": [
+        0,
+        15,
+        32
+      ]
+    },
+    {
+      "faction_id": 4,
+      "label": "negotiate with Scavenger Crews",
+      "benefit": "local guides reveal a hidden landmark",
+      "cost": "raises pressure with the opposing border faction",
+      "affected_route_ids": []
+    },
+    {
+      "faction_id": 4,
+      "label": "negotiate with Scavenger Crews",
+      "benefit": "local guides reveal a hidden landmark",
+      "cost": "raises pressure with the opposing border faction",
+      "affected_route_ids": []
+    },
+    {
+      "faction_id": 3,
+      "label": "negotiate with Corp Security",
+      "benefit": "local guides reveal a hidden landmark",
+      "cost": "raises pressure with the opposing border faction",
+      "affected_route_ids": [
+        0,
+        15,
+        25,
+        26
+      ]
+    }
+  ],
+  "hazard_timings": [
+    {
+      "hazard_id": 0,
+      "phase": "blackout",
+      "cycle_hour": 2,
+      "severity": 0.62
+    },
+    {
+      "hazard_id": 1,
+      "phase": "blackout",
+      "cycle_hour": 2,
+      "severity": 0.6342857
+    },
+    {
+      "hazard_id": 2,
+      "phase": "blackout",
+      "cycle_hour": 2,
+      "severity": 0.62
+    },
+    {
+      "hazard_id": 3,
+      "phase": "rain_ingress",
+      "cycle_hour": 22,
+      "severity": 0.612
+    },
+    {
+      "hazard_id": 4,
+      "phase": "blackout",
+      "cycle_hour": 2,
+      "severity": 0.63199997
+    },
+    {
+      "hazard_id": 5,
+      "phase": "blackout",
+      "cycle_hour": 2,
+      "severity": 0.63199997
+    },
+    {
+      "hazard_id": 6,
+      "phase": "rain_ingress",
+      "cycle_hour": 22,
+      "severity": 0.612
+    },
+    {
+      "hazard_id": 7,
+      "phase": "rain_ingress",
+      "cycle_hour": 22,
+      "severity": 0.612
+    },
+    {
+      "hazard_id": 8,
+      "phase": "patrol_cycle",
+      "cycle_hour": 14,
+      "severity": 0.63199997
+    },
+    {
+      "hazard_id": 9,
+      "phase": "blackout",
+      "cycle_hour": 2,
+      "severity": 0.612
+    },
+    {
+      "hazard_id": 10,
+      "phase": "blackout",
+      "cycle_hour": 2,
+      "severity": 0.63199997
+    },
+    {
+      "hazard_id": 11,
+      "phase": "blackout",
+      "cycle_hour": 2,
+      "severity": 0.6542857
+    }
+  ],
+  "resource_objectives": [
+    {
+      "network_id": 0,
+      "kind": "data_spine",
+      "route_ids": [
+        12,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20,
+        21,
+        22,
+        23,
+        24,
+        25,
+        26,
+        27
+      ],
+      "objective": "restore data_spine through reroute",
+      "outage": true
+    },
+    {
+      "network_id": 1,
+      "kind": "power_bus",
+      "route_ids": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        10,
+        11,
+        12,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20,
+        21,
+        22,
+        23,
+        24,
+        25,
+        26,
+        27,
+        28,
+        29,
+        30,
+        31,
+        32,
+        33,
+        34,
+        35,
+        38
+      ],
+      "objective": "restore power_bus through reroute",
+      "outage": true
+    },
+    {
+      "network_id": 2,
+      "kind": "ventilation_loop",
+      "route_ids": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        12,
+        13,
+        14,
+        16,
+        17,
+        18,
+        19,
+        20,
+        21,
+        22,
+        23,
+        24,
+        25,
+        26,
+        27,
+        28,
+        29,
+        30,
+        31,
+        32,
+        33,
+        34,
+        35,
+        36,
+        37,
+        38
+      ],
+      "objective": "restore ventilation_loop through reroute",
+      "outage": true
+    },
+    {
+      "network_id": 3,
+      "kind": "waste_chute",
+      "route_ids": [
+        16,
+        17,
+        18,
+        19
+      ],
+      "objective": "restore waste_chute through reroute",
+      "outage": true
+    }
+  ],
+  "dynamic_events": [
+    {
+      "id": 0,
+      "label": "builder swarms reshape local structure",
+      "pressure_field_id": 0,
+      "layout_mutation_id": null,
+      "phase_id": 0,
+      "affected_route_ids": [
+        0,
+        8,
+        9,
+        10,
+        12,
+        13,
+        14,
+        17,
+        18,
+        19,
+        20,
+        21,
+        23,
+        24,
+        25,
+        26,
+        29,
+        32,
+        33,
+        34,
+        36
+      ],
+      "affected_room_ids": [
+        0,
+        1,
+        2,
+        3,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        13,
+        14,
+        18,
+        19,
+        20,
+        21,
+        22,
+        24,
+        26,
+        28,
+        29,
+        30,
+        31,
+        32
+      ],
+      "intensity": 1.0
+    },
+    {
+      "id": 1,
+      "label": "evacuation surge opens bypass pressure",
+      "pressure_field_id": 1,
+      "layout_mutation_id": 0,
+      "phase_id": 4,
+      "affected_route_ids": [
+        0,
+        19
+      ],
+      "affected_room_ids": [
+        6,
+        11,
+        26,
+        29,
+        30,
+        31,
+        32,
+        34,
+        35,
+        46,
+        47,
+        48,
+        49,
+        52,
+        54,
+        58,
+        76,
+        77,
+        78,
+        85,
+        87,
+        98,
+        100,
+        101
+      ],
+      "intensity": 0.5150601
+    },
+    {
+      "id": 2,
+      "label": "maintenance crawlers expose service paths",
+      "pressure_field_id": 2,
+      "layout_mutation_id": null,
+      "phase_id": 0,
+      "affected_route_ids": [
+        0,
+        4,
+        6,
+        8,
+        9,
+        10,
+        12,
+        13,
+        14,
+        15,
+        16,
+        19,
+        21,
+        22,
+        25,
+        26,
+        29,
+        31,
+        32,
+        36,
+        37,
+        38
+      ],
+      "affected_room_ids": [
+        1,
+        2,
+        3,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        13,
+        14,
+        18,
+        20,
+        21,
+        22,
+        24,
+        26,
+        28,
+        29,
+        30,
+        31,
+        32,
+        33,
+        34
+      ],
+      "intensity": 1.0
+    },
+    {
+      "id": 3,
+      "label": "market crowd pressure shifts circulation",
+      "pressure_field_id": 3,
+      "layout_mutation_id": 1,
+      "phase_id": 1,
+      "affected_route_ids": [
+        0,
+        2,
+        4,
+        8,
+        9,
+        10,
+        11,
+        14,
+        15,
+        17,
+        18,
+        19,
+        20,
+        23,
+        25,
+        27,
+        28,
+        29,
+        30,
+        31,
+        32,
+        34,
+        35,
+        36,
+        38
+      ],
+      "affected_room_ids": [
+        1,
+        2,
+        3,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        13,
+        14,
+        20,
+        21,
+        22,
+        24,
+        26,
+        28,
+        29,
+        30,
+        31,
+        32,
+        33,
+        34
+      ],
+      "intensity": 1.0
+    },
+    {
+      "id": 4,
+      "label": "patrol lockdown changes route access",
+      "pressure_field_id": 4,
+      "layout_mutation_id": 2,
+      "phase_id": 2,
+      "affected_route_ids": [
+        0,
+        14,
+        36
+      ],
+      "affected_room_ids": [
+        7,
+        8,
+        9,
+        10,
+        13,
+        14,
+        24,
+        26,
+        28,
+        29,
+        30,
+        31,
+        33,
+        34,
+        35,
+        36,
+        45,
+        46,
+        47,
+        48,
+        49,
+        52,
+        53,
+        54
+      ],
+      "intensity": 0.48208332
+    }
+  ],
+  "entity_objectives": [
+    {
+      "id": 0,
+      "label": "follow maintenance crawler",
+      "entity_id": 0,
+      "path_id": 0,
+      "route_ids": [
+        0,
+        36,
+        14
+      ],
+      "required": false
+    },
+    {
+      "id": 1,
+      "label": "redirect builder swarm",
+      "entity_id": 1,
+      "path_id": 1,
+      "route_ids": [
+        24,
+        12,
+        21
+      ],
+      "required": false
+    },
+    {
+      "id": 2,
+      "label": "redirect builder swarm",
+      "entity_id": 2,
+      "path_id": 2,
+      "route_ids": [
+        19,
+        21
+      ],
+      "required": false
+    },
+    {
+      "id": 3,
+      "label": "follow maintenance crawler",
+      "entity_id": 3,
+      "path_id": 3,
+      "route_ids": [
+        0,
+        36,
+        14
+      ],
+      "required": false
+    },
+    {
+      "id": 4,
+      "label": "follow maintenance crawler",
+      "entity_id": 4,
+      "path_id": 4,
+      "route_ids": [
+        15,
+        38,
+        14
+      ],
+      "required": false
+    },
+    {
+      "id": 5,
+      "label": "redirect builder swarm",
+      "entity_id": 5,
+      "path_id": 5,
+      "route_ids": [
+        0,
+        25,
+        17,
+        18
+      ],
+      "required": false
+    },
+    {
+      "id": 6,
+      "label": "cross crowd movement corridor",
+      "entity_id": 6,
+      "path_id": 6,
+      "route_ids": [
+        0,
+        31,
+        11,
+        18
+      ],
+      "required": false
+    },
+    {
+      "id": 7,
+      "label": "cross crowd movement corridor",
+      "entity_id": 7,
+      "path_id": 7,
+      "route_ids": [
+        11
+      ],
+      "required": false
+    }
+  ],
+  "typology_objectives": [
+    {
+      "id": 0,
+      "label": "isolate damaged spoke transfer",
+      "typology": "orbital_ring",
+      "route_ids": [
+        28,
+        29,
+        30,
+        31
+      ],
+      "hazard_ids": [
+        21
+      ],
+      "room_ids": [
+        724,
+        725,
+        726,
+        727,
+        728,
+        729,
+        730,
+        731,
+        732,
+        733,
+        734,
+        735
+      ],
+      "required": true
+    },
+    {
+      "id": 1,
+      "label": "seal rim pressure breach",
+      "typology": "orbital_ring",
+      "route_ids": [
+        20,
+        21,
+        22,
+        23,
+        24,
+        25,
+        26,
+        27
+      ],
+      "hazard_ids": [
+        20
+      ],
+      "room_ids": [
+        692,
+        693,
+        694,
+        695,
+        696,
+        697,
+        698,
+        699,
+        700,
+        701,
+        702,
+        703
+      ],
+      "required": true
+    },
+    {
+      "id": 2,
+      "label": "cross the zero-g core",
+      "typology": "orbital_ring",
+      "route_ids": [
+        28,
+        29,
+        30,
+        31
+      ],
+      "hazard_ids": [],
+      "room_ids": [
+        724,
+        725,
+        726,
+        727,
+        728,
+        729,
+        730,
+        731,
+        732,
+        733,
+        734,
+        735
+      ],
+      "required": true
+    }
+  ],
+  "scenario_consequences": [
+    {
+      "id": 0,
+      "kind": "dynamic_layout_mutation",
+      "label": "evacuation_flow altered traversal and service geometry",
+      "route_ids": [
+        0,
+        19
+      ],
+      "room_ids": [
+        6,
+        11,
+        26,
+        29,
+        30,
+        31,
+        32,
+        34,
+        35,
+        46,
+        47,
+        48
+      ],
+      "hazard_ids": [],
+      "layout_mutation_id": 0,
+      "reversible": false
+    },
+    {
+      "id": 1,
+      "kind": "dynamic_layout_mutation",
+      "label": "market_surge altered traversal and service geometry",
+      "route_ids": [
+        0,
+        2,
+        4,
+        8,
+        9,
+        10,
+        11,
+        14,
+        15,
+        17,
+        18,
+        19,
+        20,
+        23,
+        25,
+        27,
+        28,
+        29,
+        30,
+        31,
+        32,
+        34,
+        35,
+        36,
+        38
+      ],
+      "room_ids": [
+        1,
+        2,
+        3,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        13,
+        14
+      ],
+      "hazard_ids": [],
+      "layout_mutation_id": 1,
+      "reversible": true
+    },
+    {
+      "id": 2,
+      "kind": "dynamic_layout_mutation",
+      "label": "patrol_lockdown altered traversal and service geometry",
+      "route_ids": [
+        0,
+        14,
+        36
+      ],
+      "room_ids": [
+        7,
+        8,
+        9,
+        10,
+        13,
+        14,
+        24,
+        26,
+        28,
+        29,
+        30,
+        31
+      ],
+      "hazard_ids": [],
+      "layout_mutation_id": 2,
+      "reversible": true
+    },
+    {
+      "id": 3,
+      "kind": "hazard_route_restriction",
+      "label": "blackout_pocket changes mission layout",
+      "route_ids": [
+        1
+      ],
+      "room_ids": [
+        372,
+        625,
+        718,
+        719,
+        720,
+        763,
+        831
+      ],
+      "hazard_ids": [
+        0
+      ],
+      "layout_mutation_id": null,
+      "reversible": true
+    },
+    {
+      "id": 4,
+      "kind": "hazard_route_restriction",
+      "label": "blackout_pocket changes mission layout",
+      "route_ids": [
+        5
+      ],
+      "room_ids": [
+        220,
+        222,
+        387,
+        629,
+        656,
+        657,
+        694,
+        695,
+        696,
+        771,
+        874
+      ],
+      "hazard_ids": [
+        1
+      ],
+      "layout_mutation_id": null,
+      "reversible": true
+    },
+    {
+      "id": 5,
+      "kind": "hazard_route_restriction",
+      "label": "blackout_pocket changes mission layout",
+      "route_ids": [
+        6
+      ],
+      "room_ids": [
+        162,
+        223,
+        332,
+        630,
+        684,
+        685,
+        702,
+        703,
+        704,
+        773,
+        788
+      ],
+      "hazard_ids": [
+        2
+      ],
+      "layout_mutation_id": null,
+      "reversible": true
+    },
+    {
+      "id": 6,
+      "kind": "hazard_route_restriction",
+      "label": "flood_sump changes mission layout",
+      "route_ids": [
+        9
+      ],
+      "room_ids": [
+        26,
+        638,
+        749,
+        834
+      ],
+      "hazard_ids": [
+        3
+      ],
+      "layout_mutation_id": null,
+      "reversible": true
+    },
+    {
+      "id": 7,
+      "kind": "hazard_route_restriction",
+      "label": "blackout_pocket changes mission layout",
+      "route_ids": [
+        10
+      ],
+      "room_ids": [
+        81,
+        106,
+        107,
+        110,
+        152,
+        212,
+        214,
+        652,
+        691,
+        724,
+        729,
+        734
+      ],
+      "hazard_ids": [
+        4
+      ],
+      "layout_mutation_id": null,
+      "reversible": true
+    },
+    {
+      "id": 8,
+      "kind": "hazard_route_restriction",
+      "label": "blackout_pocket changes mission layout",
+      "route_ids": [
+        11
+      ],
+      "room_ids": [
+        81,
+        106,
+        107,
+        110,
+        152,
+        212,
+        214,
+        652,
+        691,
+        724,
+        729,
+        734
+      ],
+      "hazard_ids": [
+        5
+      ],
+      "layout_mutation_id": null,
+      "reversible": true
+    }
+  ],
+  "difficulty_score": 0.7580481,
+  "estimated_duration_minutes": 104,
+  "risk_breakdown": {
+    "route_risk": 0.4582568,
+    "hazard_risk": 0.6542857,
+    "faction_risk": 1.0,
+    "resource_risk": 0.73255813,
+    "dynamic_risk": 1.0,
+    "objective_complexity": 1.0
+  },
+  "balance_notes": [
+    "difficulty 0.76 from route, hazard, faction, resource, and objective pressure",
+    "resource outage pressure should become an explicit mission branch",
+    "dynamic entity pressure should be surfaced as timed route pressure",
+    "severe hazards require alternate route visibility",
+    "route viability is low enough to reward bypass discovery",
+    "faction conflict can support negotiation or stealth choices"
+  ],
+  "failure_states": [
+    "objective route collapses before alternate path is found",
+    "corp checkpoint locks the restricted spine",
+    "topology quality drops below 0.91 after hazard escalation"
+  ],
+  "alternate_endings": [
+    {
+      "label": "quiet extraction",
+      "condition": "avoid severe hazards and keep faction conflicts cold",
+      "consequence": "main route remains usable for future runs"
+    },
+    {
+      "label": "market uprising",
+      "condition": "side with market or slum factions at contested borders",
+      "consequence": "commercial corridors open while security thresholds harden"
+    },
+    {
+      "label": "skyline breach",
+      "condition": "reach goal at (15, 13, 15)",
+      "consequence": "the skyline vault becomes a new landmark for sequel exports"
+    },
+    {
+      "label": "evacuation window",
+      "condition": "escort evacuee flow before dynamic pressure peaks",
+      "consequence": "entity routes stay open and mutation pressure drops"
+    },
+    {
+      "label": "builder reroute",
+      "condition": "redirect builder swarms into maintenance spines",
+      "consequence": "new service geometry opens while patrol routes lose coverage"
+    }
+  ]
+}

@@ -7,6 +7,7 @@ pub struct ScenarioRecord {
     pub schema_version: String,
     pub seed: String,
     pub profile: String,
+    pub typology: String,
     pub title: String,
     pub start: [usize; 3],
     pub goal: [usize; 3],
@@ -20,6 +21,10 @@ pub struct ScenarioRecord {
     pub faction_choices: Vec<ScenarioFactionChoiceRecord>,
     pub hazard_timings: Vec<ScenarioHazardTimingRecord>,
     pub resource_objectives: Vec<ScenarioResourceObjectiveRecord>,
+    pub dynamic_events: Vec<ScenarioDynamicEventRecord>,
+    pub entity_objectives: Vec<ScenarioEntityObjectiveRecord>,
+    pub typology_objectives: Vec<ScenarioTypologyObjectiveRecord>,
+    pub scenario_consequences: Vec<ScenarioConsequenceRecord>,
     pub difficulty_score: f32,
     pub estimated_duration_minutes: usize,
     pub risk_breakdown: ScenarioRiskBreakdownRecord,
@@ -95,11 +100,57 @@ pub struct ScenarioResourceObjectiveRecord {
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct ScenarioDynamicEventRecord {
+    pub id: usize,
+    pub label: String,
+    pub pressure_field_id: usize,
+    pub layout_mutation_id: Option<usize>,
+    pub phase_id: Option<usize>,
+    pub affected_route_ids: Vec<usize>,
+    pub affected_room_ids: Vec<usize>,
+    pub intensity: f32,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct ScenarioEntityObjectiveRecord {
+    pub id: usize,
+    pub label: String,
+    pub entity_id: usize,
+    pub path_id: usize,
+    pub route_ids: Vec<usize>,
+    pub required: bool,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct ScenarioTypologyObjectiveRecord {
+    pub id: usize,
+    pub label: String,
+    pub typology: String,
+    pub route_ids: Vec<usize>,
+    pub hazard_ids: Vec<usize>,
+    pub room_ids: Vec<usize>,
+    pub required: bool,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct ScenarioConsequenceRecord {
+    pub id: usize,
+    pub kind: String,
+    pub label: String,
+    pub route_ids: Vec<usize>,
+    pub room_ids: Vec<usize>,
+    pub hazard_ids: Vec<usize>,
+    pub layout_mutation_id: Option<usize>,
+    pub reversible: bool,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct ScenarioRiskBreakdownRecord {
     pub route_risk: f32,
     pub hazard_risk: f32,
     pub faction_risk: f32,
     pub resource_risk: f32,
+    pub dynamic_risk: f32,
     pub objective_complexity: f32,
 }
 
@@ -146,6 +197,8 @@ pub fn generate_scenario(structure: &SavedStructure) -> ScenarioRecord {
         })
         .collect();
     let objective_chains = objective_chains(&objective_route_ids, &objective_room_ids, &landmarks);
+    let dynamic_events = dynamic_events(structure);
+    let entity_objectives = entity_objectives(structure);
     let risk_breakdown = risk_breakdown(
         structure,
         &objective_route_ids,
@@ -156,9 +209,10 @@ pub fn generate_scenario(structure: &SavedStructure) -> ScenarioRecord {
     let estimated_duration_minutes =
         estimated_duration_minutes(&objective_route_ids, &objective_room_ids, difficulty_score);
     ScenarioRecord {
-        schema_version: "gibson.scenario.v3".to_owned(),
+        schema_version: "gibson.scenario.v6".to_owned(),
         seed: structure.seed.clone(),
         profile: structure.metadata.profile.clone(),
+        typology: structure.metadata.typology.clone(),
         title: scenario_title(structure),
         start,
         goal,
@@ -172,6 +226,10 @@ pub fn generate_scenario(structure: &SavedStructure) -> ScenarioRecord {
         faction_choices: faction_choices(structure, &faction_conflicts),
         hazard_timings: hazard_timings(structure, &hazard_ids),
         resource_objectives: resource_objectives(structure),
+        dynamic_events,
+        entity_objectives,
+        typology_objectives: typology_objectives(structure),
+        scenario_consequences: scenario_consequences(structure),
         difficulty_score,
         estimated_duration_minutes,
         risk_breakdown: risk_breakdown.clone(),
@@ -179,6 +237,281 @@ pub fn generate_scenario(structure: &SavedStructure) -> ScenarioRecord {
         failure_states: failure_states(structure),
         alternate_endings: alternate_endings(structure),
     }
+}
+
+fn scenario_consequences(structure: &SavedStructure) -> Vec<ScenarioConsequenceRecord> {
+    let mut consequences = Vec::new();
+    for mutation in structure.layout_mutations.iter().take(4) {
+        consequences.push(ScenarioConsequenceRecord {
+            id: consequences.len(),
+            kind: "dynamic_layout_mutation".to_owned(),
+            label: mutation.reason.clone(),
+            route_ids: mutation.affected_route_ids.clone(),
+            room_ids: mutation
+                .affected_room_ids
+                .iter()
+                .copied()
+                .take(12)
+                .collect(),
+            hazard_ids: Vec::new(),
+            layout_mutation_id: Some(mutation.id),
+            reversible: mutation.removed_cell_count == 0,
+        });
+    }
+    for hazard in structure
+        .hazard_zones
+        .iter()
+        .filter(|hazard| hazard.severity >= 0.5)
+        .take(6)
+    {
+        let kind = match hazard.kind.as_str() {
+            "storm_surge" | "sump_flood" | "drydock_flood" | "spillway_surge" => "flood_isolation",
+            "pressure_breach" | "seal_failure" => "sealed_breach_zone",
+            "bridge_failure" | "gantry_collapse" | "cavern_collapse" | "rockfall_choke" => {
+                "temporary_bypass"
+            }
+            _ => "hazard_route_restriction",
+        };
+        consequences.push(ScenarioConsequenceRecord {
+            id: consequences.len(),
+            kind: kind.to_owned(),
+            label: format!("{} changes mission layout", hazard.kind),
+            route_ids: hazard.route_ids.clone(),
+            room_ids: hazard.room_ids.iter().copied().take(12).collect(),
+            hazard_ids: vec![hazard.id],
+            layout_mutation_id: None,
+            reversible: !matches!(kind, "sealed_breach_zone" | "temporary_bypass"),
+        });
+    }
+    if consequences.is_empty() {
+        consequences.push(ScenarioConsequenceRecord {
+            id: 0,
+            kind: "evacuation_widening".to_owned(),
+            label: "main objective route is widened for evacuation".to_owned(),
+            route_ids: structure
+                .path_analysis
+                .main_path
+                .as_ref()
+                .map(|path| path.route_ids.clone())
+                .unwrap_or_default(),
+            room_ids: structure
+                .path_analysis
+                .main_path
+                .as_ref()
+                .map(|path| path.room_ids.iter().copied().take(12).collect())
+                .unwrap_or_default(),
+            hazard_ids: Vec::new(),
+            layout_mutation_id: None,
+            reversible: true,
+        });
+    }
+    consequences
+}
+
+fn typology_objectives(structure: &SavedStructure) -> Vec<ScenarioTypologyObjectiveRecord> {
+    let specs: &[(&str, &[&str], &[&str])] = match structure.metadata.typology.as_str() {
+        "linear_city" => &[
+            (
+                "stabilize station cascade",
+                &["station_loop"],
+                &["station_crush"],
+            ),
+            (
+                "sabotage the express spine choke",
+                &["linear_express"],
+                &["transit_bottleneck", "infrastructure_cascade"],
+            ),
+            ("evacuate along one-axis transit", &["linear_express"], &[]),
+        ],
+        "orbital_ring" => &[
+            (
+                "isolate damaged spoke transfer",
+                &["spoke_transfer"],
+                &["spoke_shear"],
+            ),
+            (
+                "seal rim pressure breach",
+                &["rim_loop"],
+                &["pressure_breach"],
+            ),
+            ("cross the zero-g core", &["spoke_transfer"], &[]),
+        ],
+        "marine_platform" => &[
+            (
+                "contain flood breach",
+                &["marine_causeway"],
+                &["storm_surge"],
+            ),
+            (
+                "reinforce failing pylon",
+                &["pylon_service"],
+                &["salt_corrosion"],
+            ),
+            (
+                "recover pump-room control",
+                &["pylon_service"],
+                &["pump_outage"],
+            ),
+        ],
+        "bridge_void" => &[
+            (
+                "reroute around bridge collapse",
+                &["void_bridge"],
+                &["bridge_failure"],
+            ),
+            (
+                "reconnect isolated tower",
+                &["void_bridge"],
+                &["wind_shear"],
+            ),
+            (
+                "rescue suspended-deck survivors",
+                &["void_bridge"],
+                &["cantilever_fatigue"],
+            ),
+        ],
+        "arcology_spire" => &[
+            (
+                "restore central core access",
+                &["vertical_transit_core"],
+                &["core_lockdown", "elevator_choke"],
+            ),
+            (
+                "clear stacked atrium fire",
+                &["station_loop"],
+                &["atrium_stack_fire"],
+            ),
+            ("open vertical evacuation", &["vertical_transit_core"], &[]),
+        ],
+        "underground_hive" => &[
+            ("drain the sump flood", &["hive_trunk"], &["sump_flood"]),
+            (
+                "stabilize cavern collapse",
+                &["cavern_loop"],
+                &["cavern_collapse"],
+            ),
+            (
+                "vent methane pocket",
+                &["hive_gallery"],
+                &["methane_pocket"],
+            ),
+        ],
+        "mountain_burrow" => &[
+            (
+                "clear rockfall choke",
+                &["cliff_gallery"],
+                &["rockfall_choke"],
+            ),
+            ("reinforce slope shear", &["burrow_spine"], &["slope_shear"]),
+            (
+                "restore cliff ventilation",
+                &["cliff_gallery"],
+                &["ventilation_dead_zone"],
+            ),
+        ],
+        "desert_arcology" => &[
+            (
+                "restart climate spine",
+                &["climate_spine"],
+                &["seal_failure"],
+            ),
+            ("cool heat bloom", &["solar_service_ring"], &["heat_bloom"]),
+            (
+                "recover water reclaimers",
+                &["climate_spine"],
+                &["water_reclaimer_outage"],
+            ),
+        ],
+        "airport_city" => &[
+            ("clear runway debris", &["runway_spine"], &["runway_debris"]),
+            (
+                "relieve terminal crush",
+                &["terminal_loop"],
+                &["terminal_crush"],
+            ),
+            (
+                "contain fuel line fire",
+                &["runway_spine"],
+                &["fuel_line_fire"],
+            ),
+        ],
+        "dam_city" => &[
+            (
+                "control spillway surge",
+                &["dam_wall_spine"],
+                &["spillway_surge"],
+            ),
+            (
+                "restart turbine gallery",
+                &["turbine_gallery"],
+                &["turbine_trip"],
+            ),
+            ("seal wall seepage", &["dam_wall_spine"], &["wall_seepage"]),
+        ],
+        "shipyard_stack" => &[
+            (
+                "drain drydock flood",
+                &["drydock_spine"],
+                &["drydock_flood"],
+            ),
+            (
+                "reroute around gantry collapse",
+                &["gantry_loop"],
+                &["gantry_collapse"],
+            ),
+            ("contain weld fire", &["drydock_spine"], &["weld_fire"]),
+        ],
+        _ => return Vec::new(),
+    };
+    specs
+        .iter()
+        .enumerate()
+        .filter_map(|(id, (label, route_kinds, hazard_kinds))| {
+            let route_ids: Vec<_> = structure
+                .transit_graph
+                .edges
+                .iter()
+                .filter(|edge| route_kinds.iter().any(|kind| edge.kind.contains(kind)))
+                .map(|edge| edge.id)
+                .take(8)
+                .collect();
+            let hazard_ids: Vec<_> = structure
+                .hazard_zones
+                .iter()
+                .filter(|hazard| hazard_kinds.iter().any(|kind| hazard.kind == *kind))
+                .map(|hazard| hazard.id)
+                .take(6)
+                .collect();
+            if route_ids.is_empty() && hazard_ids.is_empty() {
+                return None;
+            }
+            let room_ids: Vec<_> = structure
+                .rooms
+                .iter()
+                .filter(|room| {
+                    structure
+                        .transit_graph
+                        .attachments
+                        .iter()
+                        .any(|attachment| {
+                            route_ids.contains(&attachment.route_id)
+                                && attachment.room_id == room.id
+                        })
+                })
+                .map(|room| room.id)
+                .take(12)
+                .collect();
+            Some(ScenarioTypologyObjectiveRecord {
+                id,
+                label: (*label).to_owned(),
+                typology: structure.metadata.typology.clone(),
+                route_ids,
+                hazard_ids,
+                room_ids,
+                required: true,
+            })
+        })
+        .collect()
 }
 
 pub fn to_json(scenario: &ScenarioRecord) -> serde_json::Result<String> {
@@ -350,6 +683,62 @@ fn resource_objective(
     }
 }
 
+fn dynamic_events(structure: &SavedStructure) -> Vec<ScenarioDynamicEventRecord> {
+    structure
+        .entity_pressure_fields
+        .iter()
+        .take(8)
+        .enumerate()
+        .map(|(id, field)| {
+            let mutation = structure
+                .layout_mutations
+                .iter()
+                .find(|mutation| mutation.source_pressure_field_id == field.id);
+            ScenarioDynamicEventRecord {
+                id,
+                label: dynamic_event_label(&field.kind).to_owned(),
+                pressure_field_id: field.id,
+                layout_mutation_id: mutation.map(|mutation| mutation.id),
+                phase_id: mutation.and_then(|mutation| mutation.phase_id).or_else(|| {
+                    structure
+                        .temporal_state
+                        .phases
+                        .iter()
+                        .find(|phase| {
+                            field
+                                .affected_route_ids
+                                .iter()
+                                .any(|route_id| phase.active_route_ids.contains(route_id))
+                        })
+                        .map(|phase| phase.id)
+                }),
+                affected_route_ids: field.affected_route_ids.clone(),
+                affected_room_ids: field.affected_room_ids.iter().copied().take(24).collect(),
+                intensity: field.intensity,
+            }
+        })
+        .collect()
+}
+
+fn entity_objectives(structure: &SavedStructure) -> Vec<ScenarioEntityObjectiveRecord> {
+    structure
+        .entity_paths
+        .iter()
+        .take(8)
+        .filter_map(|path| {
+            let entity = structure.entities.get(path.entity_id)?;
+            Some(ScenarioEntityObjectiveRecord {
+                id: path.id,
+                label: entity_objective_label(&entity.kind).to_owned(),
+                entity_id: entity.id,
+                path_id: path.id,
+                route_ids: path.route_ids.clone(),
+                required: matches!(entity.kind.as_str(), "evacuee_flow" | "corp_patrol"),
+            })
+        })
+        .collect()
+}
+
 fn risk_breakdown(
     structure: &SavedStructure,
     objective_route_ids: &[usize],
@@ -384,8 +773,15 @@ fn risk_breakdown(
         })
         .fold(0.0, f32::max)
         .clamp(0.0, 1.0);
+    let dynamic_risk = structure
+        .entity_pressure_fields
+        .iter()
+        .map(|field| field.intensity)
+        .fold(0.0, f32::max)
+        .max((structure.layout_mutations.len() as f32 / 12.0).clamp(0.0, 1.0));
     let objective_complexity = (objective_route_ids.len() as f32 / 12.0
-        + structure.path_analysis.dead_end_count as f32 * 0.015)
+        + structure.path_analysis.dead_end_count as f32 * 0.015
+        + structure.entity_paths.len() as f32 * 0.004)
         .clamp(0.0, 1.0);
 
     ScenarioRiskBreakdownRecord {
@@ -393,16 +789,18 @@ fn risk_breakdown(
         hazard_risk,
         faction_risk,
         resource_risk,
+        dynamic_risk,
         objective_complexity,
     }
 }
 
 fn scenario_difficulty(risk: &ScenarioRiskBreakdownRecord) -> f32 {
-    (risk.route_risk * 0.28
-        + risk.hazard_risk * 0.22
-        + risk.faction_risk * 0.18
-        + risk.resource_risk * 0.18
-        + risk.objective_complexity * 0.14)
+    (risk.route_risk * 0.24
+        + risk.hazard_risk * 0.20
+        + risk.faction_risk * 0.16
+        + risk.resource_risk * 0.16
+        + risk.dynamic_risk * 0.14
+        + risk.objective_complexity * 0.10)
         .clamp(0.0, 1.0)
 }
 
@@ -419,6 +817,9 @@ fn balance_notes(difficulty: f32, risk: &ScenarioRiskBreakdownRecord) -> Vec<Str
     )];
     if risk.resource_risk > 0.6 {
         notes.push("resource outage pressure should become an explicit mission branch".to_owned());
+    }
+    if risk.dynamic_risk > 0.6 {
+        notes.push("dynamic entity pressure should be surfaced as timed route pressure".to_owned());
     }
     if risk.hazard_risk > 0.6 {
         notes.push("severe hazards require alternate route visibility".to_owned());
@@ -468,6 +869,16 @@ fn alternate_endings(structure: &SavedStructure) -> Vec<ScenarioEndingRecord> {
             ),
             consequence: "the skyline vault becomes a new landmark for sequel exports".to_owned(),
         },
+        ScenarioEndingRecord {
+            label: "evacuation window".to_owned(),
+            condition: "escort evacuee flow before dynamic pressure peaks".to_owned(),
+            consequence: "entity routes stay open and mutation pressure drops".to_owned(),
+        },
+        ScenarioEndingRecord {
+            label: "builder reroute".to_owned(),
+            condition: "redirect builder swarms into maintenance spines".to_owned(),
+            consequence: "new service geometry opens while patrol routes lose coverage".to_owned(),
+        },
     ]
 }
 
@@ -512,29 +923,87 @@ fn faction_benefit(agenda: &str) -> &'static str {
     }
 }
 
+fn dynamic_event_label(kind: &str) -> &'static str {
+    match kind {
+        "patrol_lockdown" => "patrol lockdown changes route access",
+        "evacuation_flow" => "evacuation surge opens bypass pressure",
+        "maintenance_crawler" => "maintenance crawlers expose service paths",
+        "builder_swarm" => "builder swarms reshape local structure",
+        "scavenger_drift" => "scavenger drift destabilizes debris routes",
+        _ => "market crowd pressure shifts circulation",
+    }
+}
+
+fn entity_objective_label(kind: &str) -> &'static str {
+    match kind {
+        "corp_patrol" => "avoid or spoof patrol path",
+        "evacuee_flow" => "escort evacuation flow",
+        "maintenance_crawler" => "follow maintenance crawler",
+        "builder_swarm" => "redirect builder swarm",
+        "scavenger_drift" => "shadow scavenger route",
+        _ => "cross crowd movement corridor",
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::GenerationConfig;
+    use crate::config::{GenerationConfig, MegastructureTypology};
     use crate::generation::generate_saved_structure;
+    use crate::validation::validate_scenario;
 
     #[test]
     fn scenario_extracts_objectives_from_structure() {
         let structure =
             generate_saved_structure("ABCD1234".to_owned(), GenerationConfig::default()).unwrap();
         let scenario = generate_scenario(&structure);
-        assert_eq!(scenario.schema_version, "gibson.scenario.v3");
+        assert_eq!(scenario.schema_version, "gibson.scenario.v6");
         assert_eq!(scenario.seed, structure.seed);
+        assert_eq!(scenario.typology, structure.metadata.typology);
         assert!(!scenario.objective_route_ids.is_empty());
         assert!(!scenario.landmarks.is_empty());
         assert!(!scenario.objective_chains.is_empty());
         assert!(!scenario.route_constraints.is_empty());
         assert!(!scenario.hazard_timings.is_empty());
         assert!(!scenario.resource_objectives.is_empty());
+        assert!(!scenario.dynamic_events.is_empty());
+        assert!(!scenario.entity_objectives.is_empty());
+        assert!(!scenario.scenario_consequences.is_empty());
         assert!((0.0..=1.0).contains(&scenario.difficulty_score));
         assert!(scenario.estimated_duration_minutes > 0);
         assert!(!scenario.balance_notes.is_empty());
         assert!(!scenario.alternate_endings.is_empty());
         assert!(to_json(&scenario).unwrap().contains("faction_conflicts"));
+        assert!(to_json(&scenario).unwrap().contains("dynamic_events"));
+    }
+
+    #[test]
+    fn scenario_emits_typology_objectives_for_native_forms() {
+        let mut config = GenerationConfig::default();
+        config.typology = MegastructureTypology::LinearCity;
+        let structure = generate_saved_structure("ABCD1234".to_owned(), config).unwrap();
+        let scenario = generate_scenario(&structure);
+        assert_eq!(scenario.typology, "linear_city");
+        assert!(scenario
+            .typology_objectives
+            .iter()
+            .any(|objective| objective.label.contains("station")));
+    }
+
+    #[test]
+    fn checked_in_typology_scenarios_stay_v6_and_dynamic() {
+        let fixtures = [
+            include_str!("../examples/scenarios/dam_city_ABCD1234.json"),
+            include_str!("../examples/scenarios/orbital_ring_ABCD1234.json"),
+            include_str!("../examples/scenarios/underground_hive_ABCD1234.json"),
+            include_str!("../examples/scenarios/shipyard_stack_ABCD1234.json"),
+        ];
+        for fixture in fixtures {
+            let scenario = from_json(fixture).unwrap();
+            validate_scenario(&scenario).unwrap();
+            assert_eq!(scenario.schema_version, "gibson.scenario.v6");
+            assert!(!scenario.typology_objectives.is_empty());
+            assert!(!scenario.scenario_consequences.is_empty());
+        }
     }
 }
