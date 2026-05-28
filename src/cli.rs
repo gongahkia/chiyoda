@@ -210,7 +210,7 @@ mod tests {
             "--profile".to_owned(),
             "neon".to_owned(),
             "--typology".to_owned(),
-            "linear-city".to_owned(),
+            "space-elevator-anchor".to_owned(),
             "--export".to_owned(),
             "out.json".to_owned(),
             "--headless".to_owned(),
@@ -218,7 +218,10 @@ mod tests {
         .unwrap();
         assert_eq!(options.seed, "ABCD1234");
         assert_eq!(options.config.profile, GenerationProfile::Neon);
-        assert_eq!(options.config.typology, MegastructureTypology::LinearCity);
+        assert_eq!(
+            options.config.typology,
+            MegastructureTypology::SpaceElevatorAnchor
+        );
         assert_eq!(options.export_path, PathBuf::from("out.json"));
         assert!(options.headless);
     }

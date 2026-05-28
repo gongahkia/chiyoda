@@ -2324,7 +2324,13 @@ impl MegaStructureGenerator {
                     self.set(x, z, shelf_y, CellType::Bridge, true);
                 }
                 if (x + z) % (step + 2) == 0 {
-                    self.set(x, z, shelf_y.saturating_add(1).min(self.layers - 1), CellType::Pipe, true);
+                    self.set(
+                        x,
+                        z,
+                        shelf_y.saturating_add(1).min(self.layers - 1),
+                        CellType::Pipe,
+                        true,
+                    );
                 }
             }
         }
@@ -2338,7 +2344,9 @@ impl MegaStructureGenerator {
     fn add_canopy_babel_massing(&mut self) {
         let c = self.size / 2;
         let canopy_y = (self.layers * 2 / 3).max(1).min(self.layers - 1);
-        for anchor in typology_anchor_points(MegastructureTypology::CanopyBabel, self.size, self.layers) {
+        for anchor in
+            typology_anchor_points(MegastructureTypology::CanopyBabel, self.size, self.layers)
+        {
             for y in 0..=canopy_y {
                 self.set(anchor[0], anchor[2], y, CellType::Vertical, true);
                 if y % 4 == 0 {
@@ -2380,7 +2388,11 @@ impl MegaStructureGenerator {
                 );
             }
         }
-        self.push_connection("typology_space_elevator_anchor", [c, 0, c], [c, self.layers - 1, c]);
+        self.push_connection(
+            "typology_space_elevator_anchor",
+            [c, 0, c],
+            [c, self.layers - 1, c],
+        );
     }
 
     fn add_crawler_city_massing(&mut self) {
@@ -2413,7 +2425,17 @@ impl MegaStructureGenerator {
                 let radial = (dx * dx + dz * dz).sqrt();
                 if (radial - ring_radius).abs() <= tube {
                     for y in 0..=deck_y {
-                        self.set(x, z, y, if y == deck_y { CellType::Bridge } else { CellType::Vertical }, true);
+                        self.set(
+                            x,
+                            z,
+                            y,
+                            if y == deck_y {
+                                CellType::Bridge
+                            } else {
+                                CellType::Vertical
+                            },
+                            true,
+                        );
                     }
                 } else if radial < ring_radius - tube {
                     for y in 0..self.layers / 3 {
@@ -2440,13 +2462,27 @@ impl MegaStructureGenerator {
                 }
             }
         }
-        for anchor in typology_anchor_points(MegastructureTypology::StratospherePlatform, self.size, self.layers) {
+        for anchor in typology_anchor_points(
+            MegastructureTypology::StratospherePlatform,
+            self.size,
+            self.layers,
+        ) {
             for y in deck_y.saturating_sub(3)..=deck_y {
                 self.set(anchor[0], anchor[2], y, CellType::Vertical, true);
             }
-            self.set(anchor[0], anchor[2], (deck_y + 1).min(self.layers - 1), CellType::Vent, true);
+            self.set(
+                anchor[0],
+                anchor[2],
+                (deck_y + 1).min(self.layers - 1),
+                CellType::Vent,
+                true,
+            );
         }
-        self.push_connection("typology_stratosphere_platform", [c, deck_y, 1], [c, deck_y, self.size - 2]);
+        self.push_connection(
+            "typology_stratosphere_platform",
+            [c, deck_y, 1],
+            [c, deck_y, self.size - 2],
+        );
     }
 
     fn add_sinkhole_citadel_massing(&mut self) {
@@ -2471,7 +2507,11 @@ impl MegaStructureGenerator {
                 }
             }
         }
-        self.push_connection("typology_sinkhole_citadel", [c, 0, c.saturating_sub(outer)], [c, self.layers - 1, (c + outer).min(self.size - 1)]);
+        self.push_connection(
+            "typology_sinkhole_citadel",
+            [c, 0, c.saturating_sub(outer)],
+            [c, self.layers - 1, (c + outer).min(self.size - 1)],
+        );
     }
 
     fn phase2b_circulation_graph(&mut self) {
@@ -2718,7 +2758,14 @@ impl MegaStructureGenerator {
                 let y = (self.layers / 2).max(1);
                 self.carve_route(c, 1, c, self.size - 2, y, "tether_core");
                 self.carve_route(1, c, self.size - 2, c, y, "cargo_ring");
-                self.carve_route(c, 1, c, self.size - 2, (self.layers / 4).max(1), "ground_anchor");
+                self.carve_route(
+                    c,
+                    1,
+                    c,
+                    self.size - 2,
+                    (self.layers / 4).max(1),
+                    "ground_anchor",
+                );
             }
             MegastructureTypology::CrawlerCity => {
                 let z = self.size / 2;
@@ -2749,7 +2796,14 @@ impl MegaStructureGenerator {
                 );
                 let y = (self.layers / 4).max(1);
                 for pair in points.windows(2) {
-                    self.carve_route(pair[0][0], pair[0][2], pair[1][0], pair[1][2], y, "reef_ring");
+                    self.carve_route(
+                        pair[0][0],
+                        pair[0][2],
+                        pair[1][0],
+                        pair[1][2],
+                        y,
+                        "reef_ring",
+                    );
                 }
                 if let (Some(first), Some(last)) = (points.first(), points.last()) {
                     self.carve_route(last[0], last[2], first[0], first[2], y, "reef_ring");
@@ -2771,13 +2825,27 @@ impl MegaStructureGenerator {
                 );
                 let y = (self.layers / 2).max(1);
                 for pair in points.windows(2) {
-                    self.carve_route(pair[0][0], pair[0][2], pair[1][0], pair[1][2], y, "sinkhole_ring");
+                    self.carve_route(
+                        pair[0][0],
+                        pair[0][2],
+                        pair[1][0],
+                        pair[1][2],
+                        y,
+                        "sinkhole_ring",
+                    );
                 }
                 if let (Some(first), Some(last)) = (points.first(), points.last()) {
                     self.carve_route(last[0], last[2], first[0], first[2], y, "sinkhole_ring");
                 }
                 let c = self.size / 2;
-                self.carve_route(c, c.saturating_sub(self.size / 4), c, (c + self.size / 4).min(self.size - 1), 1, "descent_shaft");
+                self.carve_route(
+                    c,
+                    c.saturating_sub(self.size / 4),
+                    c,
+                    (c + self.size / 4).min(self.size - 1),
+                    1,
+                    "descent_shaft",
+                );
             }
         }
     }
@@ -2982,21 +3050,10 @@ impl MegaStructureGenerator {
         let y = y.min(self.layers.saturating_sub(1));
         let route_cell = match kind {
             "service_tunnel" => CellType::Horizontal,
-            "skybridge"
-            | "express_spine"
-            | "void_bridge"
-            | "rim_loop"
-            | "spoke_transfer"
-            | "marine_causeway"
-            | "caldera_ring"
-            | "crevasse_bridge"
-            | "canopy_walk"
-            | "cargo_ring"
-            | "crawler_track"
-            | "reef_ring"
-            | "lagoon_causeway"
-            | "pressure_deck"
-            | "sinkhole_ring" => CellType::Bridge,
+            "skybridge" | "express_spine" | "void_bridge" | "rim_loop" | "spoke_transfer"
+            | "marine_causeway" | "caldera_ring" | "crevasse_bridge" | "canopy_walk"
+            | "cargo_ring" | "crawler_track" | "reef_ring" | "lagoon_causeway"
+            | "pressure_deck" | "sinkhole_ring" => CellType::Bridge,
             _ => CellType::Horizontal,
         };
         let start_node = self.push_transit_node("route_junction", [start_x, y, start_z]);
@@ -4288,6 +4345,38 @@ impl MegaStructureGenerator {
             MegastructureTypology::ShipyardStack => &[
                 ("DRYDOCK_CONTROL", &["drydock_spine"]),
                 ("GANTRY_OPERATOR_ROOM", &["gantry_loop"]),
+            ],
+            MegastructureTypology::VolcanicCaldera => &[
+                ("GEOTHERMAL_CONTROL", &["geothermal_shaft"]),
+                ("CALDERA_RING_RELAY", &["caldera_ring"]),
+            ],
+            MegastructureTypology::IceShelfCity => &[
+                ("MELTWATER_PUMP_ROOM", &["meltwater_spine"]),
+                ("CREVASSE_BRIDGE_CONTROL", &["crevasse_bridge"]),
+            ],
+            MegastructureTypology::CanopyBabel => &[
+                ("CANOPY_FIREWATCH", &["canopy_walk"]),
+                ("ROOT_SERVICE_CONTROL", &["root_service"]),
+            ],
+            MegastructureTypology::SpaceElevatorAnchor => &[
+                ("TETHER_CONTROL_ROOM", &["tether_core"]),
+                ("CARGO_RING_CONTROL", &["cargo_ring"]),
+            ],
+            MegastructureTypology::CrawlerCity => &[
+                ("TRACK_CONTROL_ROOM", &["crawler_track"]),
+                ("ENGINE_SPINE_CONTROL", &["engine_spine"]),
+            ],
+            MegastructureTypology::ReefAtollArcology => &[
+                ("REEF_PYLON_CONTROL", &["reef_ring"]),
+                ("LAGOON_PUMP_ROOM", &["lagoon_causeway"]),
+            ],
+            MegastructureTypology::StratospherePlatform => &[
+                ("LIFT_CELL_CONTROL", &["lift_cell_spine"]),
+                ("PRESSURE_DECK_CONTROL", &["pressure_deck"]),
+            ],
+            MegastructureTypology::SinkholeCitadel => &[
+                ("RIM_STABILIZER_ROOM", &["sinkhole_ring"]),
+                ("DESCENT_SHAFT_CONTROL", &["descent_shaft"]),
             ],
         };
         for (label, route_kinds) in specs {
@@ -7816,19 +7905,39 @@ fn build_typology_frame(
                     (center + size / 6).min(size - 1),
                 ],
             )],
-            vec![band("caldera_habitat_ring", [0, 0, 0], [size - 1, mid, size - 1])],
+            vec![band(
+                "caldera_habitat_ring",
+                [0, 0, 0],
+                [size - 1, mid, size - 1],
+            )],
             vec!["caldera ring".to_owned(), "geothermal shaft".to_owned()],
         ),
         MegastructureTypology::IceShelfCity => (
             vec!["shelf".to_owned(), "crevasse".to_owned()],
-            vec![band("crevasse_field", [0, 0, 0], [size - 1, layers / 4, size - 1])],
-            vec![band("ice_shelf_habitat", [0, layers / 5, 0], [size - 1, mid, size - 1])],
+            vec![band(
+                "crevasse_field",
+                [0, 0, 0],
+                [size - 1, layers / 4, size - 1],
+            )],
+            vec![band(
+                "ice_shelf_habitat",
+                [0, layers / 5, 0],
+                [size - 1, mid, size - 1],
+            )],
             vec!["meltwater spine".to_owned(), "crevasse bridges".to_owned()],
         ),
         MegastructureTypology::CanopyBabel => (
             vec!["trunk".to_owned(), "canopy".to_owned()],
-            vec![band("forest_understory", [0, 0, 0], [size - 1, mid, size - 1])],
-            vec![band("upper_canopy_habitat", [0, mid, 0], [size - 1, layers - 1, size - 1])],
+            vec![band(
+                "forest_understory",
+                [0, 0, 0],
+                [size - 1, mid, size - 1],
+            )],
+            vec![band(
+                "upper_canopy_habitat",
+                [0, mid, 0],
+                [size - 1, layers - 1, size - 1],
+            )],
             vec!["canopy walks".to_owned(), "root service".to_owned()],
         ),
         MegastructureTypology::SpaceElevatorAnchor => (
@@ -7868,7 +7977,11 @@ fn build_typology_frame(
                 [0, 0, center.saturating_sub(size / 8)],
                 [size - 1, layers / 4, (center + size / 8).min(size - 1)],
             )],
-            vec![band("crawler_deck_habitat", [0, 0, 0], [size - 1, mid, size - 1])],
+            vec![band(
+                "crawler_deck_habitat",
+                [0, 0, 0],
+                [size - 1, mid, size - 1],
+            )],
             vec!["crawler track".to_owned(), "engine spine".to_owned()],
         ),
         MegastructureTypology::ReefAtollArcology => (
@@ -7886,13 +7999,21 @@ fn build_typology_frame(
                     (center + size / 5).min(size - 1),
                 ],
             )],
-            vec![band("reef_habitat_ring", [0, 0, 0], [size - 1, mid, size - 1])],
+            vec![band(
+                "reef_habitat_ring",
+                [0, 0, 0],
+                [size - 1, mid, size - 1],
+            )],
             vec!["reef ring".to_owned(), "lagoon causeway".to_owned()],
         ),
         MegastructureTypology::StratospherePlatform => (
             vec!["lift_cell".to_owned(), "pressure_deck".to_owned()],
             vec![band("open_air_below", [0, 0, 0], [size - 1, mid, size - 1])],
-            vec![band("stratosphere_deck", [0, mid, 0], [size - 1, layers - 1, size - 1])],
+            vec![band(
+                "stratosphere_deck",
+                [0, mid, 0],
+                [size - 1, layers - 1, size - 1],
+            )],
             vec!["lift-cell spine".to_owned(), "pressure deck".to_owned()],
         ),
         MegastructureTypology::SinkholeCitadel => (
@@ -7910,7 +8031,11 @@ fn build_typology_frame(
                     (center + size / 6).min(size - 1),
                 ],
             )],
-            vec![band("sinkhole_rim_habitat", [0, 0, 0], [size - 1, layers - 1, size - 1])],
+            vec![band(
+                "sinkhole_rim_habitat",
+                [0, 0, 0],
+                [size - 1, layers - 1, size - 1],
+            )],
             vec!["sinkhole ring".to_owned(), "descent shaft".to_owned()],
         ),
     };
@@ -9602,7 +9727,10 @@ mod tests {
             (MegastructureTypology::SpaceElevatorAnchor, "tether_shear"),
             (MegastructureTypology::CrawlerCity, "track_collapse"),
             (MegastructureTypology::ReefAtollArcology, "reef_bleach"),
-            (MegastructureTypology::StratospherePlatform, "lift_cell_leak"),
+            (
+                MegastructureTypology::StratospherePlatform,
+                "lift_cell_leak",
+            ),
             (MegastructureTypology::SinkholeCitadel, "rim_rockfall"),
         ] {
             let mut config = GenerationConfig::profile(crate::config::GenerationProfile::Balanced);

@@ -467,7 +467,11 @@ fn typology_objectives(structure: &SavedStructure) -> Vec<ScenarioTypologyObject
                 &["geothermal_shaft"],
                 &["lava_tube_breach"],
             ),
-            ("clear ashfall ring choke", &["caldera_ring"], &["ashfall_choke"]),
+            (
+                "clear ashfall ring choke",
+                &["caldera_ring"],
+                &["ashfall_choke"],
+            ),
             (
                 "stabilize geothermal blowout",
                 &["geothermal_shaft"],
@@ -507,10 +511,18 @@ fn typology_objectives(structure: &SavedStructure) -> Vec<ScenarioTypologyObject
                 &["cargo_ring"],
                 &["cargo_ring_lockdown"],
             ),
-            ("stabilize anchor quake", &["ground_anchor"], &["anchor_quake"]),
+            (
+                "stabilize anchor quake",
+                &["ground_anchor"],
+                &["anchor_quake"],
+            ),
         ],
         "crawler_city" => &[
-            ("bridge track collapse", &["crawler_track"], &["track_collapse"]),
+            (
+                "bridge track collapse",
+                &["crawler_track"],
+                &["track_collapse"],
+            ),
             ("quench engine fire", &["engine_spine"], &["engine_fire"]),
             ("unblock convoy deck", &["convoy_deck"], &["convoy_jam"]),
         ],
@@ -1072,6 +1084,23 @@ mod tests {
             .typology_objectives
             .iter()
             .any(|objective| objective.label.contains("station")));
+    }
+
+    #[test]
+    fn scenario_emits_typology_objectives_for_all_non_default_forms() {
+        for typology in MegastructureTypology::all()
+            .into_iter()
+            .filter(|typology| *typology != MegastructureTypology::DenseEnclave)
+        {
+            let mut config = GenerationConfig::default();
+            config.typology = typology;
+            let structure = generate_saved_structure("ABCD1234".to_owned(), config).unwrap();
+            let scenario = generate_scenario(&structure);
+            assert!(
+                !scenario.typology_objectives.is_empty(),
+                "{typology} did not emit typology objectives"
+            );
+        }
     }
 
     #[test]
