@@ -1,6 +1,5 @@
 [![](https://img.shields.io/badge/gibson_1.0.0-passing-light_green)](https://github.com/gongahkia/gibson/releases/tag/1.0.0) 
 [![](https://img.shields.io/badge/gibson_2.0.0-passing-green)](https://github.com/gongahkia/gibson/releases/tag/2.0.0) 
-[![CI](https://github.com/gongahkia/gibson/actions/workflows/ci.yml/badge.svg)](https://github.com/gongahkia/gibson/actions/workflows/ci.yml)
 
 # `Gibson`
 
@@ -15,7 +14,7 @@
 
 ## Screenshot
 
-![](./asset/reference/v2/2.png)
+![](./asset/reference/v4/1.png)
 
 ## Usage
 
@@ -56,11 +55,33 @@ $ cargo run --release -- --validate structure.json
 
 ## Configuration
 
-`Gibson`'s predefined profiles are `balanced`, `dense`, `vertical`, `decayed`, and `neon`. Megastructure typologies include `dense-enclave`, `arcology-spire`, `linear-city`, `bridge-void`, `marine-platform`, `orbital-ring`, `underground-hive`, `mountain-burrow`, `desert-arcology`, `airport-city`, `dam-city`, `shipyard-stack`, `volcanic-caldera`, `ice-shelf-city`, `canopy-babel`, `space-elevator-anchor`, `crawler-city`, `reef-atoll-arcology`, `stratosphere-platform`, and `sinkhole-citadel`. Dynamic generation controls include `entity_density`, `entity_layout_pressure`, and `advanced_pattern_complexity`. Rule packs can target a typology and tune entity density, layout pressure, patrols, crowds, and builder swarms.
+`Gibson`'s predefined profiles are `balanced`, `dense`, `vertical`, `decayed`, `neon`, `dense-enclave`, `arcology-spire`, `linear-city`, `bridge-void`, `marine-platform`, `orbital-ring`, `underground-hive`, `mountain-burrow`, `desert-arcology`, `airport-city`, `dam-city`, `shipyard-stack`, `volcanic-caldera`, `ice-shelf-city`, `canopy-babel`, `space-elevator-anchor`, `crawler-city`, `reef-atoll-arcology`, `stratosphere-platform`, and `sinkhole-citadel`. 
+
+Further dynamic generation controls include `entity_density`, `entity_layout_pressure`, and `advanced_pattern_complexity`.
 
 ## Seed
 
-Randomly generated [megastructure](https://en.wikipedia.org/wiki/Megastructure)s are seeded at `current_seed.txt` and serialised at `structure.json` with generation metadata, counts, profile, typology frame, typology quality metrics, construction history, section quality, stress/load paths, config snapshot, circulation routes, strata, semantic room labels, resource networks, stress-influenced hazards, rule packs, rule influence traces, deterministic entity movement, pressure fields, and layout mutations. Checked-in scenario examples live in `examples/scenarios/` for non-Kowloon typologies.
+Randomly generated [megastructures](https://en.wikipedia.org/wiki/Megastructure) are seeded at `current_seed.txt` and serialised at `structure.json` in repository root with the following.
+
+* Generation metadata
+* Counts
+* Profile
+* Typology frame
+* Typology quality metrics
+* Construction history
+* Section quality
+* Stress/load paths
+* Config snapshot
+* Circulation routes
+* Strata
+* Semantic room labels
+* Resource networks
+* Stress-influenced hazards
+* Rule packs
+* Rule influence traces
+* Deterministic entity movement
+* Pressure fields
+* Layout mutations
 
 ## Research
 
@@ -79,4 +100,6 @@ Randomly generated [megastructure](https://en.wikipedia.org/wiki/Megastructure)s
 
 The name `Gibson` is in reference to American author [William Gibson](https://en.wikipedia.org/wiki/William_Gibson), whose debut novel [*Neuromancer*](https://en.wikipedia.org/wiki/Neuromancer) heavily influenced the [Cyberpunk](https://en.wikipedia.org/wiki/Cyberpunk) aesthetic, going on to inspire works such as [Tsutomu Nihei](https://en.wikipedia.org/wiki/Tsutomu_Nihei)'s (弐瓶 勉) [*Blame!*](https://en.wikipedia.org/wiki/Blame!) and [Masamune Shirow](https://en.wikipedia.org/wiki/Masamune_Shirow)'s (太田正典) [*Ghost in the Shell*](https://en.wikipedia.org/wiki/Ghost_in_the_Shell).
 
-![](./asset/logo/gibson.jpg)
+<div align="center">
+    <img src="./asset/logo/gibson.jpg">
+</div>
