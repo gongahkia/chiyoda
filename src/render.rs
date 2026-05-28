@@ -1,5 +1,6 @@
 use macroquad::models::{draw_cube_wires, draw_mesh, Mesh, Vertex};
 use macroquad::prelude::*;
+use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -12,8 +13,11 @@ use crate::generation::{
     CHUNK_SIZE_Z, DISTRICTS, MATERIALS,
 };
 use crate::rules::{CompiledRulePackSet, RulePackDocument};
+use crate::scenario::{generate_scenario, ScenarioRecord};
 use crate::seed::generate_seed;
 use crate::structure::{self, SavedStructure, StructureMetadata};
+
+const RULE_EDITOR_WEIGHT_COUNT: usize = 9;
 
 struct SpatialChunk {
     mesh: Mesh,
@@ -38,6 +42,12 @@ enum OverlayMode {
     Transit,
     Districts,
     Strata,
+    Entities,
+    Typology,
+    Construction,
+    Stress,
+    Section,
+    Scenario,
     Debug,
 }
 
@@ -48,7 +58,24 @@ impl OverlayMode {
             Self::Transit => "transit",
             Self::Districts => "districts",
             Self::Strata => "strata",
+            Self::Entities => "entities",
+            Self::Typology => "typology_frame",
+            Self::Construction => "construction",
+            Self::Stress => "stress",
+            Self::Section => "section_quality",
+            Self::Scenario => "scenario",
             Self::Debug => "debug",
+        }
+    }
+
+    fn next_v22(self) -> Self {
+        match self {
+            Self::Typology => Self::Construction,
+            Self::Construction => Self::Stress,
+            Self::Stress => Self::Section,
+            Self::Section => Self::Scenario,
+            Self::Scenario => Self::None,
+            _ => Self::Typology,
         }
     }
 }
@@ -685,6 +712,7 @@ struct AppState {
     rule_editor_message: String,
     export_path: PathBuf,
     saved_structure: SavedStructure,
+    scenario: ScenarioRecord,
     metadata: StructureMetadata,
     render_world: RenderWorld,
     orbital: OrbitalCamera,
@@ -698,6 +726,12 @@ struct AppState {
     show_legend: bool,
     show_labels: bool,
     overlay_mode: OverlayMode,
+    entity_animation_time: f32,
+    entity_animation_paused: bool,
+    entity_animation_speed_index: usize,
+    entity_phase_filter: Option<usize>,
+    selected_entity_kind_index: usize,
+    hidden_entity_kinds: BTreeSet<String>,
     selected_cell: Option<(usize, usize, usize)>,
     mouse_dragging: bool,
     last_mouse: Option<Vec2>,
@@ -727,6 +761,7 @@ impl AppState {
             MegaStructureGenerator::with_config_and_rules(seed, config.clone(), rule_packs.clone());
         generator.generate();
         let saved_structure = generator.saved_structure();
+        let scenario = generate_scenario(&saved_structure);
         let metadata = saved_structure.metadata.clone();
         if let Err(error) = save_current_outputs(generator.seed(), &saved_structure, &export_path) {
             eprintln!("Failed to save generated structure: {error}");
@@ -764,6 +799,7 @@ impl AppState {
             rule_editor_message: "E: edit selected rule file".to_owned(),
             export_path,
             saved_structure,
+            scenario,
             metadata,
             render_world,
             orbital,
@@ -777,6 +813,12 @@ impl AppState {
             show_legend: true,
             show_labels: false,
             overlay_mode: OverlayMode::None,
+            entity_animation_time: 0.0,
+            entity_animation_paused: false,
+            entity_animation_speed_index: 1,
+            entity_phase_filter: None,
+            selected_entity_kind_index: 0,
+            hidden_entity_kinds: BTreeSet::new(),
             selected_cell: None,
             mouse_dragging: false,
             last_mouse: None,
@@ -798,6 +840,7 @@ impl AppState {
         );
         self.generator.generate();
         self.saved_structure = self.generator.saved_structure();
+        self.scenario = generate_scenario(&self.saved_structure);
         self.metadata = self.saved_structure.metadata.clone();
         if let Err(error) = save_current_outputs(
             self.generator.seed(),
@@ -816,6 +859,8 @@ impl AppState {
         self.orbital = OrbitalCamera::new(center, distance);
         self.fps = FpsCamera::new(find_fps_spawn(&self.generator));
         self.selected_cell = None;
+        self.entity_animation_time = 0.0;
+        self.entity_phase_filter = None;
         self.mouse_dragging = false;
         self.last_mouse = None;
         self.last_fps_mouse = None;
@@ -906,7 +951,7 @@ impl AppState {
     }
 
     fn select_editor_weight(&mut self, weight_index: usize) {
-        self.selected_editor_weight = weight_index.min(3);
+        self.selected_editor_weight = weight_index.min(RULE_EDITOR_WEIGHT_COUNT - 1);
     }
 
     fn adjust_editor_weight(&mut self, delta: f32) {
@@ -918,17 +963,50 @@ impl AppState {
         }
         let pack_index = self.selected_editor_pack.min(document.packs.len() - 1);
         let pack = &mut document.packs[pack_index];
-        let weight = match self.selected_editor_weight {
-            0 => &mut pack.density_weight,
-            1 => &mut pack.route_weight,
-            2 => &mut pack.decay_weight,
-            _ => &mut pack.detail_weight,
+        let label = match self.selected_editor_weight {
+            0 => {
+                pack.density_weight = (pack.density_weight + delta).clamp(0.05, 4.0);
+                "density"
+            }
+            1 => {
+                pack.route_weight = (pack.route_weight + delta).clamp(0.05, 4.0);
+                "route"
+            }
+            2 => {
+                pack.decay_weight = (pack.decay_weight + delta).clamp(0.05, 4.0);
+                "decay"
+            }
+            3 => {
+                pack.detail_weight = (pack.detail_weight + delta).clamp(0.05, 1.5);
+                "detail"
+            }
+            4 => {
+                let weight = pack.entity_density_weight.get_or_insert(1.0);
+                *weight = (*weight + delta).clamp(0.0, 4.0);
+                "entity density"
+            }
+            5 => {
+                let weight = pack.entity_layout_weight.get_or_insert(1.0);
+                *weight = (*weight + delta).clamp(0.0, 4.0);
+                "entity layout"
+            }
+            6 => {
+                let weight = pack.patrol_weight.get_or_insert(1.0);
+                *weight = (*weight + delta).clamp(0.0, 3.0);
+                "patrol"
+            }
+            7 => {
+                let weight = pack.crowd_weight.get_or_insert(1.0);
+                *weight = (*weight + delta).clamp(0.0, 3.0);
+                "crowd"
+            }
+            _ => {
+                let weight = pack.builder_weight.get_or_insert(1.0);
+                *weight = (*weight + delta).clamp(0.0, 3.0);
+                "builder"
+            }
         };
-        *weight = (*weight + delta).clamp(0.05, 4.0);
-        if self.selected_editor_weight == 3 {
-            *weight = (*weight).min(1.5);
-        }
-        self.rule_editor_message = format!("edited {}", pack.name);
+        self.rule_editor_message = format!("edited {} {}", pack.name, label);
     }
 
     async fn apply_and_export_rule_editor(&mut self) {
@@ -973,6 +1051,10 @@ impl AppState {
         self.generator.config().profile.as_str()
     }
 
+    fn typology_name(&self) -> &str {
+        self.generator.config().typology.as_str()
+    }
+
     fn current_rule_label(&self) -> String {
         self.rule_path
             .as_ref()
@@ -980,6 +1062,43 @@ impl AppState {
             .and_then(|name| name.to_str())
             .map(str::to_owned)
             .unwrap_or_else(|| "built-in".to_owned())
+    }
+
+    fn entity_animation_speed(&self) -> f32 {
+        [0.5, 1.0, 2.0, 4.0][self.entity_animation_speed_index.min(3)]
+    }
+
+    fn cycle_entity_speed(&mut self) {
+        self.entity_animation_speed_index = (self.entity_animation_speed_index + 1) % 4;
+    }
+
+    fn step_entity_phase(&mut self) {
+        let phase_count = self.saved_structure.temporal_state.phases.len();
+        if phase_count == 0 {
+            self.entity_phase_filter = None;
+            return;
+        }
+        self.entity_phase_filter = Some(match self.entity_phase_filter {
+            Some(index) if index + 1 < phase_count => index + 1,
+            Some(_) => 0,
+            None => 0,
+        });
+    }
+
+    fn cycle_entity_kind_selection(&mut self) {
+        let kinds = entity_kind_order();
+        self.selected_entity_kind_index = (self.selected_entity_kind_index + 1) % kinds.len();
+    }
+
+    fn toggle_selected_entity_kind(&mut self) {
+        let kind = entity_kind_order()[self.selected_entity_kind_index].to_owned();
+        if !self.hidden_entity_kinds.remove(&kind) {
+            self.hidden_entity_kinds.insert(kind);
+        }
+    }
+
+    fn entity_kind_visible(&self, kind: &str) -> bool {
+        !self.hidden_entity_kinds.contains(kind)
     }
 }
 
@@ -1131,8 +1250,169 @@ fn draw_semantic_overlay(app: &AppState) {
         OverlayMode::Transit => draw_transit_overlay(app),
         OverlayMode::Districts => draw_district_overlay(app),
         OverlayMode::Strata => draw_strata_overlay(app),
+        OverlayMode::Entities => draw_entity_overlay(app),
+        OverlayMode::Typology => draw_typology_overlay(app),
+        OverlayMode::Construction => draw_construction_overlay(app),
+        OverlayMode::Stress => draw_stress_overlay(app),
+        OverlayMode::Section => draw_section_overlay(app),
+        OverlayMode::Scenario => draw_scenario_overlay(app),
         OverlayMode::Debug => draw_debug_overlay(app),
     }
+}
+
+fn draw_typology_overlay(app: &AppState) {
+    let frame = &app.saved_structure.typology_frame;
+    for pair in frame.primary_spines.windows(2) {
+        draw_line_3d(
+            point_to_vec3(pair[0]),
+            point_to_vec3(pair[1]),
+            Color::new(0.05, 0.95, 1.0, 1.0),
+        );
+    }
+    for point in &frame.primary_spines {
+        draw_cube_wires(
+            point_to_vec3(*point),
+            vec3(1.2, 1.2, 1.2),
+            Color::new(0.05, 0.95, 1.0, 1.0),
+        );
+    }
+    for point in &frame.service_anchors {
+        draw_cube_wires(
+            point_to_vec3(*point),
+            vec3(1.0, 1.0, 1.0),
+            Color::new(1.0, 0.82, 0.24, 1.0),
+        );
+    }
+    for band in &frame.void_bands {
+        draw_band_wires(
+            band.bounds_min,
+            band.bounds_max,
+            Color::new(1.0, 0.22, 0.28, 0.95),
+        );
+    }
+    for band in &frame.habitat_bands {
+        draw_band_wires(
+            band.bounds_min,
+            band.bounds_max,
+            Color::new(0.24, 1.0, 0.52, 0.95),
+        );
+    }
+}
+
+fn draw_construction_overlay(app: &AppState) {
+    for era in &app.saved_structure.construction_history {
+        let color = construction_era_color(era.id);
+        for route_id in &era.affected_route_ids {
+            if let Some(edge) = app.saved_structure.transit_graph.edges.get(*route_id) {
+                draw_route_points(edge, color);
+            }
+        }
+        for room_id in era.affected_room_ids.iter().take(28) {
+            if let Some(room) = app.saved_structure.rooms.get(*room_id) {
+                draw_cube_wires(point_to_vec3(room.position), vec3(0.72, 0.72, 0.72), color);
+            }
+        }
+    }
+}
+
+fn draw_stress_overlay(app: &AppState) {
+    for field in &app.saved_structure.structural_system.stress_fields {
+        let color = stress_color(field.stress);
+        draw_band_wires(field.bounds_min, field.bounds_max, color);
+        for route_id in &field.route_ids {
+            if let Some(edge) = app.saved_structure.transit_graph.edges.get(*route_id) {
+                draw_route_points(edge, color);
+            }
+        }
+        for support in field.support_points.iter().take(6) {
+            draw_cube_wires(
+                point_to_vec3(*support),
+                vec3(0.5, 0.5, 0.5),
+                Color::new(0.30, 0.95, 0.72, 1.0),
+            );
+        }
+    }
+    for path in &app.saved_structure.structural_system.load_paths {
+        draw_line_3d(
+            point_to_vec3(path.from),
+            point_to_vec3(path.to),
+            stress_color(path.stress),
+        );
+    }
+}
+
+fn draw_section_overlay(app: &AppState) {
+    let quality = &app.saved_structure.section_quality;
+    let colors = [
+        section_metric_color(quality.vertical_continuity),
+        section_metric_color(quality.service_separation),
+        section_metric_color(quality.evacuation_shaft_coverage),
+        section_metric_color(quality.cross_section_route_density),
+    ];
+    for y in 0..app.generator.layers {
+        let color = colors[y % colors.len()];
+        draw_cube_wires(
+            vec3(
+                app.generator.size as f32 * 0.5,
+                y as f32,
+                app.generator.size as f32 * 0.5,
+            ),
+            vec3(app.generator.size as f32, 0.08, app.generator.size as f32),
+            color,
+        );
+    }
+    for point in &app.saved_structure.typology_frame.service_anchors {
+        draw_line_3d(
+            vec3(point[0] as f32, 0.0, point[2] as f32),
+            vec3(
+                point[0] as f32,
+                app.generator.layers as f32,
+                point[2] as f32,
+            ),
+            Color::new(0.95, 0.82, 0.24, 1.0),
+        );
+    }
+}
+
+fn draw_scenario_overlay(app: &AppState) {
+    for consequence in &app.scenario.scenario_consequences {
+        let color = scenario_consequence_color(&consequence.kind);
+        for route_id in &consequence.route_ids {
+            if let Some(edge) = app.saved_structure.transit_graph.edges.get(*route_id) {
+                draw_route_points(edge, color);
+            }
+        }
+        for room_id in consequence.room_ids.iter().take(24) {
+            if let Some(room) = app.saved_structure.rooms.get(*room_id) {
+                draw_cube_wires(point_to_vec3(room.position), vec3(0.86, 0.86, 0.86), color);
+            }
+        }
+        for hazard_id in &consequence.hazard_ids {
+            if let Some(hazard) = app.saved_structure.hazard_zones.get(*hazard_id) {
+                draw_band_wires(hazard.bounds_min, hazard.bounds_max, color);
+            }
+        }
+    }
+}
+
+fn draw_route_points(edge: &structure::TransitEdgeRecord, color: Color) {
+    for pair in edge.points.windows(2) {
+        draw_line_3d(point_to_vec3(pair[0]), point_to_vec3(pair[1]), color);
+    }
+}
+
+fn draw_band_wires(bounds_min: [usize; 3], bounds_max: [usize; 3], color: Color) {
+    let center = vec3(
+        (bounds_min[0] + bounds_max[0]) as f32 * 0.5,
+        (bounds_min[1] + bounds_max[1]) as f32 * 0.5,
+        (bounds_min[2] + bounds_max[2]) as f32 * 0.5,
+    );
+    let size = vec3(
+        (bounds_max[0].saturating_sub(bounds_min[0]) + 1) as f32,
+        (bounds_max[1].saturating_sub(bounds_min[1]) + 1) as f32,
+        (bounds_max[2].saturating_sub(bounds_min[2]) + 1) as f32,
+    );
+    draw_cube_wires(center, size, color);
 }
 
 fn draw_transit_overlay(app: &AppState) {
@@ -1193,6 +1473,7 @@ fn draw_debug_overlay(app: &AppState) {
     draw_border_overlay(app);
     draw_flow_overlay(app);
     draw_hazard_overlay(app);
+    draw_entity_overlay(app);
     for cluster in app.generator.computed_room_clusters() {
         draw_cube_wires(
             point_to_vec3(cluster.anchor_position),
@@ -1248,6 +1529,80 @@ fn draw_border_overlay(app: &AppState) {
     }
 }
 
+fn draw_entity_overlay(app: &AppState) {
+    for field in &app.saved_structure.entity_pressure_fields {
+        if !pressure_field_visible_for_phase(app, field) {
+            continue;
+        }
+        let center = vec3(
+            (field.bounds_min[0] + field.bounds_max[0]) as f32 * 0.5,
+            (field.bounds_min[1] + field.bounds_max[1]) as f32 * 0.5,
+            (field.bounds_min[2] + field.bounds_max[2]) as f32 * 0.5,
+        );
+        let size = vec3(
+            (field.bounds_max[0].saturating_sub(field.bounds_min[0]) + 1) as f32,
+            (field.bounds_max[1].saturating_sub(field.bounds_min[1]) + 1) as f32 * 0.35,
+            (field.bounds_max[2].saturating_sub(field.bounds_min[2]) + 1) as f32,
+        );
+        draw_cube_wires(center, size, entity_pressure_color(&field.kind));
+    }
+    for mutation in &app.saved_structure.layout_mutations {
+        if let Some(phase_filter) = app.entity_phase_filter {
+            if mutation.phase_id != Some(phase_filter) {
+                continue;
+            }
+        }
+        let center = vec3(
+            (mutation.bounds_min[0] + mutation.bounds_max[0]) as f32 * 0.5,
+            (mutation.bounds_min[1] + mutation.bounds_max[1]) as f32 * 0.5,
+            (mutation.bounds_min[2] + mutation.bounds_max[2]) as f32 * 0.5,
+        );
+        draw_cube_wires(center, vec3(1.4, 0.55, 1.4), mutation_color(&mutation.kind));
+    }
+    for path in app.saved_structure.entity_paths.iter().take(96) {
+        let Some(entity) = app.saved_structure.entities.get(path.entity_id) else {
+            continue;
+        };
+        if !app.entity_kind_visible(&entity.kind) {
+            continue;
+        }
+        if let Some(phase_filter) = app.entity_phase_filter {
+            if !entity.active_phase_ids.contains(&phase_filter) {
+                continue;
+            }
+        }
+        for pair in path.sample_points.windows(2).take(10) {
+            draw_line_3d(
+                point_to_vec3(pair[0]) + vec3(0.0, 0.18, 0.0),
+                point_to_vec3(pair[1]) + vec3(0.0, 0.18, 0.0),
+                entity_color(&entity.kind),
+            );
+        }
+        if path.sample_points.is_empty() {
+            continue;
+        }
+        let index = ((app.entity_animation_time * 2.0 + path.id as f32 * 0.37) as usize)
+            % path.sample_points.len();
+        let position = point_to_vec3(path.sample_points[index]) + vec3(0.0, 0.62, 0.0);
+        draw_cube_wires(position, vec3(0.36, 0.36, 0.36), entity_color(&entity.kind));
+    }
+}
+
+fn pressure_field_visible_for_phase(
+    app: &AppState,
+    field: &structure::EntityPressureFieldRecord,
+) -> bool {
+    let Some(phase_filter) = app.entity_phase_filter else {
+        return true;
+    };
+    app.saved_structure.layout_mutations.iter().any(|mutation| {
+        mutation.source_pressure_field_id == field.id && mutation.phase_id == Some(phase_filter)
+    }) || app.saved_structure.entities.iter().any(|entity| {
+        field.source_entity_ids.contains(&entity.id)
+            && entity.active_phase_ids.contains(&phase_filter)
+    })
+}
+
 fn point_to_vec3(point: [usize; 3]) -> Vec3 {
     vec3(point[0] as f32, point[1] as f32, point[2] as f32)
 }
@@ -1271,6 +1626,49 @@ fn transit_role_color(role: &str) -> Color {
         "market_run" => Color::new(1.0, 0.62, 0.24, 1.0),
         "maintenance_backbone" => Color::new(0.95, 0.46, 0.16, 1.0),
         _ => transit_color(role),
+    }
+}
+
+fn construction_era_color(index: usize) -> Color {
+    match index % 5 {
+        0 => Color::new(0.32, 0.82, 1.0, 1.0),
+        1 => Color::new(1.0, 0.70, 0.24, 1.0),
+        2 => Color::new(0.55, 1.0, 0.48, 1.0),
+        3 => Color::new(1.0, 0.36, 0.62, 1.0),
+        _ => Color::new(0.78, 0.62, 1.0, 1.0),
+    }
+}
+
+fn stress_color(stress: f32) -> Color {
+    if stress < 0.35 {
+        Color::new(0.24, 0.90, 0.70, 1.0)
+    } else if stress < 0.62 {
+        Color::new(1.0, 0.76, 0.24, 1.0)
+    } else {
+        Color::new(1.0, 0.24, 0.24, 1.0)
+    }
+}
+
+fn section_metric_color(score: f32) -> Color {
+    if score >= 0.72 {
+        Color::new(0.24, 0.82, 0.92, 0.88)
+    } else if score >= 0.45 {
+        Color::new(0.94, 0.76, 0.30, 0.88)
+    } else {
+        Color::new(1.0, 0.34, 0.40, 0.88)
+    }
+}
+
+fn scenario_consequence_color(kind: &str) -> Color {
+    match kind {
+        "dynamic_layout_mutation" | "layout_shift" => Color::new(0.95, 0.48, 1.0, 1.0),
+        "flood_isolation" | "sealed_breach_zone" | "hazard_escalation" => {
+            Color::new(1.0, 0.28, 0.20, 1.0)
+        }
+        "temporary_bypass" | "evacuation_widening" | "route_pressure" => {
+            Color::new(1.0, 0.78, 0.24, 1.0)
+        }
+        _ => Color::new(0.36, 0.88, 1.0, 1.0),
     }
 }
 
@@ -1318,6 +1716,62 @@ fn hazard_color(kind: &str) -> Color {
     }
 }
 
+fn entity_color(kind: &str) -> Color {
+    match kind {
+        "corp_patrol" => Color::new(0.25, 0.55, 1.0, 1.0),
+        "evacuee_flow" => Color::new(0.78, 1.0, 0.48, 1.0),
+        "maintenance_crawler" => Color::new(0.95, 0.62, 0.24, 1.0),
+        "builder_swarm" => Color::new(0.88, 0.86, 0.42, 1.0),
+        "scavenger_drift" => Color::new(0.70, 0.55, 0.88, 1.0),
+        _ => Color::new(0.10, 0.95, 0.92, 1.0),
+    }
+}
+
+fn entity_pressure_color(kind: &str) -> Color {
+    let base = entity_color(match kind {
+        "patrol_lockdown" => "corp_patrol",
+        "evacuation_flow" => "evacuee_flow",
+        "maintenance_crawler" => "maintenance_crawler",
+        "builder_swarm" => "builder_swarm",
+        "scavenger_drift" => "scavenger_drift",
+        _ => "market_crowd",
+    });
+    Color::new(base.r, base.g, base.b, 0.88)
+}
+
+fn mutation_color(kind: &str) -> Color {
+    match kind {
+        "entity_security_lockdown" => Color::new(0.38, 0.60, 1.0, 1.0),
+        "entity_evacuation_bypass" => Color::new(0.68, 1.0, 0.48, 1.0),
+        "entity_service_retrofit" => Color::new(0.95, 0.64, 0.30, 1.0),
+        "entity_builder_expansion" => Color::new(0.90, 0.86, 0.35, 1.0),
+        _ => Color::new(0.10, 0.95, 0.92, 1.0),
+    }
+}
+
+fn entity_kind_order() -> [&'static str; 6] {
+    [
+        "market_crowd",
+        "corp_patrol",
+        "evacuee_flow",
+        "maintenance_crawler",
+        "builder_swarm",
+        "scavenger_drift",
+    ]
+}
+
+fn short_entity_kind(kind: &str) -> &'static str {
+    match kind {
+        "market_crowd" => "crowd",
+        "corp_patrol" => "patrol",
+        "evacuee_flow" => "evac",
+        "maintenance_crawler" => "maint",
+        "builder_swarm" => "build",
+        "scavenger_drift" => "scav",
+        _ => "other",
+    }
+}
+
 fn room_color(label: &str) -> Color {
     match label {
         "DATA_VAULT" | "SKY_VAULT" => Color::new(0.35, 0.80, 1.0, 1.0),
@@ -1346,7 +1800,7 @@ fn stratum_overlay_color(y: usize, layers: usize) -> Color {
 fn draw_overlay(app: &AppState) {
     let padding = 12.0;
     let line_height = 22.0;
-    draw_rectangle(8.0, 8.0, 430.0, 50.0, Color::new(0.0, 0.0, 0.0, 0.65));
+    draw_rectangle(8.0, 8.0, 430.0, 72.0, Color::new(0.0, 0.0, 0.0, 0.65));
     draw_text(
         &format!("Seed: {}", app.current_seed()),
         padding,
@@ -1367,6 +1821,13 @@ fn draw_overlay(app: &AppState) {
         18.0,
         LIGHTGRAY,
     );
+    draw_text(
+        &format!("Typology: {}", app.typology_name()),
+        padding,
+        70.0,
+        18.0,
+        Color::new(0.78, 0.86, 0.95, 1.0),
+    );
 
     let controls = [
         "Drag: Rotate | Wheel: Zoom | WASD: Pan",
@@ -1374,9 +1835,10 @@ fn draw_overlay(app: &AppState) {
         "R: Regenerate | H/Shift+R: Reload Rules",
         "G: Rule Browser | P: PostFX | [ ]: Fog",
         "S: Screenshot | I: Inspect | L/Y: Legend/Labels",
-        "T/Z/X/C: Graph/Zone/Strata/Debug | Q/Esc: Quit",
+        "T/Z/X/V/B/C: Graph/Zone/Strata/Entities/v22/Debug | Q/Esc: Quit",
+        "Entity V: U Pause | J Speed | N Phase | M/K Kind",
     ];
-    let mut y = 70.0;
+    let mut y = 92.0;
     for line in controls {
         draw_rectangle(8.0, y - 18.0, 420.0, 22.0, Color::new(0.0, 0.0, 0.0, 0.55));
         draw_text(line, padding, y, 20.0, Color::new(0.80, 0.80, 0.80, 1.0));
@@ -1406,6 +1868,22 @@ fn draw_overlay(app: &AppState) {
         Color::new(0.78, 0.78, 0.78, 1.0),
     );
     y += line_height;
+
+    if app.overlay_mode == OverlayMode::Entities {
+        draw_entity_legend(app, padding, y);
+        y += 112.0;
+    }
+    if matches!(
+        app.overlay_mode,
+        OverlayMode::Typology
+            | OverlayMode::Construction
+            | OverlayMode::Stress
+            | OverlayMode::Section
+            | OverlayMode::Scenario
+    ) {
+        draw_v22_overlay_legend(app.overlay_mode, padding, y);
+        y += 88.0;
+    }
 
     if app.enable_postfx {
         draw_rectangle(8.0, y - 18.0, 250.0, 22.0, Color::new(0.0, 0.0, 0.0, 0.55));
@@ -1629,6 +2107,176 @@ fn draw_overlay(app: &AppState) {
     }
 }
 
+fn draw_entity_legend(app: &AppState, x: f32, y: f32) {
+    let width = 430.0;
+    let height = 104.0;
+    draw_rectangle(
+        8.0,
+        y - 18.0,
+        width,
+        height,
+        Color::new(0.0, 0.0, 0.0, 0.68),
+    );
+    let phase = app
+        .entity_phase_filter
+        .and_then(|id| app.saved_structure.temporal_state.phases.get(id))
+        .map(|phase| phase.name.as_str())
+        .unwrap_or("all");
+    let selected_kind = entity_kind_order()[app.selected_entity_kind_index];
+    let selected_state = if app.entity_kind_visible(selected_kind) {
+        "visible"
+    } else {
+        "hidden"
+    };
+    draw_text(
+        &format!(
+            "Entities: {} | speed {:.1}x | phase {} | {}",
+            if app.entity_animation_paused {
+                "paused"
+            } else {
+                "playing"
+            },
+            app.entity_animation_speed(),
+            phase,
+            selected_kind
+        ),
+        x,
+        y,
+        18.0,
+        Color::new(0.86, 0.92, 1.0, 1.0),
+    );
+    draw_text(
+        "U pause | J speed | N phase | M select kind | K toggle kind",
+        x,
+        y + 20.0,
+        17.0,
+        Color::new(0.78, 0.78, 0.78, 1.0),
+    );
+    draw_text(
+        &format!("Selected kind is {selected_state}"),
+        x,
+        y + 40.0,
+        17.0,
+        Color::new(0.78, 0.78, 0.78, 1.0),
+    );
+    for (index, kind) in entity_kind_order().iter().enumerate() {
+        let count = app
+            .saved_structure
+            .entities
+            .iter()
+            .filter(|entity| entity.kind == *kind && app.entity_kind_visible(&entity.kind))
+            .count();
+        let color = entity_color(kind);
+        let col = index % 3;
+        let row = index / 3;
+        let item_x = x + col as f32 * 132.0;
+        let item_y = y + 56.0 + row as f32 * 18.0;
+        draw_rectangle(item_x, item_y, 10.0, 10.0, color);
+        draw_text(
+            &format!("{} {}", short_entity_kind(kind), count),
+            item_x + 14.0,
+            item_y + 11.0,
+            15.0,
+            Color::new(0.84, 0.84, 0.84, 1.0),
+        );
+    }
+}
+
+fn draw_typology_legend(x: f32, y: f32) {
+    draw_rectangle(8.0, y - 18.0, 430.0, 80.0, Color::new(0.0, 0.0, 0.0, 0.68));
+    let items = [
+        ("spines", Color::new(0.05, 0.95, 1.0, 1.0)),
+        ("service anchors", Color::new(1.0, 0.82, 0.24, 1.0)),
+        ("void bands", Color::new(1.0, 0.22, 0.28, 1.0)),
+        ("habitat bands", Color::new(0.24, 1.0, 0.52, 1.0)),
+    ];
+    draw_text(
+        "Typology frame",
+        x,
+        y,
+        18.0,
+        Color::new(0.86, 0.92, 1.0, 1.0),
+    );
+    for (index, (label, color)) in items.iter().enumerate() {
+        let item_x = x + (index % 2) as f32 * 170.0;
+        let item_y = y + 22.0 + (index / 2) as f32 * 20.0;
+        draw_rectangle(item_x, item_y, 10.0, 10.0, *color);
+        draw_text(
+            label,
+            item_x + 14.0,
+            item_y + 11.0,
+            16.0,
+            Color::new(0.84, 0.84, 0.84, 1.0),
+        );
+    }
+}
+
+fn draw_v22_overlay_legend(mode: OverlayMode, x: f32, y: f32) {
+    match mode {
+        OverlayMode::Typology => draw_typology_legend(x, y),
+        OverlayMode::Construction => draw_simple_legend(
+            "Construction eras",
+            &[
+                ("era anchors", construction_era_color(0)),
+                ("scar routes", construction_era_color(1)),
+                ("rooms", construction_era_color(2)),
+            ],
+            x,
+            y,
+        ),
+        OverlayMode::Stress => draw_simple_legend(
+            "Stress and load paths",
+            &[
+                ("low", stress_color(0.2)),
+                ("medium", stress_color(0.5)),
+                ("high", stress_color(0.8)),
+                ("supports", Color::new(0.30, 0.95, 0.72, 1.0)),
+            ],
+            x,
+            y,
+        ),
+        OverlayMode::Section => draw_simple_legend(
+            "Section quality",
+            &[
+                ("good", section_metric_color(0.8)),
+                ("thin", section_metric_color(0.55)),
+                ("weak", section_metric_color(0.25)),
+                ("service shafts", Color::new(0.95, 0.82, 0.24, 1.0)),
+            ],
+            x,
+            y,
+        ),
+        OverlayMode::Scenario => draw_simple_legend(
+            "Scenario consequences",
+            &[
+                ("layout", scenario_consequence_color("layout_shift")),
+                ("hazard", scenario_consequence_color("hazard_escalation")),
+                ("route", scenario_consequence_color("route_pressure")),
+            ],
+            x,
+            y,
+        ),
+        _ => {}
+    }
+}
+
+fn draw_simple_legend(title: &str, items: &[(&str, Color)], x: f32, y: f32) {
+    draw_rectangle(8.0, y - 18.0, 430.0, 80.0, Color::new(0.0, 0.0, 0.0, 0.68));
+    draw_text(title, x, y, 18.0, Color::new(0.86, 0.92, 1.0, 1.0));
+    for (index, (label, color)) in items.iter().enumerate() {
+        let item_x = x + (index % 2) as f32 * 170.0;
+        let item_y = y + 22.0 + (index / 2) as f32 * 20.0;
+        draw_rectangle(item_x, item_y, 10.0, 10.0, *color);
+        draw_text(
+            label,
+            item_x + 14.0,
+            item_y + 11.0,
+            16.0,
+            Color::new(0.84, 0.84, 0.84, 1.0),
+        );
+    }
+}
+
 fn draw_rule_browser_overlay(app: &AppState) {
     let width = 520.0;
     let height = 360.0;
@@ -1758,12 +2406,12 @@ fn draw_rule_editor_overlay(app: &AppState, x: f32, y: f32, width: f32) {
         );
         return;
     };
-    let height = 184.0;
+    let height = 234.0;
     draw_rectangle(x, y, width, height, Color::new(0.0, 0.0, 0.0, 0.78));
     draw_rectangle_lines(x, y, width, height, 1.0, Color::new(1.0, 0.76, 0.32, 0.9));
     draw_text("RULE EDITOR", x + 16.0, y + 28.0, 24.0, WHITE);
     draw_text(
-        "1-4: weight | -/=: adjust | O: export+apply | E: close",
+        "1-9: weight | -/=: adjust | O: export+apply | E: close",
         x + 16.0,
         y + 52.0,
         17.0,
@@ -1787,9 +2435,16 @@ fn draw_rule_editor_overlay(app: &AppState, x: f32, y: f32, width: f32) {
         ("2 route", pack.route_weight),
         ("3 decay", pack.decay_weight),
         ("4 detail", pack.detail_weight),
+        ("5 ent density", pack.entity_density_weight.unwrap_or(1.0)),
+        ("6 ent layout", pack.entity_layout_weight.unwrap_or(1.0)),
+        ("7 patrol", pack.patrol_weight.unwrap_or(1.0)),
+        ("8 crowd", pack.crowd_weight.unwrap_or(1.0)),
+        ("9 builder", pack.builder_weight.unwrap_or(1.0)),
     ];
     for (index, (label, value)) in weights.into_iter().enumerate() {
-        let row_y = y + 104.0 + index as f32 * 20.0;
+        let column = if index < 5 { 0.0 } else { 1.0 };
+        let row = if index < 5 { index } else { index - 5 };
+        let row_y = y + 104.0 + row as f32 * 20.0;
         let selected = index == app.selected_editor_weight;
         draw_text(
             &format!(
@@ -1798,7 +2453,7 @@ fn draw_rule_editor_overlay(app: &AppState, x: f32, y: f32, width: f32) {
                 label,
                 value
             ),
-            x + 18.0,
+            x + 18.0 + column * 226.0,
             row_y,
             18.0,
             if selected {
@@ -1810,8 +2465,8 @@ fn draw_rule_editor_overlay(app: &AppState, x: f32, y: f32, width: f32) {
     }
     draw_text(
         &truncate_text(&app.rule_editor_message, 56),
-        x + 180.0,
-        y + 104.0,
+        x + 18.0,
+        y + 214.0,
         18.0,
         Color::new(0.70, 0.88, 1.0, 1.0),
     );
@@ -1915,6 +2570,18 @@ fn collect_semantic_labels(app: &AppState) -> Vec<SemanticLabel> {
                 });
             }
         }
+    }
+    for field in saved.entity_pressure_fields.iter().take(4) {
+        labels.push(SemanticLabel {
+            text: format!("dynamic: {} {:.2}", field.kind, field.intensity),
+            position: vec3(
+                (field.bounds_min[0] + field.bounds_max[0]) as f32 * 0.5,
+                (field.bounds_min[1] + field.bounds_max[1]) as f32 * 0.5,
+                (field.bounds_min[2] + field.bounds_max[2]) as f32 * 0.5,
+            ),
+            color: entity_pressure_color(&field.kind),
+            priority: 3,
+        });
     }
     if let Some((x, y, z)) = app.selected_cell {
         let cell = app.generator.get(x, z, y);
@@ -2221,6 +2888,9 @@ pub async fn run(options: RuntimeOptions) {
             .await;
 
         let dt = get_frame_time().max(1.0 / 120.0);
+        if !app.entity_animation_paused {
+            app.entity_animation_time += dt * app.entity_animation_speed();
+        }
 
         if is_key_pressed(KeyCode::Escape) || is_key_pressed(KeyCode::Q) {
             break;
@@ -2283,6 +2953,21 @@ pub async fn run(options: RuntimeOptions) {
             if is_key_pressed(KeyCode::Key4) {
                 app.select_editor_weight(3);
             }
+            if is_key_pressed(KeyCode::Key5) {
+                app.select_editor_weight(4);
+            }
+            if is_key_pressed(KeyCode::Key6) {
+                app.select_editor_weight(5);
+            }
+            if is_key_pressed(KeyCode::Key7) {
+                app.select_editor_weight(6);
+            }
+            if is_key_pressed(KeyCode::Key8) {
+                app.select_editor_weight(7);
+            }
+            if is_key_pressed(KeyCode::Key9) {
+                app.select_editor_weight(8);
+            }
             if is_key_pressed(KeyCode::Minus) {
                 app.adjust_editor_weight(-0.05);
             }
@@ -2316,6 +3001,33 @@ pub async fn run(options: RuntimeOptions) {
             } else {
                 OverlayMode::Strata
             };
+        }
+        if is_key_pressed(KeyCode::V) {
+            app.overlay_mode = if app.overlay_mode == OverlayMode::Entities {
+                OverlayMode::None
+            } else {
+                OverlayMode::Entities
+            };
+        }
+        if is_key_pressed(KeyCode::B) {
+            app.overlay_mode = app.overlay_mode.next_v22();
+        }
+        if app.overlay_mode == OverlayMode::Entities && !app.show_rule_browser {
+            if is_key_pressed(KeyCode::U) {
+                app.entity_animation_paused = !app.entity_animation_paused;
+            }
+            if is_key_pressed(KeyCode::J) {
+                app.cycle_entity_speed();
+            }
+            if is_key_pressed(KeyCode::N) {
+                app.step_entity_phase();
+            }
+            if is_key_pressed(KeyCode::M) {
+                app.cycle_entity_kind_selection();
+            }
+            if is_key_pressed(KeyCode::K) {
+                app.toggle_selected_entity_kind();
+            }
         }
         if is_key_pressed(KeyCode::C) {
             app.overlay_mode = if app.overlay_mode == OverlayMode::Debug {

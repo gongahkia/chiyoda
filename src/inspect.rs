@@ -1,4 +1,5 @@
 use crate::cli::InspectSection;
+use crate::scenario::generate_scenario;
 use crate::structure::SavedStructure;
 
 pub fn render_inspection_json(
@@ -15,14 +16,22 @@ pub fn render_inspection_json(
                         "schema_version": structure.metadata.schema_version,
                         "seed": structure.seed,
                         "profile": structure.metadata.profile,
+                        "typology": structure.metadata.typology,
                         "occupied_cell_ratio": structure.metadata.occupied_cell_ratio,
+                        "construction_eras": structure.construction_history.len(),
+                        "section_quality_score": structure.section_quality.score,
+                        "stress_field_count": structure.structural_system.stress_fields.len(),
+                        "load_path_count": structure.structural_system.load_paths.len(),
                     }),
                 );
             }
             InspectSection::Routes => {
                 object.insert(
                     "routes".to_owned(),
-                    serde_json::to_value(&structure.transit_graph.edges)?,
+                    serde_json::json!({
+                        "edges": &structure.transit_graph.edges,
+                        "route_stress": route_stress_summary(structure),
+                    }),
                 );
             }
             InspectSection::Landmarks => {
@@ -33,8 +42,14 @@ pub fn render_inspection_json(
             }
             InspectSection::Path | InspectSection::Quality => {
                 object.insert(
-                    "path_analysis".to_owned(),
-                    serde_json::to_value(&structure.path_analysis)?,
+                    "quality".to_owned(),
+                    serde_json::json!({
+                        "path_analysis": &structure.path_analysis,
+                        "typology_quality": &structure.typology_quality,
+                        "section_quality": &structure.section_quality,
+                        "stress_fields": &structure.structural_system.stress_fields,
+                        "load_paths": &structure.structural_system.load_paths,
+                    }),
                 );
             }
             InspectSection::Simulation => {
@@ -52,7 +67,24 @@ pub fn render_inspection_json(
             InspectSection::Hazards => {
                 object.insert(
                     "hazards".to_owned(),
-                    serde_json::to_value(&structure.hazard_zones)?,
+                    serde_json::json!({
+                        "hazards": &structure.hazard_zones,
+                        "stress_derived_count": structure.hazard_zones.iter().filter(|hazard| hazard.kind.starts_with("stress_")).count(),
+                        "stress_fields": &structure.structural_system.stress_fields,
+                    }),
+                );
+            }
+            InspectSection::Entities => {
+                let scenario = generate_scenario(structure);
+                object.insert(
+                    "entities".to_owned(),
+                    serde_json::json!({
+                        "entities": &structure.entities,
+                        "paths": &structure.entity_paths,
+                        "pressure_fields": &structure.entity_pressure_fields,
+                        "layout_mutations": &structure.layout_mutations,
+                        "scenario_consequences": scenario.scenario_consequences,
+                    }),
                 );
             }
         }
@@ -72,9 +104,41 @@ pub fn render_inspection(structure: &SavedStructure, sections: &[InspectSection]
             InspectSection::Factions => render_factions(structure, &mut lines),
             InspectSection::Hazards => render_hazards(structure, &mut lines),
             InspectSection::Quality => render_quality(structure, &mut lines),
+            InspectSection::Entities => render_entities(structure, &mut lines),
         }
     }
     lines.join("\n")
+}
+
+fn render_entities(structure: &SavedStructure, lines: &mut Vec<String>) {
+    lines.push("Entities:".to_owned());
+    lines.push(format!(
+        "- entities={} paths={} pressure_fields={} layout_mutations={}",
+        structure.entities.len(),
+        structure.entity_paths.len(),
+        structure.entity_pressure_fields.len(),
+        structure.layout_mutations.len()
+    ));
+    for entity in structure.entities.iter().take(20) {
+        lines.push(format!(
+            "- #{} {} profile={} routes={:?} phases={:?} influence={:.2}",
+            entity.id,
+            entity.kind,
+            entity.movement_profile,
+            entity.route_ids,
+            entity.active_phase_ids,
+            entity.layout_influence
+        ));
+    }
+    for field in structure.entity_pressure_fields.iter().take(8) {
+        lines.push(format!(
+            "- field #{} {} intensity={:.2} routes={}",
+            field.id,
+            field.kind,
+            field.intensity,
+            field.affected_route_ids.len()
+        ));
+    }
 }
 
 fn render_simulation(structure: &SavedStructure, lines: &mut Vec<String>) {
@@ -108,9 +172,19 @@ fn render_factions(structure: &SavedStructure, lines: &mut Vec<String>) {
 fn render_hazards(structure: &SavedStructure, lines: &mut Vec<String>) {
     lines.push("Hazards:".to_owned());
     for hazard in structure.hazard_zones.iter().take(20) {
+        let source = if hazard.kind.starts_with("stress_") {
+            "stress-derived"
+        } else {
+            "generated"
+        };
         lines.push(format!(
-            "- #{} {} severity={:.2} routes={:?}",
-            hazard.id, hazard.kind, hazard.severity, hazard.route_ids
+            "- #{} {} severity={:.2} source={} routes={:?} rooms={}",
+            hazard.id,
+            hazard.kind,
+            hazard.severity,
+            source,
+            hazard.route_ids,
+            hazard.room_ids.len()
         ));
     }
 }
@@ -125,12 +199,45 @@ fn render_quality(structure: &SavedStructure, lines: &mut Vec<String>) {
         structure.metadata.failure_zone_count,
         structure.metadata.resource_network_count
     ));
+    lines.push(format!(
+        "- typology={:.2} section={:.2} missing_contracts={}",
+        structure.typology_quality.score,
+        structure.section_quality.score,
+        structure.section_quality.missing_contracts.len()
+    ));
+    lines.push(format!(
+        "- section vertical={:.2} void={:.2} service={:.2} evac={:.2} roof={:.2}",
+        structure.section_quality.vertical_continuity,
+        structure.section_quality.void_exposure,
+        structure.section_quality.service_separation,
+        structure.section_quality.evacuation_shaft_coverage,
+        structure.section_quality.roof_deck_access
+    ));
+    for field in structure.structural_system.stress_fields.iter().take(8) {
+        lines.push(format!(
+            "- stress #{} {} stress={:.2} routes={:?} supports={}",
+            field.id,
+            field.kind,
+            field.stress,
+            field.route_ids,
+            field.support_points.len()
+        ));
+    }
+    for path in structure.structural_system.load_paths.iter().take(6) {
+        lines.push(format!(
+            "- load_path #{} {} stress={:.2} routes={:?}",
+            path.id, path.kind, path.stress, path.route_ids
+        ));
+    }
 }
 
 fn render_summary(structure: &SavedStructure, lines: &mut Vec<String>) {
     lines.push(format!(
-        "Gibson {} seed={} profile={}",
-        structure.metadata.schema_version, structure.seed, structure.metadata.profile
+        "Gibson {} seed={} profile={} typology={}",
+        structure.metadata.schema_version,
+        structure.seed,
+        structure.metadata.profile,
+        structure.metadata.typology
     ));
     lines.push(format!(
         "Grid: {}x{}x{} occupied={:.1}%",
@@ -149,6 +256,20 @@ fn render_summary(structure: &SavedStructure, lines: &mut Vec<String>) {
         structure.metadata.faction_count
     ));
     lines.push(format!(
+        "Dynamics: entities={} paths={} fields={} mutations={}",
+        structure.metadata.entity_count,
+        structure.metadata.entity_path_count,
+        structure.metadata.entity_pressure_field_count,
+        structure.metadata.layout_mutation_count
+    ));
+    lines.push(format!(
+        "v22: construction_eras={} section={:.2} stress_fields={} load_paths={}",
+        structure.construction_history.len(),
+        structure.section_quality.score,
+        structure.structural_system.stress_fields.len(),
+        structure.structural_system.load_paths.len()
+    ));
+    lines.push(format!(
         "Connectivity: components={} largest={} service_to_skyline={}",
         structure.path_analysis.connected_component_count,
         structure.path_analysis.largest_component_edges,
@@ -160,8 +281,18 @@ fn render_routes(structure: &SavedStructure, lines: &mut Vec<String>) {
     lines.push("Routes:".to_owned());
     for edge in structure.transit_graph.edges.iter().take(20) {
         lines.push(format!(
-            "- #{} {} role={} stratum={} length={}",
-            edge.id, edge.kind, edge.role, edge.stratum, edge.length
+            "- #{} {} role={} stratum={} length={} stress={:.2} evac={:.2}",
+            edge.id,
+            edge.kind,
+            edge.role,
+            edge.stratum,
+            edge.length,
+            route_stress_for(structure, edge.id),
+            structure
+                .route_simulation
+                .get(edge.id)
+                .map(|simulation| simulation.evacuation_viability)
+                .unwrap_or(0.0)
         ));
     }
 }
@@ -213,6 +344,33 @@ fn render_path(structure: &SavedStructure, lines: &mut Vec<String>) {
     }
 }
 
+fn route_stress_for(structure: &SavedStructure, route_id: usize) -> f32 {
+    structure
+        .structural_system
+        .stress_fields
+        .iter()
+        .filter(|field| field.route_ids.contains(&route_id))
+        .map(|field| field.stress)
+        .fold(0.0, f32::max)
+}
+
+fn route_stress_summary(structure: &SavedStructure) -> Vec<serde_json::Value> {
+    structure
+        .transit_graph
+        .edges
+        .iter()
+        .map(|edge| {
+            let simulation = structure.route_simulation.get(edge.id);
+            serde_json::json!({
+                "route_id": edge.id,
+                "stress": route_stress_for(structure, edge.id),
+                "evacuation_viability": simulation.map(|record| record.evacuation_viability),
+                "blackout_risk": simulation.map(|record| record.blackout_risk),
+            })
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -235,6 +393,7 @@ mod tests {
                 InspectSection::Factions,
                 InspectSection::Hazards,
                 InspectSection::Quality,
+                InspectSection::Entities,
             ],
         );
         assert!(output.contains(&format!("Gibson {STRUCTURE_SCHEMA_VERSION}")));
@@ -245,7 +404,10 @@ mod tests {
         assert!(output.contains("Factions:"));
         assert!(output.contains("Hazards:"));
         assert!(output.contains("Quality:"));
+        assert!(output.contains("Entities:"));
         let json = render_inspection_json(&structure, &[InspectSection::Quality]).unwrap();
         assert!(json.contains("path_analysis"));
+        assert!(json.contains("section_quality"));
+        assert!(json.contains("stress_fields"));
     }
 }

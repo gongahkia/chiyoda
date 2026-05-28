@@ -9,6 +9,7 @@ pub struct CompactExportSummary {
     pub schema_version: String,
     pub seed: String,
     pub profile: String,
+    pub typology: String,
     pub size: usize,
     pub layers: usize,
     pub counts: BTreeMap<String, usize>,
@@ -19,8 +20,22 @@ pub struct CompactExportSummary {
 pub fn compact_export_summary(structure: &SavedStructure) -> CompactExportSummary {
     let counts = BTreeMap::from([
         ("factions".to_owned(), structure.factions.len()),
+        (
+            "construction_eras".to_owned(),
+            structure.construction_history.len(),
+        ),
+        ("entities".to_owned(), structure.entities.len()),
+        ("entity_paths".to_owned(), structure.entity_paths.len()),
+        (
+            "entity_pressure_fields".to_owned(),
+            structure.entity_pressure_fields.len(),
+        ),
         ("failure_zones".to_owned(), structure.failure_zones.len()),
         ("hazards".to_owned(), structure.hazard_zones.len()),
+        (
+            "layout_mutations".to_owned(),
+            structure.layout_mutations.len(),
+        ),
         ("landmarks".to_owned(), structure.narrative_landmarks.len()),
         ("macro_massing".to_owned(), structure.macro_massing.len()),
         (
@@ -40,12 +55,21 @@ pub fn compact_export_summary(structure: &SavedStructure) -> CompactExportSummar
         ),
         ("routes".to_owned(), structure.transit_graph.edges.len()),
         ("rule_packs".to_owned(), structure.rule_packs.len()),
+        (
+            "stress_fields".to_owned(),
+            structure.structural_system.stress_fields.len(),
+        ),
+        (
+            "load_paths".to_owned(),
+            structure.structural_system.load_paths.len(),
+        ),
     ]);
 
     CompactExportSummary {
         schema_version: structure.metadata.schema_version.clone(),
         seed: structure.seed.clone(),
         profile: structure.metadata.profile.clone(),
+        typology: structure.metadata.typology.clone(),
         size: structure.size,
         layers: structure.layers,
         counts,

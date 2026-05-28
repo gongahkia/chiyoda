@@ -33,6 +33,7 @@ $ git clone https://github.com/gongahkia/gibson && cd gibson
 $ cargo run --release
 $ cargo run --release -- ABCD1234
 $ cargo run --release -- --seed ABCD1234 --profile neon
+$ cargo run --release -- --seed ABCD1234 --profile balanced --typology linear-city
 $ cargo run --release -- --seed ABCD1234 --profile dense --headless --export structure.json
 $ cargo run --release -- --seed ABCD1234 --config presets/blackout-core.json --headless --bundle out/blackout
 $ cargo run --release -- --validate-rules rules/kowloon-decay.json
@@ -46,18 +47,19 @@ $ cargo run --release -- --validate structure.json
 * `R` to regenerate
 * `S` for screenshots
 * `I` to inspect cells
-* `T/Z/X/C` for semantic overlays
+* `T/Z/X/V/B/C` for semantic overlays; `B` cycles typology frame, construction eras, stress/load paths, section quality, and scenario consequences
+* `U`/`J`/`N`/`M`/`K` while using `V` to pause, change speed, scrub phases, select entity kinds, and toggle kind visibility
 * `G` for an in-renderer rule-pack browser
 * `H` or `Shift+R` to hot reload edited rule JSON
-* `E`/`1-4`/`-`/`=`/`O` to edit and export rule weights
+* `E`/`1-9`/`-`/`=`/`O` to edit and export structure and entity rule weights
 
 ## Configuration
 
-`Gibson`'s predefined profiles are `balanced`, `dense`, `vertical`, `decayed`, and `neon`. 
+`Gibson`'s predefined profiles are `balanced`, `dense`, `vertical`, `decayed`, and `neon`. Megastructure typologies include `dense-enclave`, `arcology-spire`, `linear-city`, `bridge-void`, `marine-platform`, `orbital-ring`, `underground-hive`, `mountain-burrow`, `desert-arcology`, `airport-city`, `dam-city`, and `shipyard-stack`. Dynamic generation controls include `entity_density`, `entity_layout_pressure`, and `advanced_pattern_complexity`. Rule packs can target a typology and tune entity density, layout pressure, patrols, crowds, and builder swarms.
 
 ## Seed
 
-Randomly generated [megastructure](https://en.wikipedia.org/wiki/Megastructure)s are seeded at `current_seed.txt` and serialised at `structure.json` with generation metadata, counts, profile, config snapshot, circulation routes, strata, semantic room labels, resource networks, hazards, rule packs, and rule influence traces.
+Randomly generated [megastructure](https://en.wikipedia.org/wiki/Megastructure)s are seeded at `current_seed.txt` and serialised at `structure.json` with generation metadata, counts, profile, typology frame, typology quality metrics, construction history, section quality, stress/load paths, config snapshot, circulation routes, strata, semantic room labels, resource networks, stress-influenced hazards, rule packs, rule influence traces, deterministic entity movement, pressure fields, and layout mutations. Checked-in scenario examples live in `examples/scenarios/` for non-Kowloon typologies.
 
 ## Research
 
