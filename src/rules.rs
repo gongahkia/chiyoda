@@ -5,7 +5,7 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
-use crate::config::GenerationProfile;
+use crate::config::{GenerationProfile, MegastructureTypology};
 use crate::structure::StructureResult;
 
 const VALID_DISTRICTS: &[&str] = &["INDUSTRIAL", "RESIDENTIAL", "COMMERCIAL", "SLUM", "ELITE"];
@@ -24,12 +24,24 @@ pub struct RulePackDocument {
 pub struct EditableRulePack {
     pub name: String,
     pub profile: GenerationProfile,
+    #[serde(default)]
+    pub typology: Option<MegastructureTypology>,
     pub district: String,
     pub stratum: String,
     pub density_weight: f32,
     pub route_weight: f32,
     pub decay_weight: f32,
     pub detail_weight: f32,
+    #[serde(default)]
+    pub entity_density_weight: Option<f32>,
+    #[serde(default)]
+    pub entity_layout_weight: Option<f32>,
+    #[serde(default)]
+    pub patrol_weight: Option<f32>,
+    #[serde(default)]
+    pub crowd_weight: Option<f32>,
+    #[serde(default)]
+    pub builder_weight: Option<f32>,
     #[serde(default)]
     pub grammar: Vec<String>,
 }
@@ -45,18 +57,25 @@ pub struct CompiledRulePackSet {
 pub struct CompiledRulePack {
     pub name: String,
     pub profile: GenerationProfile,
+    pub typology: Option<MegastructureTypology>,
     pub district: String,
     pub stratum: String,
     pub density_weight: f32,
     pub route_weight: f32,
     pub decay_weight: f32,
     pub detail_weight: f32,
+    pub entity_density_weight: f32,
+    pub entity_layout_weight: f32,
+    pub patrol_weight: f32,
+    pub crowd_weight: f32,
+    pub builder_weight: f32,
     pub grammar: Vec<String>,
 }
 
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 struct RulePackKey {
     profile: GenerationProfile,
+    typology: Option<MegastructureTypology>,
     district: String,
     stratum: String,
 }
@@ -88,8 +107,13 @@ impl RulePackDocument {
             ensure(
                 !by_key.contains_key(&key),
                 format!(
-                    "duplicate rule pack for profile={} district={} stratum={}",
-                    key.profile, key.district, key.stratum
+                    "duplicate rule pack for profile={} typology={} district={} stratum={}",
+                    key.profile,
+                    key.typology
+                        .map(|typology| typology.to_string())
+                        .unwrap_or_else(|| "all".to_owned()),
+                    key.district,
+                    key.stratum
                 ),
             )?;
             by_key.insert(key, packs.len());
@@ -117,19 +141,35 @@ impl EditableRulePack {
         validate_weight("density_weight", self.density_weight, 0.05, 4.0)?;
         validate_weight("route_weight", self.route_weight, 0.05, 4.0)?;
         validate_weight("decay_weight", self.decay_weight, 0.05, 4.0)?;
-        validate_weight("detail_weight", self.detail_weight, 0.05, 1.5)
+        validate_weight("detail_weight", self.detail_weight, 0.05, 1.5)?;
+        validate_optional_weight(
+            "entity_density_weight",
+            self.entity_density_weight,
+            0.0,
+            4.0,
+        )?;
+        validate_optional_weight("entity_layout_weight", self.entity_layout_weight, 0.0, 4.0)?;
+        validate_optional_weight("patrol_weight", self.patrol_weight, 0.0, 3.0)?;
+        validate_optional_weight("crowd_weight", self.crowd_weight, 0.0, 3.0)?;
+        validate_optional_weight("builder_weight", self.builder_weight, 0.0, 3.0)
     }
 
     fn compile(&self) -> CompiledRulePack {
         CompiledRulePack {
             name: self.name.clone(),
             profile: self.profile,
+            typology: self.typology,
             district: self.district.clone(),
             stratum: self.stratum.clone(),
             density_weight: self.density_weight,
             route_weight: self.route_weight,
             decay_weight: self.decay_weight,
             detail_weight: self.detail_weight,
+            entity_density_weight: self.entity_density_weight.unwrap_or(1.0),
+            entity_layout_weight: self.entity_layout_weight.unwrap_or(1.0),
+            patrol_weight: self.patrol_weight.unwrap_or(1.0),
+            crowd_weight: self.crowd_weight.unwrap_or(1.0),
+            builder_weight: self.builder_weight.unwrap_or(1.0),
             grammar: self.grammar.clone(),
         }
     }
@@ -151,17 +191,26 @@ impl CompiledRulePackSet {
     pub fn find(
         &self,
         profile: GenerationProfile,
+        typology: Option<MegastructureTypology>,
         district: &str,
         stratum: &str,
     ) -> Option<&CompiledRulePack> {
-        let key = RulePackKey {
-            profile,
-            district: district.to_owned(),
-            stratum: stratum.to_owned(),
-        };
-        self.by_key
-            .get(&key)
-            .and_then(|index| self.packs.get(*index))
+        for typology in [typology, None] {
+            let key = RulePackKey {
+                profile,
+                typology,
+                district: district.to_owned(),
+                stratum: stratum.to_owned(),
+            };
+            if let Some(pack) = self
+                .by_key
+                .get(&key)
+                .and_then(|index| self.packs.get(*index))
+            {
+                return Some(pack);
+            }
+        }
+        None
     }
 }
 
@@ -169,6 +218,7 @@ impl CompiledRulePack {
     fn key(&self) -> RulePackKey {
         RulePackKey {
             profile: self.profile,
+            typology: self.typology,
             district: self.district.clone(),
             stratum: self.stratum.clone(),
         }
@@ -200,6 +250,18 @@ fn validate_weight(name: &str, value: f32, min: f32, max: f32) -> StructureResul
     )
 }
 
+fn validate_optional_weight(
+    name: &str,
+    value: Option<f32>,
+    min: f32,
+    max: f32,
+) -> StructureResult<()> {
+    if let Some(value) = value {
+        validate_weight(name, value, min, max)?;
+    }
+    Ok(())
+}
+
 fn ensure(condition: bool, message: impl Into<String>) -> StructureResult<()> {
     if condition {
         Ok(())
@@ -226,7 +288,7 @@ mod tests {
     fn compiles_rule_document_into_lookup_set() {
         let compiled = CompiledRulePackSet::from_json_file("rules/balanced-base.json").unwrap();
         let pack = compiled
-            .find(GenerationProfile::Balanced, "SLUM", "SURFACE")
+            .find(GenerationProfile::Balanced, None, "SLUM", "SURFACE")
             .unwrap();
         assert_eq!(pack.name, "balanced_slum_surface");
         assert!(pack.grammar.iter().any(|rule| rule.contains("corridors")));
@@ -237,12 +299,18 @@ mod tests {
         let pack = EditableRulePack {
             name: "one".to_owned(),
             profile: GenerationProfile::Balanced,
+            typology: None,
             district: "SLUM".to_owned(),
             stratum: "SURFACE".to_owned(),
             density_weight: 1.0,
             route_weight: 1.0,
             decay_weight: 1.0,
             detail_weight: 0.5,
+            entity_density_weight: None,
+            entity_layout_weight: None,
+            patrol_weight: None,
+            crowd_weight: None,
+            builder_weight: None,
             grammar: Vec::new(),
         };
         let document = RulePackDocument {
@@ -267,16 +335,35 @@ mod tests {
             packs: vec![EditableRulePack {
                 name: "bad".to_owned(),
                 profile: GenerationProfile::Balanced,
+                typology: None,
                 district: "SLUM".to_owned(),
                 stratum: "SURFACE".to_owned(),
                 density_weight: 9.0,
                 route_weight: 1.0,
                 decay_weight: 1.0,
                 detail_weight: 0.5,
+                entity_density_weight: None,
+                entity_layout_weight: None,
+                patrol_weight: None,
+                crowd_weight: None,
+                builder_weight: None,
                 grammar: Vec::new(),
             }],
         };
         assert!(document.validate().is_err());
+    }
+
+    #[test]
+    fn optional_entity_rule_weights_default_to_neutral() {
+        let compiled = CompiledRulePackSet::from_json_file("rules/balanced-base.json").unwrap();
+        let pack = compiled
+            .find(GenerationProfile::Balanced, None, "SLUM", "SURFACE")
+            .unwrap();
+        assert_eq!(pack.entity_density_weight, 1.0);
+        assert_eq!(pack.entity_layout_weight, 1.0);
+        assert_eq!(pack.patrol_weight, 1.0);
+        assert_eq!(pack.crowd_weight, 1.0);
+        assert_eq!(pack.builder_weight, 1.0);
     }
 
     #[test]
@@ -292,5 +379,60 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn typology_specific_rules_override_generic_rules() {
+        let generic = EditableRulePack {
+            name: "generic".to_owned(),
+            profile: GenerationProfile::Balanced,
+            typology: None,
+            district: "COMMERCIAL".to_owned(),
+            stratum: "SURFACE".to_owned(),
+            density_weight: 1.0,
+            route_weight: 1.0,
+            decay_weight: 1.0,
+            detail_weight: 0.5,
+            entity_density_weight: None,
+            entity_layout_weight: None,
+            patrol_weight: None,
+            crowd_weight: None,
+            builder_weight: None,
+            grammar: Vec::new(),
+        };
+        let mut specific = generic.clone();
+        specific.name = "linear".to_owned();
+        specific.typology = Some(MegastructureTypology::LinearCity);
+        specific.route_weight = 1.7;
+        let document = RulePackDocument {
+            name: "typology".to_owned(),
+            description: String::new(),
+            packs: vec![generic, specific],
+        };
+        let compiled = document.compile().unwrap();
+        assert_eq!(
+            compiled
+                .find(
+                    GenerationProfile::Balanced,
+                    Some(MegastructureTypology::LinearCity),
+                    "COMMERCIAL",
+                    "SURFACE"
+                )
+                .unwrap()
+                .name,
+            "linear"
+        );
+        assert_eq!(
+            compiled
+                .find(
+                    GenerationProfile::Balanced,
+                    Some(MegastructureTypology::OrbitalRing),
+                    "COMMERCIAL",
+                    "SURFACE"
+                )
+                .unwrap()
+                .name,
+            "generic"
+        );
     }
 }

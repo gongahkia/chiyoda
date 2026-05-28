@@ -5,6 +5,7 @@
     {
       "name": "bridge_void_commercial_surface",
       "profile": "vertical",
+      "typology": "bridge_void",
       "district": "COMMERCIAL",
       "stratum": "SURFACE",
       "density_weight": 0.7,
@@ -16,6 +17,7 @@
     {
       "name": "bridge_void_residential_midrise",
       "profile": "vertical",
+      "typology": "bridge_void",
       "district": "RESIDENTIAL",
       "stratum": "MIDRISE",
       "density_weight": 0.72,
@@ -27,6 +29,7 @@
     {
       "name": "bridge_void_elite_skyline",
       "profile": "vertical",
+      "typology": "bridge_void",
       "district": "ELITE",
       "stratum": "SKYLINE",
       "density_weight": 0.42,
@@ -38,6 +41,7 @@
     {
       "name": "bridge_void_industrial_underground",
       "profile": "vertical",
+      "typology": "bridge_void",
       "district": "INDUSTRIAL",
       "stratum": "UNDERGROUND",
       "density_weight": 0.75,

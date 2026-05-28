@@ -11,6 +11,11 @@
       "route_weight": 1.75,
       "decay_weight": 1.25,
       "detail_weight": 1.0,
+      "entity_density_weight": 1.55,
+      "entity_layout_weight": 1.25,
+      "patrol_weight": 0.75,
+      "crowd_weight": 2.1,
+      "builder_weight": 0.9,
       "grammar": ["wide market runs", "waterlogged stalls", "temporary catwalks", "signage reefs"]
     },
     {
@@ -22,6 +27,11 @@
       "route_weight": 1.45,
       "decay_weight": 1.35,
       "detail_weight": 1.05,
+      "entity_density_weight": 1.45,
+      "entity_layout_weight": 1.2,
+      "patrol_weight": 0.65,
+      "crowd_weight": 1.9,
+      "builder_weight": 1.1,
       "grammar": ["bucket bridges", "floating scrap stalls", "patched stairs", "cable drapes"]
     },
     {
@@ -33,6 +43,11 @@
       "route_weight": 1.4,
       "decay_weight": 1.55,
       "detail_weight": 0.85,
+      "entity_density_weight": 1.05,
+      "entity_layout_weight": 1.35,
+      "patrol_weight": 0.7,
+      "crowd_weight": 0.85,
+      "builder_weight": 1.2,
       "grammar": ["flood pumps", "overflow tunnels", "pipe berms", "blocked service doors"]
     }
   ]

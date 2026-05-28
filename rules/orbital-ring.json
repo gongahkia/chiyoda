@@ -1,0 +1,44 @@
+{
+  "name": "orbital-ring",
+  "description": "Rim and spoke megastructure grammar for orbital habitats, pressure segments, and radial transfers.",
+  "packs": [
+    {
+      "name": "orbital_ring_residential_midrise",
+      "profile": "balanced",
+      "typology": "orbital_ring",
+      "district": "RESIDENTIAL",
+      "stratum": "MIDRISE",
+      "density_weight": 1.05,
+      "route_weight": 1.45,
+      "decay_weight": 0.78,
+      "detail_weight": 0.8,
+      "crowd_weight": 1.2,
+      "grammar": ["rim habitat compartments", "pressure doors", "radial transfer foyers", "spinward corridors"]
+    },
+    {
+      "name": "orbital_ring_industrial_surface",
+      "profile": "balanced",
+      "typology": "orbital_ring",
+      "district": "INDUSTRIAL",
+      "stratum": "SURFACE",
+      "density_weight": 0.88,
+      "route_weight": 1.35,
+      "decay_weight": 1.05,
+      "detail_weight": 0.78,
+      "entity_layout_weight": 1.25,
+      "grammar": ["spoke machinery", "reaction wheel bays", "service airlocks", "rim blackout panels"]
+    },
+    {
+      "name": "orbital_ring_commercial_midrise",
+      "profile": "balanced",
+      "typology": "orbital_ring",
+      "district": "COMMERCIAL",
+      "stratum": "MIDRISE",
+      "density_weight": 1.1,
+      "route_weight": 1.28,
+      "decay_weight": 0.82,
+      "detail_weight": 0.85,
+      "grammar": ["rim bazaars", "spoke plazas", "observation docks", "zero-g kiosks"]
+    }
+  ]
+}

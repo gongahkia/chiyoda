@@ -2,7 +2,7 @@ use std::path::PathBuf;
 use std::str::FromStr;
 use std::{error::Error, io};
 
-use crate::config::{GenerationConfig, GenerationProfile};
+use crate::config::{GenerationConfig, GenerationProfile, MegastructureTypology};
 use crate::rules::CompiledRulePackSet;
 use crate::seed::{generate_seed, validate_seed};
 use crate::structure::StructureResult;
@@ -17,6 +17,7 @@ pub enum InspectSection {
     Factions,
     Hazards,
     Quality,
+    Entities,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -45,6 +46,7 @@ impl RuntimeOptions {
         let mut positional_seed = None;
         let mut explicit_seed = None;
         let mut profile = GenerationProfile::Balanced;
+        let mut typology = None;
         let mut config_path = None;
         let mut export_path = PathBuf::from(crate::structure::STRUCTURE_FILE);
         let mut scenario_path = None;
@@ -64,6 +66,11 @@ impl RuntimeOptions {
                 "--profile" => {
                     let value = next_arg(&mut args, "--profile")?;
                     profile = GenerationProfile::from_str(&value).map_err(invalid_input)?;
+                }
+                "--typology" => {
+                    let value = next_arg(&mut args, "--typology")?;
+                    typology =
+                        Some(MegastructureTypology::from_str(&value).map_err(invalid_input)?);
                 }
                 "--config" => config_path = Some(PathBuf::from(next_arg(&mut args, "--config")?)),
                 "--export" => export_path = PathBuf::from(next_arg(&mut args, "--export")?),
@@ -91,6 +98,7 @@ impl RuntimeOptions {
                 "--factions" => inspect_sections.push(InspectSection::Factions),
                 "--hazards" => inspect_sections.push(InspectSection::Hazards),
                 "--quality" => inspect_sections.push(InspectSection::Quality),
+                "--entities" => inspect_sections.push(InspectSection::Entities),
                 "--json" => inspect_json = true,
                 "--help" | "-h" => return Err(invalid_input(usage())),
                 value if value.starts_with("--") => {
@@ -115,13 +123,17 @@ impl RuntimeOptions {
             )));
         }
 
-        let config = if let Some(path) = config_path {
+        let mut config = if let Some(path) = config_path {
             GenerationConfig::from_json_file(path, profile)?
         } else {
             let config = GenerationConfig::profile(profile);
             config.validate().map_err(invalid_input)?;
             config
         };
+        if let Some(typology) = typology {
+            config.typology = typology;
+            config.validate().map_err(invalid_input)?;
+        }
         let rule_packs = if let Some(path) = &rules_path {
             CompiledRulePackSet::from_json_file(path)?
         } else {
@@ -160,7 +172,7 @@ fn invalid_input(message: impl Into<String>) -> Box<dyn Error + Send + Sync> {
 }
 
 pub fn usage() -> &'static str {
-    "Usage: gibson-rust [SEED] [--seed SEED] [--profile balanced|dense|vertical|decayed|neon] [--config path.json] [--rules rules.json] [--export path.json] [--scenario scenario.json] [--bundle out/] [--headless] [--validate artifact.json] [--validate-rules rules.json] [--inspect structure.json] [--summary] [--routes] [--landmarks] [--path] [--simulation] [--factions] [--hazards] [--quality] [--json]"
+    "Usage: gibson-rust [SEED] [--seed SEED] [--profile balanced|dense|vertical|decayed|neon] [--typology dense-enclave|arcology-spire|linear-city|bridge-void|marine-platform|orbital-ring|underground-hive|mountain-burrow|desert-arcology|airport-city|dam-city|shipyard-stack] [--config path.json] [--rules rules.json] [--export path.json] [--scenario scenario.json] [--bundle out/] [--headless] [--validate artifact.json] [--validate-rules rules.json] [--inspect structure.json] [--summary] [--routes] [--landmarks] [--path] [--simulation] [--factions] [--hazards] [--quality] [--entities] [--json]"
 }
 
 #[cfg(test)]
@@ -197,6 +209,8 @@ mod tests {
             "abcd1234".to_owned(),
             "--profile".to_owned(),
             "neon".to_owned(),
+            "--typology".to_owned(),
+            "linear-city".to_owned(),
             "--export".to_owned(),
             "out.json".to_owned(),
             "--headless".to_owned(),
@@ -204,6 +218,7 @@ mod tests {
         .unwrap();
         assert_eq!(options.seed, "ABCD1234");
         assert_eq!(options.config.profile, GenerationProfile::Neon);
+        assert_eq!(options.config.typology, MegastructureTypology::LinearCity);
         assert_eq!(options.export_path, PathBuf::from("out.json"));
         assert!(options.headless);
     }
@@ -261,7 +276,7 @@ mod tests {
         );
         assert!(options
             .rule_packs
-            .find(GenerationProfile::Decayed, "SLUM", "SURFACE")
+            .find(GenerationProfile::Decayed, None, "SLUM", "SURFACE")
             .is_some());
     }
 
@@ -288,6 +303,7 @@ mod tests {
             "--landmarks".to_owned(),
             "--path".to_owned(),
             "--simulation".to_owned(),
+            "--entities".to_owned(),
             "--json".to_owned(),
         ])
         .unwrap();
@@ -299,7 +315,8 @@ mod tests {
                 InspectSection::Routes,
                 InspectSection::Landmarks,
                 InspectSection::Path,
-                InspectSection::Simulation
+                InspectSection::Simulation,
+                InspectSection::Entities
             ]
         );
         assert!(options.inspect_json);

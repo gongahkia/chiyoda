@@ -3,11 +3,11 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::Path;
 
-use crate::config::GenerationConfig;
+use crate::config::{GenerationConfig, MegastructureTypology};
 
 pub const CURRENT_SEED_FILE: &str = "current_seed.txt";
 pub const STRUCTURE_FILE: &str = "structure.json";
-pub const STRUCTURE_SCHEMA_VERSION: &str = "gibson.structure.v17";
+pub const STRUCTURE_SCHEMA_VERSION: &str = "gibson.structure.v22";
 
 pub type StructureResult<T> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
@@ -114,6 +114,24 @@ pub struct MacroMassingRecord {
     pub bounds_max: [usize; 3],
     pub district: String,
     pub void_ratio: f32,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct TypologyBandRecord {
+    pub kind: String,
+    pub bounds_min: [usize; 3],
+    pub bounds_max: [usize; 3],
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct TypologyFrameRecord {
+    pub typology: String,
+    pub primary_axes: Vec<String>,
+    pub primary_spines: Vec<[usize; 3]>,
+    pub void_bands: Vec<TypologyBandRecord>,
+    pub habitat_bands: Vec<TypologyBandRecord>,
+    pub service_anchors: Vec<[usize; 3]>,
+    pub traversal_contract: Vec<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -237,6 +255,28 @@ pub struct HazardZoneRecord {
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct TypologyQualityRecord {
+    pub typology: String,
+    pub score: f32,
+    pub contract_scores: BTreeMap<String, f32>,
+    pub required_route_kinds: Vec<String>,
+    pub missing_contracts: Vec<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct ConstructionEraRecord {
+    pub id: usize,
+    pub era: String,
+    pub age_years: usize,
+    pub material_bias: String,
+    pub decay_bias: f32,
+    pub affected_districts: Vec<String>,
+    pub affected_route_ids: Vec<usize>,
+    pub affected_room_ids: Vec<usize>,
+    pub generated_scars: Vec<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct StabilityRatingRecord {
     pub target_type: String,
     pub target_id: String,
@@ -254,7 +294,30 @@ pub struct StructuralSystemRecord {
     pub foundation_zones: Vec<[usize; 2]>,
     pub suspended_decks: Vec<[usize; 3]>,
     pub support_dependency_summary: BTreeMap<String, usize>,
+    pub stress_fields: Vec<StressFieldRecord>,
+    pub load_paths: Vec<LoadPathRecord>,
     pub stability_ratings: Vec<StabilityRatingRecord>,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct StressFieldRecord {
+    pub id: usize,
+    pub kind: String,
+    pub stress: f32,
+    pub bounds_min: [usize; 3],
+    pub bounds_max: [usize; 3],
+    pub route_ids: Vec<usize>,
+    pub support_points: Vec<[usize; 3]>,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct LoadPathRecord {
+    pub id: usize,
+    pub kind: String,
+    pub from: [usize; 3],
+    pub to: [usize; 3],
+    pub route_ids: Vec<usize>,
+    pub stress: f32,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -271,6 +334,8 @@ pub struct FailurePropagationRecord {
 pub struct RulePackRecord {
     pub id: usize,
     pub name: String,
+    #[serde(default)]
+    pub typology: Option<String>,
     pub district: String,
     pub stratum: String,
     pub profile: String,
@@ -278,6 +343,11 @@ pub struct RulePackRecord {
     pub route_weight: f32,
     pub decay_weight: f32,
     pub detail_weight: f32,
+    pub entity_density_weight: f32,
+    pub entity_layout_weight: f32,
+    pub patrol_weight: f32,
+    pub crowd_weight: f32,
+    pub builder_weight: f32,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -356,11 +426,82 @@ pub struct NarrativeLandmarkRecord {
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct EntityRecord {
+    pub id: usize,
+    pub kind: String,
+    pub faction_id: Option<usize>,
+    pub home_cluster_id: Option<usize>,
+    pub origin: [usize; 3],
+    pub destination: [usize; 3],
+    pub route_ids: Vec<usize>,
+    pub active_phase_ids: Vec<usize>,
+    pub movement_profile: String,
+    pub layout_influence: f32,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct EntityPathRecord {
+    pub id: usize,
+    pub entity_id: usize,
+    pub sample_points: Vec<[usize; 3]>,
+    pub route_ids: Vec<usize>,
+    pub travel_cost: f32,
+    pub congestion: f32,
+    pub risk: f32,
+    pub reaches_destination: bool,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct EntityPressureFieldRecord {
+    pub id: usize,
+    pub kind: String,
+    pub bounds_min: [usize; 3],
+    pub bounds_max: [usize; 3],
+    pub intensity: f32,
+    pub source_entity_ids: Vec<usize>,
+    pub affected_route_ids: Vec<usize>,
+    pub affected_room_ids: Vec<usize>,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct LayoutMutationRecord {
+    pub id: usize,
+    pub kind: String,
+    pub phase_id: Option<usize>,
+    pub bounds_min: [usize; 3],
+    pub bounds_max: [usize; 3],
+    pub source_pressure_field_id: usize,
+    pub affected_route_ids: Vec<usize>,
+    pub affected_room_ids: Vec<usize>,
+    pub added_cell_count: usize,
+    pub removed_cell_count: usize,
+    pub sample_points: Vec<[usize; 3]>,
+    pub reason: String,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct SectionQualityRecord {
+    pub score: f32,
+    pub vertical_continuity: f32,
+    pub void_exposure: f32,
+    pub service_separation: f32,
+    pub evacuation_shaft_coverage: f32,
+    pub habitable_layer_ratio: f32,
+    pub roof_deck_access: f32,
+    pub cross_section_route_density: f32,
+    pub missing_contracts: Vec<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct SavedStructure {
     pub seed: String,
     pub size: usize,
     pub layers: usize,
     pub metadata: StructureMetadata,
+    pub typology_frame: TypologyFrameRecord,
+    pub typology_quality: TypologyQualityRecord,
+    pub construction_history: Vec<ConstructionEraRecord>,
+    pub section_quality: SectionQualityRecord,
     pub grid: Vec<Vec<Vec<u8>>>,
     pub connections: Vec<ConnectionRecord>,
     pub rooms: Vec<RoomRecord>,
@@ -387,12 +528,17 @@ pub struct SavedStructure {
     pub contested_borders: Vec<ContestedBorderRecord>,
     pub temporal_state: TemporalStateRecord,
     pub narrative_landmarks: Vec<NarrativeLandmarkRecord>,
+    pub entities: Vec<EntityRecord>,
+    pub entity_paths: Vec<EntityPathRecord>,
+    pub entity_pressure_fields: Vec<EntityPressureFieldRecord>,
+    pub layout_mutations: Vec<LayoutMutationRecord>,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct StructureMetadata {
     pub schema_version: String,
     pub profile: String,
+    pub typology: String,
     pub config: GenerationConfig,
     pub district_counts: BTreeMap<String, usize>,
     pub stratum_counts: BTreeMap<String, usize>,
@@ -421,7 +567,10 @@ pub struct StructureMetadata {
     pub structural_rating_count: usize,
     pub load_bearing_frame_count: usize,
     pub suspended_deck_count: usize,
+    pub stress_field_count: usize,
+    pub load_path_count: usize,
     pub failure_zone_count: usize,
+    pub construction_era_count: usize,
     pub rule_pack_count: usize,
     pub rule_influence_count: usize,
     pub faction_count: usize,
@@ -429,6 +578,10 @@ pub struct StructureMetadata {
     pub contested_border_count: usize,
     pub temporal_phase_count: usize,
     pub narrative_landmark_count: usize,
+    pub entity_count: usize,
+    pub entity_path_count: usize,
+    pub entity_pressure_field_count: usize,
+    pub layout_mutation_count: usize,
     pub occupied_cell_ratio: f32,
 }
 
@@ -437,7 +590,9 @@ pub fn to_json(structure: &SavedStructure) -> serde_json::Result<String> {
 }
 
 pub fn from_json(json: &str) -> serde_json::Result<SavedStructure> {
-    serde_json::from_str(json)
+    let mut value: serde_json::Value = serde_json::from_str(json)?;
+    migrate_structure_value(&mut value);
+    serde_json::from_value(value)
 }
 
 pub fn save_structure(path: impl AsRef<Path>, structure: &SavedStructure) -> StructureResult<()> {
@@ -459,4 +614,186 @@ pub fn save_outputs(
     let directory = directory.as_ref();
     fs::write(directory.join(CURRENT_SEED_FILE), seed)?;
     save_structure(directory.join(STRUCTURE_FILE), structure)
+}
+
+fn migrate_structure_value(value: &mut serde_json::Value) {
+    let Some(object) = value.as_object_mut() else {
+        return;
+    };
+    let schema_version = object
+        .get("metadata")
+        .and_then(|metadata| metadata.get("schema_version"))
+        .and_then(|version| version.as_str())
+        .unwrap_or_default()
+        .to_owned();
+    if !matches!(
+        schema_version.as_str(),
+        "gibson.structure.v17"
+            | "gibson.structure.v18"
+            | "gibson.structure.v19"
+            | "gibson.structure.v20"
+            | "gibson.structure.v21"
+            | STRUCTURE_SCHEMA_VERSION
+    ) {
+        return;
+    }
+
+    object
+        .entry("entities".to_owned())
+        .or_insert_with(|| serde_json::json!([]));
+    object
+        .entry("entity_paths".to_owned())
+        .or_insert_with(|| serde_json::json!([]));
+    object
+        .entry("entity_pressure_fields".to_owned())
+        .or_insert_with(|| serde_json::json!([]));
+    object
+        .entry("layout_mutations".to_owned())
+        .or_insert_with(|| serde_json::json!([]));
+
+    if let Some(metadata) = object
+        .get_mut("metadata")
+        .and_then(serde_json::Value::as_object_mut)
+    {
+        metadata.insert(
+            "schema_version".to_owned(),
+            serde_json::json!(STRUCTURE_SCHEMA_VERSION),
+        );
+        metadata
+            .entry("typology".to_owned())
+            .or_insert_with(|| serde_json::json!(MegastructureTypology::DenseEnclave.as_str()));
+        metadata
+            .entry("entity_count".to_owned())
+            .or_insert_with(|| serde_json::json!(0));
+        metadata
+            .entry("entity_path_count".to_owned())
+            .or_insert_with(|| serde_json::json!(0));
+        metadata
+            .entry("entity_pressure_field_count".to_owned())
+            .or_insert_with(|| serde_json::json!(0));
+        metadata
+            .entry("layout_mutation_count".to_owned())
+            .or_insert_with(|| serde_json::json!(0));
+        metadata
+            .entry("stress_field_count".to_owned())
+            .or_insert_with(|| serde_json::json!(0));
+        metadata
+            .entry("load_path_count".to_owned())
+            .or_insert_with(|| serde_json::json!(0));
+        metadata
+            .entry("construction_era_count".to_owned())
+            .or_insert_with(|| serde_json::json!(0));
+        if let Some(config) = metadata
+            .get_mut("config")
+            .and_then(serde_json::Value::as_object_mut)
+        {
+            config
+                .entry("entity_density".to_owned())
+                .or_insert_with(|| serde_json::json!(1.0));
+            config
+                .entry("entity_layout_pressure".to_owned())
+                .or_insert_with(|| serde_json::json!(1.0));
+            config
+                .entry("advanced_pattern_complexity".to_owned())
+                .or_insert_with(|| serde_json::json!(1.0));
+            config
+                .entry("typology".to_owned())
+                .or_insert_with(|| serde_json::json!(MegastructureTypology::DenseEnclave));
+        }
+    }
+
+    object
+        .entry("typology_frame".to_owned())
+        .or_insert_with(default_typology_frame_value);
+    let typology = object
+        .get("metadata")
+        .and_then(|metadata| metadata.get("typology"))
+        .and_then(|typology| typology.as_str())
+        .unwrap_or_else(|| MegastructureTypology::DenseEnclave.as_str())
+        .to_owned();
+    object
+        .entry("typology_quality".to_owned())
+        .or_insert_with(|| default_typology_quality_value(&typology));
+    object
+        .entry("construction_history".to_owned())
+        .or_insert_with(|| serde_json::json!([]));
+    object
+        .entry("section_quality".to_owned())
+        .or_insert_with(default_section_quality_value);
+
+    if let Some(structural_system) = object
+        .get_mut("structural_system")
+        .and_then(serde_json::Value::as_object_mut)
+    {
+        structural_system
+            .entry("stress_fields".to_owned())
+            .or_insert_with(|| serde_json::json!([]));
+        structural_system
+            .entry("load_paths".to_owned())
+            .or_insert_with(|| serde_json::json!([]));
+    }
+
+    if let Some(rule_packs) = object
+        .get_mut("rule_packs")
+        .and_then(serde_json::Value::as_array_mut)
+    {
+        for rule_pack in rule_packs {
+            if let Some(rule_pack) = rule_pack.as_object_mut() {
+                insert_neutral_rule_weights(rule_pack);
+                rule_pack
+                    .entry("typology".to_owned())
+                    .or_insert(serde_json::Value::Null);
+            }
+        }
+    }
+}
+
+fn default_section_quality_value() -> serde_json::Value {
+    serde_json::json!({
+        "score": 1.0,
+        "vertical_continuity": 1.0,
+        "void_exposure": 0.0,
+        "service_separation": 1.0,
+        "evacuation_shaft_coverage": 1.0,
+        "habitable_layer_ratio": 1.0,
+        "roof_deck_access": 1.0,
+        "cross_section_route_density": 1.0,
+        "missing_contracts": []
+    })
+}
+
+fn default_typology_quality_value(typology: &str) -> serde_json::Value {
+    serde_json::json!({
+        "typology": typology,
+        "score": 1.0,
+        "contract_scores": {},
+        "required_route_kinds": [],
+        "missing_contracts": []
+    })
+}
+
+fn default_typology_frame_value() -> serde_json::Value {
+    serde_json::json!({
+        "typology": MegastructureTypology::DenseEnclave.as_str(),
+        "primary_axes": ["x", "z", "y"],
+        "primary_spines": [],
+        "void_bands": [],
+        "habitat_bands": [],
+        "service_anchors": [],
+        "traversal_contract": ["legacy dense enclave traversal"]
+    })
+}
+
+fn insert_neutral_rule_weights(rule_pack: &mut serde_json::Map<String, serde_json::Value>) {
+    for key in [
+        "entity_density_weight",
+        "entity_layout_weight",
+        "patrol_weight",
+        "crowd_weight",
+        "builder_weight",
+    ] {
+        rule_pack
+            .entry(key.to_owned())
+            .or_insert_with(|| serde_json::json!(1.0));
+    }
 }

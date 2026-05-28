@@ -1,19 +1,22 @@
 use macroquad::prelude::*;
 use std::collections::{BTreeMap, BTreeSet};
 
-use crate::config::GenerationConfig;
+use crate::config::{GenerationConfig, MegastructureTypology};
 use crate::rules::CompiledRulePackSet;
 use crate::seed::{seed_hash, Rng32};
 use crate::structure::{
-    self, ConnectionRecord, ContestedBorderRecord, DistrictBorderRecord, DistrictLifecycleRecord,
-    DistrictRecord, FactionRecord, FailurePropagationRecord, HazardZoneRecord,
-    InfrastructureFlowRecord, MacroMassingRecord, MesoPlacementRecord, MicroDetailRecord,
-    MissionPathRecord, NarrativeLandmarkRecord, PathAnalysisRecord, ResourceNetworkRecord,
-    RoomClusterRecord, RoomRecord, RouteSimulationRecord, RuleInfluenceRecord, RulePackRecord,
-    SavedStructure, StabilityRatingRecord, StratumRecord, StructuralSystemRecord,
-    StructureMetadata, StructureResult, TemporalPhaseRecord, TemporalStateRecord, TerritoryRecord,
-    TransitAttachmentRecord, TransitEdgeRecord, TransitGraphRecord, TransitNodeRecord,
-    STRUCTURE_SCHEMA_VERSION,
+    self, ConnectionRecord, ConstructionEraRecord, ContestedBorderRecord, DistrictBorderRecord,
+    DistrictLifecycleRecord, DistrictRecord, EntityPathRecord, EntityPressureFieldRecord,
+    EntityRecord, FactionRecord, FailurePropagationRecord, HazardZoneRecord,
+    InfrastructureFlowRecord, LayoutMutationRecord, LoadPathRecord, MacroMassingRecord,
+    MesoPlacementRecord, MicroDetailRecord, MissionPathRecord, NarrativeLandmarkRecord,
+    PathAnalysisRecord, ResourceNetworkRecord, RoomClusterRecord, RoomRecord,
+    RouteSimulationRecord, RuleInfluenceRecord, RulePackRecord, SavedStructure,
+    SectionQualityRecord, StabilityRatingRecord, StratumRecord, StressFieldRecord,
+    StructuralSystemRecord, StructureMetadata, StructureResult, TemporalPhaseRecord,
+    TemporalStateRecord, TerritoryRecord, TransitAttachmentRecord, TransitEdgeRecord,
+    TransitGraphRecord, TransitNodeRecord, TypologyBandRecord, TypologyFrameRecord,
+    TypologyQualityRecord, STRUCTURE_SCHEMA_VERSION,
 };
 
 pub(crate) const CHUNK_SIZE_X: usize = 8;
@@ -931,6 +934,7 @@ pub struct MegaStructureGenerator {
     grid: Vec<CellType>,
     support_map: Vec<bool>,
     district_map: Vec<DistrictType>,
+    typology_frame: TypologyFrameRecord,
     connections: Vec<ConnectionRecord>,
     rooms: Vec<RoomRecord>,
     transit_nodes: Vec<TransitNodeRecord>,
@@ -939,6 +943,10 @@ pub struct MegaStructureGenerator {
     district_borders: Vec<DistrictBorderRecord>,
     infrastructure_flows: Vec<InfrastructureFlowRecord>,
     hazard_zones: Vec<HazardZoneRecord>,
+    entities: Vec<EntityRecord>,
+    entity_paths: Vec<EntityPathRecord>,
+    entity_pressure_fields: Vec<EntityPressureFieldRecord>,
+    layout_mutations: Vec<LayoutMutationRecord>,
     pattern_counts: BTreeMap<String, usize>,
 }
 
@@ -960,6 +968,7 @@ impl MegaStructureGenerator {
         let hash = seed_hash(&seed);
         let size = config.grid_size;
         let layers = config.grid_layers;
+        let typology_frame = build_typology_frame(config.typology, size, layers);
         let mut generator = Self {
             size,
             layers,
@@ -971,6 +980,7 @@ impl MegaStructureGenerator {
             grid: vec![CellType::Empty; size * size * layers],
             support_map: vec![false; size * size * layers],
             district_map: vec![DistrictType::Residential; size * size],
+            typology_frame,
             connections: Vec::new(),
             rooms: Vec::new(),
             transit_nodes: Vec::new(),
@@ -979,6 +989,10 @@ impl MegaStructureGenerator {
             district_borders: Vec::new(),
             infrastructure_flows: Vec::new(),
             hazard_zones: Vec::new(),
+            entities: Vec::new(),
+            entity_paths: Vec::new(),
+            entity_pressure_fields: Vec::new(),
+            layout_mutations: Vec::new(),
             pattern_counts: BTreeMap::new(),
         };
         generator.generate_district_map();
@@ -1137,7 +1151,9 @@ impl MegaStructureGenerator {
                     + simplex::noise3(x as f32 * 0.10, z as f32 * 0.10, 1.0) * 0.5
                     + simplex::noise3(x as f32 * 0.20, z as f32 * 0.20, 2.0) * 0.25)
                     * self.config.district_contrast;
-                let district = if noise < -0.3 {
+                let district = if let Some(district) = self.typology_district_at(x, z) {
+                    district
+                } else if noise < -0.3 {
                     DistrictType::Slum
                 } else if noise < -0.1 {
                     DistrictType::Industrial
@@ -1154,15 +1170,276 @@ impl MegaStructureGenerator {
         }
     }
 
+    fn typology_district_at(&self, x: usize, z: usize) -> Option<DistrictType> {
+        let center = self.size / 2;
+        let corridor = (self.size / 8).max(2);
+        let dx = x.abs_diff(center);
+        let dz = z.abs_diff(center);
+        let radius = ((dx * dx + dz * dz) as f32).sqrt();
+        let ring_radius = self.size as f32 * 0.34;
+        let angle_band = if x >= center && z < center {
+            0
+        } else if x >= center {
+            1
+        } else if z >= center {
+            2
+        } else {
+            3
+        };
+        match self.config.typology {
+            MegastructureTypology::DenseEnclave => None,
+            MegastructureTypology::ArcologySpire => {
+                if dx <= corridor && dz <= corridor {
+                    Some(DistrictType::Elite)
+                } else if dx.max(dz) <= corridor * 2 {
+                    Some(DistrictType::Commercial)
+                } else if z < center {
+                    Some(DistrictType::Residential)
+                } else {
+                    Some(DistrictType::Industrial)
+                }
+            }
+            MegastructureTypology::LinearCity => {
+                if dz <= corridor / 2 {
+                    Some(DistrictType::Commercial)
+                } else if dz <= corridor {
+                    Some(DistrictType::Residential)
+                } else if x % 5 == 0 {
+                    Some(DistrictType::Industrial)
+                } else {
+                    Some(DistrictType::Slum)
+                }
+            }
+            MegastructureTypology::BridgeVoid => {
+                if dx <= corridor && dz <= corridor {
+                    Some(DistrictType::Slum)
+                } else if (x < center && z < center) || (x >= center && z >= center) {
+                    Some(DistrictType::Residential)
+                } else if x >= center && z < center {
+                    Some(DistrictType::Elite)
+                } else {
+                    Some(DistrictType::Industrial)
+                }
+            }
+            MegastructureTypology::MarinePlatform => {
+                if x < corridor
+                    || z < corridor
+                    || x + corridor >= self.size
+                    || z + corridor >= self.size
+                {
+                    Some(DistrictType::Industrial)
+                } else if dz <= corridor {
+                    Some(DistrictType::Commercial)
+                } else if z < center {
+                    Some(DistrictType::Residential)
+                } else {
+                    Some(DistrictType::Slum)
+                }
+            }
+            MegastructureTypology::OrbitalRing => {
+                if (radius - ring_radius).abs() <= corridor as f32 {
+                    Some(match angle_band {
+                        0 => DistrictType::Commercial,
+                        1 => DistrictType::Residential,
+                        2 => DistrictType::Industrial,
+                        _ => DistrictType::Elite,
+                    })
+                } else if dx <= corridor / 2 || dz <= corridor / 2 {
+                    Some(DistrictType::Industrial)
+                } else {
+                    Some(DistrictType::Slum)
+                }
+            }
+            MegastructureTypology::UndergroundHive => {
+                if dx <= corridor || dz <= corridor {
+                    Some(DistrictType::Industrial)
+                } else if (x + z) % 5 == 0 {
+                    Some(DistrictType::Commercial)
+                } else {
+                    Some(DistrictType::Residential)
+                }
+            }
+            MegastructureTypology::MountainBurrow => {
+                if x < center {
+                    Some(DistrictType::Industrial)
+                } else if dz <= corridor {
+                    Some(DistrictType::Commercial)
+                } else {
+                    Some(DistrictType::Residential)
+                }
+            }
+            MegastructureTypology::DesertArcology => {
+                if dx <= corridor && dz <= corridor {
+                    Some(DistrictType::Elite)
+                } else if dx.max(dz) <= corridor * 3 {
+                    Some(DistrictType::Residential)
+                } else {
+                    Some(DistrictType::Industrial)
+                }
+            }
+            MegastructureTypology::AirportCity => {
+                if dz <= corridor / 2 {
+                    Some(DistrictType::Commercial)
+                } else if z < center {
+                    Some(DistrictType::Industrial)
+                } else {
+                    Some(DistrictType::Residential)
+                }
+            }
+            MegastructureTypology::DamCity => {
+                if dx <= corridor {
+                    Some(DistrictType::Industrial)
+                } else if x < center {
+                    Some(DistrictType::Residential)
+                } else {
+                    Some(DistrictType::Commercial)
+                }
+            }
+            MegastructureTypology::ShipyardStack => {
+                if dz <= corridor {
+                    Some(DistrictType::Industrial)
+                } else if x % 4 == 0 {
+                    Some(DistrictType::Commercial)
+                } else {
+                    Some(DistrictType::Slum)
+                }
+            }
+        }
+    }
+
+    fn typology_occupancy_bias(&self, x: usize, z: usize, y: usize) -> f32 {
+        let center = self.size / 2;
+        let corridor = (self.size / 8).max(2);
+        let dx = x.abs_diff(center);
+        let dz = z.abs_diff(center);
+        let radius = ((dx * dx + dz * dz) as f32).sqrt();
+        let ring_radius = self.size as f32 * 0.34;
+        match self.config.typology {
+            MegastructureTypology::DenseEnclave => 1.0,
+            MegastructureTypology::ArcologySpire => {
+                let taper = 1.0 - y as f32 / self.layers.max(1) as f32 * 0.35;
+                if dx <= corridor && dz <= corridor {
+                    1.85
+                } else if dx.max(dz) <= corridor * 3 {
+                    1.15 * taper
+                } else {
+                    0.45 * taper
+                }
+            }
+            MegastructureTypology::LinearCity => {
+                if dz <= corridor / 2 {
+                    1.75
+                } else if dz <= corridor {
+                    1.05
+                } else {
+                    0.25
+                }
+            }
+            MegastructureTypology::BridgeVoid => {
+                let tower = (x < center - corridor && z < center - corridor)
+                    || (x > center + corridor && z > center + corridor)
+                    || (x < center - corridor && z > center + corridor)
+                    || (x > center + corridor && z < center - corridor);
+                if dx <= corridor && dz <= corridor {
+                    0.10
+                } else if tower {
+                    1.25
+                } else if dx <= corridor || dz <= corridor {
+                    0.42
+                } else {
+                    0.75
+                }
+            }
+            MegastructureTypology::MarinePlatform => {
+                if y <= self.layers / 5 {
+                    1.45
+                } else if x % corridor == 0 || z % corridor == 0 {
+                    1.20
+                } else {
+                    0.70
+                }
+            }
+            MegastructureTypology::OrbitalRing => {
+                let ring = (radius - ring_radius).abs();
+                if ring <= corridor as f32 {
+                    1.55
+                } else if dx <= 1 || dz <= 1 {
+                    1.05
+                } else if radius < ring_radius - corridor as f32 {
+                    0.08
+                } else {
+                    0.35
+                }
+            }
+            MegastructureTypology::UndergroundHive => {
+                if y < self.layers / 2 {
+                    1.45
+                } else if dx <= corridor || dz <= corridor {
+                    0.8
+                } else {
+                    0.25
+                }
+            }
+            MegastructureTypology::MountainBurrow => {
+                let cliff = x < center + corridor;
+                if cliff && y < self.layers * 3 / 4 {
+                    1.3
+                } else if x > center + corridor {
+                    0.35
+                } else {
+                    0.75
+                }
+            }
+            MegastructureTypology::DesertArcology => {
+                if dx.max(dz) <= corridor * 2 {
+                    1.55
+                } else if y <= self.layers / 4 {
+                    1.1
+                } else {
+                    0.32
+                }
+            }
+            MegastructureTypology::AirportCity => {
+                if dz <= corridor {
+                    1.35
+                } else if z < center && y <= self.layers / 3 {
+                    1.15
+                } else {
+                    0.55
+                }
+            }
+            MegastructureTypology::DamCity => {
+                if dx <= corridor {
+                    1.6
+                } else if x < center {
+                    0.65
+                } else {
+                    1.0
+                }
+            }
+            MegastructureTypology::ShipyardStack => {
+                if dz <= corridor || y <= self.layers / 4 {
+                    1.35
+                } else if dx <= corridor {
+                    1.0
+                } else {
+                    0.58
+                }
+            }
+        }
+    }
+
     pub fn generate(&mut self) {
         self.phase1_skeleton();
         self.phase1b_macro_massing();
+        self.phase1c_typology_massing();
         self.phase2_floorplans();
         self.phase2b_circulation_graph();
         self.phase2d_route_aware_generation();
         self.apply_floor_thickness();
         self.phase2c_district_patterns();
         self.phase2e_district_adjacency();
+        self.phase2f_cellular_automata_patterns();
         self.phase3_infrastructure();
         self.phase3b_infrastructure_flows();
         self.phase3c_micro_details();
@@ -1173,6 +1450,11 @@ impl MegaStructureGenerator {
         self.add_support_pillars();
         self.carve_traversal_space();
         self.phase5_story_details();
+        self.phase5b_program_aware_rooms();
+        self.phase6_entity_dynamics();
+        self.ensure_structural_integrity();
+        self.add_support_pillars();
+        self.carve_traversal_space();
     }
 
     pub fn seed(&self) -> &str {
@@ -1266,8 +1548,12 @@ impl MegaStructureGenerator {
             for z in 0..self.size {
                 let district = self.district_at(x, z);
                 let props = DISTRICTS[district as usize];
+                let typology_bias = self.typology_occupancy_bias(x, z, 0);
+                if typology_bias <= 0.12 {
+                    continue;
+                }
                 let base_probability =
-                    0.15 * props.core_density * self.config.district_density_scale;
+                    0.15 * props.core_density * self.config.district_density_scale * typology_bias;
                 let noise_mod = simplex::noise3(x as f32 * 0.1, z as f32 * 0.1, 3.0) * 0.1;
                 if self.rng.next_f32() >= (base_probability + noise_mod).max(0.02) {
                     continue;
@@ -1452,11 +1738,15 @@ impl MegaStructureGenerator {
                     }
                 }
             }
+            self.apply_advanced_wfc_constraints(&mut solver, y);
             solver.solve();
             for x in 0..self.size {
                 for z in 0..self.size {
                     let existing = self.get(x, z, y);
                     if existing != CellType::Empty && existing != CellType::Horizontal {
+                        continue;
+                    }
+                    if self.typology_occupancy_bias(x, z, y) < 0.18 {
                         continue;
                     }
                     let tile = solver.cells[solver.idx(x, z)]
@@ -1500,6 +1790,46 @@ impl MegaStructureGenerator {
         }
     }
 
+    fn apply_advanced_wfc_constraints(&self, solver: &mut WfcSolver, y: usize) {
+        if self.config.advanced_pattern_complexity <= 0.0 {
+            return;
+        }
+        let stratum = self.stratum_at(y);
+        let interval = (9.0 / self.config.advanced_pattern_complexity.max(0.5))
+            .round()
+            .clamp(4.0, 12.0) as usize;
+        for x in (interval / 2..self.size).step_by(interval) {
+            for z in (interval / 2..self.size).step_by(interval) {
+                let district = self.district_at(x, z);
+                let tile = match (district, stratum) {
+                    (DistrictType::Commercial | DistrictType::Elite, BiomeStratum::Midrise)
+                    | (DistrictType::Elite, BiomeStratum::Skyline) => WFCTile::RoomCenter,
+                    (
+                        DistrictType::Industrial,
+                        BiomeStratum::Underground | BiomeStratum::Surface,
+                    ) => WFCTile::CorridorNS,
+                    (DistrictType::Slum, _) => WFCTile::FloorHalfN,
+                    _ => continue,
+                };
+                if hash_noise(self.seed_hash, x, z, y)
+                    < (0.18 * self.config.advanced_pattern_complexity).clamp(0.05, 0.55)
+                {
+                    solver.constrain(x, z, tile);
+                }
+            }
+        }
+        if stratum == BiomeStratum::Skyline {
+            let margin = 2;
+            for x in margin..self.size.saturating_sub(margin) {
+                for z in margin..self.size.saturating_sub(margin) {
+                    if (x + z + y) % interval == 0 && hash_noise(self.seed_hash, x, z, y) > 0.72 {
+                        solver.constrain(x, z, WFCTile::Empty);
+                    }
+                }
+            }
+        }
+    }
+
     fn phase1b_macro_massing(&mut self) {
         let stride = (self.size / 5).max(4);
         for x in (stride / 2..self.size.saturating_sub(1)).step_by(stride) {
@@ -1532,6 +1862,260 @@ impl MegaStructureGenerator {
         }
     }
 
+    fn phase1c_typology_massing(&mut self) {
+        match self.config.typology {
+            MegastructureTypology::DenseEnclave => {}
+            MegastructureTypology::ArcologySpire => self.add_arcology_spire_massing(),
+            MegastructureTypology::LinearCity => self.add_linear_city_massing(),
+            MegastructureTypology::BridgeVoid => self.add_bridge_void_massing(),
+            MegastructureTypology::MarinePlatform => self.add_marine_platform_massing(),
+            MegastructureTypology::OrbitalRing => self.add_orbital_ring_massing(),
+            MegastructureTypology::UndergroundHive => self.add_underground_hive_massing(),
+            MegastructureTypology::MountainBurrow => self.add_mountain_burrow_massing(),
+            MegastructureTypology::DesertArcology => self.add_desert_arcology_massing(),
+            MegastructureTypology::AirportCity => self.add_airport_city_massing(),
+            MegastructureTypology::DamCity => self.add_dam_city_massing(),
+            MegastructureTypology::ShipyardStack => self.add_shipyard_stack_massing(),
+        }
+    }
+
+    fn add_arcology_spire_massing(&mut self) {
+        let c = self.size / 2;
+        let radius = (self.size / 7).max(2);
+        for y in 0..self.layers {
+            let band_radius = radius.saturating_sub(y / 10).max(1);
+            for x in c.saturating_sub(band_radius)..=(c + band_radius).min(self.size - 1) {
+                for z in c.saturating_sub(band_radius)..=(c + band_radius).min(self.size - 1) {
+                    self.set(x, z, y, CellType::Vertical, true);
+                }
+            }
+            if y % 5 == 0 {
+                for offset in -(radius as isize * 2)..=(radius as isize * 2) {
+                    if let Some((x, z)) = self.offset_xz(c, c, offset, 0) {
+                        self.set(x, z, y, CellType::Bridge, true);
+                    }
+                    if let Some((x, z)) = self.offset_xz(c, c, 0, offset) {
+                        self.set(x, z, y, CellType::Bridge, true);
+                    }
+                }
+            }
+        }
+        self.push_connection("typology_arcology_core", [c, 0, c], [c, self.layers - 1, c]);
+    }
+
+    fn add_linear_city_massing(&mut self) {
+        let z = self.size / 2;
+        let width = (self.size / 10).max(1);
+        for x in 0..self.size {
+            for dz in -(width as isize)..=(width as isize) {
+                if let Some((nx, nz)) = self.offset_xz(x, z, 0, dz) {
+                    for y in 0..self.layers.min((self.layers * 2 / 3).max(2)) {
+                        let cell = if dz == 0 {
+                            CellType::Horizontal
+                        } else {
+                            CellType::Vertical
+                        };
+                        self.set(nx, nz, y, cell, true);
+                    }
+                }
+            }
+        }
+        self.push_connection("typology_linear_spine", [0, 1, z], [self.size - 1, 1, z]);
+    }
+
+    fn add_bridge_void_massing(&mut self) {
+        let c = self.size / 2;
+        let void = (self.size / 7).max(2);
+        for x in c.saturating_sub(void)..=(c + void).min(self.size - 1) {
+            for z in c.saturating_sub(void)..=(c + void).min(self.size - 1) {
+                for y in 0..self.layers {
+                    self.set(x, z, y, CellType::Empty, false);
+                }
+            }
+        }
+        let anchors =
+            typology_anchor_points(MegastructureTypology::BridgeVoid, self.size, self.layers);
+        for anchor in anchors {
+            for y in 0..self.layers {
+                self.set(anchor[0], anchor[2], y, CellType::Vertical, true);
+            }
+        }
+        self.push_connection(
+            "typology_bridge_void",
+            [c.saturating_sub(void), 0, c.saturating_sub(void)],
+            [
+                (c + void).min(self.size - 1),
+                self.layers - 1,
+                (c + void).min(self.size - 1),
+            ],
+        );
+    }
+
+    fn add_marine_platform_massing(&mut self) {
+        let deck_y = (self.layers / 4).max(1);
+        let step = (self.size / 5).max(3);
+        for x in 1..self.size.saturating_sub(1) {
+            for z in 1..self.size.saturating_sub(1) {
+                if x % step == 0
+                    || z % step == 0
+                    || (deck_y > 0 && hash_noise(self.seed_hash, x, z, deck_y) < 0.30)
+                {
+                    self.set(x, z, deck_y, CellType::Bridge, true);
+                }
+            }
+        }
+        for x in (step / 2..self.size).step_by(step) {
+            for z in (step / 2..self.size).step_by(step) {
+                for y in 0..=deck_y {
+                    self.set(x, z, y, CellType::Vertical, true);
+                }
+            }
+        }
+        self.push_connection(
+            "typology_marine_deck",
+            [1, deck_y, 1],
+            [self.size - 2, deck_y, self.size - 2],
+        );
+    }
+
+    fn add_orbital_ring_massing(&mut self) {
+        let c = self.size as f32 / 2.0;
+        let ring_radius = self.size as f32 * 0.34;
+        let tube = (self.size as f32 * 0.08).max(2.0);
+        let y_mid = self.layers / 2;
+        for x in 0..self.size {
+            for z in 0..self.size {
+                let dx = x as f32 - c;
+                let dz = z as f32 - c;
+                let radial = (dx * dx + dz * dz).sqrt();
+                if (radial - ring_radius).abs() <= tube {
+                    for y in y_mid.saturating_sub(2)..=(y_mid + 2).min(self.layers - 1) {
+                        self.set(x, z, y, CellType::Horizontal, true);
+                    }
+                } else if radial < ring_radius - tube {
+                    for y in 0..self.layers {
+                        self.set(x, z, y, CellType::Empty, false);
+                    }
+                }
+            }
+        }
+        self.push_connection(
+            "typology_orbital_ring",
+            [0, y_mid, self.size / 2],
+            [self.size - 1, y_mid, self.size / 2],
+        );
+    }
+
+    fn add_underground_hive_massing(&mut self) {
+        let c = self.size / 2;
+        for y in 0..(self.layers * 2 / 3).max(1) {
+            let radius = (self.size / 3).saturating_sub(y / 4).max(3);
+            for x in c.saturating_sub(radius)..=(c + radius).min(self.size - 1) {
+                for z in c.saturating_sub(radius)..=(c + radius).min(self.size - 1) {
+                    if (x + z + y) % 4 != 0 {
+                        self.set(x, z, y, CellType::Horizontal, true);
+                    }
+                }
+            }
+        }
+        self.push_connection(
+            "typology_underground_hive",
+            [c, 0, c],
+            [c, self.layers / 2, c],
+        );
+    }
+
+    fn add_mountain_burrow_massing(&mut self) {
+        let cliff = self.size / 2;
+        for x in 0..=cliff {
+            for z in 1..self.size.saturating_sub(1) {
+                let height = ((self.layers as f32) * (1.0 - x as f32 / (cliff + 1) as f32))
+                    .round()
+                    .max(2.0) as usize;
+                for y in 0..height.min(self.layers) {
+                    self.set(x, z, y, CellType::Horizontal, true);
+                }
+            }
+        }
+        self.push_connection(
+            "typology_mountain_burrow",
+            [0, 1, self.size / 2],
+            [cliff, self.layers / 2, self.size / 2],
+        );
+    }
+
+    fn add_desert_arcology_massing(&mut self) {
+        self.add_arcology_spire_massing();
+        let y = (self.layers / 5).max(1);
+        for x in 1..self.size.saturating_sub(1) {
+            for z in 1..self.size.saturating_sub(1) {
+                if x % 5 == 0 || z % 5 == 0 {
+                    self.set(x, z, y, CellType::Facade, true);
+                }
+            }
+        }
+        self.push_connection(
+            "typology_desert_solar_field",
+            [1, y, 1],
+            [self.size - 2, y, self.size - 2],
+        );
+    }
+
+    fn add_airport_city_massing(&mut self) {
+        let z = self.size / 2;
+        let runway = (self.size / 12).max(1);
+        for x in 0..self.size {
+            for dz in -(runway as isize)..=(runway as isize) {
+                if let Some((nx, nz)) = self.offset_xz(x, z, 0, dz) {
+                    self.set(nx, nz, 1, CellType::Bridge, true);
+                }
+            }
+        }
+        for x in (self.size / 6..self.size).step_by((self.size / 5).max(4)) {
+            for y in 1..(self.layers / 2).max(2) {
+                self.set(x, z.saturating_sub(runway + 2), y, CellType::Vertical, true);
+            }
+        }
+        self.push_connection("typology_airport_runway", [0, 1, z], [self.size - 1, 1, z]);
+    }
+
+    fn add_dam_city_massing(&mut self) {
+        let x = self.size / 2;
+        let width = (self.size / 10).max(1);
+        for dx in -(width as isize)..=(width as isize) {
+            for z in 0..self.size {
+                for y in 0..self.layers {
+                    if let Some((nx, nz)) = self.offset_xz(x, z, dx, 0) {
+                        self.set(nx, nz, y, CellType::Vertical, true);
+                    }
+                }
+            }
+        }
+        self.push_connection(
+            "typology_dam_wall",
+            [x, 0, 0],
+            [x, self.layers - 1, self.size - 1],
+        );
+    }
+
+    fn add_shipyard_stack_massing(&mut self) {
+        let z = self.size / 2;
+        for x in 1..self.size.saturating_sub(1) {
+            for y in 0..(self.layers / 3).max(2) {
+                self.set(x, z, y, CellType::Bridge, true);
+                if x % 4 == 0 {
+                    self.set(x, z.saturating_sub(3), y, CellType::Vertical, true);
+                    self.set(x, (z + 3).min(self.size - 1), y, CellType::Vertical, true);
+                }
+            }
+        }
+        self.push_connection(
+            "typology_shipyard_drydock",
+            [1, 1, z],
+            [self.size - 2, 1, z],
+        );
+    }
+
     fn phase2b_circulation_graph(&mut self) {
         let hubs = self.select_transit_hubs();
         for hub in &hubs {
@@ -1553,8 +2137,180 @@ impl MegaStructureGenerator {
             self.carve_route(first.0, first.1, last.0, last.1, y, "express_spine");
         }
         self.add_ring_routes(&hubs);
+        self.add_typology_routes(&hubs);
         self.add_vertical_transfer_links(&hubs);
         self.ensure_service_to_skyline_path(&hubs);
+    }
+
+    fn add_typology_routes(&mut self, hubs: &[(usize, usize)]) {
+        match self.config.typology {
+            MegastructureTypology::DenseEnclave => {}
+            MegastructureTypology::ArcologySpire => {
+                let c = self.size / 2;
+                for y in [self.layers / 4, self.layers / 2, self.layers * 3 / 4] {
+                    let y = y.clamp(1, self.layers.saturating_sub(1));
+                    self.carve_route(
+                        c.saturating_sub(self.size / 4),
+                        c,
+                        (c + self.size / 4).min(self.size - 1),
+                        c,
+                        y,
+                        "station_loop",
+                    );
+                    self.carve_route(
+                        c,
+                        c.saturating_sub(self.size / 4),
+                        c,
+                        (c + self.size / 4).min(self.size - 1),
+                        y,
+                        "station_loop",
+                    );
+                }
+            }
+            MegastructureTypology::LinearCity => {
+                let z = self.size / 2;
+                let y = (self.layers / 3).max(1);
+                self.carve_route(1, z, self.size - 2, z, y, "linear_express");
+                for x in (self.size / 6..self.size).step_by((self.size / 5).max(4)) {
+                    self.carve_route(
+                        x,
+                        z.saturating_sub(self.size / 5),
+                        x,
+                        (z + self.size / 5).min(self.size - 1),
+                        y,
+                        "station_loop",
+                    );
+                }
+            }
+            MegastructureTypology::BridgeVoid => {
+                let anchors = if hubs.len() >= 4 {
+                    hubs.iter().take(4).copied().collect::<Vec<_>>()
+                } else {
+                    typology_anchor_points(
+                        MegastructureTypology::BridgeVoid,
+                        self.size,
+                        self.layers,
+                    )
+                    .into_iter()
+                    .map(|point| (point[0], point[2]))
+                    .collect()
+                };
+                let y = (self.layers * 2 / 3).max(1);
+                for pair in anchors.windows(2) {
+                    self.carve_route(pair[0].0, pair[0].1, pair[1].0, pair[1].1, y, "void_bridge");
+                }
+            }
+            MegastructureTypology::MarinePlatform => {
+                let y = (self.layers / 4).max(1);
+                let mid = self.size / 2;
+                self.carve_route(1, mid, self.size - 2, mid, y, "marine_causeway");
+                self.carve_route(mid, 1, mid, self.size - 2, y, "marine_causeway");
+                for anchor in typology_anchor_points(
+                    MegastructureTypology::MarinePlatform,
+                    self.size,
+                    self.layers,
+                ) {
+                    self.carve_route(anchor[0], anchor[2], mid, mid, 1, "pylon_service");
+                }
+            }
+            MegastructureTypology::OrbitalRing => {
+                let points = typology_anchor_points(
+                    MegastructureTypology::OrbitalRing,
+                    self.size,
+                    self.layers,
+                );
+                let y = self.layers / 2;
+                for pair in points.windows(2) {
+                    self.carve_route(
+                        pair[0][0], pair[0][2], pair[1][0], pair[1][2], y, "rim_loop",
+                    );
+                }
+                if let (Some(first), Some(last)) = (points.first(), points.last()) {
+                    self.carve_route(last[0], last[2], first[0], first[2], y, "rim_loop");
+                }
+                let c = self.size / 2;
+                for point in points.iter().step_by(2) {
+                    self.carve_route(c, c, point[0], point[2], y, "spoke_transfer");
+                }
+            }
+            MegastructureTypology::UndergroundHive => {
+                let y = (self.layers / 4).max(1);
+                let c = self.size / 2;
+                self.carve_route(c, 1, c, self.size - 2, y, "hive_trunk");
+                self.carve_route(1, c, self.size - 2, c, y, "hive_gallery");
+                for x in (self.size / 6..self.size).step_by((self.size / 5).max(4)) {
+                    self.carve_route(
+                        x,
+                        c.saturating_sub(self.size / 5),
+                        x,
+                        (c + self.size / 5).min(self.size - 1),
+                        y,
+                        "cavern_loop",
+                    );
+                }
+            }
+            MegastructureTypology::MountainBurrow => {
+                let y = (self.layers / 3).max(1);
+                let c = self.size / 2;
+                self.carve_route(1, c, c, c, y, "cliff_gallery");
+                self.carve_route(c / 2, 1, c / 2, self.size - 2, y, "burrow_spine");
+            }
+            MegastructureTypology::DesertArcology => {
+                let c = self.size / 2;
+                let y = (self.layers / 3).max(1);
+                self.carve_route(c, 1, c, self.size - 2, y, "climate_spine");
+                self.carve_route(1, c, self.size - 2, c, y, "solar_service_ring");
+            }
+            MegastructureTypology::AirportCity => {
+                let z = self.size / 2;
+                let y = (self.layers / 5).max(1);
+                self.carve_route(1, z, self.size - 2, z, y, "runway_spine");
+                for x in (self.size / 6..self.size).step_by((self.size / 5).max(4)) {
+                    self.carve_route(
+                        x,
+                        z,
+                        x,
+                        (z + self.size / 4).min(self.size - 1),
+                        y,
+                        "terminal_loop",
+                    );
+                }
+            }
+            MegastructureTypology::DamCity => {
+                let x = self.size / 2;
+                let y = (self.layers / 3).max(1);
+                self.carve_route(x, 1, x, self.size - 2, y, "dam_wall_spine");
+                self.carve_route(
+                    x.saturating_sub(self.size / 5),
+                    self.size / 2,
+                    (x + self.size / 5).min(self.size - 1),
+                    self.size / 2,
+                    y,
+                    "turbine_gallery",
+                );
+            }
+            MegastructureTypology::ShipyardStack => {
+                let z = self.size / 2;
+                let y = (self.layers / 4).max(1);
+                self.carve_route(1, z, self.size - 2, z, y, "drydock_spine");
+                self.carve_route(
+                    1,
+                    z.saturating_sub(self.size / 6),
+                    self.size - 2,
+                    z.saturating_sub(self.size / 6),
+                    y,
+                    "gantry_loop",
+                );
+                self.carve_route(
+                    1,
+                    (z + self.size / 6).min(self.size - 1),
+                    self.size - 2,
+                    (z + self.size / 6).min(self.size - 1),
+                    y,
+                    "gantry_loop",
+                );
+            }
+        }
     }
 
     fn add_ring_routes(&mut self, hubs: &[(usize, usize)]) {
@@ -1646,7 +2402,22 @@ impl MegaStructureGenerator {
             .round()
             .clamp(3.0, 12.0) as usize;
         let center = self.size / 2;
-        hubs.push((center, center));
+        match self.config.typology {
+            MegastructureTypology::LinearCity => {
+                let z = center;
+                for x in (2..self.size.saturating_sub(2)).step_by((self.size / 5).max(4)) {
+                    hubs.push((x, z));
+                }
+            }
+            MegastructureTypology::OrbitalRing
+            | MegastructureTypology::BridgeVoid
+            | MegastructureTypology::MarinePlatform => {
+                for point in typology_anchor_points(self.config.typology, self.size, self.layers) {
+                    hubs.push((point[0], point[2]));
+                }
+            }
+            _ => hubs.push((center, center)),
+        }
 
         let stride = (self.size / 4).max(4);
         for x in (stride / 2..self.size).step_by(stride) {
@@ -1742,7 +2513,8 @@ impl MegaStructureGenerator {
         let y = y.min(self.layers.saturating_sub(1));
         let route_cell = match kind {
             "service_tunnel" => CellType::Horizontal,
-            "skybridge" | "express_spine" => CellType::Bridge,
+            "skybridge" | "express_spine" | "void_bridge" | "rim_loop" | "spoke_transfer"
+            | "marine_causeway" => CellType::Bridge,
             _ => CellType::Horizontal,
         };
         let start_node = self.push_transit_node("route_junction", [start_x, y, start_z]);
@@ -2084,6 +2856,57 @@ impl MegaStructureGenerator {
             }
         }
         self.record_pattern(feature);
+    }
+
+    fn phase2f_cellular_automata_patterns(&mut self) {
+        if self.config.advanced_pattern_complexity <= 0.0 {
+            return;
+        }
+        let iterations = (1.0 + self.config.advanced_pattern_complexity).round() as usize;
+        for iteration in 0..iterations.clamp(1, 4) {
+            let mut updates = Vec::new();
+            for x in 1..self.size.saturating_sub(1) {
+                for z in 1..self.size.saturating_sub(1) {
+                    for y in 1..self.layers.saturating_sub(1) {
+                        let cell = self.get(x, z, y);
+                        let occupied_neighbors = 6 - self.count_empty_neighbors(x, z, y);
+                        let district = self.district_at(x, z);
+                        let lifecycle = self.lifecycle_for_district(district, 0.5);
+                        let noise = hash_noise(self.seed_hash, x + iteration, z, y);
+                        if cell == CellType::Empty
+                            && occupied_neighbors >= 4
+                            && lifecycle.occupancy_pressure > 0.65
+                            && noise < 0.08 * self.config.advanced_pattern_complexity
+                        {
+                            let fill = if district == DistrictType::Industrial {
+                                CellType::Pipe
+                            } else if district == DistrictType::Slum {
+                                CellType::Bridge
+                            } else {
+                                CellType::Horizontal
+                            };
+                            updates.push((
+                                x,
+                                z,
+                                y,
+                                fill,
+                                matches!(fill, CellType::Horizontal | CellType::Bridge),
+                            ));
+                        } else if cell != CellType::Empty
+                            && occupied_neighbors <= 1
+                            && lifecycle.maintenance_level < 0.45
+                            && noise > 1.0 - 0.06 * self.config.advanced_pattern_complexity
+                        {
+                            updates.push((x, z, y, CellType::Debris, false));
+                        }
+                    }
+                }
+            }
+            for (x, z, y, cell, supported) in updates.into_iter().take(self.size * 3) {
+                self.set(x, z, y, cell, supported);
+                self.record_pattern("cellular_activity_field");
+            }
+        }
     }
 
     fn add_industrial_service_trunks(&mut self) {
@@ -2611,10 +3434,12 @@ impl MegaStructureGenerator {
                 self.district_at(anchor[0].min(self.size - 1), anchor[2].min(self.size - 1));
             let lifecycle = self.lifecycle_for_district(district, 0.5);
             let rule_pack = self.rule_pack_for(district, self.stratum_at(anchor[1]));
+            let stress_pressure = self.route_stress_score_for_edge(&edge, anchor);
             let probability = hazard_probability_for_role(&edge.role)
                 * lifecycle.decay_bias
                 * rule_pack.decay_weight
                 * (1.0 + self.failure_pressure_at(anchor) * 0.45)
+                * (1.0 + stress_pressure * 0.75)
                 * self.config.decay_story_density;
             if hash_noise(self.seed_hash, edge.id, edge.length, self.layers)
                 > probability.clamp(0.0, 0.95)
@@ -2622,11 +3447,116 @@ impl MegaStructureGenerator {
                 continue;
             }
             let kind = hazard_kind_for_edge(&edge);
+            self.add_hazard_zone_with_severity(kind, anchor, vec![edge.id], stress_pressure * 0.20);
+        }
+        self.add_typology_hazard_zones();
+        self.add_stress_hazard_zones();
+    }
+
+    fn add_typology_hazard_zones(&mut self) {
+        let specs: &[(&str, &[&str])] = match self.config.typology {
+            MegastructureTypology::DenseEnclave => return,
+            MegastructureTypology::ArcologySpire => &[
+                ("core_lockdown", &["vertical_transit_core"]),
+                ("atrium_stack_fire", &["station_loop"]),
+                (
+                    "elevator_choke",
+                    &["vertical_transfer", "vertical_transit_core"],
+                ),
+            ],
+            MegastructureTypology::LinearCity => &[
+                ("station_crush", &["station_loop"]),
+                ("transit_bottleneck", &["linear_express"]),
+                (
+                    "infrastructure_cascade",
+                    &["linear_express", "service_tunnel"],
+                ),
+            ],
+            MegastructureTypology::BridgeVoid => &[
+                ("cantilever_fatigue", &["void_bridge"]),
+                ("wind_shear", &["void_bridge", "skybridge"]),
+                ("bridge_failure", &["void_bridge"]),
+            ],
+            MegastructureTypology::MarinePlatform => &[
+                ("salt_corrosion", &["pylon_service"]),
+                ("storm_surge", &["marine_causeway"]),
+                ("pump_outage", &["pylon_service", "service_tunnel"]),
+            ],
+            MegastructureTypology::OrbitalRing => &[
+                ("pressure_breach", &["rim_loop"]),
+                ("spoke_shear", &["spoke_transfer"]),
+                ("rim_blackout", &["rim_loop"]),
+            ],
+            MegastructureTypology::UndergroundHive => &[
+                ("cavern_collapse", &["cavern_loop"]),
+                ("methane_pocket", &["hive_gallery"]),
+                ("sump_flood", &["hive_trunk"]),
+            ],
+            MegastructureTypology::MountainBurrow => &[
+                ("rockfall_choke", &["cliff_gallery"]),
+                ("slope_shear", &["burrow_spine"]),
+                ("ventilation_dead_zone", &["cliff_gallery"]),
+            ],
+            MegastructureTypology::DesertArcology => &[
+                ("heat_bloom", &["solar_service_ring"]),
+                ("seal_failure", &["climate_spine"]),
+                ("water_reclaimer_outage", &["climate_spine"]),
+            ],
+            MegastructureTypology::AirportCity => &[
+                ("runway_debris", &["runway_spine"]),
+                ("terminal_crush", &["terminal_loop"]),
+                ("fuel_line_fire", &["runway_spine"]),
+            ],
+            MegastructureTypology::DamCity => &[
+                ("spillway_surge", &["dam_wall_spine"]),
+                ("turbine_trip", &["turbine_gallery"]),
+                ("wall_seepage", &["dam_wall_spine"]),
+            ],
+            MegastructureTypology::ShipyardStack => &[
+                ("drydock_flood", &["drydock_spine"]),
+                ("gantry_collapse", &["gantry_loop"]),
+                ("weld_fire", &["drydock_spine"]),
+            ],
+        };
+        for (offset, (kind, route_kinds)) in specs.iter().enumerate() {
+            if self.hazard_zones.iter().any(|hazard| hazard.kind == *kind) {
+                continue;
+            }
+            let edge = self
+                .transit_edges
+                .iter()
+                .find(|edge| {
+                    route_kinds
+                        .iter()
+                        .any(|route_kind| edge.kind.contains(route_kind))
+                })
+                .or_else(|| {
+                    self.transit_edges
+                        .get(offset % self.transit_edges.len().max(1))
+                });
+            let Some(edge) = edge else {
+                continue;
+            };
+            let anchor = edge.points.get(edge.points.len() / 2).copied().unwrap_or([
+                self.size / 2,
+                (self.layers / 2).max(1),
+                self.size / 2,
+            ]);
             self.add_hazard_zone(kind, anchor, vec![edge.id]);
         }
     }
 
     fn add_hazard_zone(&mut self, kind: &str, anchor: [usize; 3], route_ids: Vec<usize>) {
+        self.add_hazard_zone_with_severity(kind, anchor, route_ids, 0.0);
+    }
+
+    fn add_hazard_zone_with_severity(
+        &mut self,
+        kind: &str,
+        anchor: [usize; 3],
+        route_ids: Vec<usize>,
+        severity_boost: f32,
+    ) {
         let radius = if self.config.erosion_strength > 1.2 {
             2
         } else {
@@ -2662,7 +3592,7 @@ impl MegaStructureGenerator {
         self.hazard_zones.push(HazardZoneRecord {
             id,
             kind: kind.to_owned(),
-            severity: (0.35 + self.config.erosion_strength * 0.22).clamp(0.0, 1.0),
+            severity: (0.35 + self.config.erosion_strength * 0.22 + severity_boost).clamp(0.0, 1.0),
             bounds_min,
             bounds_max,
             route_ids,
@@ -2671,15 +3601,80 @@ impl MegaStructureGenerator {
         self.record_pattern(kind);
     }
 
+    fn add_stress_hazard_zones(&mut self) {
+        let mut candidates: Vec<_> = self
+            .transit_edges
+            .iter()
+            .filter_map(|edge| {
+                let anchor = edge.points.get(edge.points.len() / 2).copied()?;
+                let stress = self.route_stress_score_for_edge(edge, anchor);
+                (stress >= 0.46).then_some((
+                    stress,
+                    edge.id,
+                    stress_hazard_kind_for_edge(edge),
+                    anchor,
+                ))
+            })
+            .collect();
+        candidates.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
+        for (stress, route_id, kind, anchor) in candidates.into_iter().take(4) {
+            if self
+                .hazard_zones
+                .iter()
+                .any(|hazard| hazard.kind == kind && hazard.route_ids.contains(&route_id))
+            {
+                continue;
+            }
+            self.add_hazard_zone_with_severity(kind, anchor, vec![route_id], stress * 0.28);
+        }
+    }
+
     fn paint_hazard_cell(&mut self, x: usize, z: usize, y: usize, kind: &str) {
         let cell = match kind {
-            "flood_sump" | "unstable_span" => CellType::Debris,
-            "security_sweep" => CellType::Facade,
-            "blackout_pocket" => CellType::Cable,
+            "flood_sump"
+            | "unstable_span"
+            | "storm_surge"
+            | "bridge_failure"
+            | "cantilever_fatigue"
+            | "spoke_shear"
+            | "cavern_collapse"
+            | "rockfall_choke"
+            | "slope_shear"
+            | "runway_debris"
+            | "gantry_collapse"
+            | "stress_bridge_failure"
+            | "stress_pylon_failure"
+            | "stress_spoke_shear"
+            | "stress_gantry_failure"
+            | "stress_deck_crack"
+            | "stress_cavern_shift"
+            | "stress_slope_shear"
+            | "stress_frame_overload" => CellType::Debris,
+            "security_sweep"
+            | "core_lockdown"
+            | "station_crush"
+            | "seal_failure"
+            | "terminal_crush"
+            | "wall_seepage"
+            | "stress_wall_seepage" => CellType::Facade,
+            "blackout_pocket"
+            | "rim_blackout"
+            | "infrastructure_cascade"
+            | "pump_outage"
+            | "elevator_choke"
+            | "methane_pocket"
+            | "water_reclaimer_outage"
+            | "turbine_trip"
+            | "fuel_line_fire"
+            | "weld_fire" => CellType::Cable,
             _ => CellType::Vent,
         };
         self.set(x, z, y, cell, matches!(cell, CellType::Facade));
-        if kind == "vent_heat_plume" && y + 1 < self.layers {
+        if matches!(
+            kind,
+            "vent_heat_plume" | "pressure_breach" | "atrium_stack_fire"
+        ) && y + 1 < self.layers
+        {
             self.set(x, z, y + 1, CellType::Vent, false);
         }
     }
@@ -2690,6 +3685,80 @@ impl MegaStructureGenerator {
         self.add_debris_fields();
         self.add_hanging_bridge_remnants();
         self.add_broken_facade_fields();
+    }
+
+    fn phase5b_program_aware_rooms(&mut self) {
+        let specs: &[(&str, &[&str])] = match self.config.typology {
+            MegastructureTypology::DenseEnclave => &[
+                ("RELAY_ROOM", &["ring_route", "express_spine"]),
+                ("EVAC_SHAFT_CONTROL", &["vertical_transit_core"]),
+            ],
+            MegastructureTypology::ArcologySpire => &[
+                ("CORE_CONTROL_ROOM", &["vertical_transit_core"]),
+                ("ATRIUM_SMOKE_CONTROL", &["station_loop"]),
+            ],
+            MegastructureTypology::LinearCity => &[
+                ("RELAY_ROOM", &["linear_express"]),
+                ("STATION_CONTROL", &["station_loop"]),
+            ],
+            MegastructureTypology::BridgeVoid => &[
+                ("COUNTERWEIGHT_ROOM", &["void_bridge"]),
+                ("WIND_BARRIER_CONTROL", &["void_bridge"]),
+            ],
+            MegastructureTypology::MarinePlatform => &[
+                ("PUMP_ROOM", &["pylon_service"]),
+                ("CAUSEWAY_LOCK_CONTROL", &["marine_causeway"]),
+            ],
+            MegastructureTypology::OrbitalRing => &[
+                ("AIRLOCK_CONTROL", &["rim_loop"]),
+                ("SPOKE_RELAY_ROOM", &["spoke_transfer"]),
+            ],
+            MegastructureTypology::UndergroundHive => &[
+                ("SUMP_CONTROL", &["hive_trunk"]),
+                ("CAVERN_SURVEY_ROOM", &["cavern_loop"]),
+            ],
+            MegastructureTypology::MountainBurrow => &[
+                ("VENTILATION_ROOM", &["cliff_gallery"]),
+                ("ROCK_BOLT_CONTROL", &["burrow_spine"]),
+            ],
+            MegastructureTypology::DesertArcology => &[
+                ("CLIMATE_PLANT", &["climate_spine"]),
+                ("SOLAR_RELAY_ROOM", &["solar_service_ring"]),
+            ],
+            MegastructureTypology::AirportCity => &[
+                ("HANGAR_CONTROL", &["runway_spine"]),
+                ("TERMINAL_RELAY_ROOM", &["terminal_loop"]),
+            ],
+            MegastructureTypology::DamCity => &[
+                ("TURBINE_HALL", &["turbine_gallery"]),
+                ("SPILLWAY_CONTROL", &["dam_wall_spine"]),
+            ],
+            MegastructureTypology::ShipyardStack => &[
+                ("DRYDOCK_CONTROL", &["drydock_spine"]),
+                ("GANTRY_OPERATOR_ROOM", &["gantry_loop"]),
+            ],
+        };
+        for (label, route_kinds) in specs {
+            if self.rooms.iter().any(|room| room.label == *label) {
+                continue;
+            }
+            let edge = self
+                .transit_edges
+                .iter()
+                .find(|edge| route_kinds.iter().any(|kind| edge.kind == *kind))
+                .or_else(|| self.transit_edges.first());
+            let Some(edge) = edge else {
+                continue;
+            };
+            let position = edge.points.get(edge.points.len() / 2).copied().unwrap_or([
+                self.size / 2,
+                (self.layers / 2).max(1),
+                self.size / 2,
+            ]);
+            let district = self.district_at(position[0], position[2]);
+            self.push_room(position, district, label);
+            self.record_pattern(&format!("program_room_{}", label.to_ascii_lowercase()));
+        }
     }
 
     fn add_landmark_rooms(&mut self) {
@@ -2980,6 +4049,656 @@ impl MegaStructureGenerator {
             }
             self.push_connection("broken_facade", [x, y, z], [x, y, z]);
         }
+    }
+
+    fn phase6_entity_dynamics(&mut self) {
+        self.entities.clear();
+        self.entity_paths.clear();
+        self.entity_pressure_fields.clear();
+        self.layout_mutations.clear();
+        if self.config.entity_density <= 0.0 || self.transit_edges.is_empty() {
+            return;
+        }
+
+        let (room_clusters, _) = self.room_clusters();
+        if room_clusters.is_empty() {
+            return;
+        }
+        let failure_zones = self.failure_propagation_records();
+        let resource_networks = self.resource_networks();
+        let (factions, _, contested_borders) = self.ownership_layer(&room_clusters);
+        let temporal_state = self.temporal_state(&factions, &contested_borders, &resource_networks);
+        let route_simulation =
+            self.route_simulation(&temporal_state, &resource_networks, &failure_zones);
+
+        self.spawn_entity_records(
+            &room_clusters,
+            &factions,
+            &temporal_state,
+            &route_simulation,
+        );
+        self.build_entity_pressure_fields();
+        self.apply_entity_layout_mutations(&temporal_state);
+    }
+
+    fn spawn_entity_records(
+        &mut self,
+        room_clusters: &[RoomClusterRecord],
+        factions: &[FactionRecord],
+        temporal_state: &TemporalStateRecord,
+        route_simulation: &[RouteSimulationRecord],
+    ) {
+        let density_weight = self.average_entity_density_weight(room_clusters);
+        let target = ((self.transit_edges.len() + room_clusters.len() / 3) as f32
+            * self.config.entity_density
+            * density_weight
+            * 0.85)
+            .round()
+            .clamp(0.0, 96.0) as usize;
+        if target == 0 {
+            return;
+        }
+
+        let mut candidates: Vec<_> = room_clusters
+            .iter()
+            .map(|cluster| {
+                let density_bias =
+                    self.entity_rule_weight_at(cluster.anchor_position, "density", "market_crowd");
+                let pressure = (cluster.room_ids.len() as f32
+                    + cluster.route_ids.len() as f32 * 2.0
+                    + hash_noise(
+                        self.seed_hash,
+                        cluster.id,
+                        cluster.anchor_position[2],
+                        cluster.anchor_position[1],
+                    ))
+                    * density_bias;
+                (pressure, cluster)
+            })
+            .collect();
+        candidates.sort_by(|a, b| b.0.total_cmp(&a.0));
+
+        for (_, cluster) in candidates.into_iter().cycle().take(target) {
+            let entity_id = self.entities.len();
+            let kind = entity_kind_for_cluster(cluster);
+            if hash_noise(
+                self.seed_hash,
+                entity_id,
+                cluster.id,
+                cluster.anchor_position[1],
+            ) > self
+                .entity_rule_weight_at(cluster.anchor_position, "kind", kind)
+                .clamp(0.05, 1.0)
+            {
+                continue;
+            }
+            let active_phase_ids = active_phases_for_entity(kind, temporal_state);
+            let route_ids = self.entity_route_ids(cluster, kind, route_simulation);
+            if route_ids.is_empty() {
+                continue;
+            }
+            let origin = cluster.anchor_position;
+            let destination = self
+                .transit_edges
+                .get(*route_ids.last().unwrap_or(&route_ids[0]))
+                .and_then(|edge| edge.points.last().copied())
+                .unwrap_or(origin);
+            let faction_id = faction_id_by_name(factions, &cluster.owner_district);
+            let layout_influence = entity_layout_influence(kind, cluster, &route_ids);
+            self.entities.push(EntityRecord {
+                id: entity_id,
+                kind: kind.to_owned(),
+                faction_id,
+                home_cluster_id: Some(cluster.id),
+                origin,
+                destination,
+                route_ids: route_ids.clone(),
+                active_phase_ids: active_phase_ids.clone(),
+                movement_profile: movement_profile_for_entity(kind).to_owned(),
+                layout_influence,
+            });
+            let sample_points = self.entity_sample_points(origin, destination, &route_ids);
+            let (congestion, risk) = entity_path_pressure(&route_ids, route_simulation);
+            self.entity_paths.push(EntityPathRecord {
+                id: self.entity_paths.len(),
+                entity_id,
+                sample_points,
+                route_ids,
+                travel_cost: (1.0 + congestion * 1.6 + risk * 2.0).clamp(0.0, 5.0),
+                congestion,
+                risk,
+                reaches_destination: true,
+            });
+            self.record_pattern(kind);
+        }
+    }
+
+    fn entity_route_ids(
+        &self,
+        cluster: &RoomClusterRecord,
+        kind: &str,
+        route_simulation: &[RouteSimulationRecord],
+    ) -> Vec<usize> {
+        let start_routes = self.entity_start_routes(cluster);
+        let goal_route = self.best_entity_destination_route(cluster, kind, route_simulation);
+        let graph = self.entity_route_graph(kind, route_simulation);
+        let mut best_path = Vec::new();
+        let mut best_cost = f32::MAX;
+        for start_route in start_routes {
+            let (path, cost) = shortest_route_path(&graph, start_route, goal_route);
+            if !path.is_empty() && cost < best_cost {
+                best_cost = cost;
+                best_path = path;
+            }
+        }
+        if best_path.is_empty() {
+            best_path.push(self.best_entity_route(kind, route_simulation));
+        }
+        best_path.truncate(6);
+        best_path
+    }
+
+    fn entity_start_routes(&self, cluster: &RoomClusterRecord) -> Vec<usize> {
+        let mut route_ids = cluster.route_ids.clone();
+        if route_ids.is_empty() {
+            route_ids = self.nearby_route_ids(cluster.anchor_position, 10);
+        }
+        if route_ids.is_empty() && !self.transit_edges.is_empty() {
+            route_ids.push(0);
+        }
+        route_ids.sort_unstable();
+        route_ids.dedup();
+        route_ids
+    }
+
+    fn best_entity_destination_route(
+        &self,
+        cluster: &RoomClusterRecord,
+        kind: &str,
+        route_simulation: &[RouteSimulationRecord],
+    ) -> usize {
+        self.transit_edges
+            .iter()
+            .map(|edge| {
+                let midpoint = edge
+                    .points
+                    .get(edge.points.len() / 2)
+                    .copied()
+                    .unwrap_or([0, 0, 0]);
+                let distance = midpoint[0].abs_diff(cluster.anchor_position[0])
+                    + midpoint[1].abs_diff(cluster.anchor_position[1])
+                    + midpoint[2].abs_diff(cluster.anchor_position[2]);
+                let distance_bonus = (distance as f32 / self.size.max(1) as f32).clamp(0.0, 1.5);
+                (
+                    self.entity_route_score(edge.id, kind, route_simulation) + distance_bonus,
+                    edge.id,
+                )
+            })
+            .max_by(|a, b| a.0.total_cmp(&b.0))
+            .map(|(_, id)| id)
+            .unwrap_or(0)
+    }
+
+    fn entity_route_graph(
+        &self,
+        kind: &str,
+        route_simulation: &[RouteSimulationRecord],
+    ) -> Vec<Vec<(usize, f32)>> {
+        let edge_count = self.transit_edges.len();
+        let mut graph = vec![Vec::new(); edge_count];
+        for a in 0..edge_count {
+            for b in (a + 1)..edge_count {
+                if self.routes_touch(a, b) {
+                    let cost_ab = self.entity_route_cost(b, kind, route_simulation);
+                    let cost_ba = self.entity_route_cost(a, kind, route_simulation);
+                    graph[a].push((b, cost_ab));
+                    graph[b].push((a, cost_ba));
+                }
+            }
+        }
+        graph
+    }
+
+    fn routes_touch(&self, a: usize, b: usize) -> bool {
+        let Some(left) = self.transit_edges.get(a) else {
+            return false;
+        };
+        let Some(right) = self.transit_edges.get(b) else {
+            return false;
+        };
+        if left.start_node == right.start_node
+            || left.start_node == right.end_node
+            || left.end_node == right.start_node
+            || left.end_node == right.end_node
+        {
+            return true;
+        }
+        for left_point in left.points.iter().step_by((left.points.len() / 8).max(1)) {
+            if right
+                .points
+                .iter()
+                .step_by((right.points.len() / 8).max(1))
+                .any(|right_point| {
+                    left_point[0].abs_diff(right_point[0])
+                        + left_point[1].abs_diff(right_point[1])
+                        + left_point[2].abs_diff(right_point[2])
+                        <= 2
+                })
+            {
+                return true;
+            }
+        }
+        false
+    }
+
+    fn best_entity_route(&self, kind: &str, route_simulation: &[RouteSimulationRecord]) -> usize {
+        self.transit_edges
+            .iter()
+            .map(|edge| {
+                (
+                    self.entity_route_score(edge.id, kind, route_simulation),
+                    edge.id,
+                )
+            })
+            .max_by(|a, b| a.0.total_cmp(&b.0))
+            .map(|(_, id)| id)
+            .unwrap_or(0)
+    }
+
+    fn entity_route_score(
+        &self,
+        route_id: usize,
+        kind: &str,
+        route_simulation: &[RouteSimulationRecord],
+    ) -> f32 {
+        let Some(edge) = self.transit_edges.get(route_id) else {
+            return 0.0;
+        };
+        let simulation = route_simulation.get(route_id);
+        let congestion = simulation
+            .map(|sim| sim.market_congestion.max(sim.civilian_density))
+            .unwrap_or(0.0);
+        let risk = simulation
+            .map(|sim| sim.blackout_risk.max(sim.security_pressure))
+            .unwrap_or(0.0);
+        let role_bonus = match (kind, edge.role.as_str()) {
+            ("market_crowd", "market_run") => 0.42,
+            ("corp_patrol", "restricted_spine") => 0.45,
+            ("evacuee_flow", "evacuation_route") => 0.48,
+            ("maintenance_crawler", "maintenance_backbone") => 0.42,
+            ("builder_swarm", "primary_artery" | "maintenance_backbone") => 0.30,
+            ("scavenger_drift", "service_loop") => 0.34,
+            _ => 0.08,
+        };
+        let length_bias = (edge.length as f32 / self.size.max(1) as f32).clamp(0.0, 1.0) * 0.18;
+        match kind {
+            "corp_patrol" => role_bonus + risk * 0.22 + length_bias,
+            "evacuee_flow" => role_bonus + (1.0 - risk) * 0.28 + length_bias,
+            "market_crowd" => role_bonus + congestion * 0.34 + length_bias,
+            "scavenger_drift" => role_bonus + risk * 0.18 + congestion * 0.12,
+            _ => role_bonus + length_bias + congestion * 0.12,
+        }
+    }
+
+    fn entity_route_cost(
+        &self,
+        route_id: usize,
+        kind: &str,
+        route_simulation: &[RouteSimulationRecord],
+    ) -> f32 {
+        let Some(edge) = self.transit_edges.get(route_id) else {
+            return 9999.0;
+        };
+        let simulation = route_simulation.get(route_id);
+        let hazard_pressure = self
+            .hazard_zones
+            .iter()
+            .filter(|hazard| hazard.route_ids.contains(&route_id))
+            .map(|hazard| hazard.severity)
+            .sum::<f32>()
+            .clamp(0.0, 1.0);
+        let outage_pressure = self
+            .resource_networks()
+            .iter()
+            .filter(|network| network.outage && network.route_ids.contains(&route_id))
+            .count() as f32
+            * 0.18;
+        let congestion = simulation
+            .map(|sim| sim.market_congestion.max(sim.civilian_density))
+            .unwrap_or(0.0);
+        let security = simulation.map(|sim| sim.security_pressure).unwrap_or(0.0);
+        let route_fit = self.entity_route_score(route_id, kind, route_simulation);
+        let role_penalty = match (kind, edge.role.as_str()) {
+            ("corp_patrol", "restricted_spine") => -0.25,
+            ("evacuee_flow", "evacuation_route") => -0.30,
+            ("market_crowd", "market_run") => -0.25,
+            ("maintenance_crawler", "maintenance_backbone") => -0.25,
+            ("scavenger_drift", "service_loop") => -0.18,
+            ("builder_swarm", "maintenance_backbone" | "primary_artery") => -0.18,
+            _ => 0.0,
+        };
+        let risk_factor = match kind {
+            "corp_patrol" => security * -0.12 + hazard_pressure * 0.10,
+            "scavenger_drift" => hazard_pressure * -0.08 + congestion * 0.12,
+            "evacuee_flow" => hazard_pressure * 0.60 + security * 0.30,
+            _ => hazard_pressure * 0.35 + security * 0.18,
+        };
+        (1.0 + edge.length as f32 / self.size.max(1) as f32
+            + congestion * 0.42
+            + risk_factor
+            + outage_pressure
+            - route_fit * 0.35
+            + role_penalty)
+            .clamp(0.05, 20.0)
+    }
+
+    fn average_entity_density_weight(&self, room_clusters: &[RoomClusterRecord]) -> f32 {
+        if room_clusters.is_empty() {
+            return 1.0;
+        }
+        let sum = room_clusters
+            .iter()
+            .map(|cluster| self.entity_rule_weight_at(cluster.anchor_position, "density", ""))
+            .sum::<f32>();
+        (sum / room_clusters.len() as f32).clamp(0.0, 4.0)
+    }
+
+    fn entity_rule_weight_at(&self, point: [usize; 3], metric: &str, kind: &str) -> f32 {
+        let district = self.district_at(point[0].min(self.size - 1), point[2].min(self.size - 1));
+        let stratum = self.stratum_at(point[1].min(self.layers - 1));
+        let pack = self.rule_pack_for(district, stratum);
+        match metric {
+            "density" => pack.entity_density_weight,
+            "layout" => pack.entity_layout_weight,
+            "kind" => match kind {
+                "corp_patrol" => pack.patrol_weight,
+                "market_crowd" | "evacuee_flow" | "scavenger_drift" => pack.crowd_weight,
+                "builder_swarm" | "maintenance_crawler" => pack.builder_weight,
+                _ => 1.0,
+            },
+            _ => 1.0,
+        }
+    }
+
+    fn entity_sample_points(
+        &self,
+        origin: [usize; 3],
+        destination: [usize; 3],
+        route_ids: &[usize],
+    ) -> Vec<[usize; 3]> {
+        let mut samples = vec![origin];
+        for route_id in route_ids {
+            let Some(edge) = self.transit_edges.get(*route_id) else {
+                continue;
+            };
+            let stride = (edge.points.len() / 6).max(1);
+            for point in edge.points.iter().step_by(stride).take(8) {
+                if samples.last() != Some(point) {
+                    samples.push(*point);
+                }
+            }
+        }
+        if samples.last().copied() != Some(destination) {
+            samples.push(destination);
+        }
+        samples
+    }
+
+    fn build_entity_pressure_fields(&mut self) {
+        let mut grouped: BTreeMap<String, Vec<usize>> = BTreeMap::new();
+        for entity in &self.entities {
+            grouped
+                .entry(pressure_kind_for_entity(&entity.kind).to_owned())
+                .or_default()
+                .push(entity.id);
+        }
+
+        for (kind, entity_ids) in grouped {
+            let mut bounds_min = [usize::MAX; 3];
+            let mut bounds_max = [0usize; 3];
+            let mut affected_route_ids = BTreeSet::new();
+            let mut affected_room_ids = BTreeSet::new();
+            let mut path_count = 0usize;
+            let mut risk_sum = 0.0f32;
+            let mut congestion_sum = 0.0f32;
+            for entity_id in &entity_ids {
+                let Some(path) = self
+                    .entity_paths
+                    .iter()
+                    .find(|path| path.entity_id == *entity_id)
+                else {
+                    continue;
+                };
+                path_count += 1;
+                risk_sum += path.risk;
+                congestion_sum += path.congestion;
+                for point in &path.sample_points {
+                    for axis in 0..3 {
+                        bounds_min[axis] = bounds_min[axis].min(point[axis]);
+                        bounds_max[axis] = bounds_max[axis].max(point[axis]);
+                    }
+                }
+                for route_id in &path.route_ids {
+                    affected_route_ids.insert(*route_id);
+                }
+            }
+            if path_count == 0 {
+                continue;
+            }
+            for room in &self.rooms {
+                if room.position[0] >= bounds_min[0]
+                    && room.position[0] <= bounds_max[0]
+                    && room.position[1] >= bounds_min[1].saturating_sub(1)
+                    && room.position[1] <= (bounds_max[1] + 1).min(self.layers - 1)
+                    && room.position[2] >= bounds_min[2]
+                    && room.position[2] <= bounds_max[2]
+                {
+                    affected_room_ids.insert(room.id);
+                }
+            }
+            let intensity = ((path_count as f32 / 8.0)
+                + risk_sum / path_count as f32 * 0.25
+                + congestion_sum / path_count as f32 * 0.25)
+                .clamp(0.05, 1.0);
+            self.entity_pressure_fields.push(EntityPressureFieldRecord {
+                id: self.entity_pressure_fields.len(),
+                kind,
+                bounds_min,
+                bounds_max,
+                intensity,
+                source_entity_ids: entity_ids,
+                affected_route_ids: affected_route_ids.into_iter().collect(),
+                affected_room_ids: affected_room_ids.into_iter().collect(),
+            });
+        }
+    }
+
+    fn apply_entity_layout_mutations(&mut self, temporal_state: &TemporalStateRecord) {
+        if self.config.entity_layout_pressure <= 0.0 {
+            return;
+        }
+        let fields = self.entity_pressure_fields.clone();
+        for field in fields {
+            let limit = (field.intensity
+                * self.config.entity_layout_pressure
+                * self.entity_layout_weight_for_field(&field)
+                * self.config.advanced_pattern_complexity.max(0.4)
+                * 8.0)
+                .round()
+                .clamp(1.0, 18.0) as usize;
+            let sample_points = self.pressure_mutation_points(&field, limit);
+            if sample_points.is_empty() {
+                continue;
+            }
+            let mut added = 0usize;
+            let mut removed = 0usize;
+            let mut bounds_min = [usize::MAX; 3];
+            let mut bounds_max = [0usize; 3];
+            for point in &sample_points {
+                for axis in 0..3 {
+                    bounds_min[axis] = bounds_min[axis].min(point[axis]);
+                    bounds_max[axis] = bounds_max[axis].max(point[axis]);
+                }
+                let (a, r) = self.apply_entity_mutation_point(*point, &field.kind);
+                added += a;
+                removed += r;
+            }
+            if added == 0 && removed == 0 {
+                continue;
+            }
+            let phase_id = phase_for_pressure(&field.kind, temporal_state);
+            let mutation_kind = layout_mutation_kind(&field.kind).to_owned();
+            self.push_connection(&mutation_kind, bounds_min, bounds_max);
+            self.layout_mutations.push(LayoutMutationRecord {
+                id: self.layout_mutations.len(),
+                kind: mutation_kind.clone(),
+                phase_id,
+                bounds_min,
+                bounds_max,
+                source_pressure_field_id: field.id,
+                affected_route_ids: field.affected_route_ids.clone(),
+                affected_room_ids: field.affected_room_ids.clone(),
+                added_cell_count: added,
+                removed_cell_count: removed,
+                sample_points,
+                reason: format!("{} altered traversal and service geometry", field.kind),
+            });
+            self.record_pattern(&mutation_kind);
+        }
+    }
+
+    fn entity_layout_weight_for_field(&self, field: &EntityPressureFieldRecord) -> f32 {
+        let center = [
+            (field.bounds_min[0] + field.bounds_max[0]) / 2,
+            (field.bounds_min[1] + field.bounds_max[1]) / 2,
+            (field.bounds_min[2] + field.bounds_max[2]) / 2,
+        ];
+        self.entity_rule_weight_at(center, "layout", "")
+            .clamp(0.0, 4.0)
+    }
+
+    fn pressure_mutation_points(
+        &self,
+        field: &EntityPressureFieldRecord,
+        limit: usize,
+    ) -> Vec<[usize; 3]> {
+        let mut points = Vec::new();
+        for route_id in &field.affected_route_ids {
+            let Some(edge) = self.transit_edges.get(*route_id) else {
+                continue;
+            };
+            let stride = (edge.points.len() / limit.max(1)).max(1);
+            for point in edge.points.iter().step_by(stride) {
+                if point[0] >= field.bounds_min[0]
+                    && point[0] <= field.bounds_max[0]
+                    && point[2] >= field.bounds_min[2]
+                    && point[2] <= field.bounds_max[2]
+                {
+                    points.push(*point);
+                    if points.len() >= limit {
+                        return points;
+                    }
+                }
+            }
+        }
+        points
+    }
+
+    fn apply_entity_mutation_point(
+        &mut self,
+        point: [usize; 3],
+        pressure_kind: &str,
+    ) -> (usize, usize) {
+        let [x, y, z] = [
+            point[0].min(self.size - 1),
+            point[1].min(self.layers - 1),
+            point[2].min(self.size - 1),
+        ];
+        let mut added = 0usize;
+        let mut removed = 0usize;
+        match pressure_kind {
+            "market_surge" => {
+                for (dx, dz) in [(0isize, 0isize), (1, 0), (-1, 0), (0, 1), (0, -1)] {
+                    if let Some((nx, nz)) = self.offset_xz(x, z, dx, dz) {
+                        let (a, r) = self.set_mutation_cell(nx, nz, y, CellType::Facade, false);
+                        added += a;
+                        removed += r;
+                    }
+                }
+            }
+            "patrol_lockdown" => {
+                let (a, r) = self.set_mutation_cell(x, z, y, CellType::Stair, true);
+                added += a;
+                removed += r;
+                if y + 1 < self.layers {
+                    let (a, r) = self.set_mutation_cell(x, z, y + 1, CellType::Facade, false);
+                    added += a;
+                    removed += r;
+                }
+            }
+            "evacuation_flow" => {
+                for (dx, dz) in [(0isize, 0isize), (1, 0), (-1, 0), (0, 1), (0, -1)] {
+                    if let Some((nx, nz)) = self.offset_xz(x, z, dx, dz) {
+                        let (a, r) = self.set_mutation_cell(nx, nz, y, CellType::Horizontal, true);
+                        added += a;
+                        removed += r;
+                        if y + 1 < self.layers
+                            && is_traversal_carveable_cell(self.get(nx, nz, y + 1))
+                        {
+                            let index = self.idx(nx, nz, y + 1);
+                            self.grid[index] = CellType::Empty;
+                            self.support_map[index] = false;
+                            removed += 1;
+                        }
+                    }
+                }
+            }
+            "maintenance_crawler" => {
+                let (a, r) = self.set_mutation_cell(x, z, y, CellType::Pipe, false);
+                added += a;
+                removed += r;
+                if y > 0 {
+                    let (a, r) = self.set_mutation_cell(x, z, y - 1, CellType::Vent, false);
+                    added += a;
+                    removed += r;
+                }
+            }
+            "builder_swarm" => {
+                let (a, r) = self.set_mutation_cell(x, z, y, CellType::Vertical, true);
+                added += a;
+                removed += r;
+                if y + 1 < self.layers {
+                    let (a, r) = self.set_mutation_cell(x, z, y + 1, CellType::Cable, false);
+                    added += a;
+                    removed += r;
+                }
+            }
+            _ => {
+                let (a, r) = self.set_mutation_cell(x, z, y, CellType::Debris, false);
+                added += a;
+                removed += r;
+            }
+        }
+        (added, removed)
+    }
+
+    fn set_mutation_cell(
+        &mut self,
+        x: usize,
+        z: usize,
+        y: usize,
+        cell: CellType,
+        supported: bool,
+    ) -> (usize, usize) {
+        let previous = self.get(x, z, y);
+        if previous == cell {
+            return (0, 0);
+        }
+        self.set(x, z, y, cell, supported);
+        (
+            usize::from(previous == CellType::Empty && cell != CellType::Empty),
+            usize::from(previous != CellType::Empty && cell == CellType::Empty),
+        )
     }
 
     fn count_empty_neighbors(&self, x: usize, z: usize, y: usize) -> usize {
@@ -3281,13 +5000,16 @@ impl MegaStructureGenerator {
     }
 
     fn rule_pack_for(&self, district: DistrictType, stratum: BiomeStratum) -> RulePackRecord {
-        if let Some(pack) =
-            self.rule_packs
-                .find(self.config.profile, district.name(), stratum.name())
-        {
+        if let Some(pack) = self.rule_packs.find(
+            self.config.profile,
+            Some(self.config.typology),
+            district.name(),
+            stratum.name(),
+        ) {
             return RulePackRecord {
                 id: 0,
                 name: pack.name.clone(),
+                typology: pack.typology.map(|typology| typology.as_str().to_owned()),
                 district: pack.district.clone(),
                 stratum: pack.stratum.clone(),
                 profile: pack.profile.to_string(),
@@ -3295,6 +5017,11 @@ impl MegaStructureGenerator {
                 route_weight: pack.route_weight,
                 decay_weight: pack.decay_weight,
                 detail_weight: pack.detail_weight.clamp(0.1, 1.5),
+                entity_density_weight: pack.entity_density_weight,
+                entity_layout_weight: pack.entity_layout_weight,
+                patrol_weight: pack.patrol_weight,
+                crowd_weight: pack.crowd_weight,
+                builder_weight: pack.builder_weight,
             };
         }
         let mut density_weight: f32 = match district {
@@ -3337,6 +5064,7 @@ impl MegaStructureGenerator {
                 district.name().to_lowercase(),
                 stratum.name().to_lowercase()
             ),
+            typology: Some(self.config.typology.as_str().to_owned()),
             district: district.name().to_owned(),
             stratum: stratum.name().to_owned(),
             profile: self.config.profile.to_string(),
@@ -3344,12 +5072,22 @@ impl MegaStructureGenerator {
             route_weight,
             decay_weight,
             detail_weight: detail_weight.clamp(0.1, 1.0),
+            entity_density_weight: 1.0,
+            entity_layout_weight: 1.0,
+            patrol_weight: 1.0,
+            crowd_weight: 1.0,
+            builder_weight: 1.0,
         }
     }
 
     fn rule_pack_grammar(&self, rule_pack: &RulePackRecord) -> Vec<String> {
         self.rule_packs
-            .find(self.config.profile, &rule_pack.district, &rule_pack.stratum)
+            .find(
+                self.config.profile,
+                Some(self.config.typology),
+                &rule_pack.district,
+                &rule_pack.stratum,
+            )
             .map(|pack| pack.grammar.clone())
             .unwrap_or_default()
     }
@@ -3530,7 +5268,7 @@ impl MegaStructureGenerator {
                 matches!(
                     connection.kind.as_str(),
                     "macro_void" | "macro_density_spine"
-                )
+                ) || connection.kind.starts_with("typology_")
             })
             .enumerate()
             .map(|(id, connection)| {
@@ -4048,6 +5786,10 @@ impl MegaStructureGenerator {
         dependency_summary.insert("suspended_decks".to_owned(), suspended_decks.len());
         dependency_summary.insert("hazard_zones".to_owned(), self.hazard_zones.len());
         dependency_summary.insert("failure_zones".to_owned(), failure_zones.len());
+        let stress_fields = self.stress_fields(&frames, &foundations, &suspended_decks);
+        let load_paths = self.load_paths(&stress_fields);
+        dependency_summary.insert("stress_fields".to_owned(), stress_fields.len());
+        dependency_summary.insert("load_paths".to_owned(), load_paths.len());
 
         StructuralSystemRecord {
             stability_ratings: self.stability_ratings(
@@ -4060,6 +5802,371 @@ impl MegaStructureGenerator {
             foundation_zones: foundations,
             suspended_decks,
             support_dependency_summary: dependency_summary,
+            stress_fields,
+            load_paths,
+        }
+    }
+
+    fn stress_fields(
+        &self,
+        frames: &[[usize; 3]],
+        foundations: &[[usize; 2]],
+        suspended_decks: &[[usize; 3]],
+    ) -> Vec<StressFieldRecord> {
+        let mut fields = Vec::new();
+        for edge in self.transit_edges.iter().filter(|edge| {
+            matches!(
+                edge.kind.as_str(),
+                "void_bridge"
+                    | "marine_causeway"
+                    | "pylon_service"
+                    | "rim_loop"
+                    | "spoke_transfer"
+                    | "cliff_gallery"
+                    | "dam_wall_spine"
+                    | "drydock_spine"
+                    | "runway_spine"
+            )
+        }) {
+            let Some(anchor) = edge.points.get(edge.points.len() / 2).copied() else {
+                continue;
+            };
+            let nearby_frames: Vec<_> = frames
+                .iter()
+                .copied()
+                .filter(|point| manhattan(*point, anchor) <= 8)
+                .take(8)
+                .collect();
+            let deck_pressure = suspended_decks
+                .iter()
+                .filter(|point| manhattan(**point, anchor) <= 6)
+                .count() as f32
+                / 12.0;
+            let foundation_pressure = if foundations
+                .iter()
+                .any(|point| point[0].abs_diff(anchor[0]) + point[1].abs_diff(anchor[2]) <= 5)
+            {
+                0.0
+            } else {
+                0.25
+            };
+            let route_pressure = self.route_stress_score_for_edge(edge, anchor) * 0.42;
+            let stress = (0.24 + deck_pressure + foundation_pressure + route_pressure
+                - nearby_frames.len() as f32 * 0.025)
+                .clamp(0.0, 1.0);
+            let radius = 2usize;
+            fields.push(StressFieldRecord {
+                id: fields.len(),
+                kind: stress_kind_for_route(&edge.kind).to_owned(),
+                stress,
+                bounds_min: [
+                    anchor[0].saturating_sub(radius),
+                    anchor[1].saturating_sub(1),
+                    anchor[2].saturating_sub(radius),
+                ],
+                bounds_max: [
+                    (anchor[0] + radius).min(self.size - 1),
+                    (anchor[1] + 1).min(self.layers - 1),
+                    (anchor[2] + radius).min(self.size - 1),
+                ],
+                route_ids: vec![edge.id],
+                support_points: nearby_frames,
+            });
+        }
+        if fields.is_empty() {
+            let anchor = [self.size / 2, (self.layers / 2).max(1), self.size / 2];
+            fields.push(StressFieldRecord {
+                id: 0,
+                kind: "baseline_frame_stress".to_owned(),
+                stress: 0.25,
+                bounds_min: anchor,
+                bounds_max: anchor,
+                route_ids: self
+                    .transit_edges
+                    .first()
+                    .map(|edge| vec![edge.id])
+                    .unwrap_or_default(),
+                support_points: frames.iter().copied().take(4).collect(),
+            });
+        }
+        fields
+    }
+
+    fn route_stress_score_for_edge(&self, edge: &TransitEdgeRecord, anchor: [usize; 3]) -> f32 {
+        let min_x = anchor[0].saturating_sub(8);
+        let max_x = (anchor[0] + 8).min(self.size - 1);
+        let min_z = anchor[2].saturating_sub(8);
+        let max_z = (anchor[2] + 8).min(self.size - 1);
+        let min_y = anchor[1].saturating_sub(4);
+        let max_y = (anchor[1] + 4).min(self.layers - 1);
+        let mut nearby_frames = 0.0f32;
+        let mut nearby_decks = 0.0f32;
+        let mut foundation_nearby = false;
+        for x in min_x..=max_x {
+            for z in min_z..=max_z {
+                if x.abs_diff(anchor[0]) + z.abs_diff(anchor[2]) <= 5
+                    && matches!(
+                        self.get(x, z, 0),
+                        CellType::Vertical
+                            | CellType::Elevator
+                            | CellType::Stair
+                            | CellType::Horizontal
+                    )
+                {
+                    foundation_nearby = true;
+                }
+                for y in min_y..=max_y {
+                    if manhattan([x, y, z], anchor) > 8 {
+                        continue;
+                    }
+                    match self.get(x, z, y) {
+                        CellType::Vertical | CellType::Elevator | CellType::Stair => {
+                            nearby_frames += 1.0;
+                        }
+                        CellType::Horizontal | CellType::Bridge
+                            if y > 2 && !self.has_support(x, z, y) =>
+                        {
+                            nearby_decks += 1.0;
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+        let foundation_gap = if foundation_nearby { 0.0 } else { 0.22 };
+        let route_span = (edge.length as f32 / self.size.max(1) as f32 * 0.30).min(0.32);
+        let typology_pressure = match edge.kind.as_str() {
+            "void_bridge" | "skybridge" => 0.28,
+            "marine_causeway" | "pylon_service" => 0.24,
+            "rim_loop" | "spoke_transfer" => 0.22,
+            "dam_wall_spine" | "turbine_gallery" => 0.20,
+            "drydock_spine" | "gantry_loop" => 0.20,
+            "runway_spine" | "terminal_loop" => 0.18,
+            "cavern_loop" | "hive_gallery" | "hive_trunk" => 0.18,
+            "cliff_gallery" | "burrow_spine" => 0.18,
+            _ => 0.08,
+        };
+        let deck_pressure = (nearby_decks / 14.0f32).min(0.26);
+        let support_relief = (nearby_frames * 0.026f32).min(0.22);
+        (0.16
+            + typology_pressure
+            + route_span
+            + deck_pressure
+            + foundation_gap
+            + self.config.erosion_strength * 0.08
+            - support_relief)
+            .clamp(0.0, 1.0)
+    }
+
+    fn load_paths(&self, stress_fields: &[StressFieldRecord]) -> Vec<LoadPathRecord> {
+        stress_fields
+            .iter()
+            .take(12)
+            .map(|field| {
+                let from = field
+                    .support_points
+                    .first()
+                    .copied()
+                    .unwrap_or(field.bounds_min);
+                LoadPathRecord {
+                    id: field.id,
+                    kind: format!("{}_load_path", field.kind),
+                    from,
+                    to: field.bounds_max,
+                    route_ids: field.route_ids.clone(),
+                    stress: field.stress,
+                }
+            })
+            .collect()
+    }
+
+    fn construction_history_records(
+        &self,
+        districts: &[DistrictRecord],
+        failure_zones: &[FailurePropagationRecord],
+    ) -> Vec<ConstructionEraRecord> {
+        let mut eras = Vec::new();
+        let all_districts: Vec<_> = districts
+            .iter()
+            .map(|district| district.kind.clone())
+            .collect();
+        let service_routes: Vec<_> = self
+            .transit_edges
+            .iter()
+            .filter(|edge| matches!(edge.role.as_str(), "maintenance_backbone" | "service_loop"))
+            .map(|edge| edge.id)
+            .take(8)
+            .collect();
+        let primary_routes: Vec<_> = self
+            .transit_edges
+            .iter()
+            .filter(|edge| matches!(edge.role.as_str(), "primary_artery" | "evacuation_route"))
+            .map(|edge| edge.id)
+            .take(10)
+            .collect();
+        eras.push(ConstructionEraRecord {
+            id: eras.len(),
+            era: "foundation".to_owned(),
+            age_years: 120,
+            material_bias: "heavy concrete and service cores".to_owned(),
+            decay_bias: 0.45,
+            affected_districts: all_districts.iter().take(2).cloned().collect(),
+            affected_route_ids: service_routes.clone(),
+            affected_room_ids: self.rooms.iter().take(16).map(|room| room.id).collect(),
+            generated_scars: self
+                .connections
+                .iter()
+                .filter(|connection| connection.kind.contains("typology_"))
+                .map(|connection| connection.kind.clone())
+                .take(4)
+                .collect(),
+        });
+        eras.push(ConstructionEraRecord {
+            id: eras.len(),
+            era: "expansion".to_owned(),
+            age_years: 72,
+            material_bias: "habitat decks and commercial routes".to_owned(),
+            decay_bias: 0.62,
+            affected_districts: all_districts.iter().skip(1).take(3).cloned().collect(),
+            affected_route_ids: primary_routes.clone(),
+            affected_room_ids: self
+                .rooms
+                .iter()
+                .skip(16)
+                .take(24)
+                .map(|room| room.id)
+                .collect(),
+            generated_scars: vec![format!("{}_route_layering", self.config.typology.as_str())],
+        });
+        eras.push(ConstructionEraRecord {
+            id: eras.len(),
+            era: "retrofit".to_owned(),
+            age_years: 34,
+            material_bias: "cables, pumps, gantries, patched lifts".to_owned(),
+            decay_bias: 0.78,
+            affected_districts: all_districts.iter().rev().take(3).cloned().collect(),
+            affected_route_ids: self
+                .transit_edges
+                .iter()
+                .filter(|edge| edge.kind.contains("vertical") || edge.role == "restricted_spine")
+                .map(|edge| edge.id)
+                .take(8)
+                .collect(),
+            affected_room_ids: self
+                .rooms
+                .iter()
+                .rev()
+                .take(20)
+                .map(|room| room.id)
+                .collect(),
+            generated_scars: self
+                .hazard_zones
+                .iter()
+                .map(|hazard| hazard.kind.clone())
+                .take(5)
+                .collect(),
+        });
+        if !failure_zones.is_empty() || self.config.erosion_strength > 0.6 {
+            eras.push(ConstructionEraRecord {
+                id: eras.len(),
+                era: "collapse_and_informal_occupation".to_owned(),
+                age_years: 12,
+                material_bias: "scrap infill and emergency bypasses".to_owned(),
+                decay_bias: 1.0,
+                affected_districts: all_districts,
+                affected_route_ids: failure_zones
+                    .iter()
+                    .flat_map(|failure| failure.affected_route_ids.iter().copied())
+                    .take(12)
+                    .collect(),
+                affected_room_ids: self
+                    .hazard_zones
+                    .iter()
+                    .flat_map(|hazard| hazard.room_ids.iter().copied())
+                    .take(24)
+                    .collect(),
+                generated_scars: failure_zones
+                    .iter()
+                    .map(|failure| format!("failure_zone_{}", failure.id))
+                    .collect(),
+            });
+        }
+        eras
+    }
+
+    fn section_quality_record(
+        &self,
+        structural_system: &StructuralSystemRecord,
+    ) -> SectionQualityRecord {
+        let route_count = self.transit_edges.len().max(1) as f32;
+        let vertical_routes = self
+            .transit_edges
+            .iter()
+            .filter(|edge| edge.kind.contains("vertical"))
+            .count() as f32;
+        let vertical_continuity = (vertical_routes / 3.0).clamp(0.0, 1.0);
+        let void_exposure = (self.typology_frame.void_bands.len() as f32 / 2.0)
+            .max(
+                structural_system.suspended_decks.len() as f32
+                    / (self.size * self.layers).max(1) as f32,
+            )
+            .clamp(0.0, 1.0);
+        let service_routes = self
+            .transit_edges
+            .iter()
+            .filter(|edge| matches!(edge.role.as_str(), "maintenance_backbone" | "service_loop"))
+            .count() as f32;
+        let service_separation = (service_routes / route_count * 2.0).clamp(0.0, 1.0);
+        let evacuation_shaft_coverage = (vertical_routes / 4.0).clamp(0.0, 1.0);
+        let occupied_layers = (0..self.layers)
+            .filter(|y| {
+                (0..self.size)
+                    .any(|x| (0..self.size).any(|z| self.get(x, z, *y) != CellType::Empty))
+            })
+            .count() as f32;
+        let habitable_layer_ratio = (occupied_layers / self.layers.max(1) as f32).clamp(0.0, 1.0);
+        let roof_deck_access = if self
+            .transit_edges
+            .iter()
+            .any(|edge| edge.points.iter().any(|point| point[1] + 2 >= self.layers))
+        {
+            1.0
+        } else {
+            0.55
+        };
+        let cross_section_route_density =
+            (route_count / self.layers.max(1) as f32 / 2.0).clamp(0.0, 1.0);
+        let mut missing_contracts = Vec::new();
+        for (label, value) in [
+            ("vertical_continuity", vertical_continuity),
+            ("service_separation", service_separation),
+            ("evacuation_shaft_coverage", evacuation_shaft_coverage),
+            ("habitable_layer_ratio", habitable_layer_ratio),
+            ("cross_section_route_density", cross_section_route_density),
+        ] {
+            if value < 0.35 {
+                missing_contracts.push(label.to_owned());
+            }
+        }
+        let score = ((vertical_continuity
+            + service_separation
+            + evacuation_shaft_coverage
+            + habitable_layer_ratio
+            + roof_deck_access
+            + cross_section_route_density
+            + (1.0 - void_exposure * 0.25))
+            / 7.0)
+            .clamp(0.0, 1.0);
+        SectionQualityRecord {
+            score,
+            vertical_continuity,
+            void_exposure,
+            service_separation,
+            evacuation_shaft_coverage,
+            habitable_layer_ratio,
+            roof_deck_access,
+            cross_section_route_density,
+            missing_contracts,
         }
     }
 
@@ -4518,9 +6625,15 @@ impl MegaStructureGenerator {
                 let security_pressure = route_security_pressure(edge, hazard_pressure);
                 let outage_pressure = resource_outage_pressure(edge.id, resource_networks);
                 let failure_pressure = route_failure_pressure(edge.id, failure_zones);
+                let stress_pressure = edge
+                    .points
+                    .get(edge.points.len() / 2)
+                    .map(|anchor| self.route_stress_score_for_edge(edge, *anchor))
+                    .unwrap_or(0.0);
                 let blackout_risk = (route_blackout_risk(edge, hazard_pressure, temporal_state)
                     + outage_pressure * 0.24
-                    + failure_pressure * 0.12)
+                    + failure_pressure * 0.12
+                    + stress_pressure * 0.16)
                     .clamp(0.0, 1.0);
                 let market_congestion = route_market_congestion(edge, attachment_count);
                 let evacuation_viability = (1.0
@@ -4528,6 +6641,7 @@ impl MegaStructureGenerator {
                     - security_pressure * 0.18
                     - outage_pressure * 0.18
                     - failure_pressure * 0.22
+                    - stress_pressure * 0.20
                     + if edge.role == "evacuation_route" {
                         0.28
                     } else {
@@ -4684,6 +6798,8 @@ impl MegaStructureGenerator {
         let micro_details = self.micro_detail_records();
         let failure_zones = self.failure_propagation_records();
         let structural_system = self.structural_system();
+        let construction_history = self.construction_history_records(&districts, &failure_zones);
+        let section_quality = self.section_quality_record(&structural_system);
         let (factions, territories, contested_borders) = self.ownership_layer(&room_clusters);
         let resource_networks = self.resource_networks();
         let temporal_state = self.temporal_state(&factions, &contested_borders, &resource_networks);
@@ -4714,9 +6830,15 @@ impl MegaStructureGenerator {
             &narrative_landmarks,
             &failure_zones,
         );
+        let typology_quality = typology_quality_record(
+            self.config.typology,
+            &self.typology_frame,
+            &self.transit_edges,
+        );
         let metadata = StructureMetadata {
             schema_version: STRUCTURE_SCHEMA_VERSION.to_owned(),
             profile: self.config.profile.to_string(),
+            typology: self.config.typology.to_string(),
             config: self.config.clone(),
             district_counts: district_counts_map(district_counts),
             stratum_counts: stratum_counts_map(stratum_counts),
@@ -4745,7 +6867,10 @@ impl MegaStructureGenerator {
             structural_rating_count: structural_system.stability_ratings.len(),
             load_bearing_frame_count: structural_system.load_bearing_frames.len(),
             suspended_deck_count: structural_system.suspended_decks.len(),
+            stress_field_count: structural_system.stress_fields.len(),
+            load_path_count: structural_system.load_paths.len(),
             failure_zone_count: failure_zones.len(),
+            construction_era_count: construction_history.len(),
             rule_pack_count: rule_packs.len(),
             rule_influence_count: rule_influences.len(),
             faction_count: factions.len(),
@@ -4753,6 +6878,10 @@ impl MegaStructureGenerator {
             contested_border_count: contested_borders.len(),
             temporal_phase_count: temporal_state.phases.len(),
             narrative_landmark_count: narrative_landmarks.len(),
+            entity_count: self.entities.len(),
+            entity_path_count: self.entity_paths.len(),
+            entity_pressure_field_count: self.entity_pressure_fields.len(),
+            layout_mutation_count: self.layout_mutations.len(),
             occupied_cell_ratio: occupied as f32 / total_cells as f32,
         };
         SavedStructure {
@@ -4760,6 +6889,10 @@ impl MegaStructureGenerator {
             size: self.size,
             layers: self.layers,
             metadata,
+            typology_frame: self.typology_frame.clone(),
+            typology_quality,
+            construction_history,
+            section_quality,
             grid,
             connections: self.connections.clone(),
             rooms,
@@ -4786,6 +6919,10 @@ impl MegaStructureGenerator {
             contested_borders,
             temporal_state,
             narrative_landmarks,
+            entities: self.entities.clone(),
+            entity_paths: self.entity_paths.clone(),
+            entity_pressure_fields: self.entity_pressure_fields.clone(),
+            layout_mutations: self.layout_mutations.clone(),
         }
     }
 
@@ -4863,6 +7000,547 @@ fn material_counts_map(counts: [usize; MaterialType::COUNT]) -> BTreeMap<String,
     .into_iter()
     .map(|material| (material.name().to_owned(), counts[material as usize]))
     .collect()
+}
+
+fn build_typology_frame(
+    typology: MegastructureTypology,
+    size: usize,
+    layers: usize,
+) -> TypologyFrameRecord {
+    let anchors = typology_anchor_points(typology, size, layers);
+    let center = size / 2;
+    let mid = layers / 2;
+    let band = |kind: &str, min: [usize; 3], max: [usize; 3]| TypologyBandRecord {
+        kind: kind.to_owned(),
+        bounds_min: min,
+        bounds_max: max,
+    };
+    let (primary_axes, void_bands, habitat_bands, traversal_contract) = match typology {
+        MegastructureTypology::DenseEnclave => (
+            vec!["x".to_owned(), "z".to_owned(), "y".to_owned()],
+            Vec::new(),
+            vec![band(
+                "dense_enclave_field",
+                [0, 0, 0],
+                [size - 1, layers - 1, size - 1],
+            )],
+            vec![
+                "service-to-skyline route".to_owned(),
+                "ring route redundancy".to_owned(),
+            ],
+        ),
+        MegastructureTypology::ArcologySpire => (
+            vec!["y".to_owned(), "radial".to_owned()],
+            vec![band(
+                "upper_light_well",
+                [center.saturating_sub(2), mid, center.saturating_sub(2)],
+                [
+                    (center + 2).min(size - 1),
+                    layers - 1,
+                    (center + 2).min(size - 1),
+                ],
+            )],
+            vec![band(
+                "stacked_habitat_shell",
+                [
+                    center.saturating_sub(size / 4),
+                    0,
+                    center.saturating_sub(size / 4),
+                ],
+                [
+                    (center + size / 4).min(size - 1),
+                    layers - 1,
+                    (center + size / 4).min(size - 1),
+                ],
+            )],
+            vec![
+                "central evacuation core".to_owned(),
+                "stacked station loops".to_owned(),
+            ],
+        ),
+        MegastructureTypology::LinearCity => (
+            vec!["x".to_owned()],
+            vec![band(
+                "preserved_flank_voids",
+                [0, 0, 0],
+                [size - 1, layers - 1, center.saturating_sub(size / 8)],
+            )],
+            vec![band(
+                "linear_habitat_ribbon",
+                [0, 0, center.saturating_sub(size / 8)],
+                [size - 1, layers - 1, (center + size / 8).min(size - 1)],
+            )],
+            vec![
+                "linear express spine".to_owned(),
+                "station loop ribs".to_owned(),
+            ],
+        ),
+        MegastructureTypology::BridgeVoid => (
+            vec!["diagonal".to_owned(), "skybridge".to_owned()],
+            vec![band(
+                "central_void",
+                [
+                    center.saturating_sub(size / 7),
+                    0,
+                    center.saturating_sub(size / 7),
+                ],
+                [
+                    (center + size / 7).min(size - 1),
+                    layers - 1,
+                    (center + size / 7).min(size - 1),
+                ],
+            )],
+            vec![band(
+                "tower_islands",
+                [0, 0, 0],
+                [size - 1, layers - 1, size - 1],
+            )],
+            vec![
+                "void bridges".to_owned(),
+                "redundant vertical tower cores".to_owned(),
+            ],
+        ),
+        MegastructureTypology::MarinePlatform => (
+            vec!["deck".to_owned(), "pylon_grid".to_owned()],
+            vec![band(
+                "tidal_underdeck",
+                [0, 0, 0],
+                [size - 1, layers / 5, size - 1],
+            )],
+            vec![band(
+                "artificial_land_deck",
+                [0, layers / 5, 0],
+                [size - 1, (layers / 3).max(1), size - 1],
+            )],
+            vec![
+                "marine causeways".to_owned(),
+                "pylon service grid".to_owned(),
+            ],
+        ),
+        MegastructureTypology::OrbitalRing => (
+            vec!["rim".to_owned(), "spokes".to_owned()],
+            vec![band(
+                "central_zero_g_void",
+                [
+                    center.saturating_sub(size / 5),
+                    0,
+                    center.saturating_sub(size / 5),
+                ],
+                [
+                    (center + size / 5).min(size - 1),
+                    layers - 1,
+                    (center + size / 5).min(size - 1),
+                ],
+            )],
+            vec![band(
+                "rim_habitat_tube",
+                [0, mid.saturating_sub(2), 0],
+                [size - 1, (mid + 2).min(layers - 1), size - 1],
+            )],
+            vec!["rim loop".to_owned(), "spoke transfers".to_owned()],
+        ),
+        MegastructureTypology::UndergroundHive => (
+            vec!["subgrade".to_owned(), "gallery_grid".to_owned()],
+            vec![band(
+                "surface_overburden",
+                [0, layers / 2, 0],
+                [size - 1, layers - 1, size - 1],
+            )],
+            vec![band(
+                "cavern_habitat",
+                [0, 0, 0],
+                [size - 1, layers / 2, size - 1],
+            )],
+            vec!["hive trunk".to_owned(), "cavern loops".to_owned()],
+        ),
+        MegastructureTypology::MountainBurrow => (
+            vec!["cliff".to_owned(), "depth".to_owned()],
+            vec![band(
+                "exposed_cliff_face",
+                [size / 2, 0, 0],
+                [size - 1, layers - 1, size - 1],
+            )],
+            vec![band(
+                "cut_mountain_rooms",
+                [0, 0, 0],
+                [size / 2, layers - 1, size - 1],
+            )],
+            vec!["cliff galleries".to_owned(), "burrow spines".to_owned()],
+        ),
+        MegastructureTypology::DesertArcology => (
+            vec!["y".to_owned(), "solar_field".to_owned()],
+            vec![band(
+                "heat_buffer_void",
+                [0, layers / 2, 0],
+                [size - 1, layers - 1, size - 1],
+            )],
+            vec![band(
+                "sealed_habitat_core",
+                [
+                    center.saturating_sub(size / 4),
+                    0,
+                    center.saturating_sub(size / 4),
+                ],
+                [
+                    (center + size / 4).min(size - 1),
+                    layers - 1,
+                    (center + size / 4).min(size - 1),
+                ],
+            )],
+            vec!["climate spine".to_owned(), "solar service ring".to_owned()],
+        ),
+        MegastructureTypology::AirportCity => (
+            vec!["runway".to_owned(), "terminal".to_owned()],
+            vec![band(
+                "runway_clearance",
+                [0, 0, center.saturating_sub(size / 12)],
+                [size - 1, layers / 4, (center + size / 12).min(size - 1)],
+            )],
+            vec![band(
+                "terminal_habitat",
+                [0, layers / 4, 0],
+                [size - 1, layers - 1, size - 1],
+            )],
+            vec!["runway spine".to_owned(), "terminal loops".to_owned()],
+        ),
+        MegastructureTypology::DamCity => (
+            vec!["dam_wall".to_owned(), "reservoir".to_owned()],
+            vec![band(
+                "reservoir_face",
+                [0, 0, 0],
+                [center.saturating_sub(size / 10), layers - 1, size - 1],
+            )],
+            vec![band(
+                "inhabited_dam_wall",
+                [center.saturating_sub(size / 10), 0, 0],
+                [(center + size / 10).min(size - 1), layers - 1, size - 1],
+            )],
+            vec!["dam wall spine".to_owned(), "turbine galleries".to_owned()],
+        ),
+        MegastructureTypology::ShipyardStack => (
+            vec!["drydock".to_owned(), "gantry".to_owned()],
+            vec![band(
+                "drydock_void",
+                [0, 0, center.saturating_sub(size / 10)],
+                [size - 1, layers / 3, (center + size / 10).min(size - 1)],
+            )],
+            vec![band(
+                "shipyard_stack",
+                [0, layers / 3, 0],
+                [size - 1, layers - 1, size - 1],
+            )],
+            vec!["drydock spine".to_owned(), "gantry loops".to_owned()],
+        ),
+    };
+    TypologyFrameRecord {
+        typology: typology.as_str().to_owned(),
+        primary_axes,
+        primary_spines: anchors.clone(),
+        void_bands,
+        habitat_bands,
+        service_anchors: anchors,
+        traversal_contract,
+    }
+}
+
+fn typology_quality_record(
+    typology: MegastructureTypology,
+    frame: &TypologyFrameRecord,
+    edges: &[TransitEdgeRecord],
+) -> TypologyQualityRecord {
+    let route_count = |kind: &str| edges.iter().filter(|edge| edge.kind == kind).count();
+    let route_length = |kind: &str| {
+        edges
+            .iter()
+            .filter(|edge| edge.kind == kind)
+            .map(|edge| edge.length)
+            .sum::<usize>() as f32
+    };
+    let mut contract_scores = BTreeMap::new();
+    let mut required_route_kinds = Vec::new();
+    let mut missing_contracts = Vec::new();
+
+    let mut add_route_contract = |label: &str, route_kind: &str, actual: f32, required: f32| {
+        required_route_kinds.push(route_kind.to_owned());
+        let score = if required <= 0.0 {
+            1.0
+        } else {
+            (actual / required).clamp(0.0, 1.0)
+        };
+        contract_scores.insert(label.to_owned(), score);
+        if score < 1.0 {
+            missing_contracts.push(label.to_owned());
+        }
+    };
+
+    match typology {
+        MegastructureTypology::DenseEnclave => {
+            add_route_contract(
+                "legacy_dense_connectivity",
+                "ring_route",
+                route_count("ring_route") as f32,
+                1.0,
+            );
+        }
+        MegastructureTypology::ArcologySpire => {
+            add_route_contract(
+                "stacked_station_loops",
+                "station_loop",
+                route_count("station_loop") as f32,
+                2.0,
+            );
+            add_route_contract(
+                "central_vertical_core",
+                "vertical_transit_core",
+                route_count("vertical_transit_core") as f32,
+                1.0,
+            );
+        }
+        MegastructureTypology::LinearCity => {
+            add_route_contract(
+                "continuous_express_spine",
+                "linear_express",
+                route_length("linear_express"),
+                20.0,
+            );
+            add_route_contract(
+                "station_loop_ribs",
+                "station_loop",
+                route_count("station_loop") as f32,
+                2.0,
+            );
+        }
+        MegastructureTypology::BridgeVoid => {
+            add_route_contract(
+                "redundant_void_bridges",
+                "void_bridge",
+                route_count("void_bridge") as f32,
+                2.0,
+            );
+            contract_scores.insert(
+                "tower_islands".to_owned(),
+                (frame.service_anchors.len() as f32 / 4.0).clamp(0.0, 1.0),
+            );
+            if frame.service_anchors.len() < 4 {
+                missing_contracts.push("tower_islands".to_owned());
+            }
+        }
+        MegastructureTypology::MarinePlatform => {
+            add_route_contract(
+                "marine_causeway_access",
+                "marine_causeway",
+                route_count("marine_causeway") as f32,
+                2.0,
+            );
+            add_route_contract(
+                "pylon_service_grid",
+                "pylon_service",
+                route_count("pylon_service") as f32,
+                2.0,
+            );
+        }
+        MegastructureTypology::OrbitalRing => {
+            add_route_contract(
+                "rim_continuity",
+                "rim_loop",
+                route_count("rim_loop") as f32,
+                6.0,
+            );
+            add_route_contract(
+                "spoke_redundancy",
+                "spoke_transfer",
+                route_count("spoke_transfer") as f32,
+                2.0,
+            );
+        }
+        MegastructureTypology::UndergroundHive => {
+            add_route_contract(
+                "hive_trunk",
+                "hive_trunk",
+                route_count("hive_trunk") as f32,
+                1.0,
+            );
+            add_route_contract(
+                "cavern_loops",
+                "cavern_loop",
+                route_count("cavern_loop") as f32,
+                2.0,
+            );
+        }
+        MegastructureTypology::MountainBurrow => {
+            add_route_contract(
+                "cliff_gallery",
+                "cliff_gallery",
+                route_count("cliff_gallery") as f32,
+                1.0,
+            );
+            add_route_contract(
+                "burrow_spine",
+                "burrow_spine",
+                route_count("burrow_spine") as f32,
+                1.0,
+            );
+        }
+        MegastructureTypology::DesertArcology => {
+            add_route_contract(
+                "climate_spine",
+                "climate_spine",
+                route_count("climate_spine") as f32,
+                1.0,
+            );
+            add_route_contract(
+                "solar_service_ring",
+                "solar_service_ring",
+                route_count("solar_service_ring") as f32,
+                1.0,
+            );
+        }
+        MegastructureTypology::AirportCity => {
+            add_route_contract(
+                "runway_spine",
+                "runway_spine",
+                route_count("runway_spine") as f32,
+                1.0,
+            );
+            add_route_contract(
+                "terminal_loops",
+                "terminal_loop",
+                route_count("terminal_loop") as f32,
+                2.0,
+            );
+        }
+        MegastructureTypology::DamCity => {
+            add_route_contract(
+                "dam_wall_spine",
+                "dam_wall_spine",
+                route_count("dam_wall_spine") as f32,
+                1.0,
+            );
+            add_route_contract(
+                "turbine_gallery",
+                "turbine_gallery",
+                route_count("turbine_gallery") as f32,
+                1.0,
+            );
+        }
+        MegastructureTypology::ShipyardStack => {
+            add_route_contract(
+                "drydock_spine",
+                "drydock_spine",
+                route_count("drydock_spine") as f32,
+                1.0,
+            );
+            add_route_contract(
+                "gantry_loops",
+                "gantry_loop",
+                route_count("gantry_loop") as f32,
+                2.0,
+            );
+        }
+    }
+
+    if !frame.void_bands.is_empty() {
+        contract_scores.insert("void_band_declared".to_owned(), 1.0);
+    }
+    if !frame.habitat_bands.is_empty() {
+        contract_scores.insert("habitat_band_declared".to_owned(), 1.0);
+    }
+    if !frame.traversal_contract.is_empty() {
+        contract_scores.insert("traversal_contract_declared".to_owned(), 1.0);
+    }
+    let score = if contract_scores.is_empty() {
+        0.0
+    } else {
+        contract_scores.values().sum::<f32>() / contract_scores.len() as f32
+    };
+    TypologyQualityRecord {
+        typology: typology.as_str().to_owned(),
+        score: score.clamp(0.0, 1.0),
+        contract_scores,
+        required_route_kinds,
+        missing_contracts,
+    }
+}
+
+fn typology_anchor_points(
+    typology: MegastructureTypology,
+    size: usize,
+    layers: usize,
+) -> Vec<[usize; 3]> {
+    let c = size / 2;
+    let y = (layers / 2).max(1).min(layers.saturating_sub(1));
+    match typology {
+        MegastructureTypology::DenseEnclave | MegastructureTypology::ArcologySpire => {
+            vec![[c, y, c]]
+        }
+        MegastructureTypology::LinearCity => (1..size.saturating_sub(1))
+            .step_by((size / 5).max(4))
+            .map(|x| [x, y, c])
+            .collect(),
+        MegastructureTypology::BridgeVoid => {
+            let lo = (size / 5).max(2);
+            let hi = size.saturating_sub(lo + 1).max(lo);
+            vec![[lo, y, lo], [hi, y, lo], [hi, y, hi], [lo, y, hi]]
+        }
+        MegastructureTypology::MarinePlatform => {
+            let step = (size / 4).max(4);
+            let mut points = Vec::new();
+            for x in (step / 2..size).step_by(step) {
+                for z in (step / 2..size).step_by(step) {
+                    points.push([x, (layers / 4).max(1), z]);
+                }
+            }
+            points
+        }
+        MegastructureTypology::OrbitalRing => {
+            let r = (size as f32 * 0.34).round() as isize;
+            let c = c as isize;
+            [
+                (0, -r),
+                (r / 2, -r / 2),
+                (r, 0),
+                (r / 2, r / 2),
+                (0, r),
+                (-r / 2, r / 2),
+                (-r, 0),
+                (-r / 2, -r / 2),
+            ]
+            .into_iter()
+            .map(|(dx, dz)| {
+                [
+                    (c + dx).clamp(1, size.saturating_sub(2) as isize) as usize,
+                    y,
+                    (c + dz).clamp(1, size.saturating_sub(2) as isize) as usize,
+                ]
+            })
+            .collect()
+        }
+        MegastructureTypology::UndergroundHive => vec![
+            [c, layers / 4, c],
+            [c / 2, layers / 4, c],
+            [(c + c / 2).min(size - 1), layers / 4, c],
+        ],
+        MegastructureTypology::MountainBurrow => vec![[size / 4, y, c], [c, y, c]],
+        MegastructureTypology::DesertArcology => vec![
+            [c, y, c],
+            [c, (layers / 5).max(1), c / 3],
+            [c, (layers / 5).max(1), (c + size / 3).min(size - 1)],
+        ],
+        MegastructureTypology::AirportCity => (1..size.saturating_sub(1))
+            .step_by((size / 5).max(4))
+            .map(|x| [x, (layers / 5).max(1), c])
+            .collect(),
+        MegastructureTypology::DamCity => vec![
+            [c, y, 1],
+            [c, y, size.saturating_sub(2)],
+            [c, layers / 3, c],
+        ],
+        MegastructureTypology::ShipyardStack => vec![
+            [1, layers / 4, c],
+            [size.saturating_sub(2), layers / 4, c],
+            [c, layers / 3, c],
+        ],
+    }
 }
 
 fn stratum_counts_map(counts: [usize; BiomeStratum::COUNT]) -> BTreeMap<String, usize> {
@@ -5047,6 +7725,19 @@ fn route_role_for(
     }
     if kind == "ring_route" {
         return "primary_artery";
+    }
+    match kind {
+        "linear_express" | "rim_loop" | "hive_trunk" | "runway_spine" | "dam_wall_spine"
+        | "drydock_spine" => return "primary_artery",
+        "station_loop" | "terminal_loop" | "gantry_loop" | "cavern_loop" => return "market_run",
+        "void_bridge" | "spoke_transfer" | "cliff_gallery" | "burrow_spine" => {
+            return "evacuation_route"
+        }
+        "marine_causeway" | "climate_spine" | "solar_service_ring" | "turbine_gallery" => {
+            return "service_loop"
+        }
+        "pylon_service" | "hive_gallery" => return "maintenance_backbone",
+        _ => {}
     }
     if kind.contains("vertical_transfer") {
         return "evacuation_route";
@@ -5407,6 +8098,191 @@ fn faction_id_by_name(factions: &[FactionRecord], district: &str) -> Option<usiz
     factions.get(target).map(|faction| faction.id)
 }
 
+fn entity_kind_for_cluster(cluster: &RoomClusterRecord) -> &'static str {
+    match (cluster.kind.as_str(), cluster.owner_district.as_str()) {
+        (kind, _) if kind.contains("market") || kind.contains("border") => "market_crowd",
+        (_, "ELITE" | "COMMERCIAL") if cluster.kind.contains("data") => "corp_patrol",
+        (_, "INDUSTRIAL") => "maintenance_crawler",
+        (_, "SLUM") if cluster.kind.contains("shrine") => "scavenger_drift",
+        (_, "SLUM") => "builder_swarm",
+        (_, _) if cluster.kind.contains("transit") || cluster.kind.contains("route") => {
+            "evacuee_flow"
+        }
+        _ => "market_crowd",
+    }
+}
+
+fn movement_profile_for_entity(kind: &str) -> &'static str {
+    match kind {
+        "corp_patrol" => "looped_patrol",
+        "evacuee_flow" => "fastest_safe_route",
+        "maintenance_crawler" => "service_inspection",
+        "builder_swarm" => "incremental_construction",
+        "scavenger_drift" => "risk_tolerant_drift",
+        _ => "attractor_weighted_flow",
+    }
+}
+
+fn pressure_kind_for_entity(kind: &str) -> &'static str {
+    match kind {
+        "corp_patrol" => "patrol_lockdown",
+        "evacuee_flow" => "evacuation_flow",
+        "maintenance_crawler" => "maintenance_crawler",
+        "builder_swarm" => "builder_swarm",
+        "scavenger_drift" => "scavenger_drift",
+        _ => "market_surge",
+    }
+}
+
+fn layout_mutation_kind(pressure_kind: &str) -> &'static str {
+    match pressure_kind {
+        "market_surge" => "entity_market_widening",
+        "patrol_lockdown" => "entity_security_lockdown",
+        "evacuation_flow" => "entity_evacuation_bypass",
+        "maintenance_crawler" => "entity_service_retrofit",
+        "builder_swarm" => "entity_builder_expansion",
+        _ => "entity_scavenger_scarring",
+    }
+}
+
+fn active_phases_for_entity(kind: &str, temporal_state: &TemporalStateRecord) -> Vec<usize> {
+    let preferred = match kind {
+        "corp_patrol" => "patrol_cycle",
+        "evacuee_flow" => "rain_ingress",
+        "maintenance_crawler" => "ventilation_surge",
+        "builder_swarm" => "market_peak",
+        "scavenger_drift" => "blackout",
+        _ => "market_peak",
+    };
+    let mut ids: Vec<_> = temporal_state
+        .phases
+        .iter()
+        .filter(|phase| phase.name == preferred)
+        .map(|phase| phase.id)
+        .collect();
+    if ids.is_empty() {
+        ids.extend(temporal_state.phases.first().map(|phase| phase.id));
+    }
+    ids
+}
+
+fn phase_for_pressure(pressure_kind: &str, temporal_state: &TemporalStateRecord) -> Option<usize> {
+    let preferred = match pressure_kind {
+        "patrol_lockdown" => "patrol_cycle",
+        "evacuation_flow" => "rain_ingress",
+        "maintenance_crawler" => "ventilation_surge",
+        "builder_swarm" | "market_surge" => "market_peak",
+        _ => "blackout",
+    };
+    temporal_state
+        .phases
+        .iter()
+        .find(|phase| phase.name == preferred)
+        .map(|phase| phase.id)
+}
+
+fn entity_layout_influence(kind: &str, cluster: &RoomClusterRecord, route_ids: &[usize]) -> f32 {
+    let base = match kind {
+        "builder_swarm" => 0.75,
+        "market_crowd" => 0.68,
+        "evacuee_flow" => 0.62,
+        "maintenance_crawler" => 0.58,
+        "corp_patrol" => 0.54,
+        _ => 0.46,
+    };
+    (base + cluster.room_ids.len() as f32 * 0.012 + route_ids.len() as f32 * 0.05).clamp(0.0, 1.0)
+}
+
+fn entity_path_pressure(
+    route_ids: &[usize],
+    route_simulation: &[RouteSimulationRecord],
+) -> (f32, f32) {
+    if route_ids.is_empty() {
+        return (0.0, 0.0);
+    }
+    let mut congestion = 0.0;
+    let mut risk = 0.0;
+    let mut count = 0usize;
+    for route_id in route_ids {
+        let Some(simulation) = route_simulation.get(*route_id) else {
+            continue;
+        };
+        congestion += simulation
+            .market_congestion
+            .max(simulation.civilian_density);
+        risk += simulation
+            .blackout_risk
+            .max(simulation.security_pressure)
+            .max(1.0 - simulation.evacuation_viability);
+        count += 1;
+    }
+    if count == 0 {
+        (0.0, 0.0)
+    } else {
+        (
+            (congestion / count as f32).clamp(0.0, 1.0),
+            (risk / count as f32).clamp(0.0, 1.0),
+        )
+    }
+}
+
+fn shortest_route_path(
+    graph: &[Vec<(usize, f32)>],
+    start: usize,
+    goal: usize,
+) -> (Vec<usize>, f32) {
+    if start >= graph.len() || goal >= graph.len() {
+        return (Vec::new(), f32::MAX);
+    }
+    if start == goal {
+        return (vec![start], 0.0);
+    }
+    let mut distance = vec![f32::MAX; graph.len()];
+    let mut previous = vec![None; graph.len()];
+    let mut visited = vec![false; graph.len()];
+    distance[start] = 0.0;
+
+    for _ in 0..graph.len() {
+        let Some(current) = (0..graph.len())
+            .filter(|index| !visited[*index])
+            .min_by(|a, b| distance[*a].total_cmp(&distance[*b]))
+        else {
+            break;
+        };
+        if !distance[current].is_finite() || current == goal {
+            break;
+        }
+        visited[current] = true;
+        for (next, cost) in &graph[current] {
+            let next_distance = distance[current] + *cost;
+            if next_distance < distance[*next] {
+                distance[*next] = next_distance;
+                previous[*next] = Some(current);
+            }
+        }
+    }
+
+    if !distance[goal].is_finite() {
+        return (Vec::new(), f32::MAX);
+    }
+    let mut path = Vec::new();
+    let mut current = goal;
+    path.push(current);
+    while let Some(prev) = previous[current] {
+        current = prev;
+        path.push(current);
+        if current == start {
+            break;
+        }
+    }
+    path.reverse();
+    if path.first().copied() == Some(start) {
+        (path, distance[goal])
+    } else {
+        (Vec::new(), f32::MAX)
+    }
+}
+
 fn route_layer_for_hubs(start: (usize, usize), end: (usize, usize), layers: usize) -> usize {
     let distance = start.0.abs_diff(end.0) + start.1.abs_diff(end.1);
     if distance > 24 {
@@ -5430,6 +8306,13 @@ fn route_kind_for_y(y: usize, layers: usize) -> &'static str {
 
 fn route_room_label(kind: &str, district: DistrictType, stratum: BiomeStratum) -> &'static str {
     match (kind, district, stratum) {
+        ("linear_express", _, _) => "LINEAR_STATION",
+        ("station_loop", _, _) => "STATION_CONCOURSE",
+        ("void_bridge", _, _) => "VOID_BRIDGE_NODE",
+        ("marine_causeway", _, _) => "CAUSEWAY_LOCK",
+        ("pylon_service", _, _) => "PYLON_PUMP_ROOM",
+        ("rim_loop", _, _) => "RIM_HABITAT_NODE",
+        ("spoke_transfer", _, _) => "SPOKE_TRANSFER",
         ("service_tunnel", _, _) => "MAINTENANCE_SHAFT",
         ("skybridge" | "express_spine", DistrictType::Elite, _) => "SKY_LOUNGE",
         ("skybridge" | "express_spine", _, _) => "SKYBRIDGE_NODE",
@@ -5463,6 +8346,13 @@ fn route_aware_room_label(
         _ => {}
     }
     match (kind, district, stratum) {
+        ("linear_express", _, _) => "LINEAR_STATION",
+        ("station_loop", _, _) => "STATION_CONCOURSE",
+        ("void_bridge", _, _) => "VOID_BRIDGE_NODE",
+        ("marine_causeway", _, _) => "CAUSEWAY_LOCK",
+        ("pylon_service", _, _) => "PYLON_PUMP_ROOM",
+        ("rim_loop", _, _) => "RIM_HABITAT_NODE",
+        ("spoke_transfer", _, _) => "SPOKE_TRANSFER",
         ("service_tunnel" | "vertical_transit_core", DistrictType::Industrial, _) => {
             "PIPE_JUNCTION"
         }
@@ -5483,6 +8373,7 @@ fn flow_kinds_for_role(role: &str) -> &'static [&'static str] {
         "market_run" => &["power_bus", "water_reclamation"],
         "service_loop" => &["waste_chute", "ventilation_loop"],
         "evacuation_route" => &["power_bus", "ventilation_loop"],
+        "primary_artery" => &["power_bus", "data_spine", "ventilation_loop"],
         _ => &["power_bus"],
     }
 }
@@ -5529,6 +8420,37 @@ fn resource_outage_pressure(route_id: usize, networks: &[ResourceNetworkRecord])
         })
         .fold(0.0, f32::max)
         .clamp(0.0, 1.0)
+}
+
+fn manhattan(a: [usize; 3], b: [usize; 3]) -> usize {
+    a[0].abs_diff(b[0]) + a[1].abs_diff(b[1]) + a[2].abs_diff(b[2])
+}
+
+fn stress_kind_for_route(route_kind: &str) -> &'static str {
+    match route_kind {
+        "void_bridge" => "bridge_span_stress",
+        "marine_causeway" | "pylon_service" => "pylon_grid_stress",
+        "rim_loop" | "spoke_transfer" => "orbital_frame_stress",
+        "cliff_gallery" => "cliff_face_stress",
+        "dam_wall_spine" => "dam_wall_stress",
+        "drydock_spine" => "drydock_frame_stress",
+        "runway_spine" => "runway_deck_stress",
+        _ => "route_frame_stress",
+    }
+}
+
+fn stress_hazard_kind_for_edge(edge: &TransitEdgeRecord) -> &'static str {
+    match edge.kind.as_str() {
+        "void_bridge" | "skybridge" => "stress_bridge_failure",
+        "marine_causeway" | "pylon_service" => "stress_pylon_failure",
+        "rim_loop" | "spoke_transfer" => "stress_spoke_shear",
+        "dam_wall_spine" | "turbine_gallery" => "stress_wall_seepage",
+        "drydock_spine" | "gantry_loop" => "stress_gantry_failure",
+        "runway_spine" | "terminal_loop" => "stress_deck_crack",
+        "cavern_loop" | "hive_gallery" | "hive_trunk" => "stress_cavern_shift",
+        "cliff_gallery" | "burrow_spine" => "stress_slope_shear",
+        _ => "stress_frame_overload",
+    }
 }
 
 fn route_failure_pressure(route_id: usize, failure_zones: &[FailurePropagationRecord]) -> f32 {
@@ -5640,6 +8562,72 @@ mod tests {
     }
 
     #[test]
+    fn older_dynamic_exports_migrate_to_current_schema() {
+        let saved = generated("ABCD1234").saved_structure();
+        let mut value: serde_json::Value =
+            serde_json::from_str(&structure::to_json(&saved).unwrap()).unwrap();
+        value["metadata"]["schema_version"] = serde_json::json!("gibson.structure.v17");
+        if let Some(metadata) = value["metadata"].as_object_mut() {
+            metadata.remove("typology");
+            metadata.remove("entity_count");
+            metadata.remove("entity_path_count");
+            metadata.remove("entity_pressure_field_count");
+            metadata.remove("layout_mutation_count");
+        }
+        if let Some(config) = value["metadata"]["config"].as_object_mut() {
+            config.remove("typology");
+            config.remove("entity_density");
+            config.remove("entity_layout_pressure");
+            config.remove("advanced_pattern_complexity");
+        }
+        if let Some(object) = value.as_object_mut() {
+            object.remove("typology_frame");
+            object.remove("typology_quality");
+            object.remove("entities");
+            object.remove("entity_paths");
+            object.remove("entity_pressure_fields");
+            object.remove("layout_mutations");
+        }
+        if let Some(rule_packs) = value["rule_packs"].as_array_mut() {
+            for pack in rule_packs {
+                if let Some(pack) = pack.as_object_mut() {
+                    pack.remove("entity_density_weight");
+                    pack.remove("entity_layout_weight");
+                    pack.remove("patrol_weight");
+                    pack.remove("crowd_weight");
+                    pack.remove("builder_weight");
+                }
+            }
+        }
+
+        let migrated = structure::from_json(&serde_json::to_string(&value).unwrap()).unwrap();
+        assert_eq!(migrated.metadata.schema_version, STRUCTURE_SCHEMA_VERSION);
+        assert_eq!(
+            migrated.metadata.typology,
+            MegastructureTypology::DenseEnclave.as_str()
+        );
+        assert_eq!(
+            migrated.typology_frame.typology,
+            MegastructureTypology::DenseEnclave.as_str()
+        );
+        assert_eq!(
+            migrated.typology_quality.typology,
+            MegastructureTypology::DenseEnclave.as_str()
+        );
+        assert!(migrated.typology_quality.score >= 0.0);
+        assert!(migrated.entities.is_empty());
+        assert!(migrated.entity_paths.is_empty());
+        assert_eq!(migrated.metadata.entity_count, 0);
+        assert!(migrated.rule_packs.iter().all(|pack| {
+            pack.entity_density_weight == 1.0
+                && pack.entity_layout_weight == 1.0
+                && pack.patrol_weight == 1.0
+                && pack.crowd_weight == 1.0
+                && pack.builder_weight == 1.0
+        }));
+    }
+
+    #[test]
     fn saved_structure_has_valid_dimensions_and_cell_ranges() {
         let saved = generated("ABCD1234").saved_structure();
         let default_config = GenerationConfig::default();
@@ -5672,6 +8660,99 @@ mod tests {
                 .flatten()
                 .flatten()
                 .all(|cell| *cell <= CellType::Debris as u8));
+        }
+    }
+
+    #[test]
+    fn typologies_generate_distinct_valid_macro_forms() {
+        for typology in [
+            MegastructureTypology::DenseEnclave,
+            MegastructureTypology::ArcologySpire,
+            MegastructureTypology::LinearCity,
+            MegastructureTypology::BridgeVoid,
+            MegastructureTypology::MarinePlatform,
+            MegastructureTypology::OrbitalRing,
+            MegastructureTypology::UndergroundHive,
+            MegastructureTypology::MountainBurrow,
+            MegastructureTypology::DesertArcology,
+            MegastructureTypology::AirportCity,
+            MegastructureTypology::DamCity,
+            MegastructureTypology::ShipyardStack,
+        ] {
+            let mut config = GenerationConfig::profile(crate::config::GenerationProfile::Balanced);
+            config.typology = typology;
+            let saved = generated_with("ABCD1234", config).saved_structure();
+            assert_eq!(saved.metadata.typology, typology.as_str());
+            assert_eq!(saved.typology_frame.typology, typology.as_str());
+            assert!(!saved.typology_frame.traversal_contract.is_empty());
+            assert!(!saved.transit_graph.edges.is_empty());
+            if typology != MegastructureTypology::DenseEnclave {
+                assert!(saved
+                    .macro_massing
+                    .iter()
+                    .any(|massing| massing.kind.starts_with("typology_")));
+            }
+        }
+    }
+
+    #[test]
+    fn typology_route_contracts_emit_native_route_roles() {
+        for (typology, route_kind) in [
+            (MegastructureTypology::LinearCity, "linear_express"),
+            (MegastructureTypology::BridgeVoid, "void_bridge"),
+            (MegastructureTypology::MarinePlatform, "marine_causeway"),
+            (MegastructureTypology::OrbitalRing, "rim_loop"),
+            (MegastructureTypology::UndergroundHive, "hive_trunk"),
+            (MegastructureTypology::MountainBurrow, "cliff_gallery"),
+            (MegastructureTypology::DesertArcology, "climate_spine"),
+            (MegastructureTypology::AirportCity, "runway_spine"),
+            (MegastructureTypology::DamCity, "dam_wall_spine"),
+            (MegastructureTypology::ShipyardStack, "drydock_spine"),
+        ] {
+            let mut config = GenerationConfig::profile(crate::config::GenerationProfile::Balanced);
+            config.typology = typology;
+            let saved = generated_with("ABCD1234", config).saved_structure();
+            assert!(
+                saved
+                    .transit_graph
+                    .edges
+                    .iter()
+                    .any(|edge| edge.kind == route_kind),
+                "{typology} did not emit {route_kind}"
+            );
+        }
+    }
+
+    #[test]
+    fn typologies_emit_native_hazards_and_quality_metrics() {
+        for (typology, hazard_kind) in [
+            (MegastructureTypology::ArcologySpire, "core_lockdown"),
+            (MegastructureTypology::LinearCity, "station_crush"),
+            (MegastructureTypology::BridgeVoid, "bridge_failure"),
+            (MegastructureTypology::MarinePlatform, "storm_surge"),
+            (MegastructureTypology::OrbitalRing, "pressure_breach"),
+            (MegastructureTypology::UndergroundHive, "cavern_collapse"),
+            (MegastructureTypology::MountainBurrow, "rockfall_choke"),
+            (MegastructureTypology::DesertArcology, "heat_bloom"),
+            (MegastructureTypology::AirportCity, "runway_debris"),
+            (MegastructureTypology::DamCity, "spillway_surge"),
+            (MegastructureTypology::ShipyardStack, "drydock_flood"),
+        ] {
+            let mut config = GenerationConfig::profile(crate::config::GenerationProfile::Balanced);
+            config.typology = typology;
+            let saved = generated_with("ABCD1234", config).saved_structure();
+            assert_eq!(saved.typology_quality.typology, typology.as_str());
+            assert!(saved.typology_quality.score >= 0.65);
+            assert!(!saved.construction_history.is_empty());
+            assert!(saved.section_quality.score >= 0.45);
+            assert!(!saved.structural_system.stress_fields.is_empty());
+            assert!(
+                saved
+                    .hazard_zones
+                    .iter()
+                    .any(|hazard| hazard.kind == hazard_kind),
+                "{typology} did not emit {hazard_kind}"
+            );
         }
     }
 
@@ -6301,6 +9382,82 @@ mod tests {
     }
 
     #[test]
+    fn entity_dynamics_export_paths_pressure_and_layout_mutations() {
+        let saved = generated("ABCD1234").saved_structure();
+        assert_eq!(saved.metadata.entity_count, saved.entities.len());
+        assert_eq!(saved.metadata.entity_path_count, saved.entity_paths.len());
+        assert_eq!(
+            saved.metadata.entity_pressure_field_count,
+            saved.entity_pressure_fields.len()
+        );
+        assert_eq!(
+            saved.metadata.layout_mutation_count,
+            saved.layout_mutations.len()
+        );
+        assert!(!saved.entities.is_empty());
+        assert!(!saved.entity_paths.is_empty());
+        assert!(!saved.entity_pressure_fields.is_empty());
+        assert!(!saved.layout_mutations.is_empty());
+        assert!(saved
+            .metadata
+            .pattern_counts
+            .contains_key("cellular_activity_field"));
+        assert!(saved
+            .layout_mutations
+            .iter()
+            .any(|mutation| mutation.kind.starts_with("entity_")));
+        for entity in &saved.entities {
+            assert_eq!(entity.id, saved.entities[entity.id].id);
+            assert!(entity.origin[0] < saved.size);
+            assert!(entity.destination[1] < saved.layers);
+            assert!(!entity.route_ids.is_empty());
+            assert!((0.0..=1.0).contains(&entity.layout_influence));
+        }
+        for path in &saved.entity_paths {
+            assert!(path.entity_id < saved.entities.len());
+            assert!(!path.sample_points.is_empty());
+            assert!(path.reaches_destination);
+            assert!((0.0..=1.0).contains(&path.congestion));
+            assert!((0.0..=1.0).contains(&path.risk));
+        }
+        for field in &saved.entity_pressure_fields {
+            assert!((0.0..=1.0).contains(&field.intensity));
+            assert!(!field.source_entity_ids.is_empty());
+            assert!(field.bounds_max[0] < saved.size);
+            assert!(field.bounds_max[1] < saved.layers);
+            assert!(field.bounds_max[2] < saved.size);
+        }
+    }
+
+    #[test]
+    fn entity_controls_can_disable_dynamic_sections_independently() {
+        let no_entities = generated_with(
+            "ABCD1234",
+            GenerationConfig {
+                entity_density: 0.0,
+                ..GenerationConfig::default()
+            },
+        )
+        .saved_structure();
+        assert!(no_entities.entities.is_empty());
+        assert!(no_entities.entity_paths.is_empty());
+        assert!(no_entities.entity_pressure_fields.is_empty());
+        assert!(no_entities.layout_mutations.is_empty());
+
+        let no_mutations = generated_with(
+            "ABCD1234",
+            GenerationConfig {
+                entity_layout_pressure: 0.0,
+                ..GenerationConfig::default()
+            },
+        )
+        .saved_structure();
+        assert!(!no_mutations.entities.is_empty());
+        assert!(!no_mutations.entity_pressure_fields.is_empty());
+        assert!(no_mutations.layout_mutations.is_empty());
+    }
+
+    #[test]
     fn narrative_landmarks_name_generated_places() {
         let saved = generated("ABCD1234").saved_structure();
         assert_eq!(
@@ -6354,6 +9511,8 @@ mod tests {
             "size",
             "layers",
             "metadata",
+            "typology_frame",
+            "typology_quality",
             "grid",
             "connections",
             "rooms",
@@ -6380,15 +9539,23 @@ mod tests {
             "contested_borders",
             "temporal_state",
             "narrative_landmarks",
+            "entities",
+            "entity_paths",
+            "entity_pressure_fields",
+            "layout_mutations",
         ] {
             assert!(value.get(key).is_some(), "missing top-level key {key}");
         }
         for key in [
+            "typology",
             "route_density",
             "landmark_frequency",
             "decay_story_density",
             "district_contrast",
             "strata_separation",
+            "entity_density",
+            "entity_layout_pressure",
+            "advanced_pattern_complexity",
         ] {
             assert!(
                 value["metadata"]["config"].get(key).is_some(),
@@ -6396,6 +9563,7 @@ mod tests {
             );
         }
         for key in [
+            "typology",
             "transit_node_count",
             "transit_edge_count",
             "transit_attachment_count",
@@ -6422,6 +9590,10 @@ mod tests {
             "contested_border_count",
             "temporal_phase_count",
             "narrative_landmark_count",
+            "entity_count",
+            "entity_path_count",
+            "entity_pressure_field_count",
+            "layout_mutation_count",
         ] {
             assert!(
                 value["metadata"].get(key).is_some(),

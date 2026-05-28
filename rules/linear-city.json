@@ -1,0 +1,45 @@
+{
+  "name": "linear-city",
+  "description": "One-axis megastructure grammar for express spines, station ribs, and bottlenecked transit districts.",
+  "packs": [
+    {
+      "name": "linear_city_commercial_surface",
+      "profile": "balanced",
+      "typology": "linear_city",
+      "district": "COMMERCIAL",
+      "stratum": "SURFACE",
+      "density_weight": 1.18,
+      "route_weight": 1.55,
+      "decay_weight": 0.85,
+      "detail_weight": 0.82,
+      "crowd_weight": 1.55,
+      "grammar": ["station markets", "ticket concourses", "parallel storefront ribs", "crowd pinch points"]
+    },
+    {
+      "name": "linear_city_industrial_underground",
+      "profile": "balanced",
+      "typology": "linear_city",
+      "district": "INDUSTRIAL",
+      "stratum": "UNDERGROUND",
+      "density_weight": 0.95,
+      "route_weight": 1.45,
+      "decay_weight": 1.15,
+      "detail_weight": 0.75,
+      "entity_layout_weight": 1.25,
+      "grammar": ["express utility trench", "service crossovers", "power galleries", "inspection sidings"]
+    },
+    {
+      "name": "linear_city_elite_skyline",
+      "profile": "balanced",
+      "typology": "linear_city",
+      "district": "ELITE",
+      "stratum": "SKYLINE",
+      "density_weight": 0.62,
+      "route_weight": 1.18,
+      "decay_weight": 0.6,
+      "detail_weight": 0.68,
+      "patrol_weight": 1.35,
+      "grammar": ["private express decks", "sealed station lounges", "overlook bridges", "checkpoint galleries"]
+    }
+  ]
+}
