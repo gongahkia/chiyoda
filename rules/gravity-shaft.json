@@ -1,0 +1,50 @@
+{
+  "name": "gravity-shaft",
+  "description": "Extreme vertical megastructure grammar built around elevator abysses, shaft cities, and stacked transfer decks.",
+  "packs": [
+    {
+      "name": "gravity_shaft_industrial_underground",
+      "profile": "vertical",
+      "district": "INDUSTRIAL",
+      "stratum": "UNDERGROUND",
+      "density_weight": 0.9,
+      "route_weight": 1.55,
+      "decay_weight": 0.95,
+      "detail_weight": 0.78,
+      "grammar": ["counterweight pits", "deep lift engines", "rail locks", "maintenance gantries"]
+    },
+    {
+      "name": "gravity_shaft_residential_midrise",
+      "profile": "vertical",
+      "district": "RESIDENTIAL",
+      "stratum": "MIDRISE",
+      "density_weight": 1.05,
+      "route_weight": 1.65,
+      "decay_weight": 0.85,
+      "detail_weight": 0.82,
+      "grammar": ["shaft-side dwellings", "vertical commons", "transfer balconies", "stair chain nests"]
+    },
+    {
+      "name": "gravity_shaft_commercial_surface",
+      "profile": "vertical",
+      "district": "COMMERCIAL",
+      "stratum": "SURFACE",
+      "density_weight": 0.95,
+      "route_weight": 1.7,
+      "decay_weight": 0.75,
+      "detail_weight": 0.8,
+      "grammar": ["elevator bazaars", "platform markets", "ticket chokepoints", "signal pylons"]
+    },
+    {
+      "name": "gravity_shaft_elite_skyline",
+      "profile": "vertical",
+      "district": "ELITE",
+      "stratum": "SKYLINE",
+      "density_weight": 0.55,
+      "route_weight": 1.35,
+      "decay_weight": 0.55,
+      "detail_weight": 0.72,
+      "grammar": ["sky transfer rings", "sealed express lifts", "thin bridge crowns", "pressure doors"]
+    }
+  ]
+}

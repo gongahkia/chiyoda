@@ -1,0 +1,32 @@
+{
+  "name": "ice-shelf",
+  "description": "Polar shelf grammar for meltwater infrastructure, crevasse bridges, and insulated habitat ribs.",
+  "packs": [
+    {
+      "name": "ice_shelf_industrial_surface",
+      "profile": "balanced",
+      "typology": "ice_shelf_city",
+      "district": "INDUSTRIAL",
+      "stratum": "SURFACE",
+      "density_weight": 0.92,
+      "route_weight": 1.48,
+      "decay_weight": 1.12,
+      "detail_weight": 0.78,
+      "entity_layout_weight": 1.25,
+      "grammar": ["meltwater pumps", "ice anchors", "thermal piles", "crevasse monitors"]
+    },
+    {
+      "name": "ice_shelf_residential_midrise",
+      "profile": "balanced",
+      "typology": "ice_shelf_city",
+      "district": "RESIDENTIAL",
+      "stratum": "MIDRISE",
+      "density_weight": 1.08,
+      "route_weight": 1.22,
+      "decay_weight": 0.82,
+      "detail_weight": 0.86,
+      "crowd_weight": 1.1,
+      "grammar": ["insulated dormitories", "whiteout corridors", "radiant galleries", "shelter locks"]
+    }
+  ]
+}

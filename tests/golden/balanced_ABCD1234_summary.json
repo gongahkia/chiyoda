@@ -1,0 +1,32 @@
+{
+  "schema_version": "gibson.structure.v22",
+  "seed": "ABCD1234",
+  "profile": "balanced",
+  "typology": "dense_enclave",
+  "size": 30,
+  "layers": 15,
+  "counts": {
+    "construction_eras": 4,
+    "entities": 49,
+    "entity_paths": 49,
+    "entity_pressure_fields": 5,
+    "factions": 5,
+    "failure_zones": 5,
+    "hazards": 7,
+    "landmarks": 28,
+    "layout_mutations": 2,
+    "load_paths": 1,
+    "macro_massing": 21,
+    "meso_placements": 86,
+    "micro_details": 88,
+    "resource_networks": 5,
+    "room_clusters": 108,
+    "rooms": 1149,
+    "route_nodes": 62,
+    "routes": 22,
+    "rule_packs": 20,
+    "stress_fields": 1
+  },
+  "quality_milli": 908,
+  "occupied_milli": 751
+}

@@ -1,0 +1,524 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://gibson.local/schemas/structure.schema.json",
+  "title": "Gibson Structure",
+  "type": "object",
+  "required": [
+    "seed",
+    "size",
+    "layers",
+    "metadata",
+    "typology_frame",
+    "typology_quality",
+    "construction_history",
+    "section_quality",
+    "grid",
+    "rooms",
+    "transit_graph",
+    "district_lifecycle",
+    "macro_massing",
+    "meso_placements",
+    "micro_details",
+    "path_analysis",
+    "route_simulation",
+    "resource_networks",
+    "hazard_zones",
+    "failure_zones",
+    "rule_packs",
+    "rule_influences",
+    "factions",
+    "temporal_state",
+    "narrative_landmarks",
+    "entities",
+    "entity_paths",
+    "entity_pressure_fields",
+    "layout_mutations"
+  ],
+  "properties": {
+    "seed": {
+      "type": "string",
+      "pattern": "^[A-Z0-9]{8}$"
+    },
+    "size": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "layers": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "metadata": {
+      "type": "object",
+      "required": ["schema_version", "profile", "typology", "occupied_cell_ratio", "rule_influence_count"],
+      "properties": {
+        "schema_version": {
+          "const": "gibson.structure.v22"
+        },
+        "profile": {
+          "type": "string"
+        },
+        "typology": {
+          "type": "string"
+        },
+        "occupied_cell_ratio": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "rule_influence_count": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "entity_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "entity_path_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "entity_pressure_field_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "layout_mutation_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "stress_field_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "load_path_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "construction_era_count": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "grid": {
+      "type": "array"
+    },
+    "typology_frame": {
+      "type": "object",
+      "required": [
+        "typology",
+        "primary_axes",
+        "primary_spines",
+        "void_bands",
+        "habitat_bands",
+        "service_anchors",
+        "traversal_contract"
+      ],
+      "properties": {
+        "typology": { "type": "string" },
+        "primary_axes": { "type": "array", "items": { "type": "string" } },
+        "primary_spines": { "type": "array", "items": { "$ref": "#/$defs/point3" } },
+        "void_bands": { "type": "array", "items": { "$ref": "#/$defs/typology_band" } },
+        "habitat_bands": { "type": "array", "items": { "$ref": "#/$defs/typology_band" } },
+        "service_anchors": { "type": "array", "items": { "$ref": "#/$defs/point3" } },
+        "traversal_contract": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "typology_quality": {
+      "type": "object",
+      "required": ["typology", "score", "contract_scores", "required_route_kinds", "missing_contracts"],
+      "properties": {
+        "typology": { "type": "string" },
+        "score": { "type": "number", "minimum": 0, "maximum": 1 },
+        "contract_scores": {
+          "type": "object",
+          "additionalProperties": { "type": "number", "minimum": 0, "maximum": 1 }
+        },
+        "required_route_kinds": { "type": "array", "items": { "type": "string" } },
+        "missing_contracts": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "construction_history": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "era", "age_years", "material_bias", "decay_bias", "affected_districts", "affected_route_ids", "affected_room_ids", "generated_scars"]
+      }
+    },
+    "section_quality": {
+      "type": "object",
+      "required": ["score", "vertical_continuity", "void_exposure", "service_separation", "evacuation_shaft_coverage", "habitable_layer_ratio", "roof_deck_access", "cross_section_route_density", "missing_contracts"]
+    },
+    "rooms": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/room"
+      }
+    },
+    "transit_graph": {
+      "type": "object",
+      "required": ["nodes", "edges", "attachments"],
+      "properties": {
+        "nodes": {
+          "type": "array"
+        },
+        "edges": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/route"
+          }
+        },
+        "attachments": {
+          "type": "array"
+        }
+      }
+    },
+    "district_lifecycle": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "district",
+          "age_years",
+          "maintenance_level",
+          "occupancy_pressure",
+          "control_stability",
+          "decay_bias",
+          "repair_bias",
+          "security_bias",
+          "density_bias"
+        ],
+        "properties": {
+          "district": { "type": "string" },
+          "age_years": { "type": "integer", "minimum": 0 },
+          "maintenance_level": { "type": "number", "minimum": 0, "maximum": 1 },
+          "occupancy_pressure": { "type": "number", "minimum": 0, "maximum": 1 },
+          "control_stability": { "type": "number", "minimum": 0, "maximum": 1 },
+          "decay_bias": { "type": "number", "exclusiveMinimum": 0 },
+          "repair_bias": { "type": "number", "exclusiveMinimum": 0 },
+          "security_bias": { "type": "number", "exclusiveMinimum": 0 },
+          "density_bias": { "type": "number", "exclusiveMinimum": 0 }
+        }
+      }
+    },
+    "macro_massing": {
+      "type": "array"
+    },
+    "meso_placements": {
+      "type": "array"
+    },
+    "micro_details": {
+      "type": "array"
+    },
+    "route_simulation": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "route_id",
+          "civilian_density",
+          "security_pressure",
+          "blackout_risk",
+          "market_congestion",
+          "evacuation_viability",
+          "active_phase_ids"
+        ],
+        "properties": {
+          "route_id": { "type": "integer", "minimum": 0 },
+          "civilian_density": { "type": "number", "minimum": 0, "maximum": 1 },
+          "security_pressure": { "type": "number", "minimum": 0, "maximum": 1 },
+          "blackout_risk": { "type": "number", "minimum": 0, "maximum": 1 },
+          "market_congestion": { "type": "number", "minimum": 0, "maximum": 1 },
+          "evacuation_viability": { "type": "number", "minimum": 0, "maximum": 1 },
+          "active_phase_ids": {
+            "type": "array",
+            "items": { "type": "integer", "minimum": 0 }
+          }
+        }
+      }
+    },
+    "resource_networks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "kind", "source", "sink", "route_ids", "capacity", "load", "overloaded", "outage", "reroute_route_ids"],
+        "properties": {
+          "id": { "type": "integer", "minimum": 0 },
+          "kind": { "type": "string" },
+          "source": { "$ref": "#/$defs/point3" },
+          "sink": { "$ref": "#/$defs/point3" },
+          "route_ids": { "type": "array", "items": { "type": "integer", "minimum": 0 } },
+          "capacity": { "type": "number", "exclusiveMinimum": 0 },
+          "load": { "type": "number", "minimum": 0 },
+          "overloaded": { "type": "boolean" },
+          "outage": { "type": "boolean" },
+          "reroute_route_ids": { "type": "array", "items": { "type": "integer", "minimum": 0 } }
+        }
+      }
+    },
+    "failure_zones": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "origin", "radius", "severity", "affected_route_ids", "affected_deck_count"],
+        "properties": {
+          "id": { "type": "integer", "minimum": 0 },
+          "origin": { "$ref": "#/$defs/point3" },
+          "radius": { "type": "integer", "minimum": 0 },
+          "severity": { "type": "number", "minimum": 0, "maximum": 1 },
+          "affected_route_ids": { "type": "array", "items": { "type": "integer", "minimum": 0 } },
+          "affected_deck_count": { "type": "integer", "minimum": 0 }
+        }
+      }
+    },
+    "structural_system": {
+      "type": "object",
+      "required": ["load_bearing_frames", "foundation_zones", "suspended_decks", "support_dependency_summary", "stress_fields", "load_paths", "stability_ratings"],
+      "properties": {
+        "stress_fields": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "kind", "stress", "bounds_min", "bounds_max", "route_ids", "support_points"]
+          }
+        },
+        "load_paths": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "kind", "from", "to", "route_ids", "stress"]
+          }
+        }
+      }
+    },
+    "entities": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "kind", "origin", "destination", "route_ids", "active_phase_ids", "movement_profile", "layout_influence"],
+        "properties": {
+          "id": { "type": "integer", "minimum": 0 },
+          "kind": { "type": "string" },
+          "faction_id": { "type": ["integer", "null"], "minimum": 0 },
+          "home_cluster_id": { "type": ["integer", "null"], "minimum": 0 },
+          "origin": { "$ref": "#/$defs/point3" },
+          "destination": { "$ref": "#/$defs/point3" },
+          "route_ids": { "type": "array", "items": { "type": "integer", "minimum": 0 } },
+          "active_phase_ids": { "type": "array", "items": { "type": "integer", "minimum": 0 } },
+          "movement_profile": { "type": "string" },
+          "layout_influence": { "type": "number", "minimum": 0, "maximum": 1 }
+        }
+      }
+    },
+    "entity_paths": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "entity_id", "sample_points", "route_ids", "travel_cost", "congestion", "risk", "reaches_destination"],
+        "properties": {
+          "id": { "type": "integer", "minimum": 0 },
+          "entity_id": { "type": "integer", "minimum": 0 },
+          "sample_points": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/point3" } },
+          "route_ids": { "type": "array", "items": { "type": "integer", "minimum": 0 } },
+          "travel_cost": { "type": "number", "minimum": 0 },
+          "congestion": { "type": "number", "minimum": 0, "maximum": 1 },
+          "risk": { "type": "number", "minimum": 0, "maximum": 1 },
+          "reaches_destination": { "type": "boolean" }
+        }
+      }
+    },
+    "entity_pressure_fields": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "kind", "bounds_min", "bounds_max", "intensity", "source_entity_ids", "affected_route_ids", "affected_room_ids"],
+        "properties": {
+          "id": { "type": "integer", "minimum": 0 },
+          "kind": { "type": "string" },
+          "bounds_min": { "$ref": "#/$defs/point3" },
+          "bounds_max": { "$ref": "#/$defs/point3" },
+          "intensity": { "type": "number", "minimum": 0, "maximum": 1 },
+          "source_entity_ids": { "type": "array", "items": { "type": "integer", "minimum": 0 } },
+          "affected_route_ids": { "type": "array", "items": { "type": "integer", "minimum": 0 } },
+          "affected_room_ids": { "type": "array", "items": { "type": "integer", "minimum": 0 } }
+        }
+      }
+    },
+    "layout_mutations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "kind", "bounds_min", "bounds_max", "source_pressure_field_id", "affected_route_ids", "affected_room_ids", "added_cell_count", "removed_cell_count", "sample_points", "reason"],
+        "properties": {
+          "id": { "type": "integer", "minimum": 0 },
+          "kind": { "type": "string" },
+          "phase_id": { "type": ["integer", "null"], "minimum": 0 },
+          "bounds_min": { "$ref": "#/$defs/point3" },
+          "bounds_max": { "$ref": "#/$defs/point3" },
+          "source_pressure_field_id": { "type": "integer", "minimum": 0 },
+          "affected_route_ids": { "type": "array", "items": { "type": "integer", "minimum": 0 } },
+          "affected_room_ids": { "type": "array", "items": { "type": "integer", "minimum": 0 } },
+          "added_cell_count": { "type": "integer", "minimum": 0 },
+          "removed_cell_count": { "type": "integer", "minimum": 0 },
+          "sample_points": { "type": "array", "items": { "$ref": "#/$defs/point3" } },
+          "reason": { "type": "string" }
+        }
+      }
+    },
+    "rule_packs": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "typology",
+          "district",
+          "stratum",
+          "profile",
+          "density_weight",
+          "route_weight",
+          "decay_weight",
+          "detail_weight",
+          "entity_density_weight",
+          "entity_layout_weight",
+          "patrol_weight",
+          "crowd_weight",
+          "builder_weight"
+        ],
+        "properties": {
+          "id": { "type": "integer", "minimum": 0 },
+          "name": { "type": "string" },
+          "typology": { "type": ["string", "null"] },
+          "district": { "type": "string" },
+          "stratum": { "type": "string" },
+          "profile": { "type": "string" },
+          "density_weight": { "type": "number", "minimum": 0 },
+          "route_weight": { "type": "number", "minimum": 0 },
+          "decay_weight": { "type": "number", "minimum": 0 },
+          "detail_weight": { "type": "number", "minimum": 0 },
+          "entity_density_weight": { "type": "number", "minimum": 0 },
+          "entity_layout_weight": { "type": "number", "minimum": 0 },
+          "patrol_weight": { "type": "number", "minimum": 0 },
+          "crowd_weight": { "type": "number", "minimum": 0 },
+          "builder_weight": { "type": "number", "minimum": 0 }
+        }
+      }
+    },
+    "rule_influences": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "target_type",
+          "target_id",
+          "rule_pack_id",
+          "rule_pack_name",
+          "district",
+          "stratum",
+          "grammar",
+          "reason"
+        ],
+        "properties": {
+          "id": { "type": "integer", "minimum": 0 },
+          "target_type": { "type": "string" },
+          "target_id": { "type": "string" },
+          "rule_pack_id": { "type": "integer", "minimum": 0 },
+          "rule_pack_name": { "type": "string" },
+          "district": { "type": "string" },
+          "stratum": { "type": "string" },
+          "grammar": { "type": "array", "items": { "type": "string" } },
+          "reason": { "type": "string" }
+        }
+      }
+    },
+    "path_analysis": {
+      "type": "object",
+      "required": [
+        "guaranteed_service_to_skyline",
+        "alternate_path_count",
+        "vertical_transfer_count",
+        "reachable_landmark_count",
+        "main_path_room_reachability",
+        "quality_score"
+      ],
+      "properties": {
+        "guaranteed_service_to_skyline": {
+          "const": true
+        },
+        "alternate_path_count": {
+          "type": "integer",
+          "minimum": 3
+        },
+        "vertical_transfer_count": {
+          "type": "integer",
+          "minimum": 3
+        },
+        "reachable_landmark_count": {
+          "type": "integer",
+          "minimum": 8
+        },
+        "main_path_room_reachability": {
+          "type": "number",
+          "minimum": 1
+        },
+        "quality_score": {
+          "type": "number",
+          "minimum": 0.75,
+          "maximum": 1
+        }
+      }
+    }
+  },
+  "$defs": {
+    "point3": {
+      "type": "array",
+      "prefixItems": [
+        { "type": "integer", "minimum": 0 },
+        { "type": "integer", "minimum": 0 },
+        { "type": "integer", "minimum": 0 }
+      ],
+      "minItems": 3,
+      "maxItems": 3
+    },
+    "room": {
+      "type": "object",
+      "required": ["id", "position", "district", "label"],
+      "properties": {
+        "id": { "type": "integer", "minimum": 0 },
+        "position": { "$ref": "#/$defs/point3" },
+        "district": { "type": "string" },
+        "label": { "type": "string" }
+      }
+    },
+    "typology_band": {
+      "type": "object",
+      "required": ["kind", "bounds_min", "bounds_max"],
+      "properties": {
+        "kind": { "type": "string" },
+        "bounds_min": { "$ref": "#/$defs/point3" },
+        "bounds_max": { "$ref": "#/$defs/point3" }
+      }
+    },
+    "route": {
+      "type": "object",
+      "required": ["id", "kind", "role", "start_node", "end_node", "points", "length", "stratum"],
+      "properties": {
+        "id": { "type": "integer", "minimum": 0 },
+        "kind": { "type": "string" },
+        "role": { "type": "string" },
+        "start_node": { "type": "integer", "minimum": 0 },
+        "end_node": { "type": "integer", "minimum": 0 },
+        "points": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/point3" }
+        },
+        "length": { "type": "integer", "minimum": 1 },
+        "stratum": { "type": "string" }
+      }
+    }
+  }
+}

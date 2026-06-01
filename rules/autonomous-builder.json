@@ -1,0 +1,70 @@
+{
+  "name": "autonomous-builder",
+  "description": "Machine-built infrastructure grammar where construction systems keep expanding beyond human use.",
+  "packs": [
+    {
+      "name": "autonomous_builder_industrial_midrise",
+      "profile": "dense",
+      "district": "INDUSTRIAL",
+      "stratum": "MIDRISE",
+      "density_weight": 1.35,
+      "route_weight": 1.25,
+      "decay_weight": 0.65,
+      "detail_weight": 1.2,
+      "entity_density_weight": 1.35,
+      "entity_layout_weight": 1.8,
+      "patrol_weight": 0.75,
+      "crowd_weight": 0.8,
+      "builder_weight": 2.3,
+      "grammar": ["printer gantries", "unfinished support ribs", "crawler service rails", "fresh concrete seams"]
+    },
+    {
+      "name": "autonomous_builder_industrial_skyline",
+      "profile": "dense",
+      "district": "INDUSTRIAL",
+      "stratum": "SKYLINE",
+      "density_weight": 1.2,
+      "route_weight": 1.1,
+      "decay_weight": 0.55,
+      "detail_weight": 1.05,
+      "entity_density_weight": 1.2,
+      "entity_layout_weight": 1.65,
+      "patrol_weight": 0.7,
+      "crowd_weight": 0.75,
+      "builder_weight": 2.1,
+      "grammar": ["active crane forests", "fabricator towers", "antenna scaffolds", "unclaimed machine decks"]
+    },
+    {
+      "name": "autonomous_builder_slum_surface",
+      "profile": "dense",
+      "district": "SLUM",
+      "stratum": "SURFACE",
+      "density_weight": 1.45,
+      "route_weight": 1.25,
+      "decay_weight": 0.9,
+      "detail_weight": 1.1,
+      "entity_density_weight": 1.55,
+      "entity_layout_weight": 1.35,
+      "patrol_weight": 0.7,
+      "crowd_weight": 1.25,
+      "builder_weight": 1.9,
+      "grammar": ["squatter modules", "stolen machine rooms", "patched conveyor walks", "scrap partitions"]
+    },
+    {
+      "name": "autonomous_builder_commercial_midrise",
+      "profile": "dense",
+      "district": "COMMERCIAL",
+      "stratum": "MIDRISE",
+      "density_weight": 1.15,
+      "route_weight": 1.2,
+      "decay_weight": 0.7,
+      "detail_weight": 1.0,
+      "entity_density_weight": 1.15,
+      "entity_layout_weight": 1.2,
+      "patrol_weight": 0.85,
+      "crowd_weight": 1.15,
+      "builder_weight": 1.6,
+      "grammar": ["automated depots", "goods lifts", "sealed vendor capsules", "logistics corridors"]
+    }
+  ]
+}
