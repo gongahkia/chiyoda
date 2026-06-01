@@ -1,5 +1,11 @@
+myenv
+.venv
+__pycache__
+*.egg-info
+.eggs
+dist/
+build/
+out/
+*.pyc
+.DS_Store
 .env
-structure.json
-current_seed.txt
-screenshots
-target

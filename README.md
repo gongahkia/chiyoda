@@ -1,105 +1,228 @@
-[![](https://img.shields.io/badge/gibson_1.0.0-passing-light_green)](https://github.com/gongahkia/gibson/releases/tag/1.0.0) 
-[![](https://img.shields.io/badge/gibson_2.0.0-passing-green)](https://github.com/gongahkia/gibson/releases/tag/2.0.0) 
+<p align="center">
+  <img src="./asset/logo/chiyoda.png" width="150" alt="Chiyoda mascot"/>
+</p>
 
-# `Gibson`
+<h1 align="center">Chiyoda</h1>
 
-[Rust](#stack) megastructure [generator](#seed) for [cyberpunk dense-urban forms](#research).
-
-## Stack
-
-* *Script*: [Rust](https://rust-lang.org/)
-* *Graphics*: [Macroquad](https://macroquad.rs/), [miniquad](https://github.com/not-fl3/miniquad), [GLSL](https://www.khronos.org/opengl/wiki/OpenGL_Shading_Language)
-* *Generation*: [Simplex noise](https://en.wikipedia.org/wiki/Simplex_noise), [Wave Function Collapse](https://github.com/mxgmn/WaveFunctionCollapse), [L-system](https://en.wikipedia.org/wiki/L-system), [Catmull-Rom spline](https://en.wikipedia.org/wiki/Centripetal_Catmull%E2%80%93Rom_spline)
-* *Serialization*: [Serde](https://serde.rs/), [JSON](https://www.json.org/json-en.html)
-
-## Screenshot
-
-![](./asset/reference/v4/1.png)
-
-## Usage
-
-The below instructions are for locally running `Gibson`.
-
-1. First install the repo on your machine.
-
-```console
-$ git clone https://github.com/gongahkia/gibson && cd gibson
-```
-
-2. Then run any of the below to use `Gibson`'s functionality.
-
-```console
-$ cargo run --release
-$ cargo run --release -- ABCD1234
-$ cargo run --release -- --seed ABCD1234 --profile neon
-$ cargo run --release -- --seed ABCD1234 --profile balanced --typology linear-city
-$ cargo run --release -- --seed ABCD1234 --profile dense --headless --export structure.json
-$ cargo run --release -- --seed ABCD1234 --config presets/blackout-core.json --headless --bundle out/blackout
-$ cargo run --release -- --validate-rules rules/kowloon-decay.json
-$ cargo run --release -- --seed ABCD1234 --profile decayed --rules rules/kowloon-decay.json --headless --export structure.json
-$ cargo run --release -- --inspect structure.json --summary --routes --quality
-$ cargo run --release -- --validate structure.json
-```
-
-## Controls
-
-* `R` to regenerate
-* `,`/`.` to cycle megastructure typology/generation pattern
-* `S` for screenshots
-* `I` to inspect cells
-* `T/Z/X/V/B/C` for semantic overlays; `B` cycles typology frame, construction eras, stress/load paths, section quality, and scenario consequences
-* `U`/`J`/`N`/`M`/`K` while using `V` to pause, change speed, scrub phases, select entity kinds, and toggle kind visibility
-* `G` for an in-renderer rule-pack browser
-* `H` or `Shift+R` to hot reload edited rule JSON
-* `E`/`1-9`/`-`/`=`/`O` to edit and export structure and entity rule weights
-
-## Configuration
-
-`Gibson`'s predefined profiles are `balanced`, `dense`, `vertical`, `decayed`, `neon`, `dense-enclave`, `arcology-spire`, `linear-city`, `bridge-void`, `marine-platform`, `orbital-ring`, `underground-hive`, `mountain-burrow`, `desert-arcology`, `airport-city`, `dam-city`, `shipyard-stack`, `volcanic-caldera`, `ice-shelf-city`, `canopy-babel`, `space-elevator-anchor`, `crawler-city`, `reef-atoll-arcology`, `stratosphere-platform`, and `sinkhole-citadel`. 
-
-Further dynamic generation controls include `entity_density`, `entity_layout_pressure`, and `advanced_pattern_complexity`.
-
-## Seed
-
-Randomly generated [megastructures](https://en.wikipedia.org/wiki/Megastructure) are seeded at `current_seed.txt` and serialised at `structure.json` in repository root with the following.
-
-* Generation metadata
-* Counts
-* Profile
-* Typology frame
-* Typology quality metrics
-* Construction history
-* Section quality
-* Stress/load paths
-* Config snapshot
-* Circulation routes
-* Strata
-* Semantic room labels
-* Resource networks
-* Stress-influenced hazards
-* Rule packs
-* Rule influence traces
-* Deterministic entity movement
-* Pressure fields
-* Layout mutations
-
-## Research
-
-* [*Simulation of Urban Density Scenario according to the Cadastral Map using K-Means Unsupervised Classification*](https://www.researchgate.net/publication/381057650_Simulation_of_Urban_Density_Scenario_according_to_the_Cadastral_Map_using_K-Means_unsupervised_classification) by M. A. El-Kenawy et al. (2023)
-* [*Parametric Modeling for Form-Based Planning in Dense Urban Environments*](https://www.mdpi.com/2071-1050/11/20/5678) by S. A. Abdul-Rahman et al. (2019)
-* [*Knowledge-Based Modeling of Buildings in Dense Urban Areas by Fusing LiDAR and Aerial Images*](https://www.mdpi.com/2072-4292/5/11/5944) by J. Jung et al. (2013)
-* [*Simulating Urban Growth through Case-Based Reasoning*](https://www.tandfonline.com/doi/full/10.1080/22797254.2022.2056518) by Y. Liu et al. (2022)
-* [*Generative Methods for Urban Design and Rapid Solution Space Exploration*](https://arxiv.org/abs/2212.06783) by Y. Sun and T. Dogan (2022)
-* [*UrbanSim: Open Source Urban Simulation System*](https://urbansim.com/) by P. Waddell (2002)
-* [*A Study of the “Kowloon Walled City”*](https://hub.hku.hk/bitstream/10722/259448/1/Content.pdf) by T. F. Ng (2018)
-* [*CAE Simulates Complex Dense Urban Environments with Cesium*](https://cesium.com/blog/2022/02/15/cae-simulates-a-complex-dense-urban-environment/) by CAE (2022)
-* [*Simulation of Urban Density Scenario according to the Cadastral Map using K-Means Unsupervised Classification*](https://www.researchgate.net/publication/381057650_Simulation_of_Urban_Density_Scenario_according_to_the_Cadastral_Map_using_K-Means_unsupervised_classification) by M. A. El-Kenawy et al. (2023)
-* [*Parametric Modeling for Form-Based Planning in Dense Urban Environments*](https://www.mdpi.com/2071-1050/11/20/5678) by S. A. Abdul-Rahman et al. (2019)
-
-## Reference
-
-The name `Gibson` is in reference to American author [William Gibson](https://en.wikipedia.org/wiki/William_Gibson), whose debut novel [*Neuromancer*](https://en.wikipedia.org/wiki/Neuromancer) heavily influenced the [Cyberpunk](https://en.wikipedia.org/wiki/Cyberpunk) aesthetic, going on to inspire works such as [Tsutomu Nihei](https://en.wikipedia.org/wiki/Tsutomu_Nihei)'s (弐瓶 勉) [*Blame!*](https://en.wikipedia.org/wiki/Blame!) and [Masamune Shirow](https://en.wikipedia.org/wiki/Masamune_Shirow)'s (太田正典) [*Ghost in the Shell*](https://en.wikipedia.org/wiki/Ghost_in_the_Shell).
+<h4 align="center">
+    Entropy-guided information control for hazard-coupled pedestrian evacuation
+</h4>
 
 <div align="center">
-    <img src="./asset/logo/gibson.jpg">
+    <a href="https://doi.org/10.5281/zenodo.19905070">Published Paper</a> |
+    <a href="./paper/main.pdf">PDF</a> |
+    <a href="./paper/REPRODUCIBILITY.md">Reproducibility</a> |
+    <a href="./docs/developer_environment.md">Developer Setup</a>
+</div>
+<br></br>
+
+<p align="center">
+    <a href="https://doi.org/10.5281/zenodo.19905070">
+        <img src="https://zenodo.org/badge/DOI/10.5281/zenodo.19905070.svg"
+            alt="Zenodo DOI"/></a>
+    <a href="https://github.com/gongahkia/chiyoda/releases/tag/3.0.0">
+        <img src="https://img.shields.io/badge/chiyoda-3.0.0-85c8c8?style=for-the-badge"
+            alt="Chiyoda 3.0.0"/></a>
+    <a href="./paper/main.pdf">
+        <img src="https://img.shields.io/badge/paper-PDF-002b36?style=for-the-badge&color=85c8c8"
+            alt="Paper PDF"/></a>
+    <a href="https://creativecommons.org/licenses/by/4.0/">
+        <img src="https://img.shields.io/badge/paper_license-CC_BY_4.0-85c8c8?style=for-the-badge"
+            alt="Paper license: CC BY 4.0"/></a>
+</p>
+
+## Table of Contents
+
+* [Published Paper](#published-paper)
+* [Why Chiyoda?](#why-chiyoda)
+* [How can I use it?](#how-can-i-use-it)
+* [Repository Guide](#repository-guide)
+* [Reproduce the Paper](#reproduce-the-paper)
+* [Development](#️development)
+* [Citation](#citation)
+* [Research Context](#research-context)
+
+## Published Paper
+
+Chiyoda is published as a Zenodo preprint:
+
+* **Title:** *Chiyoda: Entropy-Guided Information Control for Hazard-Coupled Pedestrian Evacuation*
+* **Subtitle:** *A Framework for Benchmarking Emergency Communication Efficacy*
+* **DOI:** [10.5281/zenodo.19905070](https://doi.org/10.5281/zenodo.19905070)
+* **Version:** `v1`
+* **License for the paper:** [Creative Commons Attribution 4.0 International](https://creativecommons.org/licenses/by/4.0/)
+
+The repository contains the simulation code, scenario definitions, study
+scripts, LaTeX source, generated figures, and the final paper PDF.
+
+## Why Chiyoda?
+
+Emergency warnings are usually treated as helpful information: tell people
+more, and evacuation decisions should improve. Chiyoda studies the harder
+control problem. A message can reduce uncertainty while also synchronizing
+many agents toward the same exit, bottleneck, or hazard-adjacent route.
+
+Chiyoda models evacuation as a coupled physical-information system. Agents
+carry probabilistic exit and hazard beliefs, exchange local gossip, receive
+beacon and responder messages, move through social-force crowd dynamics, and
+route through the world they believe exists rather than the omniscient ground
+truth. The paper evaluates communication policies by joint belief and safety
+effects instead of raw evacuation count alone.
+
+Core capabilities include:
+
+| Layer | Capability |
+|:------|:-----------|
+| **Information** | Shannon-entropy beliefs, gossip propagation, beacon broadcast, responder relay, belief decay |
+| **Agents** | BDI-style cognitive agents, familiarity priors, herding/exploration, physiological impairment |
+| **Hazards** | Stylized GAS/SMOKE/FIRE/CRUSH hazards, spread fields, imported-field checks, visibility reduction |
+| **Navigation** | Social-force dynamics, belief-weighted A* routing, bottleneck and counterflow pressure |
+| **Interventions** | Static, global, responder, entropy-targeted, density-aware, exposure-aware, and bottleneck-avoidance messaging |
+| **Analysis** | Belief entropy, belief accuracy, information-safety efficiency, harmful-convergence index, trajectory exports |
+
+## How can I use it?
+
+Clone the repository and create the local Python environment:
+
+```console
+$ git clone https://github.com/gongahkia/chiyoda
+$ cd chiyoda
+$ make venv
+$ make verify PYTHON=.venv/bin/python
+```
+
+Run a single evacuation scenario:
+
+```console
+$ python -m chiyoda.cli run scenarios/station_baseline.yaml -o out/baseline
+$ python -m chiyoda.cli run scenarios/station_sarin.yaml -o out/sarin
+```
+
+Run a study sweep:
+
+```console
+$ python -m chiyoda.cli sweep scenarios/study_information_control.yaml -o out/information_control
+```
+
+Compare study outputs or reference trajectories:
+
+```console
+$ python -m chiyoda.cli compare out/baseline out/sarin -o out/comparison
+$ python -m chiyoda.cli compare-trajectory-reference out/information_control reference_trajectories.csv -o out/trajectory_reference.csv
+```
+
+For live LLM experiments, place `OPENAI_API_KEY=...` in `.env`. The paper
+results use bounded, validated, replayable generated-message workflows; see
+[`paper/REPRODUCIBILITY.md`](./paper/REPRODUCIBILITY.md) before treating any
+new live-provider run as evidence.
+
+## Repository Guide
+
+| File / Folder | Purpose |
+|:---|:---|
+| [`chiyoda/core/`](./chiyoda/core) | Simulation engine and ITED runtime loop |
+| [`chiyoda/agents/`](./chiyoda/agents) | Cognitive agents, commuters, and first responders |
+| [`chiyoda/information/`](./chiyoda/information) | Belief fields, gossip, entropy metrics, and interventions |
+| [`chiyoda/environment/`](./chiyoda/environment) | Layouts, obstacles, exits, and hazard fields |
+| [`chiyoda/navigation/`](./chiyoda/navigation) | Social-force movement and belief-weighted pathfinding |
+| [`chiyoda/analysis/`](./chiyoda/analysis) | Metrics, telemetry, reports, and figure exports |
+| [`chiyoda/studies/`](./chiyoda/studies) | Study schemas, bundle persistence, and comparison workflows |
+| [`scenarios/`](./scenarios) | YAML scenario and study definitions |
+| [`docs/`](./docs) | Calibration, validation, geometry, and developer notes |
+| [`paper/`](./paper) | Paper source, figures, generated tables, and final PDF |
+| [`tests/`](./tests) | Pytest suite |
+
+Important documentation:
+
+* [`paper/REPRODUCIBILITY.md`](./paper/REPRODUCIBILITY.md) records the exact
+  study commands and artifact layout behind the paper.
+* [`paper/README.md`](./paper/README.md) documents the LaTeX paper build.
+* [`docs/developer_environment.md`](./docs/developer_environment.md) documents
+  local Python and TeX setup.
+* [`docs/external_validation.md`](./docs/external_validation.md) describes the
+  Wuppertal bottleneck reference check.
+* [`docs/station_geometry_workflow.md`](./docs/station_geometry_workflow.md)
+  describes station geometry import and role inference.
+
+## Reproduce the Paper
+
+The final paper PDF is [`paper/main.pdf`](./paper/main.pdf). To rebuild it from
+the current generated study artifacts:
+
+```console
+$ cd paper
+$ make paper PYTHON=../.venv/bin/python
+```
+
+The primary 50-seed study command is:
+
+```console
+$ PYTHONPATH=. .venv/bin/python scripts/run_study_progress.py \
+    scenarios/study_information_control.yaml \
+    -o out/information_control_50 \
+    --seed-count 50
+```
+
+The full empirical package also includes intervention ablations, message-quality
+stress tests, a 900-run hazard/familiarity robustness grid, and bounded LLM
+extension studies. The complete command list is in
+[`paper/REPRODUCIBILITY.md`](./paper/REPRODUCIBILITY.md).
+
+## Development
+
+Run the test suite:
+
+```console
+$ make verify PYTHON=.venv/bin/python
+```
+
+Check paper-build dependencies:
+
+```console
+$ make doctor PYTHON=.venv/bin/python
+```
+
+Run the lightweight paper smoke build:
+
+```console
+$ make paper-smoke PYTHON=.venv/bin/python
+```
+
+The codebase intentionally keeps external pedestrian-analysis and high-fidelity
+hazard tools at the boundary. Chiyoda exports trajectory and telemetry tables
+for comparison with tools such as PedPy, JuPedSim, Vadere, and FDS-oriented
+hazard-field workflows instead of claiming to replace them.
+
+## Citation
+
+Please cite the Zenodo record if you use the paper, code, scenarios, or figures:
+
+```bibtex
+@misc{ong2026chiyoda,
+  author    = {Ong, Gabriel Zhe Mian},
+  title     = {Chiyoda: Entropy-Guided Information Control for Hazard-Coupled Pedestrian Evacuation},
+  year      = {2026},
+  publisher = {Zenodo},
+  version   = {v1},
+  doi       = {10.5281/zenodo.19905070},
+  url       = {https://doi.org/10.5281/zenodo.19905070}
+}
+```
+
+## Research Context
+
+The name `Chiyoda` references the
+[Tokyo Metro Chiyoda Line](https://en.wikipedia.org/wiki/Tokyo_Metro_Chiyoda_Line).
+The motivating domain is emergency communication under CBRN-like evacuation
+pressure, but the framework is implemented as a more general information-control
+simulation layer for spatial evacuation studies.
+
+Chiyoda sits between pedestrian dynamics, hazard-coupled evacuation, and
+information-aware decision models. Its contribution is not a new crowd-force
+law; it is a replayable intervention surface and evaluation package for asking
+when emergency communication improves safety and when it creates harmful
+convergence.
+
+<div align="center">
+    <img src="./asset/logo/map.png" width="65%">
 </div>
