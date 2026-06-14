@@ -82,12 +82,12 @@ cd paper
   -o figures/regime-robustness-heatmap.pdf
 ```
 
-## Optional LLM Extension Pilot
+## Bounded LLM Extension and Pilot
 
-The LLM extension is not part of the completed baseline evidence. It exists as
-a controlled, replayable extension for future paper work. The default pilot uses a
-deterministic template provider and writes generated-message cache artifacts
-without requiring live API keys:
+The LLM extension is part of the paper as bounded extension evidence, not as a
+replacement for the deterministic baseline studies. The default pilot remains a
+small plumbing check: it uses a deterministic template provider and writes
+generated-message cache artifacts without requiring live API keys:
 
 ```sh
 PYTHONPATH=. .venv/bin/python scripts/run_study_progress.py \
@@ -104,7 +104,10 @@ For live OpenAI smoke tests, place the API key in `.env` as
 `OPENAI_API_KEY=...`. The loader also accepts the legacy local spellings
 `OPENAI-API-KEY` and `OPEN-AI-API-KEY`. Set `OPENAI_MODEL` externally or set
 `llm_model` in the scenario if a specific model is required; otherwise the
-OpenAI provider uses a small default model for bounded smoke tests.
+OpenAI provider uses the repository default from
+`chiyoda.information.llm.DEFAULT_OPENAI_MODEL` for new bounded smoke tests.
+Paper study scenarios that name `llm_model` remain explicitly pinned for
+replay compatibility.
 
 The smallest opt-in live/replay pilot is:
 
@@ -115,11 +118,11 @@ PYTHONPATH=. .venv/bin/python scripts/run_study_progress.py \
 ```
 
 Its OpenAI variant uses `llm_cache_mode: cache_first`; the replay variant uses
-the same cache path with `llm_provider: replay`. Do not treat the live pilot as
-a paper result until the cached artifacts, validation summary, and deterministic
-replay run have been inspected. In the current artifact set, the tiny OpenAI
-pilot completed with 8 accepted live messages, 0 rejected live messages, 0
-fallbacks, and exact replay coverage for the cached messages.
+the same cache path with `llm_provider: replay`. Do not treat a new live pilot
+as paper evidence until the cached artifacts, validation summary, and
+deterministic replay run have been inspected. In the current artifact set, the
+tiny OpenAI pilot completed with 8 accepted live messages, 0 rejected live
+messages, 0 fallbacks, and exact replay coverage for the cached messages.
 
 After any LLM pilot, summarize generated-message telemetry with:
 
@@ -144,8 +147,8 @@ PYTHONPATH=. .venv/bin/python scripts/summarize_llm_interventions.py \
 The medium design includes deterministic baselines, template generation,
 OpenAI prompt-style ablations, validator-profile ablations, and replay-only
 verification. The current medium run contains 80 completed runs across 8
-variants and 10 seeds. Treat it as an extension study; it should not replace
-the deterministic baseline evidence.
+variants and 10 seeds. Treat it as a bounded extension study; it should not
+replace the deterministic baseline evidence.
 
 The focused LLM regime robustness extension can be run with checkpoints:
 
@@ -312,7 +315,7 @@ This reads the medium LLM, target-selection, LLM regime robustness, and
 deterministic regime robustness CSV artifacts, plus the prompt-objective,
 budget-equivalence, and seed-level claim-statistics artifacts. The generated
 `llm_tables.tex` includes all LLM tables used in
-`paper/sections/limitations.tex`.
+`paper/sections/evaluation.tex`.
 
 ## Artifact Index
 
@@ -352,7 +355,8 @@ out/<study_name>/
 ```
 
 The paper currently uses the 50-seed primary study for generated statistics
-and the two main evaluation figures:
+and the two main evaluation figures. These large study outputs are regenerated
+under `out/` and are intentionally ignored by git:
 
 ```text
 out/information_control_50/tables/summary.parquet

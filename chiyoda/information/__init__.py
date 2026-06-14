@@ -31,6 +31,7 @@ from chiyoda.information.llm import (
     ValidationResult,
     ValidatorSettings,
     load_openai_api_key,
+    load_openai_model,
     validate_generated_message,
     validator_settings,
 )
@@ -58,6 +59,7 @@ __all__ = [
     "ValidationResult",
     "ValidatorSettings",
     "load_openai_api_key",
+    "load_openai_model",
     "validate_generated_message",
     "validator_settings",
 ]

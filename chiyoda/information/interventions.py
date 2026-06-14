@@ -26,6 +26,7 @@ from chiyoda.information.llm import (
     ReplayOnlyGenerator,
     TemplateLLMGenerator,
     ValidationResult,
+    load_openai_model,
     validate_generated_message,
     validator_settings,
 )
@@ -373,7 +374,7 @@ class LLMGuidancePolicy(EntropyTargetedPolicy):
             model = (
                 config.llm_model
                 if config.llm_model and config.llm_model != "template"
-                else "gpt-5.4-mini"
+                else load_openai_model()
             )
             self.generator = OpenAIResponsesGenerator(model=model)
         else:

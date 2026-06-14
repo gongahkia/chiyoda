@@ -34,6 +34,41 @@ def _fmt(value: float, digits: int = 2) -> str:
     return f"{float(value):.{digits}f}"
 
 
+POLICY_LABELS = {
+    "no_intervention": "No intervention",
+    "static_beacon": "Static beacon",
+    "static_broadcast": "Static beacon",
+    "global_broadcast": "Global broadcast",
+    "responder_relay": "Responder relay",
+    "entropy_targeted": "Entropy-targeted",
+    "density_aware": "Density-aware",
+    "exposure_aware": "Exposure-aware",
+    "bottleneck_avoidance": "Bottleneck avoidance",
+    "llm_guidance": "LLM guidance",
+}
+
+
+def _latex_text(value: object) -> str:
+    text = str(value)
+    replacements = {
+        "\\": r"\textbackslash{}",
+        "&": r"\&",
+        "%": r"\%",
+        "$": r"\$",
+        "#": r"\#",
+        "_": r"\_",
+        "{": r"\{",
+        "}": r"\}",
+    }
+    return "".join(replacements.get(char, char) for char in text)
+
+
+def _policy_label(value: object) -> str:
+    raw = str(value)
+    label = POLICY_LABELS.get(raw, raw.replace("_", " ").capitalize())
+    return _latex_text(label)
+
+
 def main(argv: list[str]) -> int:
     if len(argv) != 2:
         print("usage: gen_stats.py <study_dir>", file=sys.stderr)
@@ -50,11 +85,11 @@ def main(argv: list[str]) -> int:
     best_efficiency = 0.0
     best_policy = "TBD"
     harmful_peak = 0.0
-    study_name = str(metadata.get("study_name", "TBD")).replace("_", r"\_")
+    study_name = _latex_text(metadata.get("study_name", "TBD"))
     if not variants.empty and "information_safety_efficiency" in variants.columns:
         best = variants.sort_values("information_safety_efficiency", ascending=False).iloc[0]
         best_efficiency = float(best["information_safety_efficiency"])
-        best_policy = str(best["variant_name"]).replace("_", r"\_")
+        best_policy = _policy_label(best["variant_name"])
     if not variants.empty and "harmful_convergence_index" in variants.columns:
         harmful_peak = float(variants["harmful_convergence_index"].max())
 

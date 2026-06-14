@@ -11,7 +11,8 @@ paper/
   main.tex              # acmart entry point, metadata, abstract, section wiring
   main_smoke.tex        # article-class fallback build
   references.bib        # seeded citations
-  stats.tex             # generated from an exported study bundle
+  stats.tex             # generated/ignored from an exported study bundle
+  llm_tables.tex        # generated LLM extension tables used by evaluation.tex
   REPRODUCIBILITY.md    # exact study commands and artifact index
   Makefile              # paper / smoke / stats / figures / clean
   scripts/
@@ -33,9 +34,9 @@ paper/
     architecture.mmd
     intervention-loop.mmd
     policy-taxonomy.mmd
-    information-safety-frontier.pdf
-    intervention-timeline.pdf
-    regime-robustness-heatmap.pdf
+    information-safety-frontier.pdf # generated/ignored from out/information_control_50
+    intervention-timeline.pdf       # generated/ignored from out/information_control_50
+    regime-robustness-heatmap.pdf   # generated robustness summary figure
 ```
 
 ## Build
@@ -50,15 +51,21 @@ make smoke
 ```
 
 The default `STUDY_DIR` is `../out/information_control_50`. Generate the
-primary paper artifact from the repo root with:
+primary study artifact from the repo root with:
 
 ```sh
 PYTHONPATH=. .venv/bin/python scripts/run_study_progress.py scenarios/study_information_control.yaml -o out/information_control_50 --seed-count 50
 ```
 
+The large study directories under `out/`, `stats.tex`, and copied study figure
+PDFs are generated artifacts and are intentionally ignored by git. The checked-in
+`main.pdf` is the Zenodo v1 manuscript artifact; rebuilding it from source
+requires regenerating the study outputs listed in
+[`REPRODUCIBILITY.md`](./REPRODUCIBILITY.md).
+
 See [`REPRODUCIBILITY.md`](./REPRODUCIBILITY.md) for the complete 50-seed
-primary study, 30-seed support studies, artifact index, and regeneration
-commands.
+primary study, 30-seed support studies, 900-run robustness grid, LLM extension
+studies, artifact index, and regeneration commands.
 
 ## Zenodo deposit
 

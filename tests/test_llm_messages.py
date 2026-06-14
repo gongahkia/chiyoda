@@ -11,6 +11,7 @@ from chiyoda.information.llm import (
     ValidationResult,
     build_prompt_instructions,
     load_openai_api_key,
+    load_openai_model,
     validate_generated_message,
     validator_settings,
 )
@@ -230,6 +231,29 @@ def test_openai_api_key_loader_accepts_hyphenated_env_file(tmp_path, monkeypatch
     env_file.write_text("OPENAI-API-KEY='test-key'\n")
 
     assert load_openai_api_key(env_file) == "test-key"
+
+
+def test_openai_model_loader_prefers_env_over_env_file(tmp_path, monkeypatch):
+    monkeypatch.delenv("OPENAI_MODEL", raising=False)
+    env_file = tmp_path / ".env"
+    env_file.write_text("OPENAI_MODEL='gpt-file-model'\n")
+
+    assert load_openai_model(env_file) == "gpt-file-model"
+
+    monkeypatch.setenv("OPENAI_MODEL", "gpt-env-model")
+
+    assert load_openai_model(env_file) == "gpt-env-model"
+
+
+def test_openai_generator_uses_configured_default_model(tmp_path, monkeypatch):
+    monkeypatch.delenv("OPENAI_MODEL", raising=False)
+    env_file = tmp_path / ".env"
+    env_file.write_text('OPENAI_MODEL="gpt-file-model"\n')
+    monkeypatch.chdir(tmp_path)
+
+    generator = OpenAIResponsesGenerator(api_key="test-key")
+
+    assert generator.model == "gpt-file-model"
 
 
 def test_openai_generator_parses_mocked_responses(monkeypatch):

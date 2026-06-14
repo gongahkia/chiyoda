@@ -20,7 +20,7 @@
     <a href="https://doi.org/10.5281/zenodo.19905070">
         <img src="https://zenodo.org/badge/DOI/10.5281/zenodo.19905070.svg"
             alt="Zenodo DOI"/></a>
-    <a href="https://github.com/gongahkia/chiyoda/releases/tag/3.0.0">
+    <a href="https://github.com/gongahkia/chiyoda">
         <img src="https://img.shields.io/badge/chiyoda-3.0.0-85c8c8?style=for-the-badge"
             alt="Chiyoda 3.0.0"/></a>
     <a href="./paper/main.pdf">
@@ -49,11 +49,14 @@ Chiyoda is published as a Zenodo preprint:
 * **Title:** *Chiyoda: Entropy-Guided Information Control for Hazard-Coupled Pedestrian Evacuation*
 * **Subtitle:** *A Framework for Benchmarking Emergency Communication Efficacy*
 * **DOI:** [10.5281/zenodo.19905070](https://doi.org/10.5281/zenodo.19905070)
-* **Version:** `v1`
+* **Paper version:** `v1`
+* **Repository package version:** `3.0.0`
 * **License for the paper:** [Creative Commons Attribution 4.0 International](https://creativecommons.org/licenses/by/4.0/)
 
 The repository contains the simulation code, scenario definitions, study
-scripts, LaTeX source, generated figures, and the final paper PDF.
+scripts, LaTeX source, reproducibility tooling, and the final paper PDF. Large
+study outputs under `out/`, `paper/stats.tex`, and copied paper figure PDFs are
+generated artifacts and are intentionally ignored by git.
 
 ## Why Chiyoda?
 
@@ -146,8 +149,8 @@ Important documentation:
 
 ## Reproduce the Paper
 
-The final paper PDF is [`paper/main.pdf`](./paper/main.pdf). To rebuild it from
-the current generated study artifacts:
+The final paper PDF is [`paper/main.pdf`](./paper/main.pdf). To rebuild it
+after regenerating the study artifacts:
 
 ```console
 $ cd paper

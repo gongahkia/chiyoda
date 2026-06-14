@@ -94,7 +94,8 @@ def compare_variants(
         
     Returns:
         DataFrame with rows for each metric, containing means, CIs, p-values, 
-        and effect sizes.
+        and effect sizes. When exported study bundles include aggregate rows,
+        only run-level rows are used for statistical comparisons.
     """
     if metrics is None:
         metrics = [
@@ -105,6 +106,8 @@ def compare_variants(
         ]
         
     summary = bundle.summary
+    if "record_type" in summary.columns:
+        summary = summary[summary["record_type"] == "run"].copy()
     if summary.empty:
         return pd.DataFrame()
         

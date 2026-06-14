@@ -154,6 +154,7 @@ In the current implementation, harmful convergence is computed as
 
 \[
 \chi_{harm} =
+\mathbb{1}[\Delta H_{int}^{+} > 0]\,
 \frac{B_{exit}(1 + Q_{peak})(1 + \bar{E})}
      {1 + \Delta H_{int}^{+}},
 \]
@@ -161,7 +162,10 @@ In the current implementation, harmful convergence is computed as
 where $B_{exit}$ is the final dominant-exit share, $Q_{peak}$ is the peak
 bottleneck queue length, $\bar{E}$ is mean cumulative hazard exposure, and
 $\Delta H_{int}^{+}$ is the positive entropy reduction attributable to
-interventions. The denominator prevents ordinary information gain from being
-mistaken for harm, while the numerator raises the score when a population
-converges on a dominant exit under queueing and exposure pressure. Like ISE,
-HCI is a comparative study metric rather than a universal safety law.
+interventions. Runs or policies with no positive intervention-attributed
+entropy reduction receive HCI zero in exported tables, so the no-intervention
+baseline is not labeled as harmful convergence by construction. The denominator
+prevents ordinary information gain from being mistaken for harm, while the
+numerator raises the score when a population converges on a dominant exit under
+queueing and exposure pressure. Like ISE, HCI is a comparative study metric
+rather than a universal safety law.

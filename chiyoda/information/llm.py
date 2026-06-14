@@ -20,6 +20,7 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 Cell = Tuple[int, int]
 Point = Tuple[float, float]
+DEFAULT_OPENAI_MODEL = "gpt-5.5"
 
 
 @dataclass(frozen=True)
@@ -227,13 +228,13 @@ class OpenAIResponsesGenerator(LLMMessageGenerator):
 
     def __init__(
         self,
-        model: str = "gpt-5.4-mini",
+        model: Optional[str] = None,
         *,
         api_key: Optional[str] = None,
         timeout_s: float = 30.0,
         endpoint: str = "https://api.openai.com/v1/responses",
     ) -> None:
-        self.model = model
+        self.model = model or load_openai_model()
         self.api_key = api_key or load_openai_api_key()
         self.timeout_s = float(timeout_s)
         self.endpoint = endpoint
@@ -462,6 +463,21 @@ def load_openai_api_key(env_path: Path | str = ".env") -> Optional[str]:
         if value:
             return value
 
+    return _load_env_file_value(env_path, names)
+
+
+def load_openai_model(
+    env_path: Path | str = ".env",
+    default: str = DEFAULT_OPENAI_MODEL,
+) -> str:
+    value = os.environ.get("OPENAI_MODEL")
+    if value:
+        return value
+
+    return _load_env_file_value(env_path, ("OPENAI_MODEL",)) or default
+
+
+def _load_env_file_value(env_path: Path | str, names: Sequence[str]) -> Optional[str]:
     path = Path(env_path)
     if not path.exists():
         return None

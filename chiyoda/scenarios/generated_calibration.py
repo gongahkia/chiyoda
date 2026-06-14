@@ -9,7 +9,7 @@ from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 from urllib import request as urlrequest
 from urllib.error import HTTPError, URLError
 
-from chiyoda.information.llm import load_openai_api_key
+from chiyoda.information.llm import load_openai_api_key, load_openai_model
 
 
 ALLOWED_TARGETS = {"cohort_mix", "parameter_priors", "scenario_metadata"}
@@ -296,13 +296,13 @@ class OpenAIPopulationCalibrationGenerator(PopulationCalibrationGenerator):
 
     def __init__(
         self,
-        model: str = "gpt-5.4-mini",
+        model: Optional[str] = None,
         *,
         api_key: Optional[str] = None,
         timeout_s: float = 30.0,
         endpoint: str = "https://api.openai.com/v1/responses",
     ) -> None:
-        self.model = model
+        self.model = model or load_openai_model()
         self.api_key = api_key or load_openai_api_key()
         self.timeout_s = float(timeout_s)
         self.endpoint = endpoint
@@ -384,7 +384,7 @@ def apply_generated_population_calibration(scenario: Mapping[str, Any]) -> Dict[
         )
         generator = ReplayPopulationCalibrationGenerator(cache)
     elif config.provider == "openai":
-        model = config.model if config.model and config.model != "template" else "gpt-5.4-mini"
+        model = config.model if config.model and config.model != "template" else load_openai_model()
         generator = OpenAIPopulationCalibrationGenerator(model=model)
     else:
         raise ValueError("Unsupported generated population calibration provider")

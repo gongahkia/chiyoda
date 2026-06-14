@@ -4,6 +4,7 @@ import pytest
 
 from chiyoda.scenarios.generated_calibration import (
     GeneratedPopulationCalibration,
+    OpenAIPopulationCalibrationGenerator,
     PopulationCalibrationCache,
     PopulationCalibrationConfig,
     PopulationCalibrationRecord,
@@ -219,3 +220,14 @@ def test_generated_population_calibration_study_pairs_template_and_replay():
     assert template["generated_population_calibration"]["cache_path"] == replay["generated_population_calibration"]["cache_path"]
     assert cohort_mix["generated_population_calibration"]["allowed_targets"][0] == "cohort_mix"
     assert cohort_mix["population"]["cohorts"] == []
+
+
+def test_openai_population_calibration_uses_configured_default_model(tmp_path, monkeypatch):
+    monkeypatch.delenv("OPENAI_MODEL", raising=False)
+    env_file = tmp_path / ".env"
+    env_file.write_text("OPENAI_MODEL='gpt-calibration-model'\n")
+    monkeypatch.chdir(tmp_path)
+
+    generator = OpenAIPopulationCalibrationGenerator(api_key="test-key")
+
+    assert generator.model == "gpt-calibration-model"

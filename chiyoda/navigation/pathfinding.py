@@ -15,10 +15,14 @@ class SmartNavigator:
     """
     Grid graph navigator with belief-weighted edge costs.
 
+    Agent route planning passes hazard beliefs, so unseen ground-truth hazards
+    do not affect route choice. The ground-truth hazard callback is retained
+    only for utility calls that do not provide a belief state.
+
     Edge weights incorporate:
     - base traversal cost (1.0 per cell)
     - density penalty (from spatial index)
-    - hazard penalty (from simulation ground truth OR agent beliefs)
+    - hazard penalty from the agent's hazard beliefs during normal simulation
     - visibility penalty (prefer well-lit / visible paths)
     """
 
