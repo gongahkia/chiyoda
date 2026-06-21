@@ -9,7 +9,7 @@ makes bounded-rational decisions under uncertainty.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import List, Optional, Tuple
+from typing import Any, List, Optional, Tuple
 
 import numpy as np
 
@@ -74,6 +74,11 @@ class CognitiveAgent:
     group_id: Optional[int] = None
     leader_id: Optional[int] = None
     assisted_agent_id: Optional[int] = None
+    family_id: Optional[str] = None
+    role_in_group: str = "solo"
+    separation_anxiety_threshold: float = 1.5
+    mobility_class: str = "standard"
+    breathing_height_m: float = 1.5
 
     # navigation
     current_path: List[tuple] = field(default_factory=list)
@@ -96,6 +101,10 @@ class CognitiveAgent:
     familiarity: float = 0.5  # [0,1] how well agent knows the environment
     credibility: float = 0.5  # [0,1] how much other agents trust this one
     gossip_radius: float = 2.0
+    homophily_profile: dict[str, Any] = field(default_factory=dict)
+    homophily_weight: float = 0.0
+    exit_affinity: float = 0.5
+    herding: float = 0.5
 
     # ITED: cognition (BDI)
     intention: str = INTENTION_EVACUATE
@@ -182,8 +191,7 @@ class CognitiveAgent:
         known_exits = self.beliefs.known_exits()
         if known_exits:
             self.intention = INTENTION_EVACUATE
-            # pick the best exit from beliefs
-            best = self.beliefs.best_exit()
+            best = self._best_exit(simulation, known_exits)
             if best and best != self.target_exit:
                 self.target_exit = best
                 self.current_path = []  # force replan
@@ -194,6 +202,42 @@ class CognitiveAgent:
         else:
             # rational but no known exits → explore
             self.intention = INTENTION_EXPLORE
+
+    def _best_exit(self, simulation, known_exits: List[tuple]) -> Optional[tuple]:
+        destination_profiles = getattr(simulation, "destination_profiles", {})
+        same_family_targets = {}
+        if self.family_id:
+            for other in getattr(simulation, "agents", []):
+                if other.id == self.id or getattr(other, "family_id", None) != self.family_id:
+                    continue
+                target = getattr(other, "target_exit", None)
+                if target is not None:
+                    same_family_targets[tuple(target)] = same_family_targets.get(tuple(target), 0) + 1
+        family_target_total = max(1, sum(same_family_targets.values()))
+        scored = []
+        for exit_pos in known_exits:
+            key = tuple(exit_pos)
+            belief = self.beliefs.exit_beliefs.get(key)
+            if belief is None:
+                continue
+            base_score = (belief.exists_prob - belief.congestion_est) * (1.0 - belief.freshness * 0.3)
+            profile_score = _profile_similarity(self.homophily_profile, destination_profiles.get(key, {}))
+            family_score = same_family_targets.get(key, 0) / family_target_total
+            distance_score = 0.0
+            if hasattr(simulation, "layout"):
+                target = simulation.layout.world_position(key)
+                distance_score = 1.0 / (1.0 + float(np.linalg.norm(target - self.pos)))
+            score = (
+                base_score
+                + self.homophily_weight * profile_score
+                + 0.15 * self.herding * family_score
+                + 0.05 * self.exit_affinity * distance_score
+            )
+            scored.append((score, key))
+        if not scored:
+            return self.beliefs.best_exit()
+        scored.sort(reverse=True)
+        return scored[0][1]
 
     def update_navigation(self, navigator, simulation) -> None:
         """Refresh navigation path based on current intention and beliefs."""
@@ -372,7 +416,7 @@ class CognitiveAgent:
                 if leader is not None and leader.is_released(simulation) and not leader.has_evacuated:
                     leader_delta = leader.pos - self.pos
                     leader_dist = np.linalg.norm(leader_delta)
-                    if leader_dist > 1.5:
+                    if leader_dist > self.separation_anxiety_threshold:
                         direction = 0.65 * direction + 0.35 * (leader_delta / leader_dist)
                         dir_norm = np.linalg.norm(direction)
                         if dir_norm > 1e-6:
@@ -441,3 +485,13 @@ class CognitiveAgent:
                 if simulation.layout.is_walkable(new_pos):
                     self.pos = new_pos
                     self.floor_id = simulation.layout.floor_for_z(float(self.pos[2]))
+
+
+def _profile_similarity(left: dict[str, Any], right: dict[str, Any]) -> float:
+    if not left or not right:
+        return 0.0
+    keys = sorted(set(left) & set(right))
+    if not keys:
+        return 0.0
+    matches = sum(1 for key in keys if str(left[key]).lower() == str(right[key]).lower())
+    return float(matches / len(keys))

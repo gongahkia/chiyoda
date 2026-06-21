@@ -143,11 +143,7 @@ class ConnectorQueue:
         dwell_s = float(getattr(self.connector, "dwell_s", 0.0))
         if travel_s > 0 or self.connector.type == "elevator":
             return max(0.01, dwell_s + travel_s)
-        source_point = _point3(source)
-        target_point = _point3(target)
-        distance = float(np.linalg.norm(target_point - source_point))
-        if len(source) >= 3 and len(target) >= 3 and source[0] != target[0] and distance < 1e-6:
-            distance = 3.0
+        distance = _connector_distance(source, target, float(getattr(self.connector, "height_delta_m", 0.0)))
         speed = 1.34 * max(float(getattr(self.connector, "speed_multiplier", 1.0)), 1e-6)
         return max(0.01, dwell_s + distance / speed)
 
@@ -199,3 +195,15 @@ def _point3(cell: tuple) -> np.ndarray:
     if len(cell) >= 3:
         return np.array([float(cell[0]), float(cell[1]), float(cell[2])], dtype=float)
     return np.array([float(cell[0]), float(cell[1]), 0.0], dtype=float)
+
+
+def _connector_distance(source: tuple, target: tuple, height_delta_m: float) -> float:
+    if len(source) >= 3 and len(target) >= 3 and isinstance(source[0], str) and isinstance(target[0], str):
+        horizontal = float(((float(target[1]) - float(source[1])) ** 2 + (float(target[2]) - float(source[2])) ** 2) ** 0.5)
+        vertical = abs(float(height_delta_m)) if source[0] != target[0] else 0.0
+        if vertical <= 1e-9 and source[0] != target[0]:
+            vertical = 3.0
+        return float((horizontal * horizontal + vertical * vertical) ** 0.5)
+    source_point = _point3(source)
+    target_point = _point3(target)
+    return float(np.linalg.norm(target_point - source_point))

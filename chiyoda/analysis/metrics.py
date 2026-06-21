@@ -3,6 +3,7 @@ ITED simulation analytics with information-theoretic metrics,
 fundamental diagram extraction, and CBRN-specific measures.
 """
 from __future__ import annotations
+import json
 from typing import Any, Dict, List, Tuple
 import numpy as np
 
@@ -15,6 +16,10 @@ class SimulationAnalytics:
         exposures = [float(a.hazard_exposure) for a in simulation.agents]
         risk_scores = [float(a.hazard_risk) for a in simulation.agents]
         pending = len([a for a in simulation.agents if not a.has_evacuated and a.release_step > simulation.current_step])
+        evacuees = [
+            a for a in simulation.agents
+            if not getattr(a, "is_responder", False) and not getattr(a, "is_hostile", False)
+        ]
 
         peak_queue = peak_throughput = peak_cell_occupancy = 0
         if history:
@@ -130,6 +135,13 @@ class SimulationAnalytics:
             if any(getattr(agent_step, "decision_mode", "") == "HIDE" for agent_step in step.agents)
         ]
         time_to_shelter_s = float(min(shelter_times)) if shelter_times else 0.0
+        left_behind_index = _left_behind_index(evacuees)
+        exposure_by_group = _mean_exposure_by(evacuees, "cohort_name")
+        exposure_by_mobility_class = _mean_exposure_by(evacuees, "mobility_class")
+        percentile_gap_time_to_safety_s = (
+            float(np.percentile(travel_times, 95) - np.percentile(travel_times, 50))
+            if travel_times else 0.0
+        )
 
         return {
             "total_time_s": simulation.time_s,
@@ -179,4 +191,30 @@ class SimulationAnalytics:
             "run_fraction": run_hide_fight["run"],
             "hide_fraction": run_hide_fight["hide"],
             "fight_fraction": run_hide_fight["fight"],
+            "left_behind_index": left_behind_index,
+            "exposure_by_group": json.dumps(exposure_by_group, sort_keys=True),
+            "exposure_by_mobility_class": json.dumps(exposure_by_mobility_class, sort_keys=True),
+            "percentile_gap_time_to_safety_s": percentile_gap_time_to_safety_s,
         }
+
+
+def _left_behind_index(agents) -> float:
+    grouped: Dict[str, list] = {}
+    for agent in agents:
+        grouped.setdefault(str(getattr(agent, "cohort_name", "baseline")), []).append(agent)
+    rates = []
+    for members in grouped.values():
+        if members:
+            rates.append(sum(1 for agent in members if not agent.has_evacuated) / len(members))
+    return float(max(rates) - min(rates)) if len(rates) >= 2 else 0.0
+
+
+def _mean_exposure_by(agents, attr: str) -> Dict[str, float]:
+    grouped: Dict[str, list[float]] = {}
+    for agent in agents:
+        key = str(getattr(agent, attr, "unknown"))
+        grouped.setdefault(key, []).append(float(getattr(agent, "hazard_exposure", 0.0)))
+    return {
+        key: float(np.mean(values)) if values else 0.0
+        for key, values in sorted(grouped.items())
+    }

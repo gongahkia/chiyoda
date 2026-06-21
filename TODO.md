@@ -1,9 +1,3 @@
-(A) 2026-06-21 Enrich group attachment semantics family_id, role-in-group, separation-anxiety threshold +Homophily3D @agents release:v1
-(A) 2026-06-21 Implement homophily-weighted destination choice (Marshall-Fire reference) +Homophily3D @info release:v1
-(A) 2026-06-21 Add 3D-height to layout cells; smoke layering and gas density as height-dependent fields +Homophily3D @env release:v1
-(A) 2026-06-21 Make LOS, hazard exposure, and connector traversal height-aware in navigation +Homophily3D @nav release:v1
-(B) 2026-06-21 Add equity metrics left-behind index, exposure-by-group, percentile gap in time-to-safety +Homophily3D @analysis release:v1
-(B) 2026-06-21 Heterogeneous mobility classes (wheelchair, walker, visual-impairment) as opt-in cohort kind +Homophily3D @agents release:v1
 (B) 2026-06-21 Persona-conditioned population generation via bounded LLM call with caching and validation +LLMSelective @info release:v1
 (B) 2026-06-21 Multi-responder coordination policy (LLM negotiates broadcast targets given live entropy field) +LLMSelective @info release:v1
 (C) 2026-06-21 Provider abstraction OpenAI / Anthropic / local replay; cache budget and cost guard +LLMSelective @info release:v1

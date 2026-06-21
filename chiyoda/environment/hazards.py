@@ -56,6 +56,11 @@ class Hazard:
     visibility_reduction: float = 0.0 # how much this hazard reduces visibility [0,1]
     range_m: float = 8.0
     accuracy: float = 0.35
+    height_aware: bool = False
+    layer_base_m: Optional[float] = None
+    layer_top_m: Optional[float] = None
+    vertical_decay_m: float = 1.0
+    gas_density: float = 1.0
     active: bool = True
 
     def step(self, dt: float, simulation) -> None:
@@ -77,23 +82,38 @@ class Hazard:
     def intensity_at(self, point: np.ndarray) -> float:
         if not self.active:
             return 0.0
-        dist = float(np.linalg.norm(_point3(point) - _point3(self.pos)))
+        sample = _point3(point)
+        origin = _point3(self.pos)
+        dist = (
+            float(np.linalg.norm(sample[:2] - origin[:2]))
+            if self.height_aware
+            else float(np.linalg.norm(sample - origin))
+        )
         effective_radius = self.range_m if self.kind.upper() == "SHOOTER" else self.radius
         if effective_radius <= 1e-6:
-            return float(self.severity) if dist <= 0.75 else 0.0
+            base = float(self.severity) if dist <= 0.75 else 0.0
+            return base * _height_factor(sample[2] - origin[2], self)
         if dist <= effective_radius:
-            return float(self.severity) * max(0.0, 1.0 - (dist / effective_radius))
+            base = float(self.severity) * max(0.0, 1.0 - (dist / effective_radius))
+            return base * _height_factor(sample[2] - origin[2], self)
         return 0.0
 
     def visibility_at(self, point: np.ndarray) -> float:
         """Returns visibility factor [0,1] at a point (1=clear, 0=opaque)."""
         if not self.active or self.visibility_reduction <= 0:
             return 1.0
-        dist = float(np.linalg.norm(_point3(point) - _point3(self.pos)))
+        sample = _point3(point)
+        origin = _point3(self.pos)
+        dist = (
+            float(np.linalg.norm(sample[:2] - origin[:2]))
+            if self.height_aware
+            else float(np.linalg.norm(sample - origin))
+        )
+        height_factor = _height_factor(sample[2] - origin[2], self)
         if self.radius <= 1e-6:
-            return 1.0 - self.visibility_reduction if dist <= 0.75 else 1.0
+            return 1.0 - self.visibility_reduction * height_factor if dist <= 0.75 else 1.0
         if dist <= self.radius:
-            return 1.0 - self.visibility_reduction * max(0.0, 1.0 - (dist / self.radius))
+            return 1.0 - self.visibility_reduction * max(0.0, 1.0 - (dist / self.radius)) * height_factor
         return 1.0
 
     def affects(self, point: np.ndarray) -> bool:
@@ -112,6 +132,11 @@ class Hazard:
             "visibility_reduction": self.visibility_reduction,
             "range_m": self.range_m,
             "accuracy": self.accuracy,
+            "height_aware": self.height_aware,
+            "layer_base_m": self.layer_base_m,
+            "layer_top_m": self.layer_top_m,
+            "vertical_decay_m": self.vertical_decay_m,
+            "gas_density": self.gas_density,
         }
 
 
@@ -125,6 +150,12 @@ class ImportedHazardField:
     cell_size: float = 1.0
     visibility_grid: Optional[np.ndarray] = None
     source: Dict[str, Any] = field(default_factory=dict)
+    base_z: float = 0.0
+    height_aware: bool = False
+    layer_base_m: Optional[float] = None
+    layer_top_m: Optional[float] = None
+    vertical_decay_m: float = 1.0
+    gas_density: float = 1.0
     active: bool = True
 
     @property
@@ -172,6 +203,12 @@ class ImportedHazardField:
             origin=tuple(float(v) for v in payload.get("origin", (0.0, 0.0))),
             cell_size=float(payload.get("cell_size", 1.0)),
             source=dict(payload.get("source", {})),
+            base_z=float(payload.get("base_z", payload.get("z", 0.0))),
+            height_aware=bool(payload.get("height_aware", False)),
+            layer_base_m=_optional_float(payload.get("layer_base_m")),
+            layer_top_m=_optional_float(payload.get("layer_top_m")),
+            vertical_decay_m=float(payload.get("vertical_decay_m", 1.0)),
+            gas_density=float(payload.get("gas_density", 1.0)),
         )
 
     @classmethod
@@ -215,7 +252,7 @@ class ImportedHazardField:
         if cell is None:
             return 0.0
         x, y = cell
-        return float(self.intensity_grid[y, x])
+        return float(self.intensity_grid[y, x]) * _height_factor(float(_point3(point)[2]) - self.base_z, self)
 
     def visibility_at(self, point: np.ndarray) -> float:
         if not self.active or self.visibility_grid is None:
@@ -224,7 +261,8 @@ class ImportedHazardField:
         if cell is None:
             return 1.0
         x, y = cell
-        return float(np.clip(self.visibility_grid[y, x], 0.0, 1.0))
+        obscuration = 1.0 - float(np.clip(self.visibility_grid[y, x], 0.0, 1.0))
+        return float(np.clip(1.0 - obscuration * _height_factor(float(_point3(point)[2]) - self.base_z, self), 0.0, 1.0))
 
     def affects(self, point: np.ndarray) -> bool:
         return self.intensity_at(point) > 0.0
@@ -243,6 +281,11 @@ class ImportedHazardField:
             "field_shape": tuple(int(v) for v in self.intensity_grid.shape),
             "source": dict(self.source),
             "imported_field": True,
+            "height_aware": self.height_aware,
+            "layer_base_m": self.layer_base_m,
+            "layer_top_m": self.layer_top_m,
+            "vertical_decay_m": self.vertical_decay_m,
+            "gas_density": self.gas_density,
         }
 
     def _cell_for_point(self, point: np.ndarray) -> Optional[Tuple[int, int]]:
@@ -269,3 +312,29 @@ def _point3(value: Any) -> np.ndarray:
     if len(value) >= 3:
         return np.array([float(value[0]), float(value[1]), float(value[2])], dtype=float)
     return np.array([float(value[0]), float(value[1]), 0.0], dtype=float)
+
+
+def _optional_float(value: Any) -> Optional[float]:
+    if value is None:
+        return None
+    return float(value)
+
+
+def _height_factor(height_m: float, hazard: Any) -> float:
+    if not bool(getattr(hazard, "height_aware", False)):
+        return 1.0
+    decay = max(float(getattr(hazard, "vertical_decay_m", 1.0)), 1e-6)
+    base = getattr(hazard, "layer_base_m", None)
+    top = getattr(hazard, "layer_top_m", None)
+    if base is not None and top is not None:
+        lo, hi = sorted((float(base), float(top)))
+        if lo <= height_m <= hi:
+            return 1.0
+        distance = lo - height_m if height_m < lo else height_m - hi
+        return float(np.exp(-max(0.0, distance) / decay))
+    density = max(float(getattr(hazard, "gas_density", 1.0)), 1e-6)
+    if density > 1.0:
+        return float(np.exp(-max(0.0, height_m) * (density - 1.0) / decay))
+    if density < 1.0:
+        return float(np.exp(-max(0.0, -height_m) * ((1.0 / density) - 1.0) / decay))
+    return 1.0

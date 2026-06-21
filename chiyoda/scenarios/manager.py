@@ -26,6 +26,15 @@ from chiyoda.navigation.spatial_index import SpatialIndex
 from chiyoda.scenarios.generated_calibration import apply_generated_population_calibration
 
 
+MOBILITY_CLASS_DEFAULTS = {
+    "standard": {"speed_multiplier": 1.0, "vision_multiplier": 1.0, "breathing_height_m": 1.5},
+    "wheelchair": {"speed_multiplier": 0.55, "vision_multiplier": 1.0, "breathing_height_m": 1.1},
+    "walker": {"speed_multiplier": 0.7, "vision_multiplier": 0.95, "breathing_height_m": 1.35},
+    "visual-impairment": {"speed_multiplier": 0.85, "vision_multiplier": 0.45, "breathing_height_m": 1.5},
+    "visual_impairment": {"speed_multiplier": 0.85, "vision_multiplier": 0.45, "breathing_height_m": 1.5},
+}
+
+
 @dataclass
 class Scenario:
     name: str
@@ -96,6 +105,7 @@ class ScenarioManager:
             beacon_radius=float(info_cfg.get("beacon_radius", 8.0)),
         )
         sim = Simulation(layout=layout, agents=agents, exits=exits, hazards=hazards, config=sim_cfg)
+        sim.destination_profiles = self._build_destination_profiles(sc, layout)
 
         spatial = SpatialIndex()
         sim.attach_spatial_index(spatial)
@@ -214,6 +224,11 @@ class ScenarioManager:
                 visibility_reduction=float(hc.get("visibility_reduction", 0.0)),
                 range_m=float(hc.get("range", hc.get("range_m", 8.0))),
                 accuracy=float(hc.get("accuracy", 0.35)),
+                height_aware=bool(hc.get("height_aware", False)),
+                layer_base_m=None if hc.get("layer_base_m") is None else float(hc["layer_base_m"]),
+                layer_top_m=None if hc.get("layer_top_m") is None else float(hc["layer_top_m"]),
+                vertical_decay_m=float(hc.get("vertical_decay_m", 1.0)),
+                gas_density=float(hc.get("gas_density", 1.0)),
             ))
         return hazards
 
@@ -328,6 +343,17 @@ class ScenarioManager:
             group_size = max(1, int(cohort_cfg.get("group_size", 1)))
             spawn_cells = list(cohort_cfg.get("spawn_cells", []) or [])
             familiarity = float(cohort_cfg.get("familiarity", 0.5))
+            mobility_class = str(cohort_cfg.get("mobility_class", "standard"))
+            mobility = MOBILITY_CLASS_DEFAULTS.get(mobility_class, MOBILITY_CLASS_DEFAULTS["standard"])
+            base_speed *= float(cohort_cfg.get("mobility_speed_multiplier", mobility["speed_multiplier"]))
+            base_vision_radius = float(cohort_cfg.get("base_vision_radius", 5.0))
+            base_vision_radius *= float(cohort_cfg.get("mobility_vision_multiplier", mobility["vision_multiplier"]))
+            separation_threshold = float(cohort_cfg.get("separation_anxiety_threshold", 1.5))
+            breathing_height = float(cohort_cfg.get("breathing_height_m", mobility["breathing_height_m"]))
+            homophily_profile = dict(cohort_cfg.get("homophily_profile", {}) or {})
+            homophily_weight = float(cohort_cfg.get("homophily_weight", 0.0))
+            exit_affinity = float(cohort_cfg.get("exit_affinity", 0.5))
+            herding = float(cohort_cfg.get("herding", 0.5))
 
             members: List[Commuter] = []
             for _ in range(count):
@@ -345,6 +371,17 @@ class ScenarioManager:
                     personality=personality, calmness=calmness,
                     release_step=release_step, cohort_name=cohort_name,
                     familiarity=familiarity,
+                    family_id=None if cohort_cfg.get("family_id") is None else str(cohort_cfg["family_id"]),
+                    role_in_group=str(cohort_cfg.get("role_in_group", "solo")),
+                    separation_anxiety_threshold=separation_threshold,
+                    mobility_class=mobility_class,
+                    breathing_height_m=breathing_height,
+                    base_vision_radius=base_vision_radius,
+                    vision_radius=base_vision_radius,
+                    homophily_profile=homophily_profile,
+                    homophily_weight=homophily_weight,
+                    exit_affinity=exit_affinity,
+                    herding=herding,
                 )
                 self._apply_agent_calibration(agent, cohort_cfg)
                 agents.append(agent)
@@ -358,9 +395,15 @@ class ScenarioManager:
                     leader = grp[0]
                     group_counter += 1
                     leader.group_id = group_counter
+                    leader.family_id = leader.family_id or f"{cohort_name}_{group_counter}"
+                    if leader.role_in_group == "solo":
+                        leader.role_in_group = "leader"
                     for follower in grp[1:]:
                         follower.group_id = group_counter
                         follower.leader_id = leader.id
+                        follower.family_id = follower.family_id or leader.family_id
+                        if follower.role_in_group == "solo":
+                            follower.role_in_group = "member"
 
             cohort_agents[cohort_name] = members
             if cohort_cfg.get("assist_to_cohort"):
@@ -376,11 +419,28 @@ class ScenarioManager:
                 group_counter += 1
                 helper.group_id = group_counter
                 helper.assisted_agent_id = dependent.id
+                helper.family_id = helper.family_id or f"assist_{group_counter}"
+                helper.role_in_group = "helper"
                 helper.base_speed = min(helper.base_speed, dependent.base_speed * 1.05)
                 dependent.group_id = group_counter
                 dependent.leader_id = helper.id
+                dependent.family_id = dependent.family_id or helper.family_id
+                dependent.role_in_group = "dependent"
 
         return agents
+
+    def _build_destination_profiles(self, scenario: Dict[str, Any], layout: Layout) -> Dict[tuple, Dict[str, Any]]:
+        raw_profiles = scenario.get("destination_profiles", scenario.get("exit_profiles", [])) or []
+        profiles: Dict[tuple, Dict[str, Any]] = {}
+        for raw in raw_profiles:
+            if not isinstance(raw, dict):
+                continue
+            cell_raw = raw.get("cell", raw.get("exit"))
+            if cell_raw is None:
+                continue
+            cell = self._parse_cell(cell_raw, layout)
+            profiles[cell] = dict(raw.get("profile", raw.get("homophily_profile", {})) or {})
+        return profiles
 
     def _apply_agent_calibration(self, agent, config: Dict[str, Any]) -> None:
         if "base_rationality" in config:
@@ -407,14 +467,17 @@ class ScenarioManager:
         return "\n".join("".join(str(c) for c in row) for row in layout.grid)
 
     def serialize_layout_floors(self, layout: Layout) -> List[Dict[str, Any]]:
-        return [
-            {
+        floors: List[Dict[str, Any]] = []
+        for floor_id, floor in layout.floors.items():
+            item: Dict[str, Any] = {
                 "id": floor_id,
                 "z": layout.floor_z(floor_id),
                 "text": "\n".join("".join(str(c) for c in row) for row in floor.grid),
             }
-            for floor_id, floor in layout.floors.items()
-        ]
+            if floor.cell_heights is not None:
+                item["cell_heights"] = floor.cell_heights.tolist()
+            floors.append(item)
+        return floors
 
     def serialize_layout_connectors(self, layout: Layout) -> List[Dict[str, Any]]:
         return [
@@ -433,6 +496,7 @@ class ScenarioManager:
                 "jam_flow_multiplier": connector.jam_flow_multiplier,
                 "dwell_s": connector.dwell_s,
                 "travel_s": connector.travel_s,
+                "height_delta_m": connector.height_delta_m,
             }
             for connector in layout.connectors
         ]

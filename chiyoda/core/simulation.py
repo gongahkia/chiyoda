@@ -146,6 +146,7 @@ class Simulation:
         self.hostile_channels: List[Any] = []
         self.hostile_channel_events: List[Any] = []
         self.hostile_agent_events: List[Dict[str, Any]] = []
+        self.destination_profiles: Dict[tuple, Dict[str, Any]] = {}
 
     def attach_navigation(self, navigator) -> None:
         self.navigator = navigator
@@ -258,17 +259,49 @@ class Simulation:
         ]
         visible = []
         for hostile in hostiles:
-            distance = float(np.linalg.norm(hostile.pos - agent.pos))
+            hostile_point = self._agent_sight_point(hostile)
+            agent_point = self._agent_sight_point(agent)
+            distance = float(np.linalg.norm(hostile_point - agent_point))
             range_m = float(getattr(hostile, "range_m", 8.0))
-            if line_of_sight(self.layout, hostile.pos, agent.pos, max_range=range_m):
+            if line_of_sight(self.layout, hostile_point, agent_point, max_range=range_m):
                 visible.append({"hostile": hostile, "distance": distance, "range_m": range_m})
         if not visible:
             return None
         return min(visible, key=lambda item: item["distance"])
 
     def hazard_penalty_at_cell(self, cell: Tuple[int, int]) -> float:
-        point = self.layout.world_position(cell)
-        return self.config.hazard_avoidance_weight * self.hazard_intensity_at(point)
+        if any(hasattr(hazard, "intensity_grid") or getattr(hazard, "height_aware", False) for hazard in self.hazards):
+            intensity = self._cell_hazard_intensity(cell, height_offset=1.5)
+        else:
+            intensity = self.hazard_intensity_at(self.layout.world_position(cell))
+        return self.config.hazard_avoidance_weight * intensity
+
+    def _cell_hazard_intensity(self, cell, *, height_offset: float) -> float:
+        floor_point = self.layout.world_position(cell)
+        exposure_point = self.layout.world_position(cell, height_offset=height_offset)
+        intensity = 0.0
+        for hazard in self.hazards:
+            sample = exposure_point if hasattr(hazard, "intensity_grid") or getattr(hazard, "height_aware", False) else floor_point
+            intensity += float(hazard.intensity_at(sample))
+        return intensity
+
+    def _agent_exposure_point(self, agent) -> np.ndarray:
+        cell = self._grid_cell(agent)
+        return self.layout.world_position(cell, height_offset=float(getattr(agent, "breathing_height_m", 1.5)))
+
+    def _agent_hazard_intensity(self, agent) -> float:
+        exposure_point = self._agent_exposure_point(agent)
+        floor_point = np.array(agent.pos, dtype=float)
+        intensity = 0.0
+        for hazard in self.hazards:
+            sample = exposure_point if hasattr(hazard, "intensity_grid") or getattr(hazard, "height_aware", False) else floor_point
+            intensity += float(hazard.intensity_at(sample))
+        return intensity
+
+    def _agent_sight_point(self, agent) -> np.ndarray:
+        cell = self._grid_cell(agent)
+        eye_height = float(getattr(agent, "eye_height_m", getattr(agent, "breathing_height_m", 1.5)))
+        return self.layout.world_position(cell, height_offset=eye_height)
 
     def _update_spatial_index(self) -> None:
         if self.spatial_index is not None:
@@ -296,9 +329,9 @@ class Simulation:
             if self.hazards else np.zeros((0,), dtype=float)
         )
         hazard_loads = self.acceleration.hazard_intensities(positions, hazard_positions, radii, severities)
-        if any(hasattr(hazard, "intensity_grid") for hazard in self.hazards):
+        if any(hasattr(hazard, "intensity_grid") or getattr(hazard, "height_aware", False) for hazard in self.hazards):
             hazard_loads = np.array(
-                [self.hazard_intensity_at(position) for position in positions],
+                [self._agent_hazard_intensity(agent) for agent in active_agents],
                 dtype=float,
             )
 
@@ -504,6 +537,9 @@ class Simulation:
                 cohort_name=str(agent.cohort_name),
                 group_id=agent.group_id,
                 leader_id=agent.leader_id,
+                family_id=getattr(agent, "family_id", None),
+                role_in_group=getattr(agent, "role_in_group", "solo"),
+                mobility_class=getattr(agent, "mobility_class", "standard"),
                 hazard_exposure=float(agent.hazard_exposure),
                 hazard_load=float(agent.current_hazard_load),
                 trail=tuple(self.agent_traces.get(agent.id, [])[-8:]),
@@ -855,6 +891,8 @@ class Simulation:
                 "state": a.state, "speed": a.speed, "local_density": a.local_density,
                 "target_exit": a.target_exit, "cohort_name": a.cohort_name,
                 "group_id": a.group_id, "leader_id": a.leader_id,
+                "family_id": a.family_id, "role_in_group": a.role_in_group,
+                "mobility_class": a.mobility_class,
                 "hazard_exposure": a.hazard_exposure, "hazard_load": a.hazard_load,
                 "trail": list(a.trail),
                 "entropy": a.entropy, "belief_accuracy": a.belief_accuracy,
