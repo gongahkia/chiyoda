@@ -46,12 +46,12 @@ Core capabilities include:
 
 | Layer | Capability |
 |:------|:-----------|
-| **Information** | Shannon-entropy beliefs, gossip propagation, beacon broadcast, responder relay, belief decay |
+| **Information** | Shannon-entropy beliefs, gossip propagation, beacon broadcast, responder relay, belief decay, hostile-channel provenance |
 | **Agents** | BDI-style cognitive agents, familiarity priors, herding/exploration, physiological impairment |
 | **Hazards** | Stylized GAS/SMOKE/FIRE/CRUSH hazards, spread fields, imported-field checks, visibility reduction |
 | **Navigation** | Social-force dynamics, belief-weighted A* routing, bottleneck and counterflow pressure, floor-aware connector routing |
-| **Interventions** | Static, global, responder, entropy-targeted, density-aware, exposure-aware, and bottleneck-avoidance messaging |
-| **Analysis** | Belief entropy, belief accuracy, information-safety efficiency, harmful-convergence index, trajectory exports, static 3D viewer exports |
+| **Interventions** | Static, global, responder, entropy-targeted, density-aware, exposure-aware, bottleneck-avoidance, bounded LLM, and responder-coordination messaging |
+| **Analysis** | Belief entropy, belief accuracy, information-safety efficiency, harmful-convergence index, benchmark scoring, trajectory exports, static 3D viewer exports |
 
 ## How can I use it?
 
@@ -122,9 +122,21 @@ $ python -m chiyoda.cli compare out/baseline out/sarin -o out/comparison
 $ python -m chiyoda.cli compare-trajectory-reference out/information_control reference_trajectories.csv -o out/trajectory_reference.csv
 ```
 
-For live LLM experiments, place `OPENAI_API_KEY=...` in `.env`. Use bounded,
-validated, replayable generated-message workflows before treating any new
-live-provider run as evidence.
+Run Benchmark v1:
+
+```console
+$ python -m chiyoda.cli benchmark submit --suite v1 -o out/benchmark_submission
+```
+
+Benchmark v1 is a smoke-scale comparative suite, not an external validation
+claim. It scores intervention policies across `transit_cbrn`,
+`transit_shooter`, and `transit_mixed` with fixed seeds and a reproducibility
+manifest.
+
+For live LLM experiments, place `OPENAI_API_KEY=...` or
+`ANTHROPIC_API_KEY=...` in `.env`. Use bounded, validated, replayable
+generated-message workflows before treating any new live-provider run as
+evidence.
 
 ## Repository Guide
 
@@ -145,8 +157,15 @@ Important documentation:
 
 * [`docs/developer_environment.md`](./docs/developer_environment.md) documents
   local Python setup.
+* [`docs/architecture_overview.md`](./docs/architecture_overview.md) describes
+  the ITED runtime, information-warfare layer, and benchmark layer.
+* [`docs/paper_outline_info_warfare.md`](./docs/paper_outline_info_warfare.md)
+  outlines the current paper framing and verified benchmark smoke results.
+* [`docs/reproducibility_kit.md`](./docs/reproducibility_kit.md) records the
+  environment pin, seed set, expected outputs, and hash manifest.
 * [`docs/external_validation.md`](./docs/external_validation.md) describes the
   Wuppertal bottleneck reference check.
+* [`docs/benchmark/spec.md`](./docs/benchmark/spec.md) describes Benchmark v1.
 * [`docs/station_geometry_workflow.md`](./docs/station_geometry_workflow.md)
   describes station geometry import and role inference.
 * [`docs/3d_viewer.md`](./docs/3d_viewer.md) describes the static Three.js
@@ -160,6 +179,17 @@ Important documentation:
   multi-floor schema.
 * [`docs/llm_agent_decisions.md`](./docs/llm_agent_decisions.md) describes
   bounded, replayable LLM agent-decision experiments.
+* [`docs/llm_selective_controls.md`](./docs/llm_selective_controls.md) describes
+  provider abstraction, budget guards, persona calibration, responder
+  coordination, and `llm_calls` replay audit.
+
+Hazard staging roadmap:
+
+| Release | Scope |
+|:--|:--|
+| v1 | transit CBRN, active shooter, smoke, hostile information channels |
+| v2 | Wildfire/WUI hazard, ember spread, long-range broadcast, vehicular-pedestrian egress coupling |
+| v3 | Flood inundation, earthquake aftershock damage, re-evacuation waves |
 
 ## Development
 
