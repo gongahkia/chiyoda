@@ -8,7 +8,7 @@ import random
 from typing import Any, Dict, List, Optional
 import numpy as np
 import yaml
-from chiyoda.environment.layout import EMPTY, EXIT, Layout, WALL, BEACON, RESPONDER_ENTRY
+from chiyoda.environment.layout import EMPTY, EXIT, Layout, WALL, RESPONDER_ENTRY
 from chiyoda.environment.obstacles import apply_obstacles_to_grid, obstacles_from_config
 from chiyoda.environment.exits import Exit
 from chiyoda.environment.hazards import Hazard, ImportedHazardField
@@ -124,42 +124,14 @@ class ScenarioManager:
 
     def _build_layout(self, scenario: Dict[str, Any]) -> Layout:
         layout_cfg = scenario.get("layout", {}) or {}
-        source_file = scenario.get("_source_file")
-        layout: Layout
-        if "geojson" in layout_cfg:
-            layout = self._build_geojson_layout(layout_cfg["geojson"], source_file)
-        elif "cad" in layout_cfg:
-            layout = self._build_cad_layout(layout_cfg["cad"], source_file)
-        elif "text" in layout_cfg:
-            layout = Layout.from_text(str(layout_cfg["text"]))
-        elif "grid" in layout_cfg:
-            layout = Layout.from_text("\n".join(str(line) for line in layout_cfg["grid"]))
-        elif "file" in layout_cfg:
-            layout_path = Path(str(layout_cfg["file"]))
-            if not layout_path.is_absolute():
-                if layout_path.exists():
-                    layout = Layout.from_file(str(layout_path.resolve()))
-                elif source_file is not None:
-                    candidate = Path(source_file).resolve().parent / layout_path
-                    if candidate.exists():
-                        layout = Layout.from_file(str(candidate))
-                    else:
-                        layout = Layout.from_file(str(layout_path))
-                else:
-                    layout = Layout.from_file(str(layout_path))
-            else:
-                layout = Layout.from_file(str(layout_path))
-        else:
-            raise ValueError(
-                "Scenario layout must define one of layout.file, layout.text, layout.grid, layout.geojson, or layout.cad"
-            )
-        obstacle_cfgs = list(layout_cfg.get("obstacles", []) or [])
-        if obstacle_cfgs:
-            layout.grid = apply_obstacles_to_grid(
-                layout.grid, obstacles_from_config(obstacle_cfgs),
-                origin=tuple(layout.origin), cell_size=float(layout.cell_size),
-            )
-        return layout
+        if "floors" not in layout_cfg:
+            raise ValueError("Strict 3D scenarios must define layout.floors and may not use layout.text/file/grid/geojson/cad")
+        return Layout.from_floors(
+            layout_cfg["floors"],
+            connectors=layout_cfg.get("connectors", []) or [],
+            cell_size=float(layout_cfg.get("cell_size", 1.0)),
+            origin=tuple(layout_cfg.get("origin", (0.0, 0.0))),
+        )
 
     def _build_geojson_layout(self, geojson_cfg: Any, source_file: Optional[str]) -> Layout:
         if isinstance(geojson_cfg, str):
@@ -227,7 +199,7 @@ class ScenarioManager:
                 continue
             wind = hc.get("wind_vector", [0.0, 0.0])
             hazards.append(Hazard(
-                pos=tuple(hc.get("location", [0, 0])),
+                pos=tuple(float(value) for value in hc.get("location", [0, 0, 0])),
                 kind=hc.get("type", "GAS"),
                 radius=float(hc.get("radius", 0.0)),
                 severity=float(hc.get("severity", 0.5)),
@@ -241,12 +213,9 @@ class ScenarioManager:
     def _build_responders(self, layout: Layout, responders_cfg: List[Dict[str, Any]], agent_offset: int) -> List[FirstResponder]:
         responders: List[FirstResponder] = []
         # find responder entry points from layout
-        entry_points = []
-        for y in range(layout.height):
-            for x in range(layout.width):
-                if layout.grid[y, x] == RESPONDER_ENTRY:
-                    entry_points.append((x, y))
-                    layout.grid[y, x] = EMPTY # make it walkable
+        entry_points = layout.responder_positions()
+        for floor_id, x, y in entry_points:
+            layout.floors[floor_id].grid[y, x] = EMPTY
 
         for i, rc in enumerate(responders_cfg):
             count = int(rc.get("count", 1))
@@ -257,19 +226,20 @@ class ScenarioManager:
             spawn_cells = rc.get("spawn_cells", [])
             mission_target = rc.get("mission_target", None)
             if mission_target:
-                mission_target = (float(mission_target[0]), float(mission_target[1]))
+                mission_target = tuple(float(value) for value in mission_target)
 
             for j in range(count):
                 if spawn_cells:
-                    sx, sy = spawn_cells[j % len(spawn_cells)]
+                    cell = self._parse_cell(spawn_cells[j % len(spawn_cells)], layout)
                 elif entry_points:
-                    sx, sy = entry_points[j % len(entry_points)]
+                    cell = entry_points[j % len(entry_points)]
                 else:
-                    sx, sy = layout.random_walkable_position()
-                pos = np.array([float(sx) + 0.5, float(sy) + 0.5], dtype=float)
+                    cell = layout.random_walkable_position()
+                pos = layout.world_position(cell)
                 r = FirstResponder(
                     id=agent_offset + len(responders),
                     pos=pos,
+                    floor_id=cell[0],
                     base_speed=base_speed,
                     release_step=release_step,
                     cohort_name=f"responder_{i+1}",
@@ -283,7 +253,7 @@ class ScenarioManager:
 
     def _build_agents(self, layout: Layout, population_cfg: Dict[str, Any]) -> List[Commuter]:
         layout_positions = [
-            np.array([x + 0.5, y + 0.5], dtype=float) for x, y in layout.people_positions()
+            layout.world_position(cell) for cell in layout.people_positions()
         ]
         cohorts_cfg = list(population_cfg.get("cohorts", []) or [])
         total = int(population_cfg.get("total", 0))
@@ -309,8 +279,7 @@ class ScenarioManager:
         required = sum(int(c.get("count", 0)) for c in cohorts_cfg)
         positions = list(layout_positions)
         while len(positions) < required:
-            x, y = layout.random_walkable_position()
-            positions.append(np.array([x + 0.5, y + 0.5], dtype=float))
+            positions.append(layout.world_position(layout.random_walkable_position()))
 
         agents: List[Commuter] = []
         pos_idx = 0
@@ -333,13 +302,15 @@ class ScenarioManager:
             members: List[Commuter] = []
             for _ in range(count):
                 if spawn_cells:
-                    sx, sy = spawn_cells[len(members) % len(spawn_cells)]
-                    position = np.array([float(sx) + 0.5, float(sy) + 0.5], dtype=float)
+                    cell = self._parse_cell(spawn_cells[len(members) % len(spawn_cells)], layout)
+                    position = layout.world_position(cell)
                 else:
                     position = np.array(positions[pos_idx], copy=True)
                     pos_idx += 1
+                    cell = layout.cell(position)
                 agent = Commuter(
                     id=len(agents), pos=position,
+                    floor_id=cell[0],
                     base_speed=base_speed,
                     personality=personality, calmness=calmness,
                     release_step=release_step, cohort_name=cohort_name,
@@ -413,6 +384,15 @@ class ScenarioManager:
         updated = dict(scenario)
         updated["layout"] = {"text": self.serialize_layout(layout)}
         return updated
+
+    def _parse_cell(self, raw, layout: Layout):
+        if isinstance(raw, dict):
+            return layout.cell((str(raw["floor"]), int(raw["x"]), int(raw["y"])))
+        if len(raw) >= 3 and isinstance(raw[0], str):
+            return layout.cell(raw)
+        if len(raw) >= 4:
+            return layout.cell((str(raw[0]), int(raw[1]), int(raw[2])))
+        return layout.cell(raw)
 
     def _resolve_relative_path(self, raw_path: str, source_file: Optional[str]) -> str:
         path = Path(raw_path)

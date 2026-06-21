@@ -61,7 +61,8 @@ class PhysiologyState:
 class CognitiveAgent:
     """ITED cognitive agent with BDI decision-making and physiological model."""
     id: int
-    pos: np.ndarray  # [x, y] float coordinates
+    pos: np.ndarray  # [x, y, z] float coordinates
+    floor_id: str = "0"
     base_speed: float = 1.34  # m/s
     has_evacuated: bool = False
     release_step: int = 0
@@ -71,9 +72,9 @@ class CognitiveAgent:
     assisted_agent_id: Optional[int] = None
 
     # navigation
-    current_path: List[Tuple[int, int]] = field(default_factory=list)
+    current_path: List[tuple] = field(default_factory=list)
     path_index: int = 0
-    target_exit: Optional[Tuple[int, int]] = None
+    target_exit: Optional[tuple] = None
 
     # behavioral state
     state: str = "CALM"
@@ -204,8 +205,8 @@ class CognitiveAgent:
             # fallback: try all actual exits (degenerate case compatibility)
             known_exits = [tuple(e.pos) if hasattr(e, "pos") else e for e in simulation.exits]
 
-        exit_coords = [tuple(map(int, ex)) for ex in known_exits]
-        start = (int(round(self.pos[0])), int(round(self.pos[1])))
+        exit_coords = [simulation.layout.cell(ex) for ex in known_exits]
+        start = simulation._grid_cell(self)
 
         # pathfind using belief-weighted navigator
         path = navigator.find_optimal_path(
@@ -223,7 +224,7 @@ class CognitiveAgent:
         if self.explore_steps_remaining <= 0 or self.explore_direction is None:
             # pick a new random direction
             angle = np.random.uniform(0, 2 * np.pi)
-            self.explore_direction = np.array([np.cos(angle), np.sin(angle)])
+            self.explore_direction = np.array([np.cos(angle), np.sin(angle), 0.0])
             self.explore_steps_remaining = np.random.randint(10, 30)
         self.explore_steps_remaining -= 1
 
@@ -237,12 +238,12 @@ class CognitiveAgent:
             return
 
         # follow the average velocity of nearby agents (herding)
-        avg_direction = np.zeros(2)
+        avg_direction = np.zeros(3)
         count = 0
         for other in neighbors:
             if hasattr(other, 'current_path') and other.current_path and other.path_index < len(other.current_path):
                 wp = other.current_path[other.path_index]
-                d = np.array([wp[0] + 0.5, wp[1] + 0.5]) - other.pos
+                d = simulation.layout.world_position(wp) - other.pos
                 norm = np.linalg.norm(d)
                 if norm > 1e-6:
                     avg_direction += d / norm
@@ -251,9 +252,9 @@ class CognitiveAgent:
             avg_direction /= count
             # create a synthetic path a few steps in that direction
             target = self.pos + avg_direction * 3.0
-            tx, ty = int(round(target[0])), int(round(target[1]))
-            if simulation.layout.is_walkable((tx, ty)):
-                self.current_path = [(tx, ty)]
+            cell = simulation.layout.cell(target)
+            if simulation.layout.is_walkable(cell):
+                self.current_path = [cell]
                 self.path_index = 0
 
     def step(self, dt: float, simulation) -> None:
@@ -281,9 +282,9 @@ class CognitiveAgent:
                 dt=dt,
             )
             new_pos = self.pos + adjusted
-            nx, ny = int(round(new_pos[0])), int(round(new_pos[1]))
-            if simulation.layout.is_walkable((nx, ny)):
+            if simulation.layout.is_walkable(new_pos):
                 self.pos = new_pos
+                self.floor_id = simulation.layout.floor_for_z(float(self.pos[2]))
             else:
                 # bounce off wall — reverse direction
                 self.explore_direction = -self.explore_direction
@@ -293,7 +294,7 @@ class CognitiveAgent:
         # path-following mode (EVACUATE, FOLLOW, ASSIST)
         while self.current_path and self.path_index < len(self.current_path):
             candidate = self.current_path[self.path_index]
-            target = np.array([candidate[0] + 0.5, candidate[1] + 0.5], dtype=float)
+            target = simulation.layout.world_position(candidate)
             if np.linalg.norm(target - self.pos) < 0.2:
                 self.path_index += 1
                 continue
@@ -301,7 +302,7 @@ class CognitiveAgent:
             break
 
         if waypoint is not None:
-            target = np.array([waypoint[0] + 0.5, waypoint[1] + 0.5], dtype=float)
+            target = simulation.layout.world_position(waypoint)
             direction = target - self.pos
             dist = np.linalg.norm(direction)
             if dist > 1e-6:
@@ -345,14 +346,20 @@ class CognitiveAgent:
 
             if np.linalg.norm(target - new_pos) < 0.2:
                 self.path_index += 1
+                if len(waypoint) >= 3:
+                    self.floor_id = str(waypoint[0])
 
-            if simulation.layout.is_walkable((int(round(new_pos[0])), int(round(new_pos[1])))):
+            current_cell = simulation._grid_cell(self)
+            next_cell = simulation.layout.cell(waypoint)
+            vertical_edge = current_cell[0] != next_cell[0]
+            if vertical_edge or simulation.layout.is_walkable(new_pos):
                 self.pos = new_pos
+                self.floor_id = simulation.layout.floor_for_z(float(self.pos[2]))
         else:
             # no path — fallback to nearest known exit
             exits = self.beliefs.known_exits() or simulation.layout.exit_positions()
             if exits:
-                goal = np.array(exits[0], dtype=float)
+                goal = simulation.layout.world_position(simulation.layout.cell(exits[0]))
                 direction = goal - self.pos
                 dist = np.linalg.norm(direction)
                 if dist > 1e-6:
@@ -372,5 +379,6 @@ class CognitiveAgent:
                     dt=dt,
                 )
                 new_pos = self.pos + adjusted
-                if simulation.layout.is_walkable((int(round(new_pos[0])), int(round(new_pos[1])))):
+                if simulation.layout.is_walkable(new_pos):
                     self.pos = new_pos
+                    self.floor_id = simulation.layout.floor_for_z(float(self.pos[2]))

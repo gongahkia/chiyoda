@@ -40,7 +40,7 @@ HAZARD_PROFILES = {
 
 @dataclass
 class Hazard:
-    pos: Tuple[float, float]
+    pos: Tuple[float, ...]
     kind: str
     radius: float = 0.0
     severity: float = 0.5
@@ -57,9 +57,11 @@ class Hazard:
         if self.kind.upper() in ("GAS", "SMOKE"):
             self.radius += self.spread_rate * dt + self.diffusion_rate * dt
             # advect center position
+            z = float(self.pos[2]) if len(self.pos) >= 3 else 0.0
             self.pos = (
                 self.pos[0] + self.wind_vector[0] * dt,
                 self.pos[1] + self.wind_vector[1] * dt,
+                z,
             )
         elif self.kind.upper() == "FIRE":
             self.radius += self.spread_rate * dt * 0.5 # fire spreads slower
@@ -67,7 +69,7 @@ class Hazard:
     def intensity_at(self, point: np.ndarray) -> float:
         if not self.active:
             return 0.0
-        dist = float(np.linalg.norm(point - np.array(self.pos, dtype=float)))
+        dist = float(np.linalg.norm(_point3(point) - _point3(self.pos)))
         if self.radius <= 1e-6:
             return float(self.severity) if dist <= 0.75 else 0.0
         if dist <= self.radius:
@@ -78,7 +80,7 @@ class Hazard:
         """Returns visibility factor [0,1] at a point (1=clear, 0=opaque)."""
         if not self.active or self.visibility_reduction <= 0:
             return 1.0
-        dist = float(np.linalg.norm(point - np.array(self.pos, dtype=float)))
+        dist = float(np.linalg.norm(_point3(point) - _point3(self.pos)))
         if self.radius <= 1e-6:
             return 1.0 - self.visibility_reduction if dist <= 0.75 else 1.0
         if dist <= self.radius:
@@ -86,7 +88,7 @@ class Hazard:
         return 1.0
 
     def affects(self, point: np.ndarray) -> bool:
-        return np.linalg.norm(point - np.array(self.pos)) <= self.radius
+        return np.linalg.norm(_point3(point) - _point3(self.pos)) <= self.radius
 
     def profile(self) -> Dict[str, float]:
         return HAZARD_PROFILES.get(self.kind.upper(), HAZARD_PROFILES["GAS"])
@@ -250,3 +252,9 @@ def _numeric_grid(values: Any) -> np.ndarray:
     if grid.size == 0:
         raise ValueError("Hazard field grids must not be empty")
     return grid
+
+
+def _point3(value: Any) -> np.ndarray:
+    if len(value) >= 3:
+        return np.array([float(value[0]), float(value[1]), float(value[2])], dtype=float)
+    return np.array([float(value[0]), float(value[1]), 0.0], dtype=float)

@@ -60,6 +60,14 @@ class Simulation:
     ) -> None:
         self.layout = layout
         self.agents = agents
+        for agent in self.agents:
+            if np.array(agent.pos).shape[0] < 3:
+                agent.pos = np.array(
+                    [float(agent.pos[0]), float(agent.pos[1]), self.layout.floor_z(getattr(agent, "floor_id", self.layout.primary_floor_id))],
+                    dtype=float,
+                )
+            if not getattr(agent, "floor_id", None):
+                agent.floor_id = self.layout.floor_for_z(float(agent.pos[2]))
         self.agent_lookup = {agent.id: agent for agent in agents}
         self.exits = exits
         self.hazards = hazards or []
@@ -80,11 +88,15 @@ class Simulation:
         self.travel_times_s: List[float] = []
 
         self.exit_labels = {
-            tuple(exit_.pos): f"Exit {idx + 1} ({exit_.pos[0]},{exit_.pos[1]})"
+            tuple(exit_.pos): f"Exit {idx + 1} ({exit_.pos[0]}:{exit_.pos[1]},{exit_.pos[2]})"
             for idx, exit_ in enumerate(self.exits)
         }
         self.exit_flow_cumulative = {label: 0 for label in self.exit_labels.values()}
-        self.path_usage_grid = np.zeros((self.layout.height, self.layout.width), dtype=int)
+        self.path_usage_by_floor = {
+            floor_id: np.zeros_like(floor.grid, dtype=int)
+            for floor_id, floor in self.layout.floors.items()
+        }
+        self.path_usage_grid = self.path_usage_by_floor[self.layout.primary_floor_id]
 
         self.bottleneck_zones = detect_bottleneck_zones(layout)
         self.bottleneck_lookup = zone_lookup(self.bottleneck_zones)
@@ -93,9 +105,7 @@ class Simulation:
         self.agent_zone_membership = {agent.id: None for agent in self.agents}
         self.agent_zone_entry_step: Dict[Tuple[int, str], int] = {}
 
-        self.agent_traces = {
-            agent.id: [(float(agent.pos[0]), float(agent.pos[1]))] for agent in self.agents
-        }
+        self.agent_traces = {agent.id: [tuple(float(value) for value in agent.pos)] for agent in self.agents}
         self._telemetry_bootstrapped = False
         self.navigation_replan_interval_steps = 6
         self.navigation_density_reroute_threshold = 0.55
@@ -109,6 +119,7 @@ class Simulation:
         self.intervention_events: List[Any] = []
         self.agent_decision_policy = None
         self.agent_decision_events: List[Any] = []
+        self._elevator_transfers: Dict[int, tuple] = {}
 
         # ITED: information layer
         self.info_field = InformationField(
@@ -145,13 +156,11 @@ class Simulation:
     def setup_information(self) -> None:
         """Initialize information field and seed agent beliefs."""
         exit_positions = [tuple(e.pos) for e in self.exits]
-        # find beacons from layout
-        beacon_positions = []
-        from chiyoda.environment.layout import BEACON
-        for y in range(self.layout.height):
-            for x in range(self.layout.width):
-                if self.layout.grid[y, x] == BEACON:
-                    beacon_positions.append((float(x) + 0.5, float(y) + 0.5))
+        beacon_positions = [tuple(self.layout.world_position(cell)) for cell in self.layout.beacon_positions()]
+        self.info_field.exit_world_positions = {
+            tuple(exit_.pos): tuple(self.layout.world_position(exit_.pos))
+            for exit_ in self.exits
+        }
         self.info_field.set_ground_truth(exit_positions, beacon_positions or None)
 
         for agent in self.agents:
@@ -159,25 +168,25 @@ class Simulation:
                 continue
             if self.config.information_mode == "perfect":
                 agent.beliefs = self.info_field.create_agent_beliefs(
-                    agent_pos=(float(agent.pos[0]), float(agent.pos[1])),
+                    agent_pos=tuple(float(value) for value in agent.pos),
                     familiarity=1.0,
                     known_exits=exit_positions,
                 )
             elif self.config.information_mode == "none":
                 agent.beliefs = self.info_field.create_agent_beliefs(
-                    agent_pos=(float(agent.pos[0]), float(agent.pos[1])),
+                    agent_pos=tuple(float(value) for value in agent.pos),
                     familiarity=0.0,
                 )
             else: # asymmetric
                 agent.beliefs = self.info_field.create_agent_beliefs(
-                    agent_pos=(float(agent.pos[0]), float(agent.pos[1])),
+                    agent_pos=tuple(float(value) for value in agent.pos),
                     familiarity=getattr(agent, 'familiarity', 0.5),
                 )
 
-    def _grid_cell(self, pos) -> Tuple[int, int]:
-        x = int(np.clip(round(float(pos[0])), 0, self.layout.width - 1))
-        y = int(np.clip(round(float(pos[1])), 0, self.layout.height - 1))
-        return (x, y)
+    def _grid_cell(self, value) -> tuple:
+        if hasattr(value, "pos"):
+            return self.layout.cell(value.pos, floor_id=getattr(value, "floor_id", None))
+        return self.layout.cell(value)
 
     def _released_agents(self) -> List:
         return [a for a in self.agents if a.is_released(self)]
@@ -228,7 +237,7 @@ class Simulation:
         return vis
 
     def hazard_penalty_at_cell(self, cell: Tuple[int, int]) -> float:
-        point = np.array([cell[0] + 0.5, cell[1] + 0.5], dtype=float)
+        point = self.layout.world_position(cell)
         return self.config.hazard_avoidance_weight * self.hazard_intensity_at(point)
 
     def _update_spatial_index(self) -> None:
@@ -242,11 +251,11 @@ class Simulation:
         active_lookup = {a.id: i for i, a in enumerate(active_agents)}
         positions = (
             np.array([a.pos for a in active_agents], dtype=float)
-            if active_agents else np.zeros((0, 2), dtype=float)
+            if active_agents else np.zeros((0, 3), dtype=float)
         )
         hazard_positions = (
-            np.array([h.pos for h in self.hazards], dtype=float)
-            if self.hazards else np.zeros((0, 2), dtype=float)
+            np.array([_point3(h.pos) for h in self.hazards], dtype=float)
+            if self.hazards else np.zeros((0, 3), dtype=float)
         )
         radii = (
             np.array([float(h.radius) for h in self.hazards], dtype=float)
@@ -302,13 +311,13 @@ class Simulation:
             vis = self.visibility_at(agent.pos)
             effective_vision = getattr(agent, 'vision_radius', self.config.observation_radius) * vis
             self.info_field.observe(
-                agent.beliefs, (float(agent.pos[0]), float(agent.pos[1])),
+                agent.beliefs, tuple(float(value) for value in agent.pos),
                 effective_vision, exit_positions, self.hazards, self.current_step,
             )
 
             # beacon broadcast
             self.info_field.beacon_broadcast(
-                agent.beliefs, (float(agent.pos[0]), float(agent.pos[1])),
+                agent.beliefs, tuple(float(value) for value in agent.pos),
             )
 
             # belief decay
@@ -357,26 +366,52 @@ class Simulation:
             if agent.has_evacuated or not agent.is_released(self):
                 self.agent_zone_membership[agent.id] = None
                 continue
-            zone_id = self.bottleneck_lookup.get(self._grid_cell(agent.pos))
+            zone_id = self.bottleneck_lookup.get(self._grid_cell(agent))
             self.agent_zone_membership[agent.id] = zone_id
             if zone_id is not None:
                 self.agent_zone_entry_step[(agent.id, zone_id)] = self.current_step
 
     def _update_path_usage(self) -> None:
         for agent in self._active_agents():
-            x, y = self._grid_cell(agent.pos)
-            self.path_usage_grid[y, x] += 1
+            floor_id, x, y = self._grid_cell(agent)
+            self.path_usage_by_floor[floor_id][y, x] += 1
+        self.path_usage_grid = self.path_usage_by_floor[self.layout.primary_floor_id]
 
     def _build_step_grids(self):
         active = self._active_agents()
-        positions = np.array([a.pos for a in active], dtype=float) if active else np.zeros((0, 2), dtype=float)
-        densities = np.array([float(a.local_density) for a in active], dtype=float) if active else np.zeros((0,), dtype=float)
-        speeds = np.array([float(a.current_speed) for a in active], dtype=float) if active else np.zeros((0,), dtype=float)
-        return self.acceleration.aggregate_step_grids(self.layout.width, self.layout.height, positions, densities, speeds)
+        floor_grids = {}
+        for floor_id, floor in self.layout.floors.items():
+            shape = floor.grid.shape
+            floor_grids[floor_id] = {
+                "occupancy_grid": np.zeros(shape, dtype=int),
+                "density_grid": np.zeros(shape, dtype=float),
+                "speed_grid": np.zeros(shape, dtype=float),
+                "speed_hits": np.zeros(shape, dtype=float),
+            }
+        for agent in active:
+            floor_id, x, y = self._grid_cell(agent)
+            grids = floor_grids[floor_id]
+            grids["occupancy_grid"][y, x] += 1
+            grids["density_grid"][y, x] += float(agent.local_density)
+            grids["speed_grid"][y, x] += float(agent.current_speed)
+            grids["speed_hits"][y, x] += 1.0
+        for grids in floor_grids.values():
+            hits = grids.pop("speed_hits")
+            occupancy = grids["occupancy_grid"]
+            grids["density_grid"] = np.divide(
+                grids["density_grid"], np.maximum(occupancy, 1),
+                out=np.zeros_like(grids["density_grid"]), where=occupancy > 0,
+            )
+            grids["speed_grid"] = np.divide(
+                grids["speed_grid"], hits,
+                out=np.zeros_like(grids["speed_grid"]), where=hits > 0,
+            )
+        primary = floor_grids[self.layout.primary_floor_id]
+        return primary["occupancy_grid"], primary["density_grid"], primary["speed_grid"], floor_grids
 
     def _capture_step_telemetry(self, *, exit_flow_step, bottleneck_metrics) -> None:
         self._update_path_usage()
-        occupancy_grid, density_grid, speed_grid = self._build_step_grids()
+        occupancy_grid, density_grid, speed_grid, floor_grids = self._build_step_grids()
         living = self._active_agents()
         mean_speed = float(np.mean([a.current_speed for a in living])) if living else 0.0
         mean_density = float(np.mean([a.local_density for a in living])) if living else 0.0
@@ -406,8 +441,8 @@ class Simulation:
 
             agents_tel.append(AgentStepTelemetry(
                 agent_id=agent.id,
-                position=(float(agent.pos[0]), float(agent.pos[1])),
-                cell=self._grid_cell(agent.pos),
+                position=tuple(float(value) for value in agent.pos),
+                cell=self._grid_cell(agent),
                 state=agent.state,
                 speed=float(agent.current_speed),
                 local_density=float(agent.local_density),
@@ -428,6 +463,15 @@ class Simulation:
             step=self.current_step, time_s=self.time_s,
             occupancy_grid=occupancy_grid, density_grid=density_grid,
             speed_grid=speed_grid, path_usage_grid=self.path_usage_grid.copy(),
+            floor_grids={
+                floor_id: {
+                    "occupancy_grid": grids["occupancy_grid"].copy(),
+                    "density_grid": grids["density_grid"].copy(),
+                    "speed_grid": grids["speed_grid"].copy(),
+                    "path_usage_grid": self.path_usage_by_floor[floor_id].copy(),
+                }
+                for floor_id, grids in floor_grids.items()
+            },
             agents=agents_tel,
             exit_flow_cumulative=dict(self.exit_flow_cumulative),
             exit_flow_step=dict(exit_flow_step),
@@ -454,7 +498,7 @@ class Simulation:
         for agent in self.agents:
             zone_id = None
             if agent.id in active_ids:
-                zone_id = self.bottleneck_lookup.get(self._grid_cell(agent.pos))
+                zone_id = self.bottleneck_lookup.get(self._grid_cell(agent))
             current_membership[agent.id] = zone_id
             prev = self.agent_zone_membership.get(agent.id)
             if prev == zone_id:
@@ -478,7 +522,7 @@ class Simulation:
             metrics[zone.zone_id].queue_length = sum(
                 1 for a in active
                 if current_membership.get(a.id) != zone.zone_id
-                and zone_distance(self._grid_cell(a.pos), zone) <= 2
+                and zone_distance(self._grid_cell(a), zone) <= 2
                 and a.current_speed <= max(0.4, a.base_speed * 0.5)
             )
         return metrics
@@ -531,7 +575,10 @@ class Simulation:
                 agent.update_navigation(self.navigator, self)
 
             self._prev_positions[agent.id] = np.array(agent.pos, copy=True)
+            if self._handle_elevator_transfer(agent):
+                continue
             agent.step(dt, self)
+            agent.floor_id = self.layout.floor_for_z(float(agent.pos[2]))
             agent.current_speed = float(np.linalg.norm(agent.pos - self._prev_positions[agent.id]) / dt)
             agent.travel_time_s = self.time_s + dt
 
@@ -548,10 +595,10 @@ class Simulation:
                 })
 
             self.agent_traces.setdefault(agent.id, []).append(
-                (float(agent.pos[0]), float(agent.pos[1]))
+                tuple(float(value) for value in agent.pos)
             )
 
-            if self.layout.is_exit(agent.pos):
+            if self.layout.is_exit(agent.pos, floor_id=getattr(agent, "floor_id", None)):
                 # responders don't evacuate
                 if getattr(agent, 'is_responder', False):
                     continue
@@ -559,17 +606,45 @@ class Simulation:
                 self.completed_agents.append(agent)
                 self.evacuated_at_step.append(self.current_step + 1)
                 self.travel_times_s.append(agent.travel_time_s)
-                exit_pos = tuple(map(int, agent.target_exit or self._grid_cell(agent.pos)))
+                exit_pos = tuple(agent.target_exit or self._grid_cell(agent))
                 label = self.exit_labels.get(exit_pos)
                 if label is None:
                     for known_exit, known_label in self.exit_labels.items():
-                        if self._grid_cell(agent.pos) == known_exit:
+                        if self._grid_cell(agent) == known_exit:
                             label = known_label
                             break
                 if label is not None:
                     agent.evacuated_via = label
                     self.exit_flow_cumulative[label] += 1
                     exit_flow_step[label] += 1
+
+    def _handle_elevator_transfer(self, agent) -> bool:
+        transfer = self._elevator_transfers.get(agent.id)
+        if transfer is not None:
+            connector, target_cell, arrival_s = transfer
+            agent.current_speed = 0.0
+            if self.time_s + self.config.dt < arrival_s:
+                return True
+            agent.pos = self.layout.world_position(target_cell)
+            agent.floor_id = target_cell[0]
+            agent.path_index += 1
+            self._elevator_transfers.pop(agent.id, None)
+            return True
+        if not agent.current_path or agent.path_index >= len(agent.current_path):
+            return False
+        current_cell = self._grid_cell(agent)
+        target_cell = self.layout.cell(agent.current_path[agent.path_index])
+        connector = self.layout.connector_for_edge(current_cell, target_cell)
+        if connector is None or connector.type != "elevator":
+            return False
+        active = sum(1 for existing, _, _ in self._elevator_transfers.values() if existing.id == connector.id)
+        if connector.capacity is not None and active >= connector.capacity:
+            agent.current_speed = 0.0
+            return True
+        duration = max(self.config.dt, connector.dwell_s + connector.travel_s)
+        self._elevator_transfers[agent.id] = (connector, target_cell, self.time_s + duration)
+        agent.current_speed = 0.0
+        return True
 
         self.current_step += 1
         self.time_s += dt
@@ -598,7 +673,7 @@ class Simulation:
         latest = self.step_history[-1]
         positions = (
             np.array([a.position for a in latest.agents], dtype=float)
-            if latest.agents else np.zeros((0, 2), dtype=float)
+            if latest.agents else np.zeros((0, 3), dtype=float)
         )
         return {
             "step": latest.step, "time_s": latest.time_s,
@@ -642,3 +717,9 @@ class Simulation:
             "acceleration_backend": self.acceleration.name,
             "requested_acceleration_backend": self.acceleration.requested_backend,
         }
+
+
+def _point3(value) -> np.ndarray:
+    if len(value) >= 3:
+        return np.array([float(value[0]), float(value[1]), float(value[2])], dtype=float)
+    return np.array([float(value[0]), float(value[1]), 0.0], dtype=float)

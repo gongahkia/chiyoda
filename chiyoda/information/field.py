@@ -13,7 +13,7 @@ writing (agents update beliefs from direct observation or gossip).
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 
@@ -21,7 +21,7 @@ import numpy as np
 @dataclass
 class ExitBelief:
     """Belief about a single exit."""
-    position: Tuple[int, int]
+    position: tuple
     exists_prob: float = 0.0  # probability the agent believes this exit exists
     congestion_est: float = 0.0  # estimated congestion [0,1]
     freshness: float = 0.0  # time since last update (0=fresh, decays toward 1)
@@ -32,7 +32,7 @@ class ExitBelief:
 @dataclass
 class HazardBelief:
     """Belief about hazard conditions at a region."""
-    position: Tuple[float, float]
+    position: tuple
     severity_est: float = 0.0  # estimated severity [0,1]
     radius_est: float = 0.0  # estimated radius
     freshness: float = 0.0
@@ -43,20 +43,20 @@ class HazardBelief:
 @dataclass
 class BeliefVector:
     """Complete belief state for one agent."""
-    exit_beliefs: Dict[Tuple[int, int], ExitBelief] = field(default_factory=dict)
+    exit_beliefs: Dict[tuple, ExitBelief] = field(default_factory=dict)
     hazard_beliefs: List[HazardBelief] = field(default_factory=list)
     general_danger_level: float = 0.0  # perceived overall danger [0,1]
     information_age_s: float = 0.0  # time since last info update
     last_update_step: int = 0
 
-    def known_exits(self) -> List[Tuple[int, int]]:
+    def known_exits(self) -> List[tuple]:
         """Return exits the agent believes exist (p > 0.5)."""
         return [
             pos for pos, belief in self.exit_beliefs.items()
             if belief.exists_prob > 0.5
         ]
 
-    def best_exit(self) -> Optional[Tuple[int, int]]:
+    def best_exit(self) -> Optional[tuple]:
         """Return exit with highest probability and lowest congestion."""
         candidates = [
             (pos, b) for pos, b in self.exit_beliefs.items()
@@ -71,11 +71,11 @@ class BeliefVector:
         )
         return candidates[0][0]
 
-    def perceived_hazard_at(self, pos: Tuple[float, float]) -> float:
+    def perceived_hazard_at(self, pos: Tuple[float, ...]) -> float:
         """Estimated hazard intensity at a position based on beliefs."""
         intensity = 0.0
         for hb in self.hazard_beliefs:
-            dist = np.sqrt((pos[0] - hb.position[0]) ** 2 + (pos[1] - hb.position[1]) ** 2)
+            dist = float(np.linalg.norm(_point3(pos) - _point3(hb.position)))
             if hb.radius_est > 0 and dist <= hb.radius_est:
                 intensity += hb.severity_est * max(0.0, 1.0 - dist / hb.radius_est)
             elif hb.radius_est <= 0 and dist < 1.0:
@@ -108,14 +108,15 @@ class InformationField:
         self.beacon_radius = beacon_radius
         self.gossip_radius = gossip_radius
 
-        self.ground_truth_exits: List[Tuple[int, int]] = [] # actual exit positions
-        self.beacons: List[Tuple[float, float]] = [] # signage/PA positions
-        self.beacon_exit_info: Dict[Tuple[float, float], List[Tuple[int, int]]] = {} # what each beacon knows
+        self.ground_truth_exits: List[tuple] = [] # actual exit positions
+        self.beacons: List[tuple] = [] # signage/PA positions
+        self.beacon_exit_info: Dict[tuple, List[tuple]] = {} # what each beacon knows
+        self.exit_world_positions: Dict[tuple, tuple] = {}
 
     def set_ground_truth(
         self,
-        exits: List[Tuple[int, int]],
-        beacons: Optional[List[Tuple[float, float]]] = None,
+        exits: List[tuple],
+        beacons: Optional[List[tuple]] = None,
     ) -> None:
         """Initialize field with actual environment state."""
         self.ground_truth_exits = list(exits)
@@ -126,10 +127,10 @@ class InformationField:
 
     def create_agent_beliefs(
         self,
-        agent_pos: Tuple[float, float],
+        agent_pos: Tuple[float, ...],
         familiarity: float = 0.0,
         *,
-        known_exits: Optional[List[Tuple[int, int]]] = None,
+        known_exits: Optional[List[tuple]] = None,
     ) -> BeliefVector:
         """
         Create initial belief vector for an agent.
@@ -163,17 +164,16 @@ class InformationField:
     def observe(
         self,
         agent_beliefs: BeliefVector,
-        agent_pos: Tuple[float, float],
+        agent_pos: Tuple[float, ...],
         vision_radius: float,
-        exits: List[Tuple[int, int]],
+        exits: List[tuple],
         hazards: list,
         current_step: int,
     ) -> None:
         """Agent directly observes environment within vision cone."""
         for exit_pos in exits:
-            dist = np.sqrt(
-                (agent_pos[0] - exit_pos[0]) ** 2 + (agent_pos[1] - exit_pos[1]) ** 2
-            )
+            exit_point = self.exit_world_positions.get(tuple(exit_pos), tuple(_cell_center3(exit_pos)))
+            dist = float(np.linalg.norm(_point3(agent_pos) - _point3(exit_point)))
             if dist <= vision_radius:
                 agent_beliefs.exit_beliefs[exit_pos] = ExitBelief(
                     position=exit_pos,
@@ -185,17 +185,13 @@ class InformationField:
                 )
 
         for hazard in hazards:
-            h_pos = (float(hazard.pos[0]), float(hazard.pos[1]))
-            dist = np.sqrt(
-                (agent_pos[0] - h_pos[0]) ** 2 + (agent_pos[1] - h_pos[1]) ** 2
-            )
+            h_pos = tuple(float(value) for value in hazard.pos)
+            dist = float(np.linalg.norm(_point3(agent_pos) - _point3(h_pos)))
             if dist <= vision_radius:
                 # update or add hazard belief with direct observation
                 updated = False
                 for hb in agent_beliefs.hazard_beliefs:
-                    hb_dist = np.sqrt(
-                        (hb.position[0] - h_pos[0]) ** 2 + (hb.position[1] - h_pos[1]) ** 2
-                    )
+                    hb_dist = float(np.linalg.norm(_point3(hb.position) - _point3(h_pos)))
                     if hb_dist < 2.0: # same hazard
                         hb.severity_est = float(hazard.severity)
                         hb.radius_est = float(hazard.radius)
@@ -221,13 +217,11 @@ class InformationField:
     def beacon_broadcast(
         self,
         agent_beliefs: BeliefVector,
-        agent_pos: Tuple[float, float],
+        agent_pos: Tuple[float, ...],
     ) -> None:
         """Agent receives info from nearby beacons (signage/PA)."""
         for beacon_pos in self.beacons:
-            dist = np.sqrt(
-                (agent_pos[0] - beacon_pos[0]) ** 2 + (agent_pos[1] - beacon_pos[1]) ** 2
-            )
+            dist = float(np.linalg.norm(_point3(agent_pos) - _point3(beacon_pos)))
             if dist <= self.beacon_radius:
                 known = self.beacon_exit_info.get(beacon_pos, [])
                 for exit_pos in known:
@@ -250,3 +244,17 @@ class InformationField:
         for hb in agent_beliefs.hazard_beliefs:
             hb.freshness = min(1.0, hb.freshness + self.decay_rate * dt)
         agent_beliefs.information_age_s += dt
+
+
+def _point3(value: Any) -> np.ndarray:
+    if len(value) >= 3 and not isinstance(value[0], str):
+        return np.array([float(value[0]), float(value[1]), float(value[2])], dtype=float)
+    return np.array([float(value[0]), float(value[1]), 0.0], dtype=float)
+
+
+def _cell_center3(value: Any) -> np.ndarray:
+    if len(value) >= 3 and isinstance(value[0], str):
+        return np.array([float(value[1]) + 0.5, float(value[2]) + 0.5, 0.0], dtype=float)
+    if len(value) >= 3:
+        return np.array([float(value[0]) + 0.5, float(value[1]) + 0.5, float(value[2])], dtype=float)
+    return np.array([float(value[0]) + 0.5, float(value[1]) + 0.5, 0.0], dtype=float)

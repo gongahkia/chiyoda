@@ -39,7 +39,8 @@ def social_force_step(
     f_drive = (desired_velocity - current_velocity) / TAU
 
     # agent-agent repulsion (exponential)
-    f_agents = np.zeros(2)
+    dim = int(current_pos.shape[0])
+    f_agents = np.zeros(dim)
     for i, n_pos in enumerate(neighbors):
         delta = current_pos - n_pos
         dist = np.linalg.norm(delta) + 1e-6
@@ -53,15 +54,20 @@ def social_force_step(
                 n_vel = neighbor_velocities[i]
                 dot = np.dot(desired_velocity, n_vel)
                 if dot < 0 and np.linalg.norm(n_vel) > 0.1: # opposing flow
-                    tangent = np.array([-n_hat[1], n_hat[0]])
+                    tangent = np.zeros(dim)
+                    tangent[0] = -n_hat[1]
+                    tangent[1] = n_hat[0]
                     f_friction = COUNTER_FLOW_K * abs(dot) * tangent * np.sign(np.dot(tangent, desired_velocity))
                     f_agents += f_friction
 
     # wall repulsion (simplified — uses wall positions if provided)
-    f_walls = np.zeros(2)
+    f_walls = np.zeros(dim)
     if walls:
         for wall_pos in walls:
-            delta = current_pos - np.array(wall_pos, dtype=float)
+            wall = np.array(wall_pos, dtype=float)
+            if wall.shape[0] < dim:
+                wall = np.pad(wall, (0, dim - wall.shape[0]))
+            delta = current_pos - wall
             dist = np.linalg.norm(delta) + 1e-6
             if dist < 2.0:
                 n_hat = delta / dist

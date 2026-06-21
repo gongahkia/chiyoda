@@ -12,13 +12,13 @@ class SpatialIndex:
         self.tree: cKDTree | None = None
         self._positions: np.ndarray | None = None
         self._agents: List[object] = []
-        self._density_penalty_cache: dict[tuple[int, int], float] = {}
+        self._density_penalty_cache: dict[tuple, float] = {}
 
     def update(self, agents: List[object]) -> None:
         self._agents = [a for a in agents if not getattr(a, "has_evacuated", False)]
         self._density_penalty_cache.clear()
         coords = [a.pos for a in self._agents]
-        self._positions = np.array(coords) if coords else np.zeros((0, 2), dtype=float)
+        self._positions = np.array(coords, dtype=float) if coords else np.zeros((0, 3), dtype=float)
         if len(self._positions) > 0:
             self.tree = cKDTree(self._positions)
         else:
@@ -39,10 +39,10 @@ class SpatialIndex:
 
     def neighbor_positions(self, pos: np.ndarray, radius: float = 1.0) -> np.ndarray:
         if self.tree is None or self._positions is None or len(self._positions) == 0:
-            return np.zeros((0, 2), dtype=float)
+            return np.zeros((0, 3), dtype=float)
         idxs = self.find_neighbors(pos, radius=radius)
         if not idxs:
-            return np.zeros((0, 2), dtype=float)
+            return np.zeros((0, 3), dtype=float)
         points = self._positions[idxs]
         mask = np.linalg.norm(points - pos, axis=1) > 1e-6
         return points[mask]
@@ -62,11 +62,21 @@ class SpatialIndex:
         def _pen(pos_tuple):
             if self.tree is None:
                 return 0.0
-            cell = (int(pos_tuple[0]), int(pos_tuple[1]))
+            if len(pos_tuple) >= 3 and isinstance(pos_tuple[0], str):
+                cell = (str(pos_tuple[0]), int(pos_tuple[1]), int(pos_tuple[2]))
+            elif len(pos_tuple) >= 3:
+                cell = ("", int(pos_tuple[0]), int(pos_tuple[1]), float(pos_tuple[2]))
+            else:
+                cell = ("", int(pos_tuple[0]), int(pos_tuple[1]), 0.0)
             cached = self._density_penalty_cache.get(cell)
             if cached is not None:
                 return cached
-            pos = np.array([cell[0] + 0.5, cell[1] + 0.5])
+            if len(pos_tuple) >= 3 and isinstance(pos_tuple[0], str):
+                pos = np.array([cell[1] + 0.5, cell[2] + 0.5, 0.0], dtype=float)
+            elif len(pos_tuple) >= 3:
+                pos = np.array([cell[1] + 0.5, cell[2] + 0.5, float(pos_tuple[2])], dtype=float)
+            else:
+                pos = np.array([cell[1] + 0.5, cell[2] + 0.5, 0.0], dtype=float)
             value = min(2.0, self.local_density(pos, radius=1.0) * 2.0)
             self._density_penalty_cache[cell] = value
             return value

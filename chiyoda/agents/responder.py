@@ -12,7 +12,7 @@ from chiyoda.navigation.social_force import adjusted_step
 
 @dataclass
 class FirstResponder(CognitiveAgent):
-    mission_target: Optional[Tuple[float, float]] = None
+    mission_target: Optional[Tuple[float, ...]] = None
     ppe_factor: float = 0.1 # 90% PPE protection
     broadcast_radius: float = 5.0
     is_responder: bool = True
@@ -42,15 +42,15 @@ class FirstResponder(CognitiveAgent):
         if self.mission_target is None:
             if simulation.hazards:
                 h = simulation.hazards[0]
-                self.mission_target = (float(h.pos[0]), float(h.pos[1]))
+                self.mission_target = tuple(float(value) for value in h.pos)
             else:
                 return
         needs_path = (not self.current_path) or (self.path_index >= len(self.current_path))
         stale = simulation.current_step - self.last_navigation_step >= simulation.navigation_replan_interval_steps
         if not (needs_path or stale):
             return
-        start = (int(round(self.pos[0])), int(round(self.pos[1])))
-        target = (int(round(self.mission_target[0])), int(round(self.mission_target[1])))
+        start = simulation._grid_cell(self)
+        target = simulation.layout.cell(self.mission_target)
         path = navigator.find_optimal_path(start, [target])
         if path:
             self.current_path = path
@@ -67,14 +67,14 @@ class FirstResponder(CognitiveAgent):
         waypoint = None
         while self.current_path and self.path_index < len(self.current_path):
             candidate = self.current_path[self.path_index]
-            target = np.array([candidate[0] + 0.5, candidate[1] + 0.5], dtype=float)
+            target = simulation.layout.world_position(candidate)
             if np.linalg.norm(target - self.pos) < 0.2:
                 self.path_index += 1
                 continue
             waypoint = candidate
             break
         if waypoint is not None:
-            target = np.array([waypoint[0] + 0.5, waypoint[1] + 0.5], dtype=float)
+            target = simulation.layout.world_position(waypoint)
             direction = target - self.pos
             dist = np.linalg.norm(direction)
             if dist > 1e-6:
@@ -83,14 +83,23 @@ class FirstResponder(CognitiveAgent):
             neighbors = (
                 simulation.spatial_index.neighbor_positions(self.pos, radius=1.0)
                 if simulation.spatial_index is not None
-                else np.zeros((0, 2), dtype=float)
+                else np.zeros((0, 3), dtype=float)
             )
             adj = adjusted_step(self.pos, desired_step, neighbors, [], dt, counter_flow=True)
             new_pos = self.pos + adj
             if np.linalg.norm(target - new_pos) < 0.2:
                 self.path_index += 1
-            if simulation.layout.is_walkable((int(round(new_pos[0])), int(round(new_pos[1])))):
+            current_cell = simulation._grid_cell(self)
+            next_cell = simulation.layout.cell(waypoint)
+            if current_cell[0] != next_cell[0] or simulation.layout.is_walkable(new_pos):
                 self.pos = new_pos
+                self.floor_id = simulation.layout.floor_for_z(float(self.pos[2]))
         if self.mission_target:
-            if np.linalg.norm(self.pos - np.array(self.mission_target, dtype=float)) < 2.0:
+            if np.linalg.norm(self.pos - _point3(self.mission_target)) < 2.0:
                 self.mission_target = None
+
+
+def _point3(value) -> np.ndarray:
+    if len(value) >= 3:
+        return np.array([float(value[0]), float(value[1]), float(value[2])], dtype=float)
+    return np.array([float(value[0]), float(value[1]), 0.0], dtype=float)
