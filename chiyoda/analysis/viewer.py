@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 import pandas as pd
+import yaml
 
 from chiyoda.studies.models import StudyBundle
 
@@ -28,6 +29,7 @@ def export_viewer(
 
 def _viewer_payload(bundle: StudyBundle, *, max_frames: int) -> dict[str, Any]:
     run_id = str(bundle.metadata.get("representative_run_id") or "")
+    floors = _source_floors(bundle)
     agent_steps = bundle.agent_steps.copy()
     if run_id and "run_id" in agent_steps.columns:
         agent_steps = agent_steps[agent_steps["run_id"] == run_id]
@@ -61,10 +63,15 @@ def _viewer_payload(bundle: StudyBundle, *, max_frames: int) -> dict[str, Any]:
             "layout_width": bundle.metadata.get("layout_width", 0),
             "layout_height": bundle.metadata.get("layout_height", 0),
             "layout_cell_size": bundle.metadata.get("layout_cell_size", 1.0),
+            "layout_origin_x": bundle.metadata.get("layout_origin_x", 0.0),
+            "layout_origin_y": bundle.metadata.get("layout_origin_y", 0.0),
             "station_provenance": bundle.metadata.get("station_provenance"),
         },
         "layout": _layout_cells(str(bundle.metadata.get("layout_text", ""))),
+        "layout_grid": _layout_grid(str(bundle.metadata.get("layout_text", ""))),
+        "floors": floors,
         "bottlenecks": bundle.metadata.get("bottleneck_zones", []),
+        "path_usage": _path_usage_cells(bundle.cells, run_id=run_id),
         "hazards": _table_rows(bundle.hazards, run_id=run_id),
         "interventions": _table_rows(bundle.interventions, run_id=run_id),
         "llm_decisions": _table_rows(bundle.llm_decisions, run_id=run_id),
@@ -81,6 +88,136 @@ def _layout_cells(layout_text: str) -> list[dict[str, Any]]:
     return cells
 
 
+def _layout_grid(layout_text: str) -> list[list[str]]:
+    return [list(line) for line in layout_text.splitlines()]
+
+
+def _source_floors(bundle: StudyBundle) -> list[dict[str, Any]]:
+    scenario_file = bundle.metadata.get("scenario_file")
+    if not scenario_file:
+        return []
+    scenario_path = Path(str(scenario_file))
+    if not scenario_path.exists():
+        return []
+    try:
+        payload = yaml.safe_load(scenario_path.read_text())
+    except Exception:
+        return []
+    scenario = payload.get("scenario", payload) if isinstance(payload, dict) else {}
+    layout = scenario.get("layout", {}) if isinstance(scenario, dict) else {}
+    geojson_cfg = layout.get("geojson") if isinstance(layout, dict) else None
+    if geojson_cfg is None:
+        return []
+    if isinstance(geojson_cfg, str):
+        geojson_cfg = {"file": geojson_cfg}
+    if not isinstance(geojson_cfg, dict) or "file" not in geojson_cfg:
+        return []
+    source = Path(str(geojson_cfg["file"]))
+    if not source.is_absolute():
+        source = scenario_path.parent / source
+    if not source.exists():
+        return []
+    try:
+        geojson = json.loads(source.read_text())
+    except Exception:
+        return []
+
+    origin_x = float(bundle.metadata.get("layout_origin_x", 0.0) or 0.0)
+    origin_y = float(bundle.metadata.get("layout_origin_y", 0.0) or 0.0)
+    cell_size = float(bundle.metadata.get("layout_cell_size", 1.0) or 1.0)
+    by_level: dict[str, list[dict[str, Any]]] = {}
+    for feature in geojson.get("features", []):
+        if not isinstance(feature, dict):
+            continue
+        properties = dict(feature.get("properties", {}) or {})
+        level = str(properties.get("level", properties.get("level_id", "unassigned")))
+        geometry = feature.get("geometry", {}) or {}
+        converted = _viewer_geometry(geometry, origin_x=origin_x, origin_y=origin_y, cell_size=cell_size)
+        if converted is None:
+            continue
+        by_level.setdefault(level, []).append(
+            {
+                "role": _feature_role(properties),
+                "name": str(properties.get("name", properties.get("ref", ""))),
+                "geometry": converted,
+            }
+        )
+    return [
+        {"level": level, "features": features}
+        for level, features in sorted(by_level.items(), key=lambda item: item[0])
+    ]
+
+
+def _viewer_geometry(
+    geometry: dict[str, Any],
+    *,
+    origin_x: float,
+    origin_y: float,
+    cell_size: float,
+) -> dict[str, Any] | None:
+    kind = geometry.get("type")
+    coords = geometry.get("coordinates")
+    if kind == "Point":
+        return {"type": kind, "coordinates": _project_point(coords, origin_x, origin_y, cell_size)}
+    if kind == "LineString":
+        return {"type": kind, "coordinates": [_project_point(point, origin_x, origin_y, cell_size) for point in coords]}
+    if kind == "Polygon":
+        return {
+            "type": kind,
+            "coordinates": [
+                [_project_point(point, origin_x, origin_y, cell_size) for point in ring]
+                for ring in coords
+            ],
+        }
+    if kind == "MultiLineString":
+        return {
+            "type": kind,
+            "coordinates": [
+                [_project_point(point, origin_x, origin_y, cell_size) for point in line]
+                for line in coords
+            ],
+        }
+    if kind == "MultiPolygon":
+        return {
+            "type": kind,
+            "coordinates": [
+                [
+                    [_project_point(point, origin_x, origin_y, cell_size) for point in ring]
+                    for ring in polygon
+                ]
+                for polygon in coords
+            ],
+        }
+    return None
+
+
+def _project_point(point: Any, origin_x: float, origin_y: float, cell_size: float) -> list[float]:
+    return [
+        (float(point[0]) - origin_x) / cell_size,
+        (float(point[1]) - origin_y) / cell_size,
+    ]
+
+
+def _feature_role(properties: dict[str, Any]) -> str:
+    if properties.get("role"):
+        return str(properties["role"])
+    if properties.get("chiyoda_role"):
+        return str(properties["chiyoda_role"])
+    if str(properties.get("indoor", "")).lower() in {"wall", "column"}:
+        return "wall"
+    if properties.get("entrance") or str(properties.get("railway", "")).endswith("entrance"):
+        return "exit"
+    if str(properties.get("location_type", "")) == "2":
+        return "exit"
+    if properties.get("public_transport") == "platform" or properties.get("railway") == "platform":
+        return "platform"
+    if properties.get("pathway_mode"):
+        return "pathway"
+    if properties.get("indoor"):
+        return str(properties["indoor"])
+    return "feature"
+
+
 def _table_rows(frame: pd.DataFrame, *, run_id: str) -> list[dict[str, Any]]:
     if frame.empty:
         return []
@@ -88,6 +225,21 @@ def _table_rows(frame: pd.DataFrame, *, run_id: str) -> list[dict[str, Any]]:
     if run_id and "run_id" in current.columns:
         current = current[current["run_id"] == run_id]
     return current.to_dict(orient="records")
+
+
+def _path_usage_cells(frame: pd.DataFrame, *, run_id: str) -> list[dict[str, Any]]:
+    required = {"x", "y", "path_usage"}
+    if frame.empty or not required.issubset(frame.columns):
+        return []
+    current = frame.copy()
+    if run_id and "run_id" in current.columns:
+        current = current[current["run_id"] == run_id]
+    if current.empty:
+        return []
+    current["path_usage"] = pd.to_numeric(current["path_usage"], errors="coerce").fillna(0)
+    grouped = current.groupby(["x", "y"], as_index=False)["path_usage"].max()
+    grouped = grouped[grouped["path_usage"] > 0]
+    return grouped.to_dict(orient="records")
 
 
 def _sample_values(values: list[int], max_count: int) -> list[int]:
@@ -124,9 +276,10 @@ def _viewer_html() -> str:
   <style>
     html, body { margin: 0; height: 100%; font-family: system-ui, sans-serif; background: #111; color: #f5f5f5; }
     #app { display: grid; grid-template-rows: auto 1fr; height: 100%; }
-    #toolbar { display: flex; gap: 12px; align-items: center; padding: 10px 12px; background: #1d1d1d; border-bottom: 1px solid #333; }
+    #toolbar { display: flex; flex-wrap: wrap; gap: 10px 12px; align-items: center; padding: 10px 12px; background: #1d1d1d; border-bottom: 1px solid #333; }
     button, input, select, label { font: inherit; }
     button { background: #e6e6e6; border: 0; padding: 5px 10px; border-radius: 4px; cursor: pointer; }
+    select { background: #e6e6e6; border: 0; padding: 5px 8px; border-radius: 4px; }
     input[type="range"] { width: min(55vw, 720px); }
     canvas { display: block; width: 100%; height: 100%; }
     .metric { color: #cfcfcf; min-width: 170px; }
@@ -138,18 +291,43 @@ def _viewer_html() -> str:
     <button id="play">Play</button>
     <input id="scrub" type="range" min="0" max="0" value="0">
     <span class="metric" id="step">step 0</span>
+    <button id="resetCamera">Reset camera</button>
+    <label><input id="sourceFloors" type="checkbox" checked> source floors</label>
     <label><input id="hazards" type="checkbox" checked> hazards</label>
     <label><input id="bottlenecks" type="checkbox" checked> bottlenecks</label>
+    <label><input id="pathUsage" type="checkbox"> path usage</label>
+    <label><input id="validationOverlay" type="checkbox" checked> validation</label>
     <label><input id="messages" type="checkbox" checked> messages</label>
+    <label>floor gap <input id="floorGap" type="range" min="0" max="8" step="0.5" value="2.5"></label>
+    <label><input id="authorMode" type="checkbox"> author</label>
+    <select id="paintToken" aria-label="paint token">
+      <option value=".">floor</option>
+      <option value="X">wall</option>
+      <option value="E">exit</option>
+      <option value="@">spawn</option>
+      <option value="S">signage</option>
+      <option value="R">responder</option>
+    </select>
+    <button id="exportScenario">Export YAML</button>
+    <span class="metric" id="editorStatus">author off</span>
   </div>
   <canvas id="scene"></canvas>
 </div>
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
 <script type="module">
-import * as THREE from "https://unpkg.com/three@0.160.0/build/three.module.js";
+import * as THREE from "three";
+import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 
 const data = await fetch("./viewer_data.json").then(r => r.json());
 const canvas = document.querySelector("#scene");
-const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, preserveDrawingBuffer: true });
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x111111);
 const width = Number(data.metadata.layout_width || 20);
@@ -158,14 +336,30 @@ const camera = new THREE.PerspectiveCamera(55, 1, 0.1, 2000);
 camera.position.set(width * 0.55, Math.max(width, height) * 0.9, height * 1.1);
 camera.lookAt(width / 2, 0, height / 2);
 scene.add(new THREE.HemisphereLight(0xffffff, 0x202020, 2.2));
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.dampingFactor = 0.08;
+controls.enableRotate = false;
+controls.target.set(width / 2, 0, height / 2);
+controls.update();
+const authorMode = document.querySelector("#authorMode");
+const paintToken = document.querySelector("#paintToken");
+const editorStatus = document.querySelector("#editorStatus");
+const validationOverlay = document.querySelector("#validationOverlay");
+const editorGrid = normalizeLayoutGrid(data.layout_grid && data.layout_grid.length ? data.layout_grid : layoutGridFromCells());
+window.chiyodaViewer = { camera, controls, renderer, scene, data, editorGrid };
 
 const root = new THREE.Group();
 scene.add(root);
+const layoutGroup = new THREE.Group();
 const agentGroup = new THREE.Group();
 const hazardGroup = new THREE.Group();
 const bottleneckGroup = new THREE.Group();
+const pathUsageGroup = new THREE.Group();
+const validationGroup = new THREE.Group();
 const messageGroup = new THREE.Group();
-scene.add(agentGroup, hazardGroup, bottleneckGroup, messageGroup);
+const sourceFloorGroup = new THREE.Group();
+scene.add(sourceFloorGroup, agentGroup, hazardGroup, bottleneckGroup, pathUsageGroup, validationGroup, messageGroup);
 
 function box(x, z, sx, sz, color, y = 0.05, h = 0.1) {
   const geo = new THREE.BoxGeometry(sx, h, sz);
@@ -175,12 +369,142 @@ function box(x, z, sx, sz, color, y = 0.05, h = 0.1) {
   return mesh;
 }
 
-root.add(box(width / 2, height / 2, width, height, 0x2b2b2b, -0.04, 0.04));
-for (const cell of data.layout) {
-  const color = cell.token === "X" ? 0x656565 : cell.token === "E" ? 0x3eb36f : cell.token === "@" ? 0x4f83ff : 0xd4b24c;
-  const h = cell.token === "X" ? 0.9 : 0.12;
-  root.add(box(cell.x + 0.5, cell.y + 0.5, 0.95, 0.95, color, h / 2, h));
+function overlayBox(x, z, sx, sz, color, opacity, y = 0.08, h = 0.04) {
+  const mesh = box(x, z, sx, sz, color, y, h);
+  mesh.material.transparent = true;
+  mesh.material.opacity = opacity;
+  return mesh;
 }
+
+root.add(box(width / 2, height / 2, width, height, 0x2b2b2b, -0.04, 0.04));
+root.add(layoutGroup);
+
+function layoutGridFromCells() {
+  const grid = Array.from({ length: height }, () => Array.from({ length: width }, () => "."));
+  for (const cell of data.layout || []) {
+    if (cell.y >= 0 && cell.y < height && cell.x >= 0 && cell.x < width) {
+      grid[cell.y][cell.x] = String(cell.token || ".").slice(0, 1);
+    }
+  }
+  return grid;
+}
+
+function normalizeLayoutGrid(rawGrid) {
+  const grid = [];
+  for (let y = 0; y < height; y += 1) {
+    const source = rawGrid[y] || [];
+    const row = Array.isArray(source) ? source.map(token => String(token || ".").slice(0, 1)) : String(source).split("");
+    while (row.length < width) row.push(".");
+    grid.push(row.slice(0, width));
+  }
+  return grid;
+}
+
+function cellColor(token) {
+  if (token === "X") return 0x656565;
+  if (token === "E") return 0x3eb36f;
+  if (token === "@") return 0x4f83ff;
+  if (token === "R") return 0x39c3a0;
+  if (token === "S") return 0xd4b24c;
+  return 0x252525;
+}
+
+function cellHeight(token) {
+  if (token === "X") return 0.9;
+  if (token === ".") return 0.025;
+  return 0.12;
+}
+
+function renderLayoutGrid() {
+  layoutGroup.clear();
+  const showFloorCells = authorMode.checked;
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const token = editorGrid[y][x] || ".";
+      if (token === "." && !showFloorCells) continue;
+      const h = cellHeight(token);
+      const mesh = box(x + 0.5, y + 0.5, 0.95, 0.95, cellColor(token), h / 2, h);
+      if (token === ".") {
+        mesh.material.transparent = true;
+        mesh.material.opacity = 0.28;
+      }
+      layoutGroup.add(mesh);
+    }
+  }
+}
+renderLayoutGrid();
+
+function roleColor(role) {
+  if (role === "wall") return 0x777777;
+  if (role === "exit") return 0x39b36b;
+  if (role === "spawn") return 0x4f83ff;
+  if (role === "platform") return 0x8ec4ff;
+  if (role === "pathway") return 0xd8b545;
+  if (role === "corridor" || role === "area" || role === "room") return 0x5f6f7a;
+  return 0x708090;
+}
+
+function polygonMesh(rings, y, color, opacity = 0.24) {
+  if (!rings.length || rings[0].length < 3) return null;
+  const contour = rings[0].map(p => new THREE.Vector2(Number(p[0]), Number(p[1])));
+  const triangles = THREE.ShapeUtils.triangulateShape(contour, []);
+  const positions = [];
+  for (const tri of triangles) {
+    for (const idx of tri) {
+      const p = contour[idx];
+      positions.push(p.x, y, p.y);
+    }
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+  geo.computeVertexNormals();
+  return new THREE.Mesh(
+    geo,
+    new THREE.MeshStandardMaterial({ color, transparent: true, opacity, side: THREE.DoubleSide })
+  );
+}
+
+function lineObject(points, y, color) {
+  const geo = new THREE.BufferGeometry().setFromPoints(points.map(p => new THREE.Vector3(Number(p[0]), y + 0.05, Number(p[1]))));
+  return new THREE.Line(geo, new THREE.LineBasicMaterial({ color, linewidth: 2 }));
+}
+
+function renderSourceFloors() {
+  sourceFloorGroup.clear();
+  const floors = data.floors || [];
+  const gap = Number(document.querySelector("#floorGap").value || 0);
+  floors.forEach((floor, index) => {
+    const y = gap > 0 ? index * gap : 0;
+    const group = new THREE.Group();
+    group.userData.level = floor.level;
+    for (const feature of floor.features || []) {
+      const color = roleColor(feature.role);
+      const geometry = feature.geometry || {};
+      if (geometry.type === "Polygon") {
+        const mesh = polygonMesh(geometry.coordinates || [], y, color);
+        if (mesh) group.add(mesh);
+      } else if (geometry.type === "MultiPolygon") {
+        for (const polygon of geometry.coordinates || []) {
+          const mesh = polygonMesh(polygon, y, color);
+          if (mesh) group.add(mesh);
+        }
+      } else if (geometry.type === "LineString") {
+        group.add(lineObject(geometry.coordinates || [], y, color));
+      } else if (geometry.type === "MultiLineString") {
+        for (const line of geometry.coordinates || []) group.add(lineObject(line, y, color));
+      } else if (geometry.type === "Point") {
+        const p = geometry.coordinates || [0, 0];
+        group.add(box(Number(p[0]), Number(p[1]), 0.35, 0.35, color, y + 0.18, 0.35));
+      }
+    }
+    if (floors.length > 1) {
+      const label = box(-0.6, 0.5 + index * 1.2, 0.25, 0.9, 0xffffff, y + 0.08, 0.16);
+      group.add(label);
+    }
+    sourceFloorGroup.add(group);
+  });
+}
+renderSourceFloors();
 
 for (const hz of data.hazards) {
   const mesh = new THREE.Mesh(
@@ -196,6 +520,29 @@ for (const zone of data.bottlenecks || []) {
     bottleneckGroup.add(box(Number(cell[0]) + 0.5, Number(cell[1]) + 0.5, 0.9, 0.9, 0xf0c84b, 0.03, 0.06));
   }
 }
+
+function renderPathUsage() {
+  pathUsageGroup.clear();
+  const cells = data.path_usage || [];
+  const maxUsage = Math.max(1, ...cells.map(cell => Number(cell.path_usage || 0)));
+  for (const cell of cells) {
+    const usage = Number(cell.path_usage || 0);
+    if (usage <= 0) continue;
+    const strength = Math.min(1, usage / maxUsage);
+    pathUsageGroup.add(overlayBox(
+      Number(cell.x) + 0.5,
+      Number(cell.y) + 0.5,
+      0.9,
+      0.9,
+      0x56c7ff,
+      0.18 + strength * 0.45,
+      0.11,
+      0.05
+    ));
+  }
+}
+renderPathUsage();
+pathUsageGroup.visible = false;
 
 for (const event of data.interventions || []) {
   const mesh = new THREE.Mesh(
@@ -239,7 +586,374 @@ scrub.addEventListener("input", () => {
 });
 document.querySelector("#hazards").addEventListener("change", event => hazardGroup.visible = event.target.checked);
 document.querySelector("#bottlenecks").addEventListener("change", event => bottleneckGroup.visible = event.target.checked);
+document.querySelector("#pathUsage").addEventListener("change", event => pathUsageGroup.visible = event.target.checked);
+validationOverlay.addEventListener("change", renderValidationOverlay);
 document.querySelector("#messages").addEventListener("change", event => messageGroup.visible = event.target.checked);
+document.querySelector("#sourceFloors").addEventListener("change", event => sourceFloorGroup.visible = event.target.checked);
+document.querySelector("#floorGap").addEventListener("input", renderSourceFloors);
+document.querySelector("#resetCamera").addEventListener("click", () => {
+  camera.position.set(width * 0.55, Math.max(width, height) * 0.9, height * 1.1);
+  controls.target.set(width / 2, 0, height / 2);
+  controls.update();
+});
+authorMode.addEventListener("change", () => {
+  if (authorMode.checked) {
+    playing = false;
+    document.querySelector("#play").textContent = "Play";
+  }
+  renderLayoutGrid();
+  const result = renderValidationOverlay();
+  updateEditorStatus(authorMode.checked ? `author ${tokenLabel(paintToken.value)} | ${validationSummary(result)}` : validationSummary(result));
+});
+paintToken.addEventListener("change", () => {
+  if (authorMode.checked) updateEditorStatus(`author ${tokenLabel(paintToken.value)} | ${validationSummary(validateEditorGrid())}`);
+});
+document.querySelector("#exportScenario").addEventListener("click", downloadScenario);
+window.chiyodaViewer.exportScenarioYaml = exportScenarioYaml;
+window.chiyodaViewer.renderLayoutGrid = renderLayoutGrid;
+window.chiyodaViewer.validateEditorGrid = validateEditorGrid;
+window.chiyodaViewer.renderValidationOverlay = renderValidationOverlay;
+
+function tokenLabel(token) {
+  if (token === ".") return "floor";
+  if (token === "X") return "wall";
+  if (token === "E") return "exit";
+  if (token === "@") return "spawn";
+  if (token === "S") return "signage";
+  if (token === "R") return "responder";
+  return token;
+}
+
+function updateEditorStatus(text) {
+  editorStatus.textContent = text;
+}
+
+function layoutText() {
+  return editorGrid.map(row => row.join("")).join("\\n");
+}
+
+function collectTokenCells(token) {
+  const cells = [];
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      if (editorGrid[y][x] === token) cells.push([x, y]);
+    }
+  }
+  return cells;
+}
+
+function cellKey(x, y) {
+  return `${x},${y}`;
+}
+
+function inBounds(x, y) {
+  return x >= 0 && x < width && y >= 0 && y < height;
+}
+
+function isWalkable(x, y) {
+  return inBounds(x, y) && editorGrid[y][x] !== "X";
+}
+
+function neighbors(x, y) {
+  return [[x + 1, y], [x - 1, y], [x, y + 1], [x, y - 1]].filter(cell => isWalkable(cell[0], cell[1]));
+}
+
+function validateEditorGrid() {
+  const exits = collectTokenCells("E");
+  const starts = [
+    ...collectTokenCells("@").map(cell => ({ kind: "spawn", label: "layout spawn", source: "layout.@", cell })),
+    ...collectTokenCells("R").map(cell => ({ kind: "responder", label: "layout responder entry", source: "layout.R", cell })),
+  ];
+  const issues = [];
+  const reachable = new Set();
+  const parent = new Map();
+  const queue = [];
+  for (const [x, y] of exits) {
+    if (!isWalkable(x, y)) continue;
+    const key = cellKey(x, y);
+    reachable.add(key);
+    parent.set(key, null);
+    queue.push([x, y]);
+  }
+  while (queue.length) {
+    const [x, y] = queue.shift();
+    for (const [nx, ny] of neighbors(x, y)) {
+      const key = cellKey(nx, ny);
+      if (reachable.has(key)) continue;
+      reachable.add(key);
+      parent.set(key, [x, y]);
+      queue.push([nx, ny]);
+    }
+  }
+  if (!exits.length) {
+    issues.push({ severity: "error", code: "no_exits", message: "layout has no exit cells" });
+  }
+  if (Number(frames[0]?.agents?.length || 0) > 0 && !collectTokenCells("@").length) {
+    issues.push({ severity: "warning", code: "implicit_population_spawn", message: "no @ spawn cells; exported run will use random walkable cells" });
+  }
+  for (const start of starts) {
+    const [x, y] = start.cell;
+    if (!isWalkable(x, y)) {
+      issues.push({ severity: "error", code: "start_on_wall", message: `${start.label} is on a wall cell`, cell: start.cell, source: start.source });
+      continue;
+    }
+    if (exits.length && !reachable.has(cellKey(x, y))) {
+      issues.push({ severity: "error", code: "start_unreachable", message: `${start.label} cannot reach any exit`, cell: start.cell, source: start.source });
+    }
+    if (editorGrid[y][x] === "E") {
+      issues.push({ severity: "warning", code: "start_on_exit", message: `${start.label} is already on an exit cell`, cell: start.cell, source: start.source });
+    }
+  }
+  const walkableCells = [];
+  const unreachableCells = [];
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      if (!isWalkable(x, y)) continue;
+      walkableCells.push([x, y]);
+      if (exits.length && !reachable.has(cellKey(x, y))) unreachableCells.push([x, y]);
+    }
+  }
+  if (!walkableCells.length) {
+    issues.push({ severity: "error", code: "no_walkable_cells", message: "layout has no walkable cells" });
+  }
+  if (exits.length && unreachableCells.length) {
+    issues.push({ severity: "warning", code: "unreachable_walkable_cells", message: `${unreachableCells.length} walkable cells cannot reach any exit` });
+  }
+  const paths = {};
+  starts.forEach((start, index) => {
+    const [x, y] = start.cell;
+    const key = cellKey(x, y);
+    if (!reachable.has(key)) return;
+    paths[`${start.kind}_${index}`] = pathToExit([x, y], parent);
+  });
+  return {
+    ok: !issues.some(issue => issue.severity === "error"),
+    exits,
+    starts,
+    reachableCells: Array.from(reachable).map(parseCellKey),
+    unreachableWalkableCells: unreachableCells,
+    paths,
+    issues,
+  };
+}
+
+function parseCellKey(key) {
+  return key.split(",").map(value => Number(value));
+}
+
+function pathToExit(start, parent) {
+  const path = [start];
+  let current = start;
+  while (parent.get(cellKey(current[0], current[1]))) {
+    current = parent.get(cellKey(current[0], current[1]));
+    path.push(current);
+  }
+  return path;
+}
+
+function validationSummary(result) {
+  const errors = result.issues.filter(issue => issue.severity === "error").length;
+  const warnings = result.issues.filter(issue => issue.severity === "warning").length;
+  if (errors) return `errors ${errors} warnings ${warnings}`;
+  if (warnings) return `warnings ${warnings}`;
+  return "valid";
+}
+
+function renderValidationOverlay() {
+  validationGroup.clear();
+  const result = validateEditorGrid();
+  window.chiyodaViewer.validation = result;
+  validationGroup.visible = validationOverlay.checked;
+  if (validationOverlay.checked) {
+    const seenPathCells = new Set();
+    for (const path of Object.values(result.paths)) {
+      for (const [x, y] of path) {
+        const key = cellKey(x, y);
+        if (seenPathCells.has(key)) continue;
+        seenPathCells.add(key);
+        validationGroup.add(overlayBox(x + 0.5, y + 0.5, 0.52, 0.52, 0x46d983, 0.55, 0.16, 0.05));
+      }
+    }
+    for (const [x, y] of result.unreachableWalkableCells) {
+      validationGroup.add(overlayBox(x + 0.5, y + 0.5, 0.82, 0.82, 0xc44cff, 0.42, 0.14, 0.05));
+    }
+    for (const issue of result.issues) {
+      if (issue.severity !== "error" || !issue.cell) continue;
+      const [x, y] = issue.cell;
+      validationGroup.add(overlayBox(x + 0.5, y + 0.5, 0.95, 0.95, 0xff4f4f, 0.7, 0.22, 0.08));
+    }
+  }
+  return result;
+}
+
+function yamlQuote(value) {
+  return JSON.stringify(String(value ?? ""));
+}
+
+function yamlNumber(value, fallback = 0) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return String(fallback);
+  return String(Math.round(parsed * 10000) / 10000);
+}
+
+function initialHazards() {
+  const rows = (data.hazards || []).filter(row => Number.isFinite(Number(row.x)) && Number.isFinite(Number(row.y)));
+  if (!rows.length) return [];
+  const firstStep = Math.min(...rows.map(row => Number(row.step ?? 0)).filter(Number.isFinite));
+  const seen = new Set();
+  const hazards = [];
+  for (const row of rows) {
+    const step = Number(row.step ?? 0);
+    if (Number.isFinite(firstStep) && step !== firstStep) continue;
+    const key = [row.kind || "GAS", yamlNumber(row.x), yamlNumber(row.y), yamlNumber(row.radius), yamlNumber(row.severity)].join("|");
+    if (seen.has(key)) continue;
+    seen.add(key);
+    hazards.push(row);
+  }
+  return hazards;
+}
+
+function exportScenarioYaml() {
+  const scenarioName = `${String(data.metadata.scenario_name || "chiyoda_viewer")}_edited`;
+  const spawns = collectTokenCells("@");
+  const responders = collectTokenCells("R");
+  const populationTotal = Math.max(spawns.length, Number(frames[0]?.agents?.length || 0), 1);
+  const lastStep = Number(frames[frames.length - 1]?.step || 0);
+  const maxSteps = Math.max(1, Math.ceil(lastStep || 400));
+  const lines = [
+    "scenario:",
+    `  name: ${yamlQuote(scenarioName)}`,
+    `  description: ${yamlQuote("Edited from Chiyoda static viewer export.")}`,
+    "  layout:",
+    "    text: |",
+  ];
+  for (const line of layoutText().split("\\n")) lines.push(`      ${line}`);
+  lines.push("  population:", `    total: ${populationTotal}`);
+  if (spawns.length) {
+    lines.push("    cohorts:", "      - name: baseline", `        count: ${populationTotal}`, "        spawn_cells:");
+    for (const [x, y] of spawns) lines.push(`          - [${x}, ${y}]`);
+  }
+  if (responders.length) {
+    lines.push("  responders:", `    - count: ${responders.length}`, "      spawn_cells:");
+    for (const [x, y] of responders) lines.push(`        - [${x}, ${y}]`);
+  }
+  const hazards = initialHazards();
+  if (hazards.length) {
+    lines.push("  hazards:");
+    for (const hazard of hazards) {
+      lines.push(
+        `    - type: ${yamlQuote(hazard.kind || "GAS")}`,
+        `      location: [${yamlNumber(hazard.x)}, ${yamlNumber(hazard.y)}]`,
+        `      radius: ${yamlNumber(hazard.radius)}`,
+        `      severity: ${yamlNumber(hazard.severity)}`
+      );
+    }
+  }
+  lines.push(
+    "  simulation:",
+    `    max_steps: ${maxSteps}`,
+    "    dt: 0.1",
+    "    random_seed: 42",
+    "  information:",
+    "    mode: asymmetric",
+    ""
+  );
+  return lines.join("\\n");
+}
+
+function downloadScenario() {
+  const result = renderValidationOverlay();
+  const yaml = exportScenarioYaml();
+  const blob = new Blob([yaml], { type: "text/yaml" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = "chiyoda_edited_scenario.yaml";
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+  updateEditorStatus(`exported YAML | ${validationSummary(result)}`);
+}
+
+let dragStart = null;
+let paintPointerId = null;
+const raycaster = new THREE.Raycaster();
+const pointer = new THREE.Vector2();
+const paintPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+
+function gridCellFromEvent(event) {
+  const rect = canvas.getBoundingClientRect();
+  pointer.x = ((event.clientX - rect.left) / Math.max(rect.width, 1)) * 2 - 1;
+  pointer.y = -(((event.clientY - rect.top) / Math.max(rect.height, 1)) * 2 - 1);
+  raycaster.setFromCamera(pointer, camera);
+  const point = new THREE.Vector3();
+  if (!raycaster.ray.intersectPlane(paintPlane, point)) return null;
+  const x = Math.floor(point.x);
+  const y = Math.floor(point.z);
+  if (x < 0 || x >= width || y < 0 || y >= height) return null;
+  return { x, y };
+}
+
+function paintCellFromEvent(event) {
+  const cell = gridCellFromEvent(event);
+  if (!cell) return false;
+  const token = String(paintToken.value || ".").slice(0, 1);
+  editorGrid[cell.y][cell.x] = token;
+  renderLayoutGrid();
+  const result = renderValidationOverlay();
+  updateEditorStatus(`${cell.x},${cell.y} ${tokenLabel(token)} | ${validationSummary(result)}`);
+  return true;
+}
+
+canvas.addEventListener("pointerdown", event => {
+  if (authorMode.checked && event.button === 0) {
+    event.preventDefault();
+    paintPointerId = event.pointerId;
+    canvas.setPointerCapture(event.pointerId);
+    paintCellFromEvent(event);
+    return;
+  }
+  if (event.button !== 0) return;
+  dragStart = { x: event.clientX, y: event.clientY, pointerId: event.pointerId };
+  canvas.setPointerCapture(event.pointerId);
+});
+canvas.addEventListener("pointermove", event => {
+  if (paintPointerId === event.pointerId && authorMode.checked) {
+    event.preventDefault();
+    paintCellFromEvent(event);
+    return;
+  }
+  if (authorMode.checked && paintPointerId === null) {
+    const cell = gridCellFromEvent(event);
+    if (cell) updateEditorStatus(`${cell.x},${cell.y} ${tokenLabel(paintToken.value)}`);
+  }
+  if (!dragStart || event.pointerId !== dragStart.pointerId) return;
+  const dx = event.clientX - dragStart.x;
+  const dy = event.clientY - dragStart.y;
+  rotateCamera(dx * 0.006, dy * 0.004);
+  dragStart = { x: event.clientX, y: event.clientY, pointerId: event.pointerId };
+});
+canvas.addEventListener("pointerup", event => {
+  if (paintPointerId === event.pointerId) {
+    paintPointerId = null;
+    return;
+  }
+  if (dragStart && event.pointerId === dragStart.pointerId) dragStart = null;
+});
+canvas.addEventListener("pointercancel", () => {
+  dragStart = null;
+  paintPointerId = null;
+});
+
+function rotateCamera(deltaTheta, deltaPhi) {
+  const offset = camera.position.clone().sub(controls.target);
+  const spherical = new THREE.Spherical().setFromVector3(offset);
+  spherical.theta -= deltaTheta;
+  spherical.phi = Math.max(0.2, Math.min(Math.PI * 0.48, spherical.phi + deltaPhi));
+  camera.position.copy(controls.target).add(new THREE.Vector3().setFromSpherical(spherical));
+  controls.update();
+}
 
 function resize() {
   const { clientWidth, clientHeight } = canvas;
@@ -250,6 +964,7 @@ function resize() {
 
 function animate() {
   resize();
+  controls.update();
   if (playing && frames.length) {
     frameIndex = (frameIndex + 1) % frames.length;
     scrub.value = String(frameIndex);
@@ -259,6 +974,7 @@ function animate() {
   setTimeout(() => requestAnimationFrame(animate), playing ? 120 : 250);
 }
 
+updateEditorStatus(validationSummary(renderValidationOverlay()));
 drawFrame(0);
 animate();
 </script>

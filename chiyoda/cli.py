@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import click
@@ -11,6 +12,7 @@ from chiyoda.analysis.trajectory_reference import (
     load_trajectory_table,
 )
 from chiyoda.studies import StudyBundle, compare_studies, load_study_config, run_study
+from chiyoda.scenarios.validation import validate_scenario_file
 
 
 @click.group()
@@ -116,6 +118,30 @@ def sweep(study_file, out_dir, figure_formats, table_formats, profile):
     bundle = run_study(config)
     _export_bundle(bundle, out_dir, tuple(figure_formats), tuple(table_formats), profile)
     click.echo(f"Exported sweep study to {out_dir}")
+
+
+@cli.command("validate-scenario")
+@click.argument("scenario_file")
+@click.option("--json", "json_output", is_flag=True, help="Emit machine-readable validation output")
+@click.pass_context
+def validate_scenario_command(ctx, scenario_file, json_output):
+    """Validate scenario layout starts, exits, and static exit reachability."""
+    result = validate_scenario_file(scenario_file)
+    if json_output:
+        click.echo(json.dumps(result.to_dict(), indent=2))
+    else:
+        status = "ERROR" if result.has_errors else "OK"
+        click.echo(
+            f"{status}: {scenario_file} "
+            f"layout={result.layout_width}x{result.layout_height} "
+            f"exits={len(result.exits)} starts={len(result.starts)}"
+        )
+        for issue in result.issues:
+            cell = f" cell={issue.cell}" if issue.cell is not None else ""
+            source = f" source={issue.source}" if issue.source else ""
+            click.echo(f"{issue.severity.upper()} {issue.code}:{cell}{source} {issue.message}")
+    if result.has_errors:
+        ctx.exit(1)
 
 
 @cli.command()

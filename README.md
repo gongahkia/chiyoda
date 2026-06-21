@@ -67,6 +67,7 @@ $ make verify PYTHON=.venv/bin/python
 Run a single evacuation scenario:
 
 ```console
+$ python -m chiyoda.cli validate-scenario scenarios/station_baseline.yaml
 $ python -m chiyoda.cli run scenarios/station_baseline.yaml -o out/baseline
 $ python -m chiyoda.cli run scenarios/station_sarin.yaml -o out/sarin
 ```
@@ -80,7 +81,18 @@ $ python -m chiyoda.cli sweep scenarios/study_information_control.yaml -o out/in
 Inspect a completed run in the static 3D viewer:
 
 ```console
-$ open out/information_control/viewer/index.html
+$ cd out/information_control/viewer
+$ python3 -m http.server 8000
+```
+
+The viewer can also export edited raster `layout.text` scenarios; see
+[`docs/3d_viewer.md`](./docs/3d_viewer.md).
+
+Validate edited scenarios before rerunning them:
+
+```console
+$ python -m chiyoda.cli validate-scenario ~/Downloads/chiyoda_edited_scenario.yaml
+$ python -m chiyoda.cli run ~/Downloads/chiyoda_edited_scenario.yaml -o out/edited
 ```
 
 Compare study outputs or reference trajectories:
@@ -119,6 +131,8 @@ Important documentation:
   describes station geometry import and role inference.
 * [`docs/3d_viewer.md`](./docs/3d_viewer.md) describes the static Three.js
   viewer export.
+* [`docs/implementation_audit.md`](./docs/implementation_audit.md) states the
+  current runtime semantics and known multi-floor/viewer gaps.
 * [`docs/llm_agent_decisions.md`](./docs/llm_agent_decisions.md) describes
   bounded, replayable LLM agent-decision experiments.
 
