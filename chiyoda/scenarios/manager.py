@@ -12,10 +12,12 @@ from chiyoda.environment.layout import EMPTY, EXIT, Layout, WALL, BEACON, RESPON
 from chiyoda.environment.obstacles import apply_obstacles_to_grid, obstacles_from_config
 from chiyoda.environment.exits import Exit
 from chiyoda.environment.hazards import Hazard, ImportedHazardField
+from chiyoda.environment.station_provenance import load_station_provenance
 from chiyoda.core.simulation import Simulation, SimulationConfig
 from chiyoda.agents.commuter import Commuter
 from chiyoda.agents.responder import FirstResponder
 from chiyoda.agents.behaviors import BehaviorModel, BehaviorConfig
+from chiyoda.information.decisions import create_agent_decision_policy
 from chiyoda.information.interventions import create_intervention_policy
 from chiyoda.navigation.pathfinding import SmartNavigator
 from chiyoda.navigation.spatial_index import SpatialIndex
@@ -36,6 +38,12 @@ class ScenarioManager:
             cfg = yaml.safe_load(handle)
         scenario = cfg.get("scenario", cfg)
         scenario["_source_file"] = str(path)
+        metadata = scenario.get("metadata", {}) or {}
+        if metadata:
+            provenance = load_station_provenance(metadata, source_file=str(path))
+            if provenance is not None:
+                scenario.setdefault("metadata", {})
+                scenario["metadata"]["station_provenance"] = provenance
         return scenario
 
     def load_scenario(self, scenario_file: str, *, overrides=None, random_seed=None) -> Simulation:
@@ -109,6 +117,9 @@ class ScenarioManager:
         policy = create_intervention_policy(sc.get("interventions"))
         if policy is not None:
             sim.attach_intervention_policy(policy)
+        decision_policy = create_agent_decision_policy(sc.get("llm_decisions"))
+        if decision_policy is not None:
+            sim.attach_agent_decision_policy(decision_policy)
         return sim
 
     def _build_layout(self, scenario: Dict[str, Any]) -> Layout:

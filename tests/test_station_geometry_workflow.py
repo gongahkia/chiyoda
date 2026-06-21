@@ -7,6 +7,7 @@ import numpy as np
 
 from chiyoda.analysis.telemetry import detect_bottleneck_zones
 from chiyoda.environment.layout import Layout
+from chiyoda.environment.station_provenance import load_station_provenance
 from chiyoda.scenarios.manager import ScenarioManager
 
 
@@ -97,3 +98,38 @@ def test_kasumigaseki_osm_ci_fixture_records_real_station_provenance():
     assert sim.layout.cell_size == 1.0
     assert np.count_nonzero(sim.layout.grid == "X") > 0
     assert np.count_nonzero(sim.layout.grid == ".") > 0
+
+
+def test_report_facing_station_case_requires_provenance():
+    try:
+        load_station_provenance({"report_facing_station_case": True})
+    except ValueError as exc:
+        assert "require" in str(exc)
+    else:
+        raise AssertionError("missing station provenance did not fail")
+
+
+def test_station_provenance_rejects_missing_required_fields(tmp_path):
+    provenance = tmp_path / "provenance.json"
+    provenance.write_text(
+        json.dumps(
+            {
+                "station": "Example Station",
+                "source_url": "https://example.invalid",
+                "license": "ODbL",
+                "osm_objects": ["node/1"],
+            }
+        )
+    )
+
+    try:
+        load_station_provenance(
+            {
+                "report_facing_station_case": True,
+                "provenance_file": str(provenance),
+            }
+        )
+    except ValueError as exc:
+        assert "missing required fields" in str(exc)
+    else:
+        raise AssertionError("incomplete station provenance did not fail")

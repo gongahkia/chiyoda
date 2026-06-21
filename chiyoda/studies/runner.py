@@ -45,11 +45,13 @@ def run_study(study: str | Path | StudyConfig) -> StudyBundle:
     measurements_frames: List[pd.DataFrame] = []
     gossip_frames: List[pd.DataFrame] = []
     intervention_frames: List[pd.DataFrame] = []
+    llm_decision_frames: List[pd.DataFrame] = []
     runs_manifest: List[Dict[str, Any]] = []
 
     first_layout_text = None
     first_bottlenecks: List[Dict[str, Any]] = []
     first_exit_labels: Dict[str, str] = {}
+    first_scenario_metadata: Dict[str, Any] = {}
     scenario_name = None
     analytics = SimulationAnalytics()
 
@@ -77,6 +79,7 @@ def run_study(study: str | Path | StudyConfig) -> StudyBundle:
                     f"{cell[0]},{cell[1]}": label
                     for cell, label in simulation.exit_labels.items()
                 }
+                first_scenario_metadata = dict(prepared.get("metadata", {}) or {})
 
             run_id = f"{variant.name}__seed_{seed}__run_{run_index + 1}"
             run_index += 1
@@ -101,6 +104,7 @@ def run_study(study: str | Path | StudyConfig) -> StudyBundle:
             measurements_frames.append(tables["measurements"])
             gossip_frames.append(tables["gossip"])
             intervention_frames.append(tables["interventions"])
+            llm_decision_frames.append(tables["llm_decisions"])
             runs_manifest.append(
                 {
                     "run_id": run_id,
@@ -135,6 +139,8 @@ def run_study(study: str | Path | StudyConfig) -> StudyBundle:
         "layout_cell_size": summary["layout_cell_size"].dropna().iloc[0] if not summary.empty else 1.0,
         "bottleneck_zones": first_bottlenecks,
         "exit_labels": first_exit_labels,
+        "scenario_metadata": first_scenario_metadata,
+        "station_provenance": first_scenario_metadata.get("station_provenance"),
         "variants": [variant.model_dump() for variant in variants],
         "runs": runs_manifest,
         "representative_run_id": runs_manifest[0]["run_id"] if runs_manifest else None,
@@ -154,6 +160,7 @@ def run_study(study: str | Path | StudyConfig) -> StudyBundle:
         measurements=_concat(measurements_frames),
         gossip=_concat(gossip_frames),
         interventions=_concat(intervention_frames),
+        llm_decisions=_concat(llm_decision_frames),
     )
 
 
@@ -399,6 +406,7 @@ def _collect_run_tables(
     measurement_rows: List[Dict[str, Any]] = []
     gossip_rows: List[Dict[str, Any]] = []
     intervention_rows: List[Dict[str, Any]] = []
+    llm_decision_rows: List[Dict[str, Any]] = []
 
     for step in simulation.step_history:
         steps_rows.append(
@@ -674,6 +682,35 @@ def _collect_run_tables(
             }
         )
 
+    for event in getattr(simulation, 'agent_decision_events', []):
+        llm_decision_rows.append(
+            {
+                "study_name": study_name,
+                "scenario_name": scenario_name,
+                "variant_name": variant_name,
+                "seed": seed,
+                "run_id": run_id,
+                "step": event.step,
+                "time_s": event.time_s,
+                "agent_id": event.agent_id,
+                "provider": event.provider,
+                "model": event.model,
+                "cache_key": event.cache_key,
+                "cache_status": event.cache_status,
+                "validation_status": event.validation_status,
+                "validation_reasons": event.validation_reasons,
+                "selected_intent": event.selected_intent,
+                "target_exit_x": event.target_exit_x,
+                "target_exit_y": event.target_exit_y,
+                "trust_delta": event.trust_delta,
+                "avoid_congested": event.avoid_congested,
+                "confidence": event.confidence,
+                "rationale": event.rationale,
+                "used_fallback": event.used_fallback,
+                "objective": event.objective,
+            }
+        )
+
     return {
         "summary": summary_row,
         "steps": pd.DataFrame(steps_rows),
@@ -687,6 +724,7 @@ def _collect_run_tables(
         "measurements": pd.DataFrame(measurement_rows),
         "gossip": pd.DataFrame(gossip_rows),
         "interventions": pd.DataFrame(intervention_rows),
+        "llm_decisions": pd.DataFrame(llm_decision_rows),
     }
 
 

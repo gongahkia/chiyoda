@@ -68,6 +68,7 @@ def frame_names() -> list[str]:
         "measurements",
         "gossip",
         "interventions",
+        "llm_decisions",
     ]
 
 
@@ -141,6 +142,7 @@ def main() -> int:
     first_layout_text = None
     first_bottlenecks = []
     first_exit_labels = {}
+    first_scenario_metadata = {}
     scenario_name = None
     ckpt_root = checkpoint_root(args)
     if ckpt_root is not None:
@@ -168,6 +170,7 @@ def main() -> int:
                     first_layout_text = str(context.get("layout_text", ""))
                     first_bottlenecks = list(context.get("bottleneck_zones", []))
                     first_exit_labels = dict(context.get("exit_labels", {}))
+                    first_scenario_metadata = dict(context.get("scenario_metadata", {}))
                     scenario_name = str(context.get("scenario_name", Path(config.scenario_file).stem))
                 elapsed = time.perf_counter() - run_start
                 print(
@@ -197,6 +200,7 @@ def main() -> int:
                     f"{cell[0]},{cell[1]}": label
                     for cell, label in simulation.exit_labels.items()
                 }
+                first_scenario_metadata = dict(prepared.get("metadata", {}) or {})
 
             tables = _collect_run_tables(
                 simulation=simulation,
@@ -232,6 +236,7 @@ def main() -> int:
                             "layout_text": first_layout_text or "",
                             "bottleneck_zones": first_bottlenecks,
                             "exit_labels": first_exit_labels,
+                            "scenario_metadata": first_scenario_metadata,
                         },
                         "interventions": len(simulation.intervention_events),
                         "agents_evacuated": len(simulation.completed_agents),
@@ -265,6 +270,8 @@ def main() -> int:
         "layout_cell_size": summary["layout_cell_size"].dropna().iloc[0] if not summary.empty else 1.0,
         "bottleneck_zones": first_bottlenecks,
         "exit_labels": first_exit_labels,
+        "scenario_metadata": first_scenario_metadata,
+        "station_provenance": first_scenario_metadata.get("station_provenance"),
         "variants": [variant.model_dump() for variant in variants],
         "runs": runs_manifest,
         "representative_run_id": runs_manifest[0]["run_id"] if runs_manifest else None,
@@ -283,10 +290,14 @@ def main() -> int:
         measurements=_concat(frames["measurements"]),
         gossip=_concat(frames["gossip"]),
         interventions=_concat(frames["interventions"]),
+        llm_decisions=_concat(frames["llm_decisions"]),
     )
 
     out = Path(args.out)
     bundle.export(out, table_formats=tuple(config.export.table_formats))
+    from chiyoda.analysis.viewer import export_viewer
+
+    export_viewer(bundle, output_dir=out / "viewer")
     if not args.no_figures and config.export.include_figures:
         print("exporting figures...", flush=True)
         from chiyoda.analysis.reports import export_figures

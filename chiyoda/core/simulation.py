@@ -107,6 +107,8 @@ class Simulation:
         self._prev_positions: Dict[int, np.ndarray] = {}
         self.intervention_policy = None
         self.intervention_events: List[Any] = []
+        self.agent_decision_policy = None
+        self.agent_decision_events: List[Any] = []
 
         # ITED: information layer
         self.info_field = InformationField(
@@ -136,6 +138,9 @@ class Simulation:
 
     def attach_intervention_policy(self, policy) -> None:
         self.intervention_policy = policy
+
+    def attach_agent_decision_policy(self, policy) -> None:
+        self.agent_decision_policy = policy
 
     def setup_information(self) -> None:
         """Initialize information field and seed agent beliefs."""
@@ -509,6 +514,8 @@ class Simulation:
 
         # ITED: information propagation
         self._step_information()
+        if self.agent_decision_policy is not None:
+            self.agent_decision_events.extend(self.agent_decision_policy.execute(self))
         if self.intervention_policy is not None:
             self.intervention_events.extend(self.intervention_policy.execute(self))
 
@@ -631,6 +638,7 @@ class Simulation:
             "remaining": latest.remaining,
             "pending_release": latest.pending_release,
             "intervention_events": list(self.intervention_events),
+            "agent_decision_events": list(self.agent_decision_events),
             "acceleration_backend": self.acceleration.name,
             "requested_acceleration_backend": self.acceleration.requested_backend,
         }

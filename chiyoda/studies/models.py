@@ -6,6 +6,44 @@ from pathlib import Path
 from typing import Dict
 
 import pandas as pd
+from pandas.errors import EmptyDataError
+
+
+TABLE_COLUMNS: dict[str, list[str]] = {
+    "dwell_samples": [
+        "study_name", "scenario_name", "variant_name", "seed", "run_id",
+        "zone_id", "dwell_s",
+    ],
+    "measurements": [
+        "study_name", "scenario_name", "variant_name", "seed", "run_id",
+        "line_name", "step", "time_s", "flow", "density", "speed",
+        "n_crossing", "n_in_region",
+    ],
+    "gossip": [
+        "study_name", "scenario_name", "variant_name", "seed", "run_id",
+        "step", "time_s", "sender_id", "receiver_id", "distance",
+    ],
+    "interventions": [
+        "study_name", "scenario_name", "variant_name", "seed", "run_id",
+        "step", "time_s", "policy", "message_type", "target_x", "target_y",
+        "radius", "recipients", "entropy_before", "entropy_after",
+        "entropy_delta", "accuracy_before", "accuracy_after", "accuracy_delta",
+        "mean_local_density", "mean_hazard_load", "peak_queue_length",
+        "selected_reason", "target_score", "objective", "generated_text",
+        "generation_provider", "generation_model", "validation_status",
+        "validation_reasons", "cache_key", "cache_status",
+        "generated_recommended_exits", "generated_avoid_exits",
+        "generated_confidence", "used_fallback",
+    ],
+    "llm_decisions": [
+        "study_name", "scenario_name", "variant_name", "seed", "run_id",
+        "step", "time_s", "agent_id", "provider", "model", "cache_key",
+        "cache_status", "validation_status", "validation_reasons",
+        "selected_intent", "target_exit_x", "target_exit_y", "trust_delta",
+        "avoid_congested", "confidence", "rationale", "used_fallback",
+        "objective",
+    ],
+}
 
 
 def _empty_frame() -> pd.DataFrame:
@@ -14,6 +52,7 @@ def _empty_frame() -> pd.DataFrame:
 
 def _write_table(frame: pd.DataFrame, directory: Path, name: str, table_format: str) -> None:
     target = directory / f"{name}.{table_format}"
+    frame = _with_known_columns(name, frame)
     if table_format == "parquet":
         frame.to_parquet(target, index=False)
     elif table_format == "csv":
@@ -28,8 +67,18 @@ def _read_table(directory: Path, name: str) -> pd.DataFrame:
     if parquet.exists():
         return pd.read_parquet(parquet)
     if csv.exists():
-        return pd.read_csv(csv)
-    return pd.DataFrame()
+        try:
+            return pd.read_csv(csv)
+        except EmptyDataError:
+            return pd.DataFrame(columns=TABLE_COLUMNS.get(name, []))
+    return pd.DataFrame(columns=TABLE_COLUMNS.get(name, []))
+
+
+def _with_known_columns(name: str, frame: pd.DataFrame) -> pd.DataFrame:
+    columns = TABLE_COLUMNS.get(name)
+    if columns is None or len(frame.columns) > 0:
+        return frame
+    return pd.DataFrame(columns=columns)
 
 
 @dataclass
@@ -47,6 +96,7 @@ class StudyBundle:
     measurements: pd.DataFrame = field(default_factory=_empty_frame)
     gossip: pd.DataFrame = field(default_factory=_empty_frame)
     interventions: pd.DataFrame = field(default_factory=_empty_frame)
+    llm_decisions: pd.DataFrame = field(default_factory=_empty_frame)
 
     def export(self, output_dir: str | Path, table_formats: tuple[str, ...] = ("parquet", "csv")) -> Path:
         out = Path(output_dir)
@@ -78,6 +128,7 @@ class StudyBundle:
             "measurements": self.measurements,
             "gossip": self.gossip,
             "interventions": self.interventions,
+            "llm_decisions": self.llm_decisions,
         }
 
     @classmethod
@@ -99,6 +150,7 @@ class StudyBundle:
             measurements=_read_table(tables_dir, "measurements"),
             gossip=_read_table(tables_dir, "gossip"),
             interventions=_read_table(tables_dir, "interventions"),
+            llm_decisions=_read_table(tables_dir, "llm_decisions"),
         )
 
 

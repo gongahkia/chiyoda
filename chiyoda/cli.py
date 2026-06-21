@@ -5,6 +5,7 @@ from pathlib import Path
 import click
 
 from chiyoda.analysis.reports import export_figures
+from chiyoda.analysis.viewer import export_viewer
 from chiyoda.analysis.trajectory_reference import (
     compare_trajectory_reference,
     load_trajectory_table,
@@ -63,6 +64,7 @@ def _export_bundle(
             profile=resolved_profile,
             formats=resolved_figures,
         )
+    export_viewer(bundle, output_dir=output_dir / "viewer")
 
 
 @cli.command()
@@ -186,6 +188,16 @@ def export_figures_command(study_dir, figure_formats, profile):
             formats=resolved_figures,
         )
     click.echo(f"Exported figures to {export_dir}")
+
+
+@cli.command("export-viewer")
+@click.argument("study_dir")
+def export_viewer_command(study_dir):
+    """Export a static Three.js viewer from an existing study directory."""
+    bundle = StudyBundle.load(study_dir)
+    export_dir = Path(study_dir) / "viewer"
+    export_viewer(bundle, output_dir=export_dir)
+    click.echo(f"Exported viewer to {export_dir}")
 
 
 @cli.command("compare-trajectory-reference")

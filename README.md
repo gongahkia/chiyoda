@@ -51,7 +51,7 @@ Core capabilities include:
 | **Hazards** | Stylized GAS/SMOKE/FIRE/CRUSH hazards, spread fields, imported-field checks, visibility reduction |
 | **Navigation** | Social-force dynamics, belief-weighted A* routing, bottleneck and counterflow pressure |
 | **Interventions** | Static, global, responder, entropy-targeted, density-aware, exposure-aware, and bottleneck-avoidance messaging |
-| **Analysis** | Belief entropy, belief accuracy, information-safety efficiency, harmful-convergence index, trajectory exports |
+| **Analysis** | Belief entropy, belief accuracy, information-safety efficiency, harmful-convergence index, trajectory exports, static 3D viewer exports |
 
 ## How can I use it?
 
@@ -75,6 +75,12 @@ Run a study sweep:
 
 ```console
 $ python -m chiyoda.cli sweep scenarios/study_information_control.yaml -o out/information_control
+```
+
+Inspect a completed run in the static 3D viewer:
+
+```console
+$ open out/information_control/viewer/index.html
 ```
 
 Compare study outputs or reference trajectories:
@@ -111,6 +117,10 @@ Important documentation:
   Wuppertal bottleneck reference check.
 * [`docs/station_geometry_workflow.md`](./docs/station_geometry_workflow.md)
   describes station geometry import and role inference.
+* [`docs/3d_viewer.md`](./docs/3d_viewer.md) describes the static Three.js
+  viewer export.
+* [`docs/llm_agent_decisions.md`](./docs/llm_agent_decisions.md) describes
+  bounded, replayable LLM agent-decision experiments.
 
 ## Development
 

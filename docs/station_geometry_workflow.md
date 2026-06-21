@@ -88,6 +88,14 @@ Indoor Tagging, OpenStationMap, and GTFS Pathways:
    file, license, access date, station, level, coordinate transform,
    `cell_size`, known missing data, and every manual edit.
 
+Report-facing station cases should set `metadata.report_facing_station_case:
+true` and provide either `metadata.provenance_file` or
+`metadata.station_provenance`. Chiyoda validates that the provenance includes
+station, level, source URL, license, access date, coordinate transform, manual
+edits, missing topology, validation-use limitations, attribution, and at least
+one concrete source identifier such as `osm_objects`, `gtfs_feeds`, or
+`source_files`.
+
 ## Manual Fallbacks
 
 Indoor station data is often incomplete. When a source does not contain enough
