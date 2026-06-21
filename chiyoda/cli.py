@@ -13,6 +13,7 @@ from chiyoda.analysis.trajectory_reference import (
     load_trajectory_table,
 )
 from chiyoda.studies import StudyBundle, compare_studies, load_study_config, run_study
+from chiyoda.scenarios.assertions import evaluate_scenario_assertions
 from chiyoda.scenarios.manager import ScenarioManager
 from chiyoda.scenarios.validation import validate_scenario_file
 from chiyoda.information.warfare import AttackerObjective
@@ -144,6 +145,28 @@ def validate_scenario_command(ctx, scenario_file, json_output):
             source = f" source={issue.source}" if issue.source else ""
             click.echo(f"{issue.severity.upper()} {issue.code}:{cell}{source} {issue.message}")
     if result.has_errors:
+        ctx.exit(1)
+
+
+@cli.command("assert-scenario")
+@click.argument("scenario_file")
+@click.option("--json", "json_output", is_flag=True, help="Emit machine-readable assertion output")
+@click.pass_context
+def assert_scenario_command(ctx, scenario_file, json_output):
+    """Run a scenario and evaluate its runtime assertions."""
+    manager = ScenarioManager()
+    scenario = manager.load_config(scenario_file)
+    simulation = manager.build_simulation(scenario)
+    simulation.run()
+    result = evaluate_scenario_assertions(scenario, simulation)
+    if json_output:
+        click.echo(json.dumps(result.to_dict(), indent=2))
+    else:
+        status = "OK" if result.ok else "ERROR"
+        click.echo(f"{status}: {scenario_file} assertions={len(result.issues)}")
+        for issue in result.issues:
+            click.echo(f"ERROR {issue.code}: {issue.message} observed={issue.observed} expected={issue.expected}")
+    if not result.ok:
         ctx.exit(1)
 
 

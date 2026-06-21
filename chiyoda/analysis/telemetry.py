@@ -70,6 +70,10 @@ class StepTelemetry:
     mean_density: float
     # ITED fields
     global_entropy: float = 0.0
+    connector_flow: Dict[str, float] = field(default_factory=dict)
+    connector_capacity: Dict[str, int] = field(default_factory=dict)
+    connector_queue_length: Dict[str, int] = field(default_factory=dict)
+    connector_capacity_used: Dict[str, int] = field(default_factory=dict)
 
 
 def _walkable_neighbors(layout, cell: Cell) -> List[Cell]:

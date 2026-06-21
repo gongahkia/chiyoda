@@ -388,6 +388,27 @@ class ScenarioManager:
             for floor_id, floor in layout.floors.items()
         ]
 
+    def serialize_layout_connectors(self, layout: Layout) -> List[Dict[str, Any]]:
+        return [
+            {
+                "id": connector.id,
+                "type": connector.type,
+                "from": {"floor": connector.from_cell[0], "x": connector.from_cell[1], "y": connector.from_cell[2]},
+                "to": {"floor": connector.to_cell[0], "x": connector.to_cell[1], "y": connector.to_cell[2]},
+                "bidirectional": connector.bidirectional,
+                "width": connector.width,
+                "speed_multiplier": connector.speed_multiplier,
+                "capacity": connector.capacity,
+                "flow_rate": connector.flow_rate,
+                "queue_mode": connector.queue_mode,
+                "panic_jam_density": connector.panic_jam_density,
+                "jam_flow_multiplier": connector.jam_flow_multiplier,
+                "dwell_s": connector.dwell_s,
+                "travel_s": connector.travel_s,
+            }
+            for connector in layout.connectors
+        ]
+
     def apply_layout_cells(self, scenario, *, cells, fill) -> Dict[str, Any]:
         layout = self._build_layout(scenario)
         for raw in cells:
@@ -399,6 +420,7 @@ class ScenarioManager:
         layout_cfg = dict(scenario.get("layout", {}))
         layout_cfg["cell_size"] = layout.cell_size
         layout_cfg["floors"] = self.serialize_layout_floors(layout)
+        layout_cfg["connectors"] = self.serialize_layout_connectors(layout)
         updated["layout"] = layout_cfg
         return updated
 

@@ -50,6 +50,7 @@ def run_study(study: str | Path | StudyConfig) -> StudyBundle:
 
     first_layout_text = None
     first_layout_floors: List[Dict[str, Any]] = []
+    first_layout_connectors: List[Dict[str, Any]] = []
     first_bottlenecks: List[Dict[str, Any]] = []
     first_exit_labels: Dict[str, str] = {}
     first_scenario_metadata: Dict[str, Any] = {}
@@ -68,6 +69,7 @@ def run_study(study: str | Path | StudyConfig) -> StudyBundle:
             if first_layout_text is None:
                 first_layout_text = manager.serialize_layout(simulation.layout)
                 first_layout_floors = manager.serialize_layout_floors(simulation.layout)
+                first_layout_connectors = manager.serialize_layout_connectors(simulation.layout)
                 first_bottlenecks = [
                     {
                         "zone_id": zone.zone_id,
@@ -135,6 +137,7 @@ def run_study(study: str | Path | StudyConfig) -> StudyBundle:
         ),
         "layout_text": first_layout_text or "",
         "layout_floors": first_layout_floors,
+        "layout_connectors": first_layout_connectors,
         "layout_width": summary["layout_width"].dropna().iloc[0] if not summary.empty else 0,
         "layout_height": summary["layout_height"].dropna().iloc[0] if not summary.empty else 0,
         "layout_origin_x": summary["layout_origin_x"].dropna().iloc[0] if not summary.empty else 0.0,
@@ -443,6 +446,10 @@ def _collect_run_tables(
                 "mean_density": step.mean_density,
                 "peak_cell_occupancy": int(step.occupancy_grid.max()) if step.occupancy_grid.size else 0,
                 "global_entropy": float(getattr(step, 'global_entropy', 0.0)),
+                "connector_flow": int(sum(getattr(step, "connector_flow", {}).values())),
+                "connector_capacity": int(sum(getattr(step, "connector_capacity", {}).values())),
+                "connector_queue_length": int(sum(getattr(step, "connector_queue_length", {}).values())),
+                "connector_capacity_used": int(sum(getattr(step, "connector_capacity_used", {}).values())),
             }
         )
 

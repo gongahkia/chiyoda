@@ -22,6 +22,7 @@ from chiyoda.information.propagation import GossipModel, GossipConfig
 from chiyoda.information.entropy import agent_entropy, global_entropy, belief_accuracy
 from chiyoda.information.warfare import evaluate_pending_provenance
 from chiyoda.analysis.measurement import MeasurementLine
+from chiyoda.navigation.connectors import ConnectorQueue, ConnectorQueueEvent
 
 
 @dataclass
@@ -120,7 +121,13 @@ class Simulation:
         self.intervention_events: List[Any] = []
         self.agent_decision_policy = None
         self.agent_decision_events: List[Any] = []
-        self._elevator_transfers: Dict[int, tuple] = {}
+        self.connector_queues = {
+            connector.id: ConnectorQueue.from_connector(connector)
+            for connector in self.layout.connectors
+        }
+        self.connector_usage_cumulative = {connector.id: 0 for connector in self.layout.connectors}
+        self.connector_events: List[Dict[str, Any]] = []
+        self.impossible_floor_jumps: List[Dict[str, Any]] = []
 
         # ITED: information layer
         self.info_field = InformationField(
@@ -452,6 +459,7 @@ class Simulation:
         total_hazards = len(self.hazards)
         h_global = global_entropy(all_beliefs, total_exits, total_hazards) if all_beliefs else 0.0
         self.entropy_history.append(h_global)
+        connector_telemetry = self._connector_telemetry()
 
         agents_tel = []
         for agent in living:
@@ -517,6 +525,22 @@ class Simulation:
             pending_release=len(self._pending_agents()),
             mean_speed=mean_speed, mean_density=mean_density,
             global_entropy=h_global,
+            connector_flow={
+                key: float(value["flow_step"])
+                for key, value in connector_telemetry.items()
+            },
+            connector_capacity={
+                key: int(value["capacity"])
+                for key, value in connector_telemetry.items()
+            },
+            connector_queue_length={
+                key: int(value["queue_length"])
+                for key, value in connector_telemetry.items()
+            },
+            connector_capacity_used={
+                key: int(value["capacity_used"])
+                for key, value in connector_telemetry.items()
+            },
         ))
 
     def _update_bottleneck_metrics(self) -> Dict[str, BottleneckStepTelemetry]:
@@ -601,6 +625,7 @@ class Simulation:
         if self.navigator is not None and hasattr(self.navigator, "clear_cache"):
             self.navigator.clear_cache()
 
+        self._process_connector_queues()
         for agent in list(self._active_agents()):
             if self.behavior_model is not None:
                 self.behavior_model.update_agent(agent, self)
@@ -608,12 +633,21 @@ class Simulation:
                 agent.update_navigation(self.navigator, self)
 
             self._prev_positions[agent.id] = np.array(agent.pos, copy=True)
-            if self._handle_elevator_transfer(agent):
+            if self._agent_in_connector_queue(agent):
+                agent.current_speed = 0.0
+                agent.travel_time_s = self.time_s + dt
                 continue
+            if self._maybe_enqueue_connector_transfer(agent):
+                agent.current_speed = 0.0
+                agent.travel_time_s = self.time_s + dt
+                continue
+            previous_cell = self._grid_cell(agent)
+            previous_floor = getattr(agent, "floor_id", previous_cell[0])
             agent.step(dt, self)
             agent.floor_id = self.layout.floor_for_z(float(agent.pos[2]))
             agent.current_speed = float(np.linalg.norm(agent.pos - self._prev_positions[agent.id]) / dt)
             agent.travel_time_s = self.time_s + dt
+            self._record_floor_jump_if_impossible(agent, previous_cell, previous_floor)
 
             # hazard exposure (already handled by physiology for cognitive agents)
             if not hasattr(agent, 'physiology'):
@@ -661,33 +695,115 @@ class Simulation:
             ml.record(self.current_step, self.time_s, dt, self._active_agents(), self._prev_positions)
         self._capture_step_telemetry(exit_flow_step=exit_flow_step, bottleneck_metrics=bn_metrics)
 
-    def _handle_elevator_transfer(self, agent) -> bool:
-        transfer = self._elevator_transfers.get(agent.id)
-        if transfer is not None:
-            connector, target_cell, arrival_s = transfer
-            agent.current_speed = 0.0
-            if self.time_s + self.config.dt < arrival_s:
-                return True
-            agent.pos = self.layout.world_position(target_cell)
-            agent.floor_id = target_cell[0]
-            agent.path_index += 1
-            self._elevator_transfers.pop(agent.id, None)
-            return True
-        if not agent.current_path or agent.path_index >= len(agent.current_path):
+    def _process_connector_queues(self) -> None:
+        for queue in self.connector_queues.values():
+            queue.reset_step()
+            for event in queue.finish_ready(time_s=self.time_s):
+                self._apply_connector_finish(event)
+                self._record_connector_event(event)
+            density = self._connector_density(queue.connector)
+            for event in queue.step(time_s=self.time_s, dt=self.config.dt, density=density):
+                self._record_connector_event(event)
+
+    def _agent_in_connector_queue(self, agent) -> bool:
+        return any(queue.has_agent(agent.id) for queue in self.connector_queues.values())
+
+    def _maybe_enqueue_connector_transfer(self, agent) -> bool:
+        edge = self._next_connector_edge(agent)
+        if edge is None:
             return False
-        current_cell = self._grid_cell(agent)
-        target_cell = self.layout.cell(agent.current_path[agent.path_index])
-        connector = self.layout.connector_for_edge(current_cell, target_cell)
-        if connector is None or connector.type != "elevator":
+        connector, source, target = edge
+        queue = self.connector_queues.get(connector.id)
+        if queue is None:
             return False
-        active = sum(1 for existing, _, _ in self._elevator_transfers.values() if existing.id == connector.id)
-        if connector.capacity is not None and active >= connector.capacity:
-            agent.current_speed = 0.0
-            return True
-        duration = max(self.config.dt, connector.dwell_s + connector.travel_s)
-        self._elevator_transfers[agent.id] = (connector, target_cell, self.time_s + duration)
-        agent.current_speed = 0.0
+        queue.enqueue(agent.id, source, target, priority=self._connector_priority(agent))
+        density = self._connector_density(connector)
+        for event in queue.step(time_s=self.time_s, dt=0.0, density=density):
+            self._record_connector_event(event)
         return True
+
+    def _next_connector_edge(self, agent):
+        if not agent.current_path or agent.path_index >= len(agent.current_path):
+            return None
+        source = self._grid_cell(agent)
+        while agent.path_index < len(agent.current_path):
+            target = self.layout.cell(agent.current_path[agent.path_index])
+            if target != source:
+                break
+            agent.path_index += 1
+        if agent.path_index >= len(agent.current_path):
+            return None
+        target = self.layout.cell(agent.current_path[agent.path_index])
+        connector = self.layout.connector_for_edge(source, target)
+        if connector is None:
+            return None
+        return connector, source, target
+
+    def _apply_connector_finish(self, event: ConnectorQueueEvent) -> None:
+        agent = self.agent_lookup.get(event.agent_id)
+        if agent is None or agent.has_evacuated:
+            return
+        agent.pos = self.layout.world_position(event.target)
+        agent.floor_id = event.target[0]
+        if agent.current_path and agent.path_index < len(agent.current_path):
+            if self.layout.cell(agent.current_path[agent.path_index]) == event.target:
+                agent.path_index += 1
+        agent.current_speed = 0.0
+        agent.travel_time_s = self.time_s
+        self.agent_traces.setdefault(agent.id, []).append(tuple(float(value) for value in agent.pos))
+
+    def _record_connector_event(self, event: ConnectorQueueEvent) -> None:
+        if event.phase == "start":
+            self.connector_usage_cumulative[event.connector_id] = self.connector_usage_cumulative.get(event.connector_id, 0) + 1
+        self.connector_events.append({
+            "step": int(self.current_step),
+            "time_s": float(self.time_s),
+            "agent_id": int(event.agent_id),
+            "connector_id": event.connector_id,
+            "connector_type": event.connector_type,
+            "phase": event.phase,
+            "source": list(event.source),
+            "target": list(event.target),
+            "queue_length": int(event.queue_length),
+            "flow_rate": float(event.flow_rate),
+            "capacity_used": int(event.capacity_used),
+        })
+
+    def _connector_density(self, connector) -> float:
+        if self.spatial_index is None:
+            return 0.0
+        source = self.layout.world_position(connector.from_cell)
+        target = self.layout.world_position(connector.to_cell)
+        return max(
+            float(self.spatial_index.local_density(source, radius=1.5)),
+            float(self.spatial_index.local_density(target, radius=1.5)),
+        )
+
+    def _connector_priority(self, agent) -> float:
+        return float(getattr(agent, "current_hazard_load", 0.0)) + float(getattr(agent, "hazard_exposure", 0.0)) * 0.1
+
+    def _connector_telemetry(self) -> Dict[str, Dict[str, float | int]]:
+        return {
+            connector_id: queue.telemetry()
+            for connector_id, queue in self.connector_queues.items()
+        }
+
+    def _record_floor_jump_if_impossible(self, agent, previous_cell, previous_floor) -> None:
+        current_cell = self._grid_cell(agent)
+        current_floor = getattr(agent, "floor_id", current_cell[0])
+        if str(previous_floor) == str(current_floor):
+            return
+        if self._agent_in_connector_queue(agent):
+            return
+        if self.layout.connector_for_edge(previous_cell, current_cell) is not None:
+            return
+        self.impossible_floor_jumps.append({
+            "step": int(self.current_step),
+            "time_s": float(self.time_s),
+            "agent_id": int(agent.id),
+            "from": list(previous_cell),
+            "to": list(current_cell),
+        })
 
     def run(self, visualize: bool = False, visualizer=None) -> None:
         self._ensure_bootstrapped()

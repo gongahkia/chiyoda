@@ -34,6 +34,10 @@ class Connector:
     width: float = 1.0
     speed_multiplier: float = 0.7
     capacity: int | None = None
+    flow_rate: float | None = None
+    queue_mode: str = "fifo"
+    panic_jam_density: float | None = None
+    jam_flow_multiplier: float = 0.35
     dwell_s: float = 0.0
     travel_s: float = 0.0
 
@@ -312,6 +316,10 @@ class Layout:
             width=float(raw.get("width", 1.0)),
             speed_multiplier=float(raw.get("speed_multiplier", _default_connector_speed(ctype))),
             capacity=None if raw.get("capacity") is None else int(raw["capacity"]),
+            flow_rate=None if raw.get("flow_rate") is None else float(raw["flow_rate"]),
+            queue_mode=str(raw.get("queue_mode", "fifo")),
+            panic_jam_density=None if raw.get("panic_jam_density") is None else float(raw["panic_jam_density"]),
+            jam_flow_multiplier=float(raw.get("jam_flow_multiplier", 0.35)),
             dwell_s=float(raw.get("dwell_s", 0.0)),
             travel_s=float(raw.get("travel_s", 0.0)),
         )

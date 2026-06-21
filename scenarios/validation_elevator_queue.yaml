@@ -1,0 +1,55 @@
+scenario:
+  name: validation_elevator_queue
+  description: "Elevator capacity regression with simultaneous arrivals and a single-car transfer."
+  layout:
+    cell_size: 1.0
+    floors:
+      - id: "0"
+        z: 0.0
+        text: |
+          XXXXXXX
+          X.....X
+          X@@@..X
+          X.....X
+          XXXXXXX
+      - id: "1"
+        z: 3.0
+        text: |
+          XXXXXXX
+          X....EX
+          X.....X
+          X.....X
+          XXXXXXX
+    connectors:
+      - id: elevator_queue
+        type: elevator
+        from: {floor: "0", x: 5, y: 2}
+        to: {floor: "1", x: 1, y: 2}
+        bidirectional: true
+        width: 1.0
+        capacity: 1
+        flow_rate: 1.0
+        queue_mode: fifo
+        dwell_s: 0.2
+        travel_s: 0.8
+  population:
+    total: 3
+  information:
+    mode: perfect
+  behavior:
+    freeze_probability: 0.0
+  simulation:
+    max_steps: 350
+    dt: 0.1
+    random_seed: 42
+  assertions:
+    evacuated: {eq: 3}
+    remaining: {eq: 0}
+    travel_time_s: {min: 1.0, max: 35.0}
+    connector_usage:
+      elevator_queue: {min: 3}
+    connector_capacity:
+      elevator_queue: {eq: 1}
+    connector_queue_length:
+      elevator_queue: {eq: 0}
+    no_impossible_floor_jumps: true

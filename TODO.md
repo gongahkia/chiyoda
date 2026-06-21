@@ -12,11 +12,6 @@
 (A) 2026-06-21 Add SHOOTER hazard kind to hazards.py with severity, range, accuracy fields +HazardShooter @env release:v1
 (B) 2026-06-21 Author transit_shooter.yaml benchmark scenario with multi-floor station and one hostile actor +HazardShooter @scenarios release:v1
 (B) 2026-06-21 Add active-shooter-specific metrics (time-to-shelter, exposure-to-LOS, hide-vs-flee mix) +HazardShooter @analysis release:v1
-(A) 2026-06-21 Replace instant/dwell-only connectors with ConnectorQueue model (capacity, flow-rate, FIFO/priority modes) +ConnectorQueue @nav release:v1
-(A) 2026-06-21 Implement panic-jam dynamics on connectors (density-dependent flow collapse) +ConnectorQueue @nav release:v1
-(A) 2026-06-21 Add connector_capacity and connector_flow telemetry channels +ConnectorQueue @analysis release:v1
-(B) 2026-06-21 Calibrate ConnectorQueue against published stair-flow data (cite source in docstring) +ConnectorQueue @docs release:v1
-(B) 2026-06-21 Add connector-queue assertion checks to scenarios/assertions.py +ConnectorQueue @scenarios release:v1
 (A) 2026-06-21 Ingest Sci Data 2025 s41597-025-04440-y route-choice dataset into data/calibration/route_choice_2025/ +Calibration @env release:v1
 (A) 2026-06-21 Fit route-choice prior parameters (familiarity, herding, exit-affinity) against the 2025 dataset +Calibration @info release:v1
 (A) 2026-06-21 Document calibration procedure and provenance in docs/calibration_route_choice_2025.md +Calibration @docs release:v1
@@ -40,7 +35,6 @@
 (A) 2026-06-21 Add architecture overview doc covering ITED runtime, info-warfare extension, benchmark layer +Docs @docs release:v1
 (B) 2026-06-21 Update README with benchmark posture, info-warfare angle, hazard staging roadmap +Docs @docs release:v1
 (B) 2026-06-21 Create reproducibility kit doc (env pin, seed set, expected outputs, hash manifest) +Docs @docs release:v1
-(A) 2026-06-21 Add regression test for ConnectorQueue capacity saturation and panic-jam collapse +Tests @tests release:v1
 (A) 2026-06-21 Add regression test for CounterfactualEstimator on synthetic ground-truth simulator +Tests @tests release:v1
 (B) 2026-06-21 Add regression scenario for active-shooter LOS and Run/Hide/Fight branching +Tests @tests release:v1
 (B) 2026-06-21 CI add benchmark suite v1 smoke run gated by PR label +Tests @ci release:v1
