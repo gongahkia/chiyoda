@@ -1,0 +1,67 @@
+{
+  "coefficients": {
+    "intercept": -0.008843866465740207,
+    "previous_choice_right": 0.079682851211442,
+    "right_shortness_advantage_m": 0.36231974312723275,
+    "right_stairs_advantage": 1.8808376866899397,
+    "right_width_advantage_m": 0.8796072016193741,
+    "trial_progress": -0.04453709264028304
+  },
+  "feature_names": [
+    "right_width_advantage_m",
+    "right_shortness_advantage_m",
+    "right_stairs_advantage",
+    "previous_choice_right",
+    "trial_progress"
+  ],
+  "method": {
+    "excluded": "training tasks, background clicks, missing AOI, missing timer rows",
+    "holdout_stride": 5,
+    "iterations": 2545,
+    "l2": 0.001,
+    "learning_rate": 0.1,
+    "model": "participant-held-out l2 logistic regression"
+  },
+  "metrics": {
+    "test_accuracy": 0.8447432762836186,
+    "test_baseline_accuracy": 0.4938875305623472,
+    "test_baseline_log_loss": 0.6932045436182114,
+    "test_log_loss": 0.4181036733390633,
+    "test_log_loss_improvement": 0.2751008702791481,
+    "train_log_loss": 0.4157132291340578
+  },
+  "priors": {
+    "exit_affinity": 0.7715174986409427,
+    "familiarity": 0.6606350664400494,
+    "herding": 0.5199101791815784
+  },
+  "records": {
+    "holdout_participants": 42,
+    "participants": 208,
+    "test": 818,
+    "total": 4045,
+    "train": 3227
+  },
+  "source": {
+    "archive": "Snopkova_Isovists.zip",
+    "article_doi": "10.1038/s41597-025-04440-y",
+    "dataset": "Predictors of evacuation behavior: dataset on respondents' route choice and web interaction",
+    "figshare_doi": "10.6084/m9.figshare.27705402.v1"
+  },
+  "standardization": {
+    "mean": {
+      "previous_choice_right": -0.0021691973969631237,
+      "right_shortness_advantage_m": -0.10845986984815618,
+      "right_stairs_advantage": -0.022621629996901146,
+      "right_width_advantage_m": 0.004958165478772854,
+      "trial_progress": 0.525224666873257
+    },
+    "scale": {
+      "previous_choice_right": 0.9739375379049919,
+      "right_shortness_advantage_m": 6.5621870632794295,
+      "right_stairs_advantage": 0.8183949275978551,
+      "right_width_advantage_m": 1.6543526712517265,
+      "trial_progress": 0.2886805263106617
+    }
+  }
+}

@@ -18,6 +18,12 @@ from chiyoda.scenarios.manager import ScenarioManager
 from chiyoda.scenarios.standards import strict_scenario_from_geojson
 from chiyoda.scenarios.validation import validate_scenario_file
 from chiyoda.information.warfare import AttackerObjective
+from chiyoda.information.route_choice_calibration import (
+    fit_route_choice_priors,
+    load_figshare_route_choice_records,
+    write_normalized_records,
+    write_route_choice_fit,
+)
 
 
 @click.group()
@@ -191,6 +197,33 @@ def convert_layout_command(geojson_file, output_file, name, cell_size, padding):
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(yaml.safe_dump(payload, sort_keys=False))
     click.echo(f"Exported strict scenario to {output}")
+
+
+@cli.command("calibrate-route-choice")
+@click.option(
+    "--archive",
+    default="data/calibration/route_choice_2025/Snopkova_Isovists.zip",
+    help="Figshare route-choice archive path",
+)
+@click.option(
+    "-o",
+    "--out",
+    "out_file",
+    default="data/calibration/route_choice_2025/fit_parameters.json",
+    help="Output fitted parameter JSON",
+)
+@click.option(
+    "--normalized-out",
+    default="data/calibration/route_choice_2025/normalized_route_choice_records.csv",
+    help="Output normalized observation CSV",
+)
+def calibrate_route_choice_command(archive, out_file, normalized_out):
+    """Fit route-choice priors from the 2025 Figshare evacuation dataset."""
+    records = load_figshare_route_choice_records(archive)
+    fit = fit_route_choice_priors(records)
+    write_normalized_records(records, normalized_out)
+    write_route_choice_fit(fit, out_file)
+    click.echo(json.dumps(fit.to_dict(), indent=2, sort_keys=True))
 
 
 @cli.command()

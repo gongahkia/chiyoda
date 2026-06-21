@@ -1,7 +1,3 @@
-(A) 2026-06-21 Ingest Sci Data 2025 s41597-025-04440-y route-choice dataset into data/calibration/route_choice_2025/ +Calibration @env release:v1
-(A) 2026-06-21 Fit route-choice prior parameters (familiarity, herding, exit-affinity) against the 2025 dataset +Calibration @info release:v1
-(A) 2026-06-21 Document calibration procedure and provenance in docs/calibration_route_choice_2025.md +Calibration @docs release:v1
-(B) 2026-06-21 Add calibration regression test that asserts fit quality above floor on held-out split +Calibration @tests release:v1
 (A) 2026-06-21 Enrich group attachment semantics family_id, role-in-group, separation-anxiety threshold +Homophily3D @agents release:v1
 (A) 2026-06-21 Implement homophily-weighted destination choice (Marshall-Fire reference) +Homophily3D @info release:v1
 (A) 2026-06-21 Add 3D-height to layout cells; smoke layering and gas density as height-dependent fields +Homophily3D @env release:v1
