@@ -19,6 +19,7 @@ from chiyoda.agents.responder import FirstResponder
 from chiyoda.agents.behaviors import BehaviorModel, BehaviorConfig
 from chiyoda.information.decisions import create_agent_decision_policy
 from chiyoda.information.interventions import create_intervention_policy
+from chiyoda.information.warfare import create_hostile_channels
 from chiyoda.navigation.pathfinding import SmartNavigator
 from chiyoda.navigation.spatial_index import SpatialIndex
 from chiyoda.scenarios.generated_calibration import apply_generated_population_calibration
@@ -120,6 +121,7 @@ class ScenarioManager:
         decision_policy = create_agent_decision_policy(sc.get("llm_decisions"))
         if decision_policy is not None:
             sim.attach_agent_decision_policy(decision_policy)
+        sim.attach_hostile_channels(create_hostile_channels(sc.get("hostile_channels")))
         return sim
 
     def _build_layout(self, scenario: Dict[str, Any]) -> Layout:

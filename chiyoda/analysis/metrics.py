@@ -96,6 +96,20 @@ class SimulationAnalytics:
                 * exposure_factor
                 / (1.0 + intervention_entropy_reduction)
             )
+        hostile_events = list(getattr(simulation, "hostile_channel_events", []))
+        hostile_event_count = len(hostile_events)
+        hostile_recipients = int(sum(event.recipients for event in hostile_events))
+        hostile_mean_credibility = float(np.mean([event.credibility for event in hostile_events])) if hostile_events else 0.0
+        induced_convergence_pressure = float(exit_imbalance * hostile_recipients * hostile_mean_credibility)
+        harmful_convergence_index_accidental = harmful_convergence_index
+        harmful_convergence_index_induced = float(
+            harmful_convergence_index + induced_convergence_pressure
+        )
+        information_safety_efficiency_adversarial = (
+            (intervention_entropy_reduction + intervention_accuracy_gain)
+            / (1.0 + intervention_exposure_pressure + intervention_queue_pressure + hostile_recipients)
+            - induced_convergence_pressure
+        )
 
         return {
             "total_time_s": simulation.time_s,
@@ -133,4 +147,10 @@ class SimulationAnalytics:
             "intervention_queue_pressure": intervention_queue_pressure,
             "information_safety_efficiency": information_safety_efficiency,
             "harmful_convergence_index": harmful_convergence_index,
+            "hostile_channel_event_count": hostile_event_count,
+            "hostile_channel_recipients": hostile_recipients,
+            "hostile_channel_mean_credibility": hostile_mean_credibility,
+            "harmful_convergence_index_accidental": harmful_convergence_index_accidental,
+            "harmful_convergence_index_induced": harmful_convergence_index_induced,
+            "information_safety_efficiency_adversarial": information_safety_efficiency_adversarial,
         }

@@ -104,6 +104,23 @@ class StudyVariant(BaseModel):
     seeds: Optional[List[int]] = None
 
 
+class AdversarialStudyConfig(BaseModel):
+    attacker_budget: List[int] = Field(default_factory=list)
+    defender_policy: List[str] = Field(default_factory=list)
+    pairing: Literal["stackelberg", "grid"] = "stackelberg"
+    hostile_channel_index: int = 0
+
+    @model_validator(mode="after")
+    def validate_pairing(self) -> "AdversarialStudyConfig":
+        if self.attacker_budget and not self.defender_policy:
+            raise ValueError("adversarial.defender_policy is required when attacker_budget is set")
+        if self.defender_policy and not self.attacker_budget:
+            raise ValueError("adversarial.attacker_budget is required when defender_policy is set")
+        if self.hostile_channel_index < 0:
+            raise ValueError("hostile_channel_index must be non-negative")
+        return self
+
+
 class StudyConfig(BaseModel):
     name: str
     scenario_file: str
@@ -112,6 +129,7 @@ class StudyConfig(BaseModel):
     repetitions: int = 1
     variants: List[StudyVariant] = Field(default_factory=list)
     sweep: List[SweepParameter] = Field(default_factory=list)
+    adversarial: Optional[AdversarialStudyConfig] = None
     export: ExportConfig = Field(default_factory=ExportConfig)
 
     @model_validator(mode="after")

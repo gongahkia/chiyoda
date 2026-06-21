@@ -14,6 +14,7 @@ from typing import List, Optional, Tuple
 import numpy as np
 
 from chiyoda.information.field import BeliefVector
+from chiyoda.information.warfare import BeliefRevisionModel
 from chiyoda.navigation.social_force import adjusted_step
 
 
@@ -88,6 +89,7 @@ class CognitiveAgent:
 
     # ITED: information
     beliefs: BeliefVector = field(default_factory=BeliefVector)
+    belief_revision: BeliefRevisionModel = field(default_factory=BeliefRevisionModel)
     familiarity: float = 0.5  # [0,1] how well agent knows the environment
     credibility: float = 0.5  # [0,1] how much other agents trust this one
     gossip_radius: float = 2.0
@@ -125,6 +127,12 @@ class CognitiveAgent:
 
     def effective_vision_radius(self) -> float:
         return self.base_vision_radius * self.physiology.vision_factor
+
+    def credibility_for_source(self, source_id: str) -> float:
+        return self.belief_revision.source_credibility(source_id)
+
+    def rationality_for_source(self, source_id: str) -> float:
+        return self.rationality * (0.5 + 0.5 * self.credibility_for_source(source_id))
 
     def update_physiology(self, hazard_load: float, dt: float) -> None:
         """Update physiological state from hazard exposure."""

@@ -20,6 +20,7 @@ from chiyoda.analysis.telemetry import (
 from chiyoda.information.field import InformationField
 from chiyoda.information.propagation import GossipModel, GossipConfig
 from chiyoda.information.entropy import agent_entropy, global_entropy, belief_accuracy
+from chiyoda.information.warfare import evaluate_pending_provenance
 from chiyoda.analysis.measurement import MeasurementLine
 
 
@@ -134,6 +135,8 @@ class Simulation:
         self.entropy_history: List[float] = []
         self.accuracy_history: List[float] = []
         self.gossip_events: List[Dict[str, Any]] = []
+        self.hostile_channels: List[Any] = []
+        self.hostile_channel_events: List[Any] = []
 
     def attach_navigation(self, navigator) -> None:
         self.navigator = navigator
@@ -152,6 +155,9 @@ class Simulation:
 
     def attach_agent_decision_policy(self, policy) -> None:
         self.agent_decision_policy = policy
+
+    def attach_hostile_channels(self, channels: List[Any]) -> None:
+        self.hostile_channels = list(channels)
 
     def setup_information(self) -> None:
         """Initialize information field and seed agent beliefs."""
@@ -310,6 +316,7 @@ class Simulation:
             # direct observation
             vis = self.visibility_at(agent.pos)
             effective_vision = getattr(agent, 'vision_radius', self.config.observation_radius) * vis
+            evaluate_pending_provenance(agent, self, effective_vision)
             self.info_field.observe(
                 agent.beliefs, tuple(float(value) for value in agent.pos),
                 effective_vision, exit_positions, self.hazards, self.current_step,
@@ -339,15 +346,37 @@ class Simulation:
                     if not hasattr(other, 'beliefs'):
                         continue
                     dist = float(np.linalg.norm(agent.pos - np.array(other.pos)))
+                    source_id = f"agent:{agent.id}"
+                    sender_credibility = (
+                        other.credibility_for_source(source_id)
+                        if hasattr(other, "credibility_for_source")
+                        else getattr(agent, 'credibility', 0.5)
+                    )
+                    receiver_rationality = (
+                        other.rationality_for_source(source_id)
+                        if hasattr(other, "rationality_for_source")
+                        else getattr(other, 'rationality', 0.8)
+                    )
                     transferred = self.gossip_model.exchange(
                         sender_beliefs=agent.beliefs,
                         receiver_beliefs=other.beliefs,
-                        sender_credibility=getattr(agent, 'credibility', 0.5),
-                        receiver_rationality=getattr(other, 'rationality', 0.8),
+                        sender_credibility=sender_credibility,
+                        receiver_rationality=receiver_rationality,
                         sender_state=agent.state,
                         distance=dist,
                     )
                     if transferred and (self.current_step % 10 == 0):
+                        if hasattr(other, "belief_revision"):
+                            claimed_exit = agent.beliefs.best_exit()
+                            if claimed_exit is not None:
+                                other.belief_revision.record_claim(
+                                    source_id=source_id,
+                                    timestamp_s=self.time_s,
+                                    step=self.current_step,
+                                    channel_type="gossip",
+                                    objective="peer-transfer",
+                                    claimed_exit=claimed_exit,
+                                )
                         self.gossip_events.append({
                             "step": self.current_step,
                             "time_s": self.time_s,
@@ -558,6 +587,10 @@ class Simulation:
 
         # ITED: information propagation
         self._step_information()
+        for channel in self.hostile_channels:
+            event = channel.execute(self)
+            if event is not None:
+                self.hostile_channel_events.append(event)
         if self.agent_decision_policy is not None:
             self.agent_decision_events.extend(self.agent_decision_policy.execute(self))
         if self.intervention_policy is not None:

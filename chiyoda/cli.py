@@ -5,6 +5,7 @@ from pathlib import Path
 
 import click
 
+from chiyoda.analysis.metrics import SimulationAnalytics
 from chiyoda.analysis.reports import export_figures
 from chiyoda.analysis.viewer import export_viewer
 from chiyoda.analysis.trajectory_reference import (
@@ -12,7 +13,9 @@ from chiyoda.analysis.trajectory_reference import (
     load_trajectory_table,
 )
 from chiyoda.studies import StudyBundle, compare_studies, load_study_config, run_study
+from chiyoda.scenarios.manager import ScenarioManager
 from chiyoda.scenarios.validation import validate_scenario_file
+from chiyoda.information.warfare import AttackerObjective
 
 
 @click.group()
@@ -250,6 +253,57 @@ def compare_trajectory_reference_command(simulated, reference, out_file, group_c
     output.parent.mkdir(parents=True, exist_ok=True)
     comparison.to_csv(output, index=False)
     click.echo(f"Exported trajectory reference comparison to {output}")
+
+
+@cli.command("red-team")
+@click.argument("scenario_file")
+@click.option("--budget", default=10, type=int, help="Maximum hostile messages")
+@click.option(
+    "--objective",
+    default=AttackerObjective.DECOY_EXIT.value,
+    type=click.Choice([item.value for item in AttackerObjective]),
+    help="Attacker objective",
+)
+@click.option("--channel-type", default="gossip", help="Hostile channel type")
+@click.option("--plausibility", default=0.65, type=float, help="Claim plausibility")
+@click.option("--interval-steps", default=1, type=int, help="Injection interval")
+@click.option("-o", "--out", "out_file", default=None, help="Optional JSON summary path")
+def red_team_command(scenario_file, budget, objective, channel_type, plausibility, interval_steps, out_file):
+    """Run a scenario with an injected hostile information channel."""
+    manager = ScenarioManager()
+    scenario = manager.load_config(scenario_file)
+    channels = list(scenario.get("hostile_channels") or [])
+    injected = {
+        "id": "red_team_cli",
+        "channel_type": channel_type,
+        "objective": objective,
+        "budget": int(budget),
+        "plausibility": float(plausibility),
+        "interval_steps": max(1, int(interval_steps)),
+        "start_step": 0,
+    }
+    if channels:
+        channels[0] = {**channels[0], **injected}
+    else:
+        channels.append(injected)
+    scenario["hostile_channels"] = channels
+
+    simulation = manager.build_simulation(scenario)
+    simulation.run()
+    metrics = SimulationAnalytics().calculate_performance_metrics(simulation)
+    payload = {
+        "scenario": scenario.get("name", Path(scenario_file).stem),
+        "objective": objective,
+        "budget": int(budget),
+        "hostile_events": len(getattr(simulation, "hostile_channel_events", [])),
+        "metrics": metrics,
+    }
+    text = json.dumps(payload, indent=2, sort_keys=True)
+    if out_file is not None:
+        output = Path(out_file)
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(text + "\n")
+    click.echo(text)
 
 
 @cli.command()

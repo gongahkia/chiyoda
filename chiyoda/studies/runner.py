@@ -265,6 +265,21 @@ def _materialize_variants(config: StudyConfig) -> List[StudyVariant]:
                 )
             )
 
+    if config.adversarial is not None:
+        idx = config.adversarial.hostile_channel_index
+        for budget in config.adversarial.attacker_budget:
+            for policy in config.adversarial.defender_policy:
+                scenario_overrides: Dict[str, Any] = {}
+                _set_nested_value(scenario_overrides, f"hostile_channels.{idx}.budget", int(budget))
+                _set_nested_value(scenario_overrides, "interventions.policy", str(policy))
+                variants.append(
+                    StudyVariant(
+                        name=f"adv_{config.adversarial.pairing}__budget_{budget}__defender_{policy}",
+                        description="Auto-generated adversarial attacker/defender pairing",
+                        scenario_overrides=scenario_overrides,
+                    )
+                )
+
     if not variants:
         variants = [StudyVariant(name="baseline")]
     return variants

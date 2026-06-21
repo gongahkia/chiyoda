@@ -583,7 +583,13 @@ def _apply_message(
     ], default=1.0)
 
     for agent in active:
-        _update_agent_beliefs(agent, message, simulation.current_step)
+        _update_agent_beliefs(
+            agent,
+            message,
+            simulation.current_step,
+            source_id=f"intervention:{policy.config.policy}",
+            timestamp_s=simulation.time_s,
+        )
         if hasattr(agent, "update_intention"):
             agent.update_intention(simulation)
 
@@ -633,47 +639,78 @@ def _apply_message(
     )
 
 
-def _update_agent_beliefs(agent, message: InterventionMessage, current_step: int) -> None:
+def _update_agent_beliefs(
+    agent,
+    message: InterventionMessage,
+    current_step: int,
+    *,
+    source_id: str = "intervention",
+    timestamp_s: float = 0.0,
+) -> None:
+    source_trust = (
+        agent.credibility_for_source(source_id)
+        if hasattr(agent, "credibility_for_source")
+        else 1.0
+    )
+    effective_credibility = min(1.0, message.credibility * (0.5 + 0.5 * source_trust))
     for exit_pos in message.exits:
         existing = agent.beliefs.exit_beliefs.get(tuple(exit_pos))
         congestion = 0.0
         if tuple(exit_pos) in message.congested_exits:
             congestion = 0.8
-        if existing is None or existing.source_credibility <= message.credibility:
+        if existing is None or existing.source_credibility <= effective_credibility:
             agent.beliefs.exit_beliefs[tuple(exit_pos)] = ExitBelief(
                 position=tuple(exit_pos),
-                exists_prob=min(1.0, 0.55 + 0.45 * message.credibility),
+                exists_prob=min(1.0, 0.55 + 0.45 * effective_credibility),
                 congestion_est=congestion,
                 freshness=0.0,
-                source_credibility=message.credibility,
+                source_credibility=effective_credibility,
                 hop_count=0,
             )
         else:
             existing.freshness = min(existing.freshness, 0.05)
-            existing.source_credibility = max(existing.source_credibility, message.credibility)
+            existing.source_credibility = max(existing.source_credibility, effective_credibility)
             existing.congestion_est = max(existing.congestion_est, congestion)
+        if hasattr(agent, "belief_revision"):
+            agent.belief_revision.record_claim(
+                source_id=source_id,
+                timestamp_s=timestamp_s,
+                step=current_step,
+                channel_type=message.message_type,
+                objective="intervention",
+                claimed_exit=tuple(exit_pos),
+            )
 
     for hazard in message.hazards:
         h_pos = _point3(hazard.pos)
         matched = False
         for hb in agent.beliefs.hazard_beliefs:
             if _distance(hb.position, h_pos) < 3.0:
-                hb.severity_est = max(float(hb.severity_est), float(hazard.severity) * message.credibility)
+                hb.severity_est = max(float(hb.severity_est), float(hazard.severity) * effective_credibility)
                 hb.radius_est = max(float(hb.radius_est), float(hazard.radius))
                 hb.freshness = 0.0
-                hb.source_credibility = max(float(hb.source_credibility), message.credibility)
+                hb.source_credibility = max(float(hb.source_credibility), effective_credibility)
                 matched = True
                 break
         if not matched:
             agent.beliefs.hazard_beliefs.append(
                 HazardBelief(
                     position=h_pos,
-                    severity_est=float(hazard.severity) * message.credibility,
+                    severity_est=float(hazard.severity) * effective_credibility,
                     radius_est=float(hazard.radius),
                     freshness=0.0,
-                    source_credibility=message.credibility,
+                    source_credibility=effective_credibility,
                     hop_count=0,
                 )
+            )
+        if hasattr(agent, "belief_revision"):
+            agent.belief_revision.record_claim(
+                source_id=source_id,
+                timestamp_s=timestamp_s,
+                step=current_step,
+                channel_type=message.message_type,
+                objective="intervention",
+                claimed_hazard=h_pos,
             )
 
     if message.hazards:
