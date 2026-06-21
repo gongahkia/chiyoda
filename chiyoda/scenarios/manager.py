@@ -133,6 +133,7 @@ class ScenarioManager:
                 "raw_output_tokens": population_audit.get("raw_output_tokens", 0),
                 "raw_total_tokens": population_audit.get("raw_total_tokens", 0),
             })
+        sim.attach_wui_egress(self._build_wui_egress(sc, layout))
         sim.destination_profiles = self._build_destination_profiles(sc, layout)
 
         spatial = SpatialIndex()
@@ -257,6 +258,9 @@ class ScenarioManager:
                 layer_top_m=None if hc.get("layer_top_m") is None else float(hc["layer_top_m"]),
                 vertical_decay_m=float(hc.get("vertical_decay_m", 1.0)),
                 gas_density=float(hc.get("gas_density", 1.0)),
+                ember_spotting_rate=float(hc.get("ember_spotting_rate", 0.0)),
+                ember_ignition_radius=float(hc.get("ember_ignition_radius", 0.0)),
+                ember_decay_rate=float(hc.get("ember_decay_rate", 0.15)),
             ))
         return hazards
 
@@ -469,6 +473,22 @@ class ScenarioManager:
             cell = self._parse_cell(cell_raw, layout)
             profiles[cell] = dict(raw.get("profile", raw.get("homophily_profile", {})) or {})
         return profiles
+
+    def _build_wui_egress(self, scenario: Dict[str, Any], layout: Layout) -> List[Dict[str, Any]]:
+        cfg = scenario.get("wui_egress", {}) or {}
+        segments = []
+        for raw in cfg.get("road_segments", []) or []:
+            cells = [self._parse_cell(cell, layout) for cell in raw.get("cells", []) or []]
+            if not cells:
+                continue
+            segments.append({
+                "id": str(raw.get("id", f"road_{len(segments) + 1}")),
+                "cells": cells,
+                "mode_switch": str(raw.get("mode_switch", "vehicle")),
+                "speed_multiplier": float(raw.get("speed_multiplier", raw.get("vehicle_speed_multiplier", 3.0))),
+                "capacity": int(raw.get("capacity", 999999)),
+            })
+        return segments
 
     def _apply_agent_calibration(self, agent, config: Dict[str, Any]) -> None:
         if "base_rationality" in config:

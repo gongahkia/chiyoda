@@ -264,6 +264,44 @@ class GlobalBroadcastPolicy(InterventionPolicy):
         return message
 
 
+class WildfireLongRangeBroadcastPolicy(GlobalBroadcastPolicy):
+    name = "wildfire_long_range_broadcast"
+
+    def select_targets(self, simulation) -> List[InterventionTarget]:
+        hazards = [
+            hazard for hazard in simulation.hazards
+            if str(getattr(hazard, "kind", "")).upper() in {"WILDFIRE", "EMBER", "FIRE"}
+        ]
+        if not hazards:
+            return super().select_targets(simulation)
+        rows = []
+        for hazard in hazards:
+            severity = float(getattr(hazard, "severity", 0.0))
+            radius = float(getattr(hazard, "radius", 0.0))
+            ember_cells = len(getattr(hazard, "ember_field", {}) or {})
+            rows.append((severity * (1.0 + radius) + 0.1 * ember_cells, hazard))
+        rows.sort(key=lambda item: item[0], reverse=True)
+        _, hazard = rows[0]
+        point = (float(hazard.pos[0]), float(hazard.pos[1]))
+        return [
+            InterventionTarget(
+                point=point,
+                reason="wildfire_long_range_hazard_front",
+                score=float(rows[0][0]),
+            )
+        ]
+
+    def build_message(self, simulation, target: InterventionTarget) -> InterventionMessage:
+        message = super().build_message(simulation, target)
+        message.message_type = (
+            "wildfire_warning"
+            if self.config.message_type == "route_guidance"
+            else self.config.message_type
+        )
+        message.radius = max(simulation.layout.width, simulation.layout.height) * 4.0
+        return message
+
+
 class ResponderRelayPolicy(InterventionPolicy):
     name = "responder_relay"
 
@@ -700,6 +738,7 @@ POLICIES = {
     "static_broadcast": StaticBroadcastPolicy,
     "static_beacon": StaticBroadcastPolicy,
     "global_broadcast": GlobalBroadcastPolicy,
+    "wildfire_long_range_broadcast": WildfireLongRangeBroadcastPolicy,
     "responder_relay": ResponderRelayPolicy,
     "entropy_targeted": EntropyTargetedPolicy,
     "density_aware": DensityAwarePolicy,

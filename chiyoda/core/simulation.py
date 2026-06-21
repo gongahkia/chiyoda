@@ -130,6 +130,9 @@ class Simulation:
         self.connector_usage_cumulative = {connector.id: 0 for connector in self.layout.connectors}
         self.connector_events: List[Dict[str, Any]] = []
         self.impossible_floor_jumps: List[Dict[str, Any]] = []
+        self.wui_egress_segments: List[Dict[str, Any]] = []
+        self.road_segment_cells: Dict[Tuple[str, int, int], Dict[str, Any]] = {}
+        self.mode_switch_events: List[Dict[str, Any]] = []
 
         # ITED: information layer
         self.info_field = InformationField(
@@ -169,6 +172,13 @@ class Simulation:
 
     def attach_hostile_channels(self, channels: List[Any]) -> None:
         self.hostile_channels = list(channels)
+
+    def attach_wui_egress(self, segments: List[Dict[str, Any]]) -> None:
+        self.wui_egress_segments = list(segments)
+        self.road_segment_cells = {}
+        for segment in self.wui_egress_segments:
+            for cell in segment.get("cells", []):
+                self.road_segment_cells[tuple(cell)] = segment
 
     def setup_information(self) -> None:
         """Initialize information field and seed agent beliefs."""
@@ -222,6 +232,7 @@ class Simulation:
                 ("last_navigation_step", -9999), ("hazard_exposure", 0.0),
                 ("current_hazard_load", 0.0), ("hazard_speed_factor", 1.0),
                 ("hazard_risk", 0.0), ("evacuated_via", None),
+                ("evacuation_mode", "pedestrian"), ("mode_switch_step", None),
             ]:
                 if not hasattr(agent, attr):
                     setattr(agent, attr, default)
@@ -541,6 +552,7 @@ class Simulation:
                 family_id=getattr(agent, "family_id", None),
                 role_in_group=getattr(agent, "role_in_group", "solo"),
                 mobility_class=getattr(agent, "mobility_class", "standard"),
+                evacuation_mode=getattr(agent, "evacuation_mode", "pedestrian"),
                 hazard_exposure=float(agent.hazard_exposure),
                 hazard_load=float(agent.current_hazard_load),
                 trail=tuple(self.agent_traces.get(agent.id, [])[-8:]),
@@ -681,6 +693,7 @@ class Simulation:
 
         self._process_connector_queues()
         for agent in list(self._active_agents()):
+            self._maybe_switch_evacuation_mode(agent)
             if self.behavior_model is not None:
                 self.behavior_model.update_agent(agent, self)
             if self.navigator is not None:
@@ -835,6 +848,28 @@ class Simulation:
 
     def _connector_priority(self, agent) -> float:
         return float(getattr(agent, "current_hazard_load", 0.0)) + float(getattr(agent, "hazard_exposure", 0.0)) * 0.1
+
+    def _maybe_switch_evacuation_mode(self, agent) -> None:
+        if getattr(agent, "evacuation_mode", "pedestrian") != "pedestrian":
+            return
+        segment = self.road_segment_cells.get(self._grid_cell(agent))
+        if segment is None:
+            return
+        mode = str(segment.get("mode_switch", "vehicle"))
+        if mode not in {"vehicle", "vehicular"}:
+            return
+        multiplier = float(segment.get("speed_multiplier", 3.0))
+        agent.evacuation_mode = "vehicle"
+        agent.mode_switch_step = int(self.current_step)
+        agent.base_speed *= multiplier
+        self.mode_switch_events.append({
+            "step": int(self.current_step),
+            "time_s": float(self.time_s),
+            "agent_id": int(agent.id),
+            "segment_id": str(segment.get("id", "")),
+            "mode": "vehicle",
+            "speed_multiplier": multiplier,
+        })
 
     def _connector_telemetry(self) -> Dict[str, Dict[str, float | int]]:
         return {

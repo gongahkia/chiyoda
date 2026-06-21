@@ -30,6 +30,18 @@ HAZARD_PROFILES = {
         "rationality_decay": 0.3,
         "incapacitation_threshold": 3.0,
     },
+    "WILDFIRE": {
+        "speed_decay": 0.55,
+        "vision_decay": 0.5,
+        "rationality_decay": 0.35,
+        "incapacitation_threshold": 3.0,
+    },
+    "EMBER": {
+        "speed_decay": 0.35,
+        "vision_decay": 0.25,
+        "rationality_decay": 0.25,
+        "incapacitation_threshold": 4.0,
+    },
     "CRUSH": { # crowd crush (density-induced)
         "speed_decay": 0.9,
         "vision_decay": 0.1,
@@ -61,6 +73,12 @@ class Hazard:
     layer_top_m: Optional[float] = None
     vertical_decay_m: float = 1.0
     gas_density: float = 1.0
+    ember_spotting_rate: float = 0.0
+    ember_ignition_radius: float = 0.0
+    ember_decay_rate: float = 0.15
+    ember_cell_size: float = 1.0
+    ember_origin: Tuple[float, float] = (0.0, 0.0)
+    ember_field: Dict[Tuple[int, int], float] = field(default_factory=dict)
     active: bool = True
 
     def step(self, dt: float, simulation) -> None:
@@ -78,6 +96,16 @@ class Hazard:
             )
         elif self.kind.upper() == "FIRE":
             self.radius += self.spread_rate * dt * 0.5 # fire spreads slower
+        elif self.kind.upper() in {"WILDFIRE", "EMBER"}:
+            wind_speed = float(np.linalg.norm(np.array(self.wind_vector, dtype=float)))
+            self.radius += (self.spread_rate + 0.05 * wind_speed) * dt
+            z = float(self.pos[2]) if len(self.pos) >= 3 else 0.0
+            self.pos = (
+                self.pos[0] + self.wind_vector[0] * dt * 0.15,
+                self.pos[1] + self.wind_vector[1] * dt * 0.15,
+                z,
+            )
+            self._step_ember_field(dt, simulation)
 
     def intensity_at(self, point: np.ndarray) -> float:
         if not self.active:
@@ -90,13 +118,14 @@ class Hazard:
             else float(np.linalg.norm(sample - origin))
         )
         effective_radius = self.range_m if self.kind.upper() == "SHOOTER" else self.radius
+        ember = self._ember_intensity_at(sample) if self.kind.upper() in {"WILDFIRE", "EMBER"} else 0.0
         if effective_radius <= 1e-6:
             base = float(self.severity) if dist <= 0.75 else 0.0
-            return base * _height_factor(sample[2] - origin[2], self)
+            return min(1.0, base * _height_factor(sample[2] - origin[2], self) + ember)
         if dist <= effective_radius:
             base = float(self.severity) * max(0.0, 1.0 - (dist / effective_radius))
-            return base * _height_factor(sample[2] - origin[2], self)
-        return 0.0
+            return min(1.0, base * _height_factor(sample[2] - origin[2], self) + ember)
+        return ember
 
     def visibility_at(self, point: np.ndarray) -> float:
         """Returns visibility factor [0,1] at a point (1=clear, 0=opaque)."""
@@ -137,7 +166,65 @@ class Hazard:
             "layer_top_m": self.layer_top_m,
             "vertical_decay_m": self.vertical_decay_m,
             "gas_density": self.gas_density,
+            "ember_spotting_rate": self.ember_spotting_rate,
+            "ember_ignition_radius": self.ember_ignition_radius,
+            "ember_cell_size": self.ember_cell_size,
+            "ember_origin": self.ember_origin,
+            "ember_cell_count": len(self.ember_field),
+            "max_ember_intensity": max(self.ember_field.values(), default=0.0),
         }
+
+    def _step_ember_field(self, dt: float, simulation) -> None:
+        if self.ember_spotting_rate <= 0.0:
+            return
+        decay = max(0.0, 1.0 - self.ember_decay_rate * dt)
+        self.ember_field = {
+            cell: value * decay
+            for cell, value in self.ember_field.items()
+            if value * decay > 0.01
+        }
+        wind = np.array(self.wind_vector, dtype=float)
+        wind_norm = float(np.linalg.norm(wind))
+        if wind_norm <= 1e-6:
+            wind_dir = np.array([1.0, 0.0], dtype=float)
+        else:
+            wind_dir = wind / wind_norm
+        origin = _point3(self.pos)
+        spot_distance = max(float(self.ember_ignition_radius), self.radius + wind_norm * dt)
+        centers = [
+            origin[:2],
+            origin[:2] + wind_dir * spot_distance,
+        ]
+        cell_size = max(float(getattr(simulation.layout, "cell_size", self.ember_cell_size)), 1e-6)
+        self.ember_cell_size = cell_size
+        layout_origin = getattr(simulation.layout, "origin", (0.0, 0.0))
+        self.ember_origin = (float(layout_origin[0]), float(layout_origin[1]))
+        ember_origin = np.array(self.ember_origin, dtype=float)
+        for center in centers:
+            radius = max(1.0, self.radius * 0.5 + self.ember_ignition_radius * 0.25)
+            min_x = int(np.floor((center[0] - radius - ember_origin[0]) / cell_size))
+            max_x = int(np.ceil((center[0] + radius - ember_origin[0]) / cell_size))
+            min_y = int(np.floor((center[1] - radius - ember_origin[1]) / cell_size))
+            max_y = int(np.ceil((center[1] + radius - ember_origin[1]) / cell_size))
+            for x in range(min_x, max_x + 1):
+                for y in range(min_y, max_y + 1):
+                    point = ember_origin + np.array([(x + 0.5) * cell_size, (y + 0.5) * cell_size], dtype=float)
+                    dist = float(np.linalg.norm(point - center))
+                    if dist > radius:
+                        continue
+                    value = self.severity * self.ember_spotting_rate * dt * max(0.0, 1.0 - dist / radius)
+                    key = (x, y)
+                    self.ember_field[key] = min(1.0, self.ember_field.get(key, 0.0) + value)
+
+    def _ember_intensity_at(self, sample: np.ndarray) -> float:
+        if not self.ember_field:
+            return 0.0
+        cell_size = max(float(self.ember_cell_size), 1e-6)
+        key = (
+            int(np.floor((float(sample[0]) - self.ember_origin[0]) / cell_size)),
+            int(np.floor((float(sample[1]) - self.ember_origin[1]) / cell_size)),
+        )
+        return float(self.ember_field.get(key, 0.0))
 
 
 @dataclass

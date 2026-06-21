@@ -43,6 +43,7 @@ class AgentStepTelemetry:
     family_id: Optional[str]
     role_in_group: str
     mobility_class: str
+    evacuation_mode: str
     hazard_exposure: float
     hazard_load: float
     trail: Tuple[Tuple[float, ...], ...] = field(default_factory=tuple)
