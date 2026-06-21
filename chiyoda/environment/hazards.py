@@ -36,6 +36,12 @@ HAZARD_PROFILES = {
         "rationality_decay": 0.4,
         "incapacitation_threshold": 5.0,
     },
+    "SHOOTER": {
+        "speed_decay": 0.2,
+        "vision_decay": 0.0,
+        "rationality_decay": 0.7,
+        "incapacitation_threshold": 2.0,
+    },
 }
 
 @dataclass
@@ -48,6 +54,8 @@ class Hazard:
     wind_vector: Tuple[float, float] = (0.0, 0.0) # advection direction
     diffusion_rate: float = 0.1 # isotropic diffusion coefficient
     visibility_reduction: float = 0.0 # how much this hazard reduces visibility [0,1]
+    range_m: float = 8.0
+    accuracy: float = 0.35
     active: bool = True
 
     def step(self, dt: float, simulation) -> None:
@@ -70,10 +78,11 @@ class Hazard:
         if not self.active:
             return 0.0
         dist = float(np.linalg.norm(_point3(point) - _point3(self.pos)))
-        if self.radius <= 1e-6:
+        effective_radius = self.range_m if self.kind.upper() == "SHOOTER" else self.radius
+        if effective_radius <= 1e-6:
             return float(self.severity) if dist <= 0.75 else 0.0
-        if dist <= self.radius:
-            return float(self.severity) * max(0.0, 1.0 - (dist / self.radius))
+        if dist <= effective_radius:
+            return float(self.severity) * max(0.0, 1.0 - (dist / effective_radius))
         return 0.0
 
     def visibility_at(self, point: np.ndarray) -> float:
@@ -101,6 +110,8 @@ class Hazard:
             "severity": self.severity,
             "wind_vector": self.wind_vector,
             "visibility_reduction": self.visibility_reduction,
+            "range_m": self.range_m,
+            "accuracy": self.accuracy,
         }
 
 

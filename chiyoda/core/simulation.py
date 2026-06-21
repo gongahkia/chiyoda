@@ -23,6 +23,7 @@ from chiyoda.information.entropy import agent_entropy, global_entropy, belief_ac
 from chiyoda.information.warfare import evaluate_pending_provenance
 from chiyoda.analysis.measurement import MeasurementLine
 from chiyoda.navigation.connectors import ConnectorQueue, ConnectorQueueEvent
+from chiyoda.navigation.line_of_sight import line_of_sight
 
 
 @dataclass
@@ -144,6 +145,7 @@ class Simulation:
         self.gossip_events: List[Dict[str, Any]] = []
         self.hostile_channels: List[Any] = []
         self.hostile_channel_events: List[Any] = []
+        self.hostile_agent_events: List[Dict[str, Any]] = []
 
     def attach_navigation(self, navigator) -> None:
         self.navigator = navigator
@@ -248,6 +250,21 @@ class Simulation:
             if hasattr(hazard, 'visibility_at'):
                 vis *= hazard.visibility_at(pos)
         return vis
+
+    def shooter_pressure_for(self, agent) -> Optional[Dict[str, Any]]:
+        hostiles = [
+            hostile for hostile in self._active_agents()
+            if getattr(hostile, "is_hostile", False)
+        ]
+        visible = []
+        for hostile in hostiles:
+            distance = float(np.linalg.norm(hostile.pos - agent.pos))
+            range_m = float(getattr(hostile, "range_m", 8.0))
+            if line_of_sight(self.layout, hostile.pos, agent.pos, max_range=range_m):
+                visible.append({"hostile": hostile, "distance": distance, "range_m": range_m})
+        if not visible:
+            return None
+        return min(visible, key=lambda item: item["distance"])
 
     def hazard_penalty_at_cell(self, cell: Tuple[int, int]) -> float:
         point = self.layout.world_position(cell)
@@ -667,7 +684,7 @@ class Simulation:
 
             if self.layout.is_exit(agent.pos, floor_id=getattr(agent, "floor_id", None)):
                 # responders don't evacuate
-                if getattr(agent, 'is_responder', False):
+                if getattr(agent, 'is_responder', False) or getattr(agent, 'is_hostile', False):
                     continue
                 agent.has_evacuated = True
                 self.completed_agents.append(agent)
@@ -810,6 +827,7 @@ class Simulation:
         for _ in range(self.config.max_steps):
             if all(
                 a.has_evacuated or getattr(a, 'is_responder', False)
+                or getattr(a, 'is_hostile', False)
                 for a in self.agents
             ):
                 break

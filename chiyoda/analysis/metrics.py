@@ -110,6 +110,26 @@ class SimulationAnalytics:
             / (1.0 + intervention_exposure_pressure + intervention_queue_pressure + hostile_recipients)
             - induced_convergence_pressure
         )
+        shooter_events = list(getattr(simulation, "hostile_agent_events", []))
+        shooter_event_count = len(shooter_events)
+        exposure_to_los = float(sum(event.get("accuracy", 0.0) for event in shooter_events))
+        decision_modes = [
+            str(getattr(agent_step, "decision_mode", ""))
+            for step in history
+            for agent_step in step.agents
+        ]
+        mode_total = max(1, sum(1 for mode in decision_modes if mode in {"RUN", "HIDE", "FIGHT"}))
+        run_hide_fight = {
+            "run": sum(1 for mode in decision_modes if mode == "RUN") / mode_total,
+            "hide": sum(1 for mode in decision_modes if mode == "HIDE") / mode_total,
+            "fight": sum(1 for mode in decision_modes if mode == "FIGHT") / mode_total,
+        }
+        shelter_times = [
+            step.time_s
+            for step in history
+            if any(getattr(agent_step, "decision_mode", "") == "HIDE" for agent_step in step.agents)
+        ]
+        time_to_shelter_s = float(min(shelter_times)) if shelter_times else 0.0
 
         return {
             "total_time_s": simulation.time_s,
@@ -153,4 +173,10 @@ class SimulationAnalytics:
             "harmful_convergence_index_accidental": harmful_convergence_index_accidental,
             "harmful_convergence_index_induced": harmful_convergence_index_induced,
             "information_safety_efficiency_adversarial": information_safety_efficiency_adversarial,
+            "active_shooter_event_count": shooter_event_count,
+            "exposure_to_los": exposure_to_los,
+            "time_to_shelter_s": time_to_shelter_s,
+            "run_fraction": run_hide_fight["run"],
+            "hide_fraction": run_hide_fight["hide"],
+            "fight_fraction": run_hide_fight["fight"],
         }

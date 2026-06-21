@@ -25,6 +25,9 @@ INTENTION_FOLLOW = "FOLLOW"  # following nearby agents (herd behavior)
 INTENTION_ASSIST = "ASSIST"  # helping another agent
 INTENTION_FREEZE = "FREEZE"  # frozen in place
 INTENTION_RESPOND = "RESPOND"  # first responder moving toward hazard
+INTENTION_RUN = "RUN"  # active-shooter response: flee from line of sight
+INTENTION_HIDE = "HIDE"  # active-shooter response: shelter in place
+INTENTION_FIGHT = "FIGHT"  # active-shooter response: last-resort close engagement
 
 
 @dataclass
@@ -154,6 +157,21 @@ class CognitiveAgent:
             self.intention = INTENTION_FREEZE
             return
 
+        shooter_pressure = (
+            simulation.shooter_pressure_for(self)
+            if hasattr(simulation, "shooter_pressure_for") and not getattr(self, "is_hostile", False)
+            else None
+        )
+        if shooter_pressure is not None:
+            distance = float(shooter_pressure["distance"])
+            if distance <= 1.5 and self.rationality > 0.55:
+                self.intention = INTENTION_FIGHT
+            elif self.beliefs.known_exits():
+                self.intention = INTENTION_RUN
+            else:
+                self.intention = INTENTION_HIDE
+            return
+
         if self.assisted_agent_id is not None:
             partner = simulation.agent_lookup.get(self.assisted_agent_id)
             if partner and not partner.has_evacuated and partner.is_released(simulation):
@@ -199,7 +217,33 @@ class CognitiveAgent:
             if simulation.layout.connector_for_edge(current_cell, next_cell) is not None:
                 return
 
-        # EVACUATE or ASSIST: path to target
+        if self.intention == INTENTION_HIDE:
+            self.current_path = []
+            self.path_index = 0
+            return
+
+        if self.intention == INTENTION_FIGHT:
+            hostile = min(
+                [
+                    agent for agent in simulation._active_agents()
+                    if getattr(agent, "is_hostile", False)
+                ],
+                key=lambda agent: float(np.linalg.norm(agent.pos - self.pos)),
+                default=None,
+            )
+            if hostile is None:
+                return
+            path = navigator.find_optimal_path(
+                simulation._grid_cell(self),
+                [simulation._grid_cell(hostile)],
+            )
+            if path:
+                self.current_path = path
+                self.path_index = 0
+                self.last_navigation_step = simulation.current_step
+            return
+
+        # EVACUATE, RUN, FIGHT, or ASSIST: path to target
         needs_path = (not self.current_path) or (self.path_index >= len(self.current_path))
         stale_path = (
             simulation.current_step - self.last_navigation_step
@@ -274,7 +318,7 @@ class CognitiveAgent:
     def step(self, dt: float, simulation) -> None:
         if self.has_evacuated or not self.is_released(simulation):
             return
-        if self.physiology.incapacitated or self.intention == INTENTION_FREEZE:
+        if self.physiology.incapacitated or self.intention in {INTENTION_FREEZE, INTENTION_HIDE}:
             self.current_speed = 0.0
             return
 

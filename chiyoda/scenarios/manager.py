@@ -15,6 +15,7 @@ from chiyoda.environment.hazards import Hazard, ImportedHazardField
 from chiyoda.environment.station_provenance import load_station_provenance
 from chiyoda.core.simulation import Simulation, SimulationConfig
 from chiyoda.agents.commuter import Commuter
+from chiyoda.agents.hostile import HostileAgent
 from chiyoda.agents.responder import FirstResponder
 from chiyoda.agents.behaviors import BehaviorModel, BehaviorConfig
 from chiyoda.information.decisions import create_agent_decision_policy
@@ -75,6 +76,8 @@ class ScenarioManager:
         # build responders if specified
         responders = self._build_responders(layout, sc.get("responders", []) or [], len(agents))
         agents.extend(responders)
+        hostiles = self._build_hostile_agents(layout, sc.get("hostile_agents", []) or [], len(agents))
+        agents.extend(hostiles)
 
         # ITED config
         info_cfg = sc.get("information", {}) or {}
@@ -209,8 +212,33 @@ class ScenarioManager:
                 wind_vector=(float(wind[0]), float(wind[1])),
                 diffusion_rate=float(hc.get("diffusion_rate", 0.1)),
                 visibility_reduction=float(hc.get("visibility_reduction", 0.0)),
+                range_m=float(hc.get("range", hc.get("range_m", 8.0))),
+                accuracy=float(hc.get("accuracy", 0.35)),
             ))
         return hazards
+
+    def _build_hostile_agents(self, layout: Layout, hostile_cfg: List[Dict[str, Any]], agent_offset: int) -> List[HostileAgent]:
+        hostiles: List[HostileAgent] = []
+        for i, hc in enumerate(hostile_cfg):
+            count = int(hc.get("count", 1))
+            spawn_cells = list(hc.get("spawn_cells", []) or [])
+            base_speed = float(hc.get("base_speed", hc.get("base_speed_mps", 1.2)))
+            for j in range(count):
+                if spawn_cells:
+                    cell = self._parse_cell(spawn_cells[j % len(spawn_cells)], layout)
+                else:
+                    cell = layout.random_walkable_position()
+                hostiles.append(HostileAgent(
+                    id=agent_offset + len(hostiles),
+                    pos=layout.world_position(cell),
+                    floor_id=cell[0],
+                    base_speed=base_speed,
+                    release_step=int(hc.get("release_step", 0)),
+                    cohort_name=str(hc.get("name", f"hostile_{i+1}")),
+                    range_m=float(hc.get("range", hc.get("range_m", 8.0))),
+                    accuracy=float(hc.get("accuracy", 0.35)),
+                ))
+        return hostiles
 
     def _build_responders(self, layout: Layout, responders_cfg: List[Dict[str, Any]], agent_offset: int) -> List[FirstResponder]:
         responders: List[FirstResponder] = []

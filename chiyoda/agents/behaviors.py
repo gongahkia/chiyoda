@@ -22,6 +22,9 @@ STATES = {
     "HELPING": {"speed_mult": 0.7, "rationality": 1.0},
     "EXPLORING": {"speed_mult": 0.9, "rationality": 0.9},
     "FOLLOWING": {"speed_mult": 1.1, "rationality": 0.6},
+    "RUNNING": {"speed_mult": 1.35, "rationality": 0.7},
+    "HIDING": {"speed_mult": 0.0, "rationality": 0.8},
+    "FIGHTING": {"speed_mult": 0.8, "rationality": 0.6},
 }
 
 
@@ -47,6 +50,12 @@ class BehaviorModel:
             return
 
         cfg = self.config
+        if getattr(agent, "intention", "") == "RUN":
+            agent.state = "RUNNING"
+        elif getattr(agent, "intention", "") == "HIDE":
+            agent.state = "HIDING"
+        elif getattr(agent, "intention", "") == "FIGHT":
+            agent.state = "FIGHTING"
 
         # gather context
         local_density = 0.0
