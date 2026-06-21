@@ -5,8 +5,8 @@ study:
   repetitions: 5
   seeds: [42, 137, 256, 512, 1024]
   export:
-    profile: "paper"
-    formats: ["png", "svg", "pdf"]
+    profile: "report"
+    formats: ["png", "svg"]
     table_formats: ["parquet", "csv"]
   variants:
     - name: "no_intervention"

@@ -86,6 +86,6 @@ no calibrated experiment-specific parameters. If the proxy underestimates
 flow, that is a useful calibration gap rather than a failure to hide.
 
 The calibration sweep reduces the original single-exit proxy gap but does not
-meet the conservative match thresholds used by the script. The paper should
-therefore describe this artifact as a diagnostic bottleneck-flow gap, not as
-calibrated pedestrian behavior.
+meet the conservative match thresholds used by the script. External summaries
+should therefore describe this artifact as a diagnostic bottleneck-flow gap,
+not as calibrated pedestrian behavior.

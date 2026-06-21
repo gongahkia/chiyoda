@@ -129,7 +129,7 @@ study:
   repetitions: 1
   seeds: [42, 137, 256, 512, 1024]
   export:
-    profile: "paper"
+    profile: "report"
     formats: []
     table_formats: ["parquet", "csv"]
     include_figures: false

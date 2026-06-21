@@ -22,8 +22,8 @@ from chiyoda.studies.runner import _collect_run_tables
 def export_figures(
     artifact: StudyBundle | ComparisonResult,
     output_dir: str | Path | None = None,
-    profile: str = "paper",
-    formats: Sequence[str] = ("png", "svg", "pdf"),
+    profile: str = "report",
+    formats: Sequence[str] = ("png", "svg"),
 ) -> list[Path]:
     _apply_style(profile)
 
@@ -490,7 +490,7 @@ def _save_figure(fig: plt.Figure, output_dir: Path, name: str, formats: Sequence
 
 def _apply_style(profile: str) -> None:
     sns.set_theme(style="whitegrid", palette="deep")
-    if profile == "paper":
+    if profile == "report":
         plt.rcParams.update(
             {
                 "figure.facecolor": "white",

@@ -1,7 +1,7 @@
 PYTHON ?= python3
 VENV_PYTHON ?= .venv/bin/python
 
-.PHONY: all config venv test verify doctor paper-smoke precommit
+.PHONY: all config venv test verify doctor precommit
 
 all:config
 
@@ -22,17 +22,6 @@ verify: test
 
 doctor:
 	@$(PYTHON) -m pytest --version
-	@command -v pdflatex >/dev/null || (echo "missing pdflatex"; exit 1)
-	@command -v bibtex >/dev/null || (echo "missing bibtex"; exit 1)
-	@kpsewhich acmart.cls >/dev/null || (echo "missing acmart.cls"; exit 1)
-	@kpsewhich hyperxmp.sty >/dev/null || test -f paper/hyperxmp.sty || (echo "missing hyperxmp.sty"; exit 1)
-	@kpsewhich fontaxes.sty >/dev/null || (echo "missing fontaxes.sty"; exit 1)
-	@kpsewhich binhex.tex >/dev/null || (echo "missing binhex.tex"; exit 1)
-	@kpsewhich balance.sty >/dev/null || (echo "missing balance.sty"; exit 1)
-	@kpsewhich -format=bst ACM-Reference-Format.bst >/dev/null || (echo "missing ACM-Reference-Format.bst"; exit 1)
-
-paper-smoke:
-	@$(MAKE) -C paper smoke PYTHON=../$(VENV_PYTHON)
 
 precommit: 
 	@echo "installing precommit hooks..."

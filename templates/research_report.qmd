@@ -22,7 +22,7 @@ summary
 
 ## Study Summary
 
-Use the exported tables in `tables/` for exact values and the exported figures in `figures/` for paper-ready visuals.
+Use the exported tables in `tables/` for exact values and the exported figures in `figures/` for report-ready visuals.
 
 ## Core Figures
 

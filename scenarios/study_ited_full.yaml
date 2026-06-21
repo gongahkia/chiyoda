@@ -5,8 +5,8 @@ study:
   repetitions: 3
   seeds: [42, 137, 256]
   export:
-    profile: "paper"
-    formats: ["png", "svg", "pdf"]
+    profile: "report"
+    formats: ["png", "svg"]
     table_formats: ["parquet", "csv"]
   variants:
     - name: "baseline_no_hazard"

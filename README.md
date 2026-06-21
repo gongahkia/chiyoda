@@ -9,54 +9,24 @@
 </h4>
 
 <div align="center">
-    <a href="https://doi.org/10.5281/zenodo.19905070">Published Paper</a> |
-    <a href="./paper/main.pdf">PDF</a> |
-    <a href="./paper/REPRODUCIBILITY.md">Reproducibility</a> |
     <a href="./docs/developer_environment.md">Developer Setup</a>
 </div>
 <br></br>
 
 <p align="center">
-    <a href="https://doi.org/10.5281/zenodo.19905070">
-        <img src="https://zenodo.org/badge/DOI/10.5281/zenodo.19905070.svg"
-            alt="Zenodo DOI"/></a>
     <a href="https://github.com/gongahkia/chiyoda">
         <img src="https://img.shields.io/badge/chiyoda-3.0.0-85c8c8?style=for-the-badge"
             alt="Chiyoda 3.0.0"/></a>
-    <a href="./paper/main.pdf">
-        <img src="https://img.shields.io/badge/paper-PDF-002b36?style=for-the-badge&color=85c8c8"
-            alt="Paper PDF"/></a>
-    <a href="https://creativecommons.org/licenses/by/4.0/">
-        <img src="https://img.shields.io/badge/paper_license-CC_BY_4.0-85c8c8?style=for-the-badge"
-            alt="Paper license: CC BY 4.0"/></a>
 </p>
 
 ## Table of Contents
 
-* [Published Paper](#published-paper)
 * [Why Chiyoda?](#why-chiyoda)
 * [How can I use it?](#how-can-i-use-it)
 * [Repository Guide](#repository-guide)
-* [Reproduce the Paper](#reproduce-the-paper)
 * [Development](#️development)
 * [Citation](#citation)
 * [Research Context](#research-context)
-
-## Published Paper
-
-Chiyoda is published as a Zenodo preprint:
-
-* **Title:** *Chiyoda: Entropy-Guided Information Control for Hazard-Coupled Pedestrian Evacuation*
-* **Subtitle:** *A Framework for Benchmarking Emergency Communication Efficacy*
-* **DOI:** [10.5281/zenodo.19905070](https://doi.org/10.5281/zenodo.19905070)
-* **Paper version:** `v1`
-* **Repository package version:** `3.0.0`
-* **License for the paper:** [Creative Commons Attribution 4.0 International](https://creativecommons.org/licenses/by/4.0/)
-
-The repository contains the simulation code, scenario definitions, study
-scripts, LaTeX source, reproducibility tooling, and the final paper PDF. Large
-study outputs under `out/`, `paper/stats.tex`, and copied paper figure PDFs are
-generated artifacts and are intentionally ignored by git.
 
 ## Why Chiyoda?
 
@@ -69,7 +39,7 @@ Chiyoda models evacuation as a coupled physical-information system. Agents
 carry probabilistic exit and hazard beliefs, exchange local gossip, receive
 beacon and responder messages, move through social-force crowd dynamics, and
 route through the world they believe exists rather than the omniscient ground
-truth. The paper evaluates communication policies by joint belief and safety
+truth. The toolkit evaluates communication policies by joint belief and safety
 effects instead of raw evacuation count alone.
 
 Core capabilities include:
@@ -114,10 +84,9 @@ $ python -m chiyoda.cli compare out/baseline out/sarin -o out/comparison
 $ python -m chiyoda.cli compare-trajectory-reference out/information_control reference_trajectories.csv -o out/trajectory_reference.csv
 ```
 
-For live LLM experiments, place `OPENAI_API_KEY=...` in `.env`. The paper
-results use bounded, validated, replayable generated-message workflows; see
-[`paper/REPRODUCIBILITY.md`](./paper/REPRODUCIBILITY.md) before treating any
-new live-provider run as evidence.
+For live LLM experiments, place `OPENAI_API_KEY=...` in `.env`. Use bounded,
+validated, replayable generated-message workflows before treating any new
+live-provider run as evidence.
 
 ## Repository Guide
 
@@ -132,44 +101,16 @@ new live-provider run as evidence.
 | [`chiyoda/studies/`](./chiyoda/studies) | Study schemas, bundle persistence, and comparison workflows |
 | [`scenarios/`](./scenarios) | YAML scenario and study definitions |
 | [`docs/`](./docs) | Calibration, validation, geometry, and developer notes |
-| [`paper/`](./paper) | Paper source, figures, generated tables, and final PDF |
 | [`tests/`](./tests) | Pytest suite |
 
 Important documentation:
 
-* [`paper/REPRODUCIBILITY.md`](./paper/REPRODUCIBILITY.md) records the exact
-  study commands and artifact layout behind the paper.
-* [`paper/README.md`](./paper/README.md) documents the LaTeX paper build.
 * [`docs/developer_environment.md`](./docs/developer_environment.md) documents
-  local Python and TeX setup.
+  local Python setup.
 * [`docs/external_validation.md`](./docs/external_validation.md) describes the
   Wuppertal bottleneck reference check.
 * [`docs/station_geometry_workflow.md`](./docs/station_geometry_workflow.md)
   describes station geometry import and role inference.
-
-## Reproduce the Paper
-
-The final paper PDF is [`paper/main.pdf`](./paper/main.pdf). To rebuild it
-after regenerating the study artifacts:
-
-```console
-$ cd paper
-$ make paper PYTHON=../.venv/bin/python
-```
-
-The primary 50-seed study command is:
-
-```console
-$ PYTHONPATH=. .venv/bin/python scripts/run_study_progress.py \
-    scenarios/study_information_control.yaml \
-    -o out/information_control_50 \
-    --seed-count 50
-```
-
-The full empirical package also includes intervention ablations, message-quality
-stress tests, a 900-run hazard/familiarity robustness grid, and bounded LLM
-extension studies. The complete command list is in
-[`paper/REPRODUCIBILITY.md`](./paper/REPRODUCIBILITY.md).
 
 ## Development
 
@@ -179,16 +120,10 @@ Run the test suite:
 $ make verify PYTHON=.venv/bin/python
 ```
 
-Check paper-build dependencies:
+Check local dependencies:
 
 ```console
 $ make doctor PYTHON=.venv/bin/python
-```
-
-Run the lightweight paper smoke build:
-
-```console
-$ make paper-smoke PYTHON=.venv/bin/python
 ```
 
 The codebase intentionally keeps external pedestrian-analysis and high-fidelity
@@ -198,19 +133,7 @@ hazard-field workflows instead of claiming to replace them.
 
 ## Citation
 
-Please cite the Zenodo record if you use the paper, code, scenarios, or figures:
-
-```bibtex
-@misc{ong2026chiyoda,
-  author    = {Ong, Gabriel Zhe Mian},
-  title     = {Chiyoda: Entropy-Guided Information Control for Hazard-Coupled Pedestrian Evacuation},
-  year      = {2026},
-  publisher = {Zenodo},
-  version   = {v1},
-  doi       = {10.5281/zenodo.19905070},
-  url       = {https://doi.org/10.5281/zenodo.19905070}
-}
-```
+Software citation metadata is provided in [`CITATION.cff`](./CITATION.cff).
 
 ## Research Context
 

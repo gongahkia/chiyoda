@@ -23,7 +23,7 @@ GeoJSON features can use explicit Chiyoda roles:
 | `exit`, `egress`, `entrance` | `E` | Exit cell |
 | `spawn`, `person`, `agent`, `start` | `@` | Initial population seed |
 
-Explicit `role` or `chiyoda_role` properties are preferred for paper-facing
+Explicit `role` or `chiyoda_role` properties are preferred for report-facing
 work. When those are absent, GeoJSON ingestion also recognizes common
 OpenStreetMap/OpenStationMap and GTFS Pathways fields:
 
@@ -84,7 +84,7 @@ Indoor Tagging, OpenStationMap, and GTFS Pathways:
    the grid has plausible exits, walkable areas, walls, and bottlenecks before
    using it in a study.
 
-8. Record provenance. For paper-facing scenarios, record the source URL or
+8. Record provenance. For report-facing scenarios, record the source URL or
    file, license, access date, station, level, coordinate transform,
    `cell_size`, known missing data, and every manual edit.
 
@@ -118,7 +118,7 @@ small CI proxy and must not be used as operational validation evidence.
 
 ## Review Checklist
 
-Before promoting imported geometry into a paper artifact, confirm:
+Before promoting imported geometry into a report artifact, confirm:
 
 - Source license permits use in the intended artifact.
 - Imported features are limited to the studied level or flattening is stated.
@@ -128,5 +128,5 @@ Before promoting imported geometry into a paper artifact, confirm:
 - Disconnected-looking interior features are either true obstacles or explicitly
   removed.
 - Population origins and cohort mixes are documented separately from geometry.
-- The paper still describes Chiyoda as a stylized simulator unless external
+- External summaries still describe Chiyoda as a stylized simulator unless
   trajectory, drill, incident, or expert-coded validation has been added.

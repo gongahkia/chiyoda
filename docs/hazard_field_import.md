@@ -39,6 +39,6 @@ CSV format requires `x`, `y`, and `intensity` columns, plus optional
 - information visibility,
 - route penalties through `hazard_penalty_at_cell`.
 
-This is an import and regression-test path only. The paper should continue to
-describe the default hazards as stylized until a concrete reference field and
-matching scenario are included as a validation artifact.
+This is an import and regression-test path only. External summaries should
+continue to describe the default hazards as stylized until a concrete reference
+field and matching scenario are included as a validation artifact.

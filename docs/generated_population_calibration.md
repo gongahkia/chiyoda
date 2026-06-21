@@ -56,7 +56,7 @@ proposal.
 
 `openai` is optional live generation through the same Responses API pattern
 used by generated evacuation messages. Live use should populate cache records
-only in explicit pilot runs; paper-facing runs should use `provider: "replay"`
+only in explicit pilot runs; report-facing runs should use `provider: "replay"`
 against inspected cache artifacts.
 
 The request cache key includes the scenario name, objective, prompt style,

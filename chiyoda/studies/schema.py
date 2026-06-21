@@ -9,8 +9,8 @@ Cell = Tuple[int, int]
 
 
 class ExportConfig(BaseModel):
-    profile: str = "paper"
-    formats: List[str] = Field(default_factory=lambda: ["png", "svg", "pdf"])
+    profile: str = "report"
+    formats: List[str] = Field(default_factory=lambda: ["png", "svg"])
     table_formats: List[str] = Field(default_factory=lambda: ["parquet", "csv"])
     include_figures: bool = True
 

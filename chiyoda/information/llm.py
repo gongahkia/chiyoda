@@ -4,7 +4,7 @@ Provider-neutral LLM message generation primitives.
 The simulator treats generated language as a safety-control proposal, not as
 free-form operational advice. This module therefore focuses on deterministic
 replay, structured outputs, and validation hooks. Live API clients can be added
-behind the same interface later without changing paper runs.
+behind the same interface later without changing replayed runs.
 """
 from __future__ import annotations
 
@@ -199,7 +199,7 @@ class ReplayOnlyGenerator(LLMMessageGenerator):
 
 
 class TemplateLLMGenerator(LLMMessageGenerator):
-    """Deterministic stand-in used for tests and paper-safe dry runs."""
+    """Deterministic stand-in used for tests and replay-safe dry runs."""
 
     provider = "deterministic"
     model = "template"

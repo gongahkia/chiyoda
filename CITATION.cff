@@ -1,6 +1,6 @@
 cff-version: 1.2.0
-title: "Chiyoda: Entropy-Guided Information Control for Hazard-Coupled Pedestrian Evacuation."
-message: "If you use Chiyoda in academic work, please cite the Zenodo paper record."
+title: "Chiyoda: Entropy-Guided Information Control for Hazard-Coupled Pedestrian Evacuation"
+message: "If you use Chiyoda in academic work, cite the software repository."
 type: software
 authors:
   - given-names: Gabriel
@@ -22,15 +22,3 @@ keywords:
   - entropy
   - multiagent-systems
   - safety-control
-preferred-citation:
-  type: generic
-  title: "Chiyoda: Entropy-Guided Information Control for Hazard-Coupled Pedestrian Evacuation"
-  authors:
-    - given-names: Gabriel
-      family-names: Ong Zhe Mian
-      email: gabrielzmong@gmail.com
-  year: 2026
-  publisher: Zenodo
-  version: "v1"
-  doi: "10.5281/zenodo.19905070"
-  url: "https://doi.org/10.5281/zenodo.19905070"

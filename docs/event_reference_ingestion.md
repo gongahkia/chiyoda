@@ -56,4 +56,4 @@ observations:
 
 Use `chiyoda.references.load_event_reference(path)` to validate and load a
 reference, then call `observations_frame()` and `provenance_frame()` to produce
-tables for comparison notebooks or paper appendices.
+tables for comparison notebooks or external reports.

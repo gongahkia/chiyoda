@@ -4,8 +4,8 @@ study:
   scenario_file: "example.yaml"
   repetitions: 1
   export:
-    profile: "paper"
-    formats: ["png", "svg", "pdf"]
+    profile: "report"
+    formats: ["png", "svg"]
     table_formats: ["parquet", "csv"]
   variants:
     - name: "baseline"

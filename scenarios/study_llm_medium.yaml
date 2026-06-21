@@ -5,8 +5,8 @@ study:
   repetitions: 1
   seeds: [42, 137, 256, 512, 1024, 2048, 4096, 8192, 10007, 20011]
   export:
-    profile: "paper"
-    formats: ["png", "svg", "pdf"]
+    profile: "report"
+    formats: ["png", "svg"]
     table_formats: ["parquet", "csv"]
     include_figures: false
   variants:

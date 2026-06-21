@@ -27,6 +27,6 @@
     "No authoritative indoor dimensions or crowd-observation references.",
     "No claim that the proxy matches operational evacuation routes."
   ],
-  "paper_use": "CI-scale geometry ingestion check only; keep separate from validation claims until matched external references are available.",
+  "validation_use": "CI-scale geometry ingestion check only; keep separate from validation claims until matched external references are available.",
   "attribution": "Contains information derived from OpenStreetMap object identifiers; © OpenStreetMap contributors, ODbL."
 }

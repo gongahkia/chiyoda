@@ -31,9 +31,9 @@ def _bundle_export_settings(
     profile: str | None = None,
 ) -> tuple[tuple[str, ...], tuple[str, ...], str, bool]:
     export_config = bundle.metadata.get("export_config", {})
-    default_figures = tuple(export_config.get("formats", ("png", "svg", "pdf")))
+    default_figures = tuple(export_config.get("formats", ("png", "svg")))
     default_tables = tuple(export_config.get("table_formats", ("parquet", "csv")))
-    default_profile = str(export_config.get("profile", "paper"))
+    default_profile = str(export_config.get("profile", "report"))
     include_figures = bool(export_config.get("include_figures", True))
 
     resolved_figures = _normalized_values(figure_formats, default_figures)
