@@ -17,8 +17,10 @@ import numpy as np
 from chiyoda.information.entropy import agent_entropy, belief_accuracy
 from chiyoda.information.field import ExitBelief, HazardBelief
 from chiyoda.information.llm import (
+    AnthropicMessagesGenerator,
     GeneratedEvacuationMessage,
     HazardSnapshot,
+    LLMBudgetGuard,
     LLMGenerationRecord,
     LLMMessageCache,
     LLMMessageRequest,
@@ -26,7 +28,12 @@ from chiyoda.information.llm import (
     ReplayOnlyGenerator,
     TemplateLLMGenerator,
     ValidationResult,
+    build_prompt_instructions,
+    estimate_llm_cost,
+    estimate_llm_tokens,
+    load_anthropic_model,
     load_openai_model,
+    raw_usage_tokens,
     validate_generated_message,
     validator_settings,
 )
@@ -57,6 +64,11 @@ class InformationInterventionConfig:
     llm_prompt_style: str = "safety"
     llm_validator_profile: str = "standard"
     llm_target_policy: str = "entropy_targeted"
+    llm_max_calls_per_run: Optional[int] = None
+    llm_max_estimated_tokens_per_run: Optional[int] = None
+    llm_max_estimated_usd_per_run: Optional[float] = None
+    llm_input_usd_per_mtok: float = 0.0
+    llm_output_usd_per_mtok: float = 0.0
 
     @classmethod
     def from_mapping(cls, payload: Optional[Dict[str, Any]]) -> "InformationInterventionConfig":
@@ -85,6 +97,17 @@ class InformationInterventionConfig:
             llm_prompt_style=str(data.get("llm_prompt_style", "safety")),
             llm_validator_profile=str(data.get("llm_validator_profile", "standard")),
             llm_target_policy=str(data.get("llm_target_policy", "entropy_targeted")),
+            llm_max_calls_per_run=None
+            if data.get("llm_max_calls_per_run") is None
+            else int(data["llm_max_calls_per_run"]),
+            llm_max_estimated_tokens_per_run=None
+            if data.get("llm_max_estimated_tokens_per_run") is None
+            else int(data["llm_max_estimated_tokens_per_run"]),
+            llm_max_estimated_usd_per_run=None
+            if data.get("llm_max_estimated_usd_per_run") is None
+            else float(data["llm_max_estimated_usd_per_run"]),
+            llm_input_usd_per_mtok=float(data.get("llm_input_usd_per_mtok", 0.0)),
+            llm_output_usd_per_mtok=float(data.get("llm_output_usd_per_mtok", 0.0)),
         )
 
 
@@ -363,23 +386,39 @@ class LLMGuidancePolicy(EntropyTargetedPolicy):
     def __init__(self, config: InformationInterventionConfig) -> None:
         super().__init__(config)
         self.cache = LLMMessageCache(Path(config.llm_cache_path)) if config.llm_cache_path else None
-        if config.llm_provider == "template":
+        provider = config.llm_provider.lower()
+        config.llm_provider = provider
+        self.budget_guard = LLMBudgetGuard(
+            max_calls=config.llm_max_calls_per_run,
+            max_estimated_tokens=config.llm_max_estimated_tokens_per_run,
+            max_estimated_usd=config.llm_max_estimated_usd_per_run,
+            input_usd_per_mtok=config.llm_input_usd_per_mtok,
+            output_usd_per_mtok=config.llm_output_usd_per_mtok,
+        )
+        if provider == "template":
             self.generator = TemplateLLMGenerator()
-        elif config.llm_provider == "replay":
+        elif provider in {"replay", "local_replay"}:
             if self.cache is None:
-                raise ValueError("llm_guidance with llm_provider='replay' requires llm_cache_path")
+                raise ValueError("llm_guidance replay provider requires llm_cache_path")
             config.llm_cache_mode = "replay_only"
             self.generator = ReplayOnlyGenerator(self.cache)
-        elif config.llm_provider == "openai":
+        elif provider == "openai":
             model = (
                 config.llm_model
                 if config.llm_model and config.llm_model != "template"
                 else load_openai_model()
             )
             self.generator = OpenAIResponsesGenerator(model=model)
+        elif provider == "anthropic":
+            model = (
+                config.llm_model
+                if config.llm_model and config.llm_model != "template"
+                else load_anthropic_model()
+            )
+            self.generator = AnthropicMessagesGenerator(model=model)
         else:
             raise ValueError(
-                "Unsupported llm_provider. Use 'template', 'replay', or 'openai'."
+                "Unsupported llm_provider. Use 'template', 'replay', 'local_replay', 'openai', or 'anthropic'."
             )
 
     def select_targets(self, simulation) -> List[InterventionTarget]:
@@ -415,7 +454,7 @@ class LLMGuidancePolicy(EntropyTargetedPolicy):
         congested = self._congested_exits(simulation)
         request = self._build_request(simulation, target, congested)
         cache_key = self.cache.key_for(request) if self.cache is not None else ""
-        generated, cached_validation, cache_status = self._generate_message(request, cache_key)
+        generated, cached_validation, cache_status, audit = self._generate_message(request, cache_key)
         validation = validate_generated_message(
             generated,
             known_exits=[tuple(exit_.pos) for exit_ in simulation.exits],
@@ -439,8 +478,9 @@ class LLMGuidancePolicy(EntropyTargetedPolicy):
         if (
             self.cache is not None
             and self.config.llm_store_cache
-            and self.config.llm_provider != "replay"
+            and self.config.llm_provider not in {"replay", "local_replay"}
             and cache_status != "hit"
+            and cache_status != "budget_exceeded"
         ):
             self.cache.store(
                 LLMGenerationRecord(
@@ -453,6 +493,19 @@ class LLMGuidancePolicy(EntropyTargetedPolicy):
 
         exits = effective.recommended_exits or [tuple(exit_.pos) for exit_ in simulation.exits]
         avoid_exits = list({tuple(exit_) for exit_ in [*congested, *effective.avoid_exits]})
+        _append_llm_audit(
+            simulation,
+            surface="intervention",
+            policy=self.config.policy,
+            request=request,
+            generated=generated,
+            validation=validation,
+            cache_key=cache_key,
+            cache_status=cache_status,
+            used_fallback=used_fallback,
+            audit=audit,
+            target=target,
+        )
         return InterventionMessage(
             message_type=effective.message_type or self.config.message_type,
             credibility=min(self.config.credibility, effective.credibility or self.config.credibility),
@@ -477,18 +530,77 @@ class LLMGuidancePolicy(EntropyTargetedPolicy):
         self,
         request: LLMMessageRequest,
         cache_key: str,
-    ) -> Tuple[GeneratedEvacuationMessage, Optional[ValidationResult], str]:
+    ) -> Tuple[GeneratedEvacuationMessage, Optional[ValidationResult], str, Dict[str, Any]]:
         if self.cache is None:
-            return self.generator.generate(request, cache_key), None, "disabled"
+            check = self._budget_check(request)
+            if not check["allowed"]:
+                return self._budget_exceeded_message(check), None, "budget_exceeded", check
+            self.budget_guard.record(check["check"])
+            return self.generator.generate(request, cache_key), None, "disabled", check
 
         cached = self.cache.load(cache_key)
         if cached is not None and self.config.llm_cache_mode in {"cache_first", "replay_only"}:
-            return cached.message, cached.validation, "hit"
+            return cached.message, cached.validation, "hit", self._cached_audit(cached.message)
 
         if self.config.llm_cache_mode == "replay_only":
-            return self.generator.generate(request, cache_key), None, "miss"
+            return self.generator.generate(request, cache_key), None, "miss", _empty_budget_audit()
 
-        return self.generator.generate(request, cache_key), None, "miss"
+        check = self._budget_check(request)
+        if not check["allowed"]:
+            return self._budget_exceeded_message(check), None, "budget_exceeded", check
+        self.budget_guard.record(check["check"])
+        return self.generator.generate(request, cache_key), None, "miss", check
+
+    def _budget_check(self, request: LLMMessageRequest) -> Dict[str, Any]:
+        input_tokens = estimate_llm_tokens(
+            {
+                "instructions": build_prompt_instructions(request.prompt_style),
+                "input": _to_prompt_request_payload(request),
+            },
+            output_tokens=0,
+        )
+        output_tokens = 500
+        check = self.budget_guard.evaluate(input_tokens, output_tokens)
+        return {
+            "allowed": check.allowed,
+            "budget_reason": check.reason,
+            "estimated_input_tokens": check.estimated_input_tokens,
+            "estimated_output_tokens": check.estimated_output_tokens,
+            "estimated_total_tokens": check.estimated_total_tokens,
+            "estimated_usd": check.estimated_usd,
+            "check": check,
+        }
+
+    def _cached_audit(self, message: GeneratedEvacuationMessage) -> Dict[str, Any]:
+        usage = raw_usage_tokens(message.raw_response)
+        return {
+            "allowed": True,
+            "budget_reason": "cache_hit",
+            "estimated_input_tokens": usage["input_tokens"],
+            "estimated_output_tokens": usage["output_tokens"],
+            "estimated_total_tokens": usage["total_tokens"],
+            "estimated_usd": estimate_llm_cost(
+                input_tokens=usage["input_tokens"],
+                output_tokens=usage["output_tokens"],
+                input_usd_per_mtok=self.config.llm_input_usd_per_mtok,
+                output_usd_per_mtok=self.config.llm_output_usd_per_mtok,
+            ),
+        }
+
+    def _budget_exceeded_message(self, audit: Dict[str, Any]) -> GeneratedEvacuationMessage:
+        return GeneratedEvacuationMessage(
+            text="LLM budget guard blocked generation.",
+            abstain=True,
+            provider="budget_guard",
+            model="local",
+            raw_response={
+                "error": audit["budget_reason"],
+                "estimated_input_tokens": audit["estimated_input_tokens"],
+                "estimated_output_tokens": audit["estimated_output_tokens"],
+                "estimated_total_tokens": audit["estimated_total_tokens"],
+                "estimated_usd": audit["estimated_usd"],
+            },
+        )
 
     def _build_request(
         self,
@@ -536,6 +648,54 @@ class LLMGuidancePolicy(EntropyTargetedPolicy):
         return max(self.config.message_radius, min(simulation.layout.width, simulation.layout.height))
 
 
+class LLMResponderCoordinationPolicy(LLMGuidancePolicy):
+    name = "llm_responder_coordination"
+
+    def __init__(self, config: InformationInterventionConfig) -> None:
+        if config.llm_prompt_style == "safety":
+            config.llm_prompt_style = "responder_coordination"
+        super().__init__(config)
+
+    def select_targets(self, simulation) -> List[InterventionTarget]:
+        responders = [
+            agent for agent in simulation._active_agents()
+            if getattr(agent, "is_responder", False)
+        ]
+        nonresponders = [
+            agent for agent in simulation._active_agents()
+            if not getattr(agent, "is_responder", False)
+        ]
+        total_exits = len(simulation.exits)
+        total_hazards = len(simulation.hazards)
+        rows = []
+        for responder in responders:
+            point = (float(responder.pos[0]), float(responder.pos[1]))
+            nearby = [
+                agent for agent in nonresponders
+                if _distance((float(agent.pos[0]), float(agent.pos[1])), point)
+                <= self.config.message_radius
+            ]
+            entropy = _mean([
+                agent_entropy(agent.beliefs, total_exits, total_hazards)
+                for agent in nearby
+                if hasattr(agent, "beliefs")
+            ])
+            density = _mean([float(getattr(agent, "local_density", 0.0)) for agent in nearby])
+            hazard = _mean([float(getattr(agent, "current_hazard_load", 0.0)) for agent in nearby])
+            score = entropy + density + hazard
+            rows.append((score, responder, point))
+        rows.sort(key=lambda item: item[0], reverse=True)
+        return [
+            InterventionTarget(
+                point=point,
+                reason="llm_responder_coordination_entropy_field",
+                score=float(score),
+                source_agent_id=responder.id,
+            )
+            for score, responder, point in rows
+        ]
+
+
 POLICIES = {
     "static_broadcast": StaticBroadcastPolicy,
     "static_beacon": StaticBroadcastPolicy,
@@ -546,6 +706,7 @@ POLICIES = {
     "exposure_aware": ExposureAwarePolicy,
     "bottleneck_avoidance": BottleneckAvoidancePolicy,
     "llm_guidance": LLMGuidancePolicy,
+    "llm_responder_coordination": LLMResponderCoordinationPolicy,
 }
 
 
@@ -720,6 +881,82 @@ def _update_agent_beliefs(
         )
     agent.beliefs.information_age_s = 0.0
     agent.beliefs.last_update_step = current_step
+
+
+def _append_llm_audit(
+    simulation,
+    *,
+    surface: str,
+    policy: str,
+    request: LLMMessageRequest,
+    generated: GeneratedEvacuationMessage,
+    validation: ValidationResult,
+    cache_key: str,
+    cache_status: str,
+    used_fallback: bool,
+    audit: Dict[str, Any],
+    target: InterventionTarget,
+) -> None:
+    rows = getattr(simulation, "llm_call_audit", None)
+    if rows is None:
+        return
+    usage = raw_usage_tokens(generated.raw_response)
+    rows.append(
+        {
+            "step": int(simulation.current_step),
+            "time_s": float(simulation.time_s),
+            "surface": surface,
+            "policy": policy,
+            "agent_id": target.source_agent_id,
+            "provider": generated.provider,
+            "model": generated.model,
+            "cache_key": cache_key,
+            "cache_status": cache_status,
+            "validation_status": validation.status,
+            "validation_reasons": ";".join(validation.reasons),
+            "used_fallback": bool(used_fallback),
+            "objective": request.objective,
+            "prompt_style": request.prompt_style,
+            "target_x": float(target.point[0]),
+            "target_y": float(target.point[1]),
+            "estimated_input_tokens": int(audit.get("estimated_input_tokens", 0)),
+            "estimated_output_tokens": int(audit.get("estimated_output_tokens", 0)),
+            "estimated_total_tokens": int(audit.get("estimated_total_tokens", 0)),
+            "estimated_usd": float(audit.get("estimated_usd", 0.0)),
+            "budget_reason": str(audit.get("budget_reason", "")),
+            "raw_input_tokens": usage["input_tokens"],
+            "raw_output_tokens": usage["output_tokens"],
+            "raw_total_tokens": usage["total_tokens"],
+        }
+    )
+
+
+def _to_prompt_request_payload(request: LLMMessageRequest) -> Dict[str, Any]:
+    return {
+        "policy": request.policy,
+        "step": request.step,
+        "target": request.target,
+        "selected_reason": request.selected_reason,
+        "objective": request.objective,
+        "exits": request.exits,
+        "hazards": request.hazards,
+        "congested_exits": request.congested_exits,
+        "recipients_estimate": request.recipients_estimate,
+        "mean_local_density": request.mean_local_density,
+        "mean_hazard_load": request.mean_hazard_load,
+        "prompt_style": request.prompt_style,
+    }
+
+
+def _empty_budget_audit() -> Dict[str, Any]:
+    return {
+        "allowed": True,
+        "budget_reason": "",
+        "estimated_input_tokens": 0,
+        "estimated_output_tokens": 0,
+        "estimated_total_tokens": 0,
+        "estimated_usd": 0.0,
+    }
 
 
 def _distance(a: Point, b: Point) -> float:

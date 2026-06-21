@@ -46,6 +46,7 @@ def run_study(study: str | Path | StudyConfig) -> StudyBundle:
     gossip_frames: List[pd.DataFrame] = []
     intervention_frames: List[pd.DataFrame] = []
     llm_decision_frames: List[pd.DataFrame] = []
+    llm_call_frames: List[pd.DataFrame] = []
     runs_manifest: List[Dict[str, Any]] = []
 
     first_layout_text = None
@@ -109,6 +110,7 @@ def run_study(study: str | Path | StudyConfig) -> StudyBundle:
             gossip_frames.append(tables["gossip"])
             intervention_frames.append(tables["interventions"])
             llm_decision_frames.append(tables["llm_decisions"])
+            llm_call_frames.append(tables["llm_calls"])
             runs_manifest.append(
                 {
                     "run_id": run_id,
@@ -169,6 +171,7 @@ def run_study(study: str | Path | StudyConfig) -> StudyBundle:
         gossip=_concat(gossip_frames),
         interventions=_concat(intervention_frames),
         llm_decisions=_concat(llm_decision_frames),
+        llm_calls=_concat(llm_call_frames),
     )
 
 
@@ -430,6 +433,7 @@ def _collect_run_tables(
     gossip_rows: List[Dict[str, Any]] = []
     intervention_rows: List[Dict[str, Any]] = []
     llm_decision_rows: List[Dict[str, Any]] = []
+    llm_call_rows: List[Dict[str, Any]] = []
 
     for step in simulation.step_history:
         steps_rows.append(
@@ -759,6 +763,19 @@ def _collect_run_tables(
             }
         )
 
+    for row in getattr(simulation, "llm_call_audit", []):
+        item = dict(row)
+        item.update(
+            {
+                "study_name": study_name,
+                "scenario_name": scenario_name,
+                "variant_name": variant_name,
+                "seed": seed,
+                "run_id": run_id,
+            }
+        )
+        llm_call_rows.append(item)
+
     return {
         "summary": summary_row,
         "steps": pd.DataFrame(steps_rows),
@@ -773,6 +790,7 @@ def _collect_run_tables(
         "gossip": pd.DataFrame(gossip_rows),
         "interventions": pd.DataFrame(intervention_rows),
         "llm_decisions": pd.DataFrame(llm_decision_rows),
+        "llm_calls": pd.DataFrame(llm_call_rows),
     }
 
 

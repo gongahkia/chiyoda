@@ -122,6 +122,7 @@ class Simulation:
         self.intervention_events: List[Any] = []
         self.agent_decision_policy = None
         self.agent_decision_events: List[Any] = []
+        self.llm_call_audit: List[Dict[str, Any]] = []
         self.connector_queues = {
             connector.id: ConnectorQueue.from_connector(connector)
             for connector in self.layout.connectors

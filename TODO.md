@@ -1,7 +1,3 @@
-(B) 2026-06-21 Persona-conditioned population generation via bounded LLM call with caching and validation +LLMSelective @info release:v1
-(B) 2026-06-21 Multi-responder coordination policy (LLM negotiates broadcast targets given live entropy field) +LLMSelective @info release:v1
-(C) 2026-06-21 Provider abstraction OpenAI / Anthropic / local replay; cache budget and cost guard +LLMSelective @info release:v1
-(C) 2026-06-21 LLM-call audit log surfaced in study bundle for replay verification +LLMSelective @analysis release:v1
 (A) 2026-06-21 Write paper outline info-warfare in info-aware evacuation, benchmark introduction, key results +Docs @docs release:v1
 (A) 2026-06-21 Add architecture overview doc covering ITED runtime, info-warfare extension, benchmark layer +Docs @docs release:v1
 (B) 2026-06-21 Update README with benchmark posture, info-warfare angle, hazard staging roadmap +Docs @docs release:v1

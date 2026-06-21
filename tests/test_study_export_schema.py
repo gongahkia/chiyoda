@@ -21,11 +21,12 @@ def test_empty_optional_tables_export_readable_csv_headers(tmp_path):
         gossip=pd.DataFrame(),
         interventions=pd.DataFrame(),
         llm_decisions=pd.DataFrame(),
+        llm_calls=pd.DataFrame(),
     )
 
     bundle.export(tmp_path, table_formats=("csv",))
 
-    for table_name in ("dwell_samples", "measurements", "gossip", "interventions", "llm_decisions"):
+    for table_name in ("dwell_samples", "measurements", "gossip", "interventions", "llm_decisions", "llm_calls"):
         frame = pd.read_csv(tmp_path / "tables" / f"{table_name}.csv")
         assert frame.empty
         assert len(frame.columns) > 0

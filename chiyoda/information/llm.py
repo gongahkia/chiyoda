@@ -21,6 +21,8 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 Cell = tuple
 Point = tuple
 DEFAULT_OPENAI_MODEL = "gpt-5.5"
+DEFAULT_ANTHROPIC_MODEL = "claude-sonnet-4-5-20250929"
+DEFAULT_ANTHROPIC_VERSION = "2023-06-01"
 
 
 @dataclass(frozen=True)
@@ -147,6 +149,70 @@ class LLMGenerationRecord:
                 reasons=[str(item) for item in validation_payload.get("reasons", [])],
             ),
         )
+
+
+@dataclass(frozen=True)
+class LLMBudgetCheck:
+    allowed: bool
+    reason: str
+    estimated_input_tokens: int
+    estimated_output_tokens: int
+    estimated_total_tokens: int
+    estimated_usd: float
+
+
+@dataclass
+class LLMBudgetGuard:
+    max_calls: Optional[int] = None
+    max_estimated_tokens: Optional[int] = None
+    max_estimated_usd: Optional[float] = None
+    input_usd_per_mtok: float = 0.0
+    output_usd_per_mtok: float = 0.0
+    calls_used: int = 0
+    estimated_tokens_used: int = 0
+    estimated_usd_used: float = 0.0
+
+    def evaluate(self, input_tokens: int, output_tokens: int) -> LLMBudgetCheck:
+        total = int(input_tokens) + int(output_tokens)
+        usd = estimate_llm_cost(
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            input_usd_per_mtok=self.input_usd_per_mtok,
+            output_usd_per_mtok=self.output_usd_per_mtok,
+        )
+        if self.max_calls is not None and self.calls_used >= self.max_calls:
+            allowed = False
+            reason = "max_calls_exceeded"
+        elif (
+            self.max_estimated_tokens is not None
+            and self.estimated_tokens_used + total > self.max_estimated_tokens
+        ):
+            allowed = False
+            reason = "max_estimated_tokens_exceeded"
+        elif (
+            self.max_estimated_usd is not None
+            and self.estimated_usd_used + usd > self.max_estimated_usd
+        ):
+            allowed = False
+            reason = "max_estimated_usd_exceeded"
+        else:
+            allowed = True
+            reason = "allowed"
+        return LLMBudgetCheck(
+            allowed=allowed,
+            reason=reason,
+            estimated_input_tokens=int(input_tokens),
+            estimated_output_tokens=int(output_tokens),
+            estimated_total_tokens=total,
+            estimated_usd=float(usd),
+        )
+
+    def record(self, check: LLMBudgetCheck) -> None:
+        if not check.allowed:
+            return
+        self.calls_used += 1
+        self.estimated_tokens_used += check.estimated_total_tokens
+        self.estimated_usd_used += check.estimated_usd
 
 
 class LLMMessageCache:
@@ -307,6 +373,96 @@ class OpenAIResponsesGenerator(LLMMessageGenerator):
         )
 
 
+class AnthropicMessagesGenerator(LLMMessageGenerator):
+    provider = "anthropic"
+
+    def __init__(
+        self,
+        model: Optional[str] = None,
+        *,
+        api_key: Optional[str] = None,
+        timeout_s: float = 30.0,
+        endpoint: str = "https://api.anthropic.com/v1/messages",
+        api_version: str = DEFAULT_ANTHROPIC_VERSION,
+    ) -> None:
+        self.model = model or load_anthropic_model()
+        self.api_key = api_key or load_anthropic_api_key()
+        self.timeout_s = float(timeout_s)
+        self.endpoint = endpoint
+        self.api_version = api_version
+
+    def generate(self, request: LLMMessageRequest, cache_key: str) -> GeneratedEvacuationMessage:
+        if not self.api_key:
+            return GeneratedEvacuationMessage(
+                text="Anthropic API key is not configured.",
+                abstain=True,
+                provider=self.provider,
+                model=self.model,
+                raw_response={"error": "missing_api_key"},
+            )
+
+        payload = {
+            "model": self.model,
+            "max_tokens": 500,
+            "system": build_prompt_instructions(request.prompt_style),
+            "messages": [
+                {
+                    "role": "user",
+                    "content": json.dumps(_prompt_payload(request), sort_keys=True),
+                }
+            ],
+        }
+        api_request = urlrequest.Request(
+            self.endpoint,
+            data=json.dumps(payload).encode("utf-8"),
+            headers={
+                "x-api-key": self.api_key,
+                "anthropic-version": self.api_version,
+                "content-type": "application/json",
+            },
+            method="POST",
+        )
+        try:
+            with urlrequest.urlopen(api_request, timeout=self.timeout_s) as response:
+                response_payload = json.loads(response.read().decode("utf-8"))
+        except HTTPError as exc:
+            return self._error_message(f"http_{exc.code}")
+        except (URLError, TimeoutError) as exc:
+            return self._error_message(type(exc).__name__)
+
+        text = _extract_anthropic_text(response_payload)
+        parsed = _parse_json_object(text)
+        if parsed is None:
+            return GeneratedEvacuationMessage(
+                text=text,
+                abstain=True,
+                provider=self.provider,
+                model=self.model,
+                raw_response={"unparsed_response": response_payload},
+            )
+        return GeneratedEvacuationMessage(
+            message_type="route_guidance",
+            text=str(parsed.get("text", "")),
+            recommended_exits=_parse_cells(parsed.get("recommended_exits", [])),
+            avoid_exits=_parse_cells(parsed.get("avoid_exits", [])),
+            hazard_positions=_parse_points(parsed.get("hazard_positions", [])),
+            confidence=float(parsed.get("confidence", 0.0) or 0.0),
+            abstain=bool(parsed.get("abstain", False)),
+            provider=self.provider,
+            model=self.model,
+            raw_response={"id": response_payload.get("id"), "usage": response_payload.get("usage")},
+        )
+
+    def _error_message(self, error: str) -> GeneratedEvacuationMessage:
+        return GeneratedEvacuationMessage(
+            text="Anthropic generation failed; abstaining.",
+            abstain=True,
+            provider=self.provider,
+            model=self.model,
+            raw_response={"error": error},
+        )
+
+
 def validate_generated_message(
     message: GeneratedEvacuationMessage,
     *,
@@ -413,6 +569,10 @@ def build_prompt_instructions(prompt_style: str) -> str:
             "Prioritize reducing uncertainty for recipients while avoiding "
             "unsafe convergence or invented information."
         ),
+        "responder_coordination": (
+            "Coordinate responder-origin broadcasts by choosing bounded targets "
+            "that lower local uncertainty without concentrating recipients on one route."
+        ),
     }
     return f"{base} {variants.get(prompt_style, variants['safety'])}"
 
@@ -437,7 +597,7 @@ def _prompt_payload(request: LLMMessageRequest) -> Dict[str, Any]:
             "mean_local_density": payload["mean_local_density"],
             "mean_hazard_load": payload["mean_hazard_load"],
         }
-    if request.prompt_style in {"anti_convergence", "hazard_avoidance", "urgency"}:
+    if request.prompt_style in {"anti_convergence", "hazard_avoidance", "urgency", "responder_coordination"}:
         return {
             "prompt_style": request.prompt_style,
             "policy": payload["policy"],
@@ -475,6 +635,25 @@ def load_openai_model(
         return value
 
     return _load_env_file_value(env_path, ("OPENAI_MODEL",)) or default
+
+
+def load_anthropic_api_key(env_path: Path | str = ".env") -> Optional[str]:
+    names = ("ANTHROPIC_API_KEY", "ANTHROPIC-API-KEY")
+    for name in names:
+        value = os.environ.get(name)
+        if value:
+            return value
+    return _load_env_file_value(env_path, names)
+
+
+def load_anthropic_model(
+    env_path: Path | str = ".env",
+    default: str = DEFAULT_ANTHROPIC_MODEL,
+) -> str:
+    value = os.environ.get("ANTHROPIC_MODEL")
+    if value:
+        return value
+    return _load_env_file_value(env_path, ("ANTHROPIC_MODEL",)) or default
 
 
 def _load_env_file_value(env_path: Path | str, names: Sequence[str]) -> Optional[str]:
@@ -544,6 +723,58 @@ def _extract_response_text(payload: Dict[str, Any]) -> str:
             if isinstance(content.get("text"), str):
                 chunks.append(content["text"])
     return "\n".join(chunks)
+
+
+def _extract_anthropic_text(payload: Dict[str, Any]) -> str:
+    chunks: List[str] = []
+    for item in payload.get("content", []):
+        if isinstance(item.get("text"), str):
+            chunks.append(item["text"])
+    return "\n".join(chunks)
+
+
+def estimate_llm_tokens(value: Any, *, output_tokens: int = 0) -> int:
+    try:
+        text = json.dumps(_to_jsonable(value), sort_keys=True, separators=(",", ":"))
+    except TypeError:
+        text = str(value)
+    return max(1, (len(text) + 3) // 4) + int(output_tokens)
+
+
+def estimate_llm_cost(
+    *,
+    input_tokens: int,
+    output_tokens: int,
+    input_usd_per_mtok: float = 0.0,
+    output_usd_per_mtok: float = 0.0,
+) -> float:
+    return (
+        (float(input_tokens) / 1_000_000.0) * float(input_usd_per_mtok)
+        + (float(output_tokens) / 1_000_000.0) * float(output_usd_per_mtok)
+    )
+
+
+def raw_usage_tokens(raw_response: Dict[str, Any]) -> Dict[str, int]:
+    usage = raw_response.get("usage") if isinstance(raw_response, dict) else {}
+    usage = usage if isinstance(usage, dict) else {}
+    input_tokens = int(
+        usage.get("input_tokens")
+        or usage.get("prompt_tokens")
+        or usage.get("input_token_count")
+        or 0
+    )
+    output_tokens = int(
+        usage.get("output_tokens")
+        or usage.get("completion_tokens")
+        or usage.get("output_token_count")
+        or 0
+    )
+    total_tokens = int(usage.get("total_tokens") or input_tokens + output_tokens)
+    return {
+        "input_tokens": input_tokens,
+        "output_tokens": output_tokens,
+        "total_tokens": total_tokens,
+    }
 
 
 def _parse_json_object(text: str) -> Optional[Dict[str, Any]]:

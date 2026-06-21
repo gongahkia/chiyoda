@@ -1,6 +1,7 @@
 """Scenario configuration and loading."""
 
 from chiyoda.scenarios.generated_calibration import (
+    AnthropicPopulationCalibrationGenerator,
     GeneratedPopulationCalibration,
     PopulationCalibrationCache,
     PopulationCalibrationConfig,
@@ -21,6 +22,7 @@ from chiyoda.scenarios.validation import (
 
 __all__ = [
     "GeneratedPopulationCalibration",
+    "AnthropicPopulationCalibrationGenerator",
     "PopulationCalibrationCache",
     "PopulationCalibrationConfig",
     "PopulationCalibrationRecord",

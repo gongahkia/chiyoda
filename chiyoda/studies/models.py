@@ -190,6 +190,16 @@ TABLE_COLUMNS: dict[str, list[str]] = {
         "target_exit_y", "trust_delta", "avoid_congested", "confidence",
         "rationale", "used_fallback", "objective",
     ],
+    "llm_calls": [
+        "study_name", "scenario_name", "variant_name", "seed", "run_id",
+        "step", "time_s", "surface", "policy", "agent_id", "provider",
+        "model", "cache_key", "cache_status", "validation_status",
+        "validation_reasons", "used_fallback", "objective", "prompt_style",
+        "target_x", "target_y", "estimated_input_tokens",
+        "estimated_output_tokens", "estimated_total_tokens", "estimated_usd",
+        "budget_reason", "raw_input_tokens", "raw_output_tokens",
+        "raw_total_tokens",
+    ],
 }
 
 
@@ -244,6 +254,7 @@ class StudyBundle:
     gossip: pd.DataFrame = field(default_factory=_empty_frame)
     interventions: pd.DataFrame = field(default_factory=_empty_frame)
     llm_decisions: pd.DataFrame = field(default_factory=_empty_frame)
+    llm_calls: pd.DataFrame = field(default_factory=_empty_frame)
 
     def __post_init__(self) -> None:
         for table_name in self.tables():
@@ -280,6 +291,7 @@ class StudyBundle:
             "gossip": self.gossip,
             "interventions": self.interventions,
             "llm_decisions": self.llm_decisions,
+            "llm_calls": self.llm_calls,
         }
 
     @classmethod
@@ -302,6 +314,7 @@ class StudyBundle:
             gossip=_read_table(tables_dir, "gossip"),
             interventions=_read_table(tables_dir, "interventions"),
             llm_decisions=_read_table(tables_dir, "llm_decisions"),
+            llm_calls=_read_table(tables_dir, "llm_calls"),
         )
 
 

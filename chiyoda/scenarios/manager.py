@@ -105,6 +105,34 @@ class ScenarioManager:
             beacon_radius=float(info_cfg.get("beacon_radius", 8.0)),
         )
         sim = Simulation(layout=layout, agents=agents, exits=exits, hazards=hazards, config=sim_cfg)
+        population_audit = (sc.get("metadata", {}) or {}).get("generated_population_calibration_audit")
+        if population_audit:
+            sim.llm_call_audit.append({
+                "step": None,
+                "time_s": 0.0,
+                "surface": "population_calibration",
+                "policy": "generated_population_calibration",
+                "agent_id": None,
+                "provider": population_audit.get("provider"),
+                "model": population_audit.get("model"),
+                "cache_key": population_audit.get("cache_key"),
+                "cache_status": population_audit.get("cache_status"),
+                "validation_status": population_audit.get("validation_status"),
+                "validation_reasons": ";".join(population_audit.get("validation_reasons", [])),
+                "used_fallback": population_audit.get("validation_status") != "accepted",
+                "objective": (sc.get("generated_population_calibration", {}) or {}).get("objective", ""),
+                "prompt_style": (sc.get("generated_population_calibration", {}) or {}).get("prompt_style", ""),
+                "target_x": None,
+                "target_y": None,
+                "estimated_input_tokens": population_audit.get("estimated_input_tokens", 0),
+                "estimated_output_tokens": population_audit.get("estimated_output_tokens", 0),
+                "estimated_total_tokens": population_audit.get("estimated_total_tokens", 0),
+                "estimated_usd": population_audit.get("estimated_usd", 0.0),
+                "budget_reason": population_audit.get("budget_reason", ""),
+                "raw_input_tokens": population_audit.get("raw_input_tokens", 0),
+                "raw_output_tokens": population_audit.get("raw_output_tokens", 0),
+                "raw_total_tokens": population_audit.get("raw_total_tokens", 0),
+            })
         sim.destination_profiles = self._build_destination_profiles(sc, layout)
 
         spatial = SpatialIndex()
