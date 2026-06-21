@@ -10,7 +10,7 @@ from chiyoda.scenarios.generated_calibration import apply_generated_population_c
 from chiyoda.scenarios.manager import ScenarioManager
 
 
-Cell = tuple[int, int]
+Cell = tuple
 
 
 @dataclass(frozen=True)
@@ -189,12 +189,7 @@ def validate_scenario_config(
 
 
 def _walkable_cells(layout: Layout) -> set[Cell]:
-    cells: set[Cell] = set()
-    for y in range(layout.height):
-        for x in range(layout.width):
-            if layout.is_walkable((x, y)):
-                cells.add((x, y))
-    return cells
+    return set(layout.all_walkable_cells())
 
 
 def _reachable_from_exits(layout: Layout, exits: list[Cell]) -> tuple[set[Cell], dict[Cell, Cell | None]]:
@@ -209,7 +204,7 @@ def _reachable_from_exits(layout: Layout, exits: list[Cell]) -> tuple[set[Cell],
         queue.append(exit_cell)
     while queue:
         cell = queue.popleft()
-        for neighbor in _neighbors(cell):
+        for neighbor in _neighbors(layout, cell):
             if neighbor in reached or not layout.is_walkable(neighbor):
                 continue
             reached.add(neighbor)
@@ -220,69 +215,76 @@ def _reachable_from_exits(layout: Layout, exits: list[Cell]) -> tuple[set[Cell],
 
 def _scenario_starts(scenario: dict[str, Any], layout: Layout) -> list[dict[str, Any]]:
     starts: list[dict[str, Any]] = []
-    for x, y in _token_cells(layout, PERSON):
+    for cell in _token_cells(layout, PERSON):
         starts.append({
             "kind": "spawn",
             "label": "layout spawn",
             "source": "layout.@",
-            "cell": [x, y],
+            "cell": list(cell),
         })
     population = scenario.get("population", {}) or {}
     for cohort in population.get("cohorts", []) or []:
         name = str(cohort.get("name", "cohort"))
         for cell in cohort.get("spawn_cells", []) or []:
-            parsed = _parse_cell(cell)
+            parsed = _parse_cell(cell, layout)
             if parsed is not None:
                 starts.append({
                     "kind": "spawn",
                     "label": f"cohort {name} spawn",
                     "source": f"population.cohorts.{name}.spawn_cells",
-                    "cell": [parsed[0], parsed[1]],
+                    "cell": list(parsed),
                 })
-    for x, y in _token_cells(layout, RESPONDER_ENTRY):
+    for cell in _token_cells(layout, RESPONDER_ENTRY):
         starts.append({
             "kind": "responder",
             "label": "layout responder entry",
             "source": "layout.R",
-            "cell": [x, y],
+            "cell": list(cell),
         })
     for index, cfg in enumerate(scenario.get("responders", []) or []):
         for cell in cfg.get("spawn_cells", []) or []:
-            parsed = _parse_cell(cell)
+            parsed = _parse_cell(cell, layout)
             if parsed is not None:
                 starts.append({
                     "kind": "responder",
                     "label": f"responder group {index + 1} spawn",
                     "source": f"responders.{index}.spawn_cells",
-                    "cell": [parsed[0], parsed[1]],
+                    "cell": list(parsed),
                 })
     return starts
 
 
 def _token_cells(layout: Layout, token: str) -> list[Cell]:
-    cells: list[Cell] = []
-    for y in range(layout.height):
-        for x in range(layout.width):
-            if layout.grid[y, x] == token:
-                cells.append((x, y))
-    return cells
+    return layout.positions_for_token(token)
 
 
-def _parse_cell(value: Any) -> Cell | None:
+def _parse_cell(value: Any, layout: Layout) -> Cell | None:
     try:
-        return int(value[0]), int(value[1])
-    except (TypeError, ValueError, IndexError):
+        if isinstance(value, dict):
+            return layout.cell((str(value["floor"]), int(value["x"]), int(value["y"])))
+        return layout.cell(value)
+    except (TypeError, ValueError, IndexError, KeyError):
         return None
 
 
 def _in_bounds(layout: Layout, cell: Cell) -> bool:
-    x, y = cell
-    return 0 <= x < layout.width and 0 <= y < layout.height
+    floor_id, x, y = layout.cell(cell)
+    floor = layout.floors.get(floor_id)
+    return floor is not None and 0 <= x < floor.grid.shape[1] and 0 <= y < floor.grid.shape[0]
 
 
-def _neighbors(cell: Cell) -> list[Cell]:
-    x, y = cell
-    return [(x + 1, y), (x - 1, y), (x, y + 1), (x, y - 1)]
+def _neighbors(layout: Layout, cell: Cell) -> list[Cell]:
+    floor_id, x, y = layout.cell(cell)
+    neighbors = [
+        (floor_id, x + 1, y),
+        (floor_id, x - 1, y),
+        (floor_id, x, y + 1),
+        (floor_id, x, y - 1),
+    ]
+    for source, target, _connector in layout.connector_edges():
+        if source == (floor_id, x, y):
+            neighbors.append(target)
+    return neighbors
 
 
 def _path_to_exit(start: Cell, parent: dict[Cell, Cell | None]) -> list[Cell]:

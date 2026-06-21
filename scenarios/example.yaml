@@ -1,15 +1,42 @@
 scenario:
-  name: "Example Station"
+  name: Example Station
   layout:
-    file: "scenarios/layouts/example_layout.txt"
+    cell_size: 1.0
+    floors:
+    - id: '0'
+      z: 0.0
+      text: |-
+        XXXXXXXXXXXXXXXXXXXXXXXXXXXX
+        X...@...X.......X.....@...X
+        X.......X...@...X.........X
+        X...@...X.......X.........X
+        XXXXX.XXXXX.XXXXX..@......X
+        X.......@...............@.X
+        X....@....................X
+        X..........XXXXX.........EX
+        X.@......@.X...X..........X
+        X..........X.@.X..........X
+        XXXXX.XXXXX...XXXXX.XXXXXXX
+        X.......@...............@.X
+        X....@....................X
+        X..........XXXXX..........X
+        X.@......@.X...X..........X
+        X..........X.@.X..........X
+        XXXXX.XXXXX...XXXXX.XXXXXXX
+        X.@...............@.......X
+        X....@...................EX
+        XXXXXXXXXXXXXXXXXXXXXXXXXXXX
   population:
     total: 72
   hazards:
-    - type: "GAS"
-      location: [10, 10]
-      radius: 0.0
-      severity: 0.5
-      spread_rate: 0.2
+  - type: GAS
+    location:
+    - 10.0
+    - 10.0
+    - 0.0
+    radius: 0.0
+    severity: 0.5
+    spread_rate: 0.2
   simulation:
     max_steps: 220
     dt: 0.1

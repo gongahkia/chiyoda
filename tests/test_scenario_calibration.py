@@ -6,10 +6,14 @@ from chiyoda.scenarios.manager import ScenarioManager
 from chiyoda.studies.runner import _materialize_variants, _prepare_scenario, load_study_config
 
 
+def _layout(text: str) -> dict:
+    return {"floors": [{"id": "0", "z": 0.0, "text": text}]}
+
+
 def test_behavior_and_cohort_calibration_are_loaded_from_scenario():
     scenario = {
         "name": "calibration_smoke",
-        "layout": {"text": ("XXXXXX\n" "X@..EX\n" "XXXXXX\n")},
+        "layout": _layout("XXXXXX\nX@..EX\nXXXXXX\n"),
         "population": {
             "total": 1,
             "cohorts": [
@@ -59,7 +63,7 @@ def test_behavior_and_cohort_calibration_are_loaded_from_scenario():
 def test_base_speed_multiplier_still_scales_default_speed():
     scenario = {
         "name": "speed_multiplier",
-        "layout": {"text": ("XXXXXX\n" "X@..EX\n" "XXXXXX\n")},
+        "layout": _layout("XXXXXX\nX@..EX\nXXXXXX\n"),
         "population": {
             "total": 1,
             "cohorts": [
@@ -80,7 +84,7 @@ def test_base_speed_multiplier_still_scales_default_speed():
 def test_density_slowdown_parameters_are_loaded_from_scenario():
     scenario = {
         "name": "density_slowdown",
-        "layout": {"text": ("XXXXXX\n" "X@..EX\n" "XXXXXX\n")},
+        "layout": _layout("XXXXXX\nX@..EX\nXXXXXX\n"),
         "population": {"total": 1},
         "simulation": {
             "density_slowdown_scale": 0.6,

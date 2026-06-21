@@ -47,6 +47,8 @@ def _viewer_payload(bundle: StudyBundle, *, max_frames: int) -> dict[str, Any]:
                         "id": int(getattr(row, "agent_id")),
                         "x": float(getattr(row, "x")),
                         "y": float(getattr(row, "y")),
+                        "z": float(getattr(row, "z", 0.0)),
+                        "floor_id": str(getattr(row, "floor_id", "0")),
                         "speed": float(getattr(row, "speed", 0.0)),
                         "entropy": float(getattr(row, "entropy", 0.0)),
                         "state": str(getattr(row, "state", "")),
@@ -69,6 +71,7 @@ def _viewer_payload(bundle: StudyBundle, *, max_frames: int) -> dict[str, Any]:
         },
         "layout": _layout_cells(str(bundle.metadata.get("layout_text", ""))),
         "layout_grid": _layout_grid(str(bundle.metadata.get("layout_text", ""))),
+        "layout_floors": _layout_floors(bundle.metadata),
         "floors": floors,
         "bottlenecks": bundle.metadata.get("bottleneck_zones", []),
         "path_usage": _path_usage_cells(bundle.cells, run_id=run_id),
@@ -90,6 +93,21 @@ def _layout_cells(layout_text: str) -> list[dict[str, Any]]:
 
 def _layout_grid(layout_text: str) -> list[list[str]]:
     return [list(line) for line in layout_text.splitlines()]
+
+
+def _layout_floors(metadata: dict[str, Any]) -> list[dict[str, Any]]:
+    floors = metadata.get("layout_floors")
+    if isinstance(floors, list) and floors:
+        return [
+            {
+                "id": str(floor.get("id", index)),
+                "z": float(floor.get("z", 0.0) or 0.0),
+                "grid": _layout_grid(str(floor.get("text", ""))),
+            }
+            for index, floor in enumerate(floors)
+            if isinstance(floor, dict)
+        ]
+    return [{"id": "0", "z": 0.0, "grid": _layout_grid(str(metadata.get("layout_text", "")))}]
 
 
 def _source_floors(bundle: StudyBundle) -> list[dict[str, Any]]:
@@ -238,6 +256,11 @@ def _path_usage_cells(frame: pd.DataFrame, *, run_id: str) -> list[dict[str, Any
         return []
     current["path_usage"] = pd.to_numeric(current["path_usage"], errors="coerce").fillna(0)
     grouped = current.groupby(["x", "y"], as_index=False)["path_usage"].max()
+    if "floor_id" in current.columns:
+        grouped = current.groupby(["floor_id", "x", "y"], as_index=False)["path_usage"].max()
+    if "z" in current.columns:
+        z_by_cell = current.groupby(["floor_id", "x", "y"], as_index=False)["z"].first() if "floor_id" in current.columns else current.groupby(["x", "y"], as_index=False)["z"].first()
+        grouped = grouped.merge(z_by_cell, how="left")
     grouped = grouped[grouped["path_usage"] > 0]
     return grouped.to_dict(orient="records")
 
@@ -346,6 +369,7 @@ const authorMode = document.querySelector("#authorMode");
 const paintToken = document.querySelector("#paintToken");
 const editorStatus = document.querySelector("#editorStatus");
 const validationOverlay = document.querySelector("#validationOverlay");
+const runtimeFloors = normalizeRuntimeFloors(data.layout_floors || []);
 const editorGrid = normalizeLayoutGrid(data.layout_grid && data.layout_grid.length ? data.layout_grid : layoutGridFromCells());
 window.chiyodaViewer = { camera, controls, renderer, scene, data, editorGrid };
 
@@ -376,7 +400,9 @@ function overlayBox(x, z, sx, sz, color, opacity, y = 0.08, h = 0.04) {
   return mesh;
 }
 
-root.add(box(width / 2, height / 2, width, height, 0x2b2b2b, -0.04, 0.04));
+for (const floor of runtimeFloors) {
+  root.add(box(width / 2, height / 2, width, height, 0x2b2b2b, floor.z - 0.04, 0.04));
+}
 root.add(layoutGroup);
 
 function layoutGridFromCells() {
@@ -400,6 +426,20 @@ function normalizeLayoutGrid(rawGrid) {
   return grid;
 }
 
+function normalizeRuntimeFloors(rawFloors) {
+  if (!rawFloors.length) return [{ id: "0", z: 0, grid: normalizeLayoutGrid(data.layout_grid || []) }];
+  return rawFloors.map((floor, index) => ({
+    id: String(floor.id ?? index),
+    z: Number(floor.z || 0),
+    grid: normalizeLayoutGrid(floor.grid || []),
+  }));
+}
+
+function floorZ(floorId) {
+  const floor = runtimeFloors.find(item => item.id === String(floorId));
+  return floor ? floor.z : 0;
+}
+
 function cellColor(token) {
   if (token === "X") return 0x656565;
   if (token === "E") return 0x3eb36f;
@@ -418,17 +458,20 @@ function cellHeight(token) {
 function renderLayoutGrid() {
   layoutGroup.clear();
   const showFloorCells = authorMode.checked;
-  for (let y = 0; y < height; y += 1) {
-    for (let x = 0; x < width; x += 1) {
-      const token = editorGrid[y][x] || ".";
-      if (token === "." && !showFloorCells) continue;
-      const h = cellHeight(token);
-      const mesh = box(x + 0.5, y + 0.5, 0.95, 0.95, cellColor(token), h / 2, h);
-      if (token === ".") {
-        mesh.material.transparent = true;
-        mesh.material.opacity = 0.28;
+  for (const floor of runtimeFloors) {
+    const grid = floor.id === runtimeFloors[0].id ? editorGrid : floor.grid;
+    for (let y = 0; y < height; y += 1) {
+      for (let x = 0; x < width; x += 1) {
+        const token = grid[y][x] || ".";
+        if (token === "." && !showFloorCells) continue;
+        const h = cellHeight(token);
+        const mesh = box(x + 0.5, y + 0.5, 0.95, 0.95, cellColor(token), floor.z + h / 2, h);
+        if (token === ".") {
+          mesh.material.transparent = true;
+          mesh.material.opacity = 0.28;
+        }
+        layoutGroup.add(mesh);
       }
-      layoutGroup.add(mesh);
     }
   }
 }
@@ -511,13 +554,15 @@ for (const hz of data.hazards) {
     new THREE.CylinderGeometry(Math.max(0.2, Number(hz.radius || 0.2)), Math.max(0.2, Number(hz.radius || 0.2)), 0.08, 32),
     new THREE.MeshStandardMaterial({ color: 0xe05d44, transparent: true, opacity: 0.45 })
   );
-  mesh.position.set(Number(hz.x || 0), 0.08, Number(hz.y || 0));
+  mesh.position.set(Number(hz.x || 0), Number(hz.z || 0) + 0.08, Number(hz.y || 0));
   hazardGroup.add(mesh);
 }
 
 for (const zone of data.bottlenecks || []) {
   for (const cell of zone.cells || []) {
-    bottleneckGroup.add(box(Number(cell[0]) + 0.5, Number(cell[1]) + 0.5, 0.9, 0.9, 0xf0c84b, 0.03, 0.06));
+    const offset = typeof cell[0] === "string" ? 1 : 0;
+    const z = typeof cell[0] === "string" ? floorZ(cell[0]) : 0;
+    bottleneckGroup.add(box(Number(cell[offset]) + 0.5, Number(cell[offset + 1]) + 0.5, 0.9, 0.9, 0xf0c84b, z + 0.03, 0.06));
   }
 }
 
@@ -536,7 +581,7 @@ function renderPathUsage() {
       0.9,
       0x56c7ff,
       0.18 + strength * 0.45,
-      0.11,
+      Number(cell.z || floorZ(cell.floor_id || "0")) + 0.11,
       0.05
     ));
   }
@@ -549,7 +594,7 @@ for (const event of data.interventions || []) {
     new THREE.SphereGeometry(0.22, 16, 12),
     new THREE.MeshStandardMaterial({ color: 0x56c7ff, emissive: 0x123344 })
   );
-  mesh.position.set(Number(event.target_x || 0), 0.55, Number(event.target_y || 0));
+  mesh.position.set(Number(event.target_x || 0), Number(event.target_z || 0) + 0.55, Number(event.target_y || 0));
   messageGroup.add(mesh);
 }
 
@@ -570,7 +615,7 @@ function drawFrame(index) {
       new THREE.SphereGeometry(0.18, 16, 12),
       new THREE.MeshStandardMaterial({ color })
     );
-    mesh.position.set(Number(agent.x), 0.32, Number(agent.y));
+    mesh.position.set(Number(agent.x), Number(agent.z || 0) + 0.32, Number(agent.y));
     agentGroup.add(mesh);
   }
   stepLabel.textContent = `step ${frame.step} | agents ${frame.agents.length}`;
@@ -629,7 +674,20 @@ function updateEditorStatus(text) {
 }
 
 function layoutText() {
-  return editorGrid.map(row => row.join("")).join("\\n");
+  return floorText(editorGrid);
+}
+
+function floorText(grid) {
+  return grid.map(row => row.join("")).join("\\n");
+}
+
+function exportedFloors() {
+  if (!runtimeFloors.length) return [{ id: "0", z: 0, grid: editorGrid }];
+  return runtimeFloors.map((floor, index) => ({
+    id: String(floor.id ?? index),
+    z: Number(floor.z ?? index * 3),
+    grid: index === 0 ? editorGrid : floor.grid,
+  }));
 }
 
 function collectTokenCells(token) {
@@ -637,6 +695,18 @@ function collectTokenCells(token) {
   for (let y = 0; y < height; y += 1) {
     for (let x = 0; x < width; x += 1) {
       if (editorGrid[y][x] === token) cells.push([x, y]);
+    }
+  }
+  return cells;
+}
+
+function collectFloorTokenCells(token) {
+  const cells = [];
+  for (const floor of exportedFloors()) {
+    for (let y = 0; y < floor.grid.length; y += 1) {
+      for (let x = 0; x < floor.grid[y].length; x += 1) {
+        if (floor.grid[y][x] === token) cells.push({ floor_id: floor.id, x, y });
+      }
     }
   }
   return cells;
@@ -805,7 +875,7 @@ function initialHazards() {
   for (const row of rows) {
     const step = Number(row.step ?? 0);
     if (Number.isFinite(firstStep) && step !== firstStep) continue;
-    const key = [row.kind || "GAS", yamlNumber(row.x), yamlNumber(row.y), yamlNumber(row.radius), yamlNumber(row.severity)].join("|");
+    const key = [row.kind || "GAS", yamlNumber(row.x), yamlNumber(row.y), yamlNumber(row.z), yamlNumber(row.radius), yamlNumber(row.severity)].join("|");
     if (seen.has(key)) continue;
     seen.add(key);
     hazards.push(row);
@@ -815,8 +885,9 @@ function initialHazards() {
 
 function exportScenarioYaml() {
   const scenarioName = `${String(data.metadata.scenario_name || "chiyoda_viewer")}_edited`;
-  const spawns = collectTokenCells("@");
-  const responders = collectTokenCells("R");
+  const spawns = collectFloorTokenCells("@");
+  const responders = collectFloorTokenCells("R");
+  const floors = exportedFloors();
   const populationTotal = Math.max(spawns.length, Number(frames[0]?.agents?.length || 0), 1);
   const lastStep = Number(frames[frames.length - 1]?.step || 0);
   const maxSteps = Math.max(1, Math.ceil(lastStep || 400));
@@ -825,17 +896,25 @@ function exportScenarioYaml() {
     `  name: ${yamlQuote(scenarioName)}`,
     `  description: ${yamlQuote("Edited from Chiyoda static viewer export.")}`,
     "  layout:",
-    "    text: |",
+    `    cell_size: ${yamlNumber(data.metadata.layout_cell_size || 1, 1)}`,
+    "    floors:",
   ];
-  for (const line of layoutText().split("\\n")) lines.push(`      ${line}`);
+  for (const floor of floors) {
+    lines.push(
+      `      - id: ${yamlQuote(floor.id)}`,
+      `        z: ${yamlNumber(floor.z)}`,
+      "        text: |"
+    );
+    for (const line of floorText(floor.grid).split("\\n")) lines.push(`          ${line}`);
+  }
   lines.push("  population:", `    total: ${populationTotal}`);
   if (spawns.length) {
     lines.push("    cohorts:", "      - name: baseline", `        count: ${populationTotal}`, "        spawn_cells:");
-    for (const [x, y] of spawns) lines.push(`          - [${x}, ${y}]`);
+    for (const cell of spawns) lines.push(`          - {floor: ${yamlQuote(cell.floor_id)}, x: ${cell.x}, y: ${cell.y}}`);
   }
   if (responders.length) {
     lines.push("  responders:", `    - count: ${responders.length}`, "      spawn_cells:");
-    for (const [x, y] of responders) lines.push(`        - [${x}, ${y}]`);
+    for (const cell of responders) lines.push(`        - {floor: ${yamlQuote(cell.floor_id)}, x: ${cell.x}, y: ${cell.y}}`);
   }
   const hazards = initialHazards();
   if (hazards.length) {
@@ -843,7 +922,7 @@ function exportScenarioYaml() {
     for (const hazard of hazards) {
       lines.push(
         `    - type: ${yamlQuote(hazard.kind || "GAS")}`,
-        `      location: [${yamlNumber(hazard.x)}, ${yamlNumber(hazard.y)}]`,
+        `      location: [${yamlNumber(hazard.x)}, ${yamlNumber(hazard.y)}, ${yamlNumber(hazard.z)}]`,
         `      radius: ${yamlNumber(hazard.radius)}`,
         `      severity: ${yamlNumber(hazard.severity)}`
       );

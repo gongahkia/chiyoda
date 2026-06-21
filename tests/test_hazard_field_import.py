@@ -50,7 +50,7 @@ def test_imported_hazard_field_affects_exposure_visibility_and_route_penalty(tmp
     sim = Simulation(
         layout=layout,
         agents=[agent],
-        exits=[Exit(pos=(3, 1))],
+        exits=[Exit(pos=("0", 3, 1))],
         hazards=[hazard],
         config=SimulationConfig(dt=1.0, max_steps=1, random_seed=7),
     )
@@ -73,16 +73,20 @@ def test_scenario_manager_loads_relative_imported_hazard_field(tmp_path):
         """
 name: imported_hazard_fixture
 layout:
-  grid:
-    - "XXXXX"
-    - "X@.EX"
-    - "XXXXX"
+  floors:
+    - id: "0"
+      z: 0.0
+      text: |
+        XXXXX
+        X@.EX
+        XXXXX
 population:
   total: 1
   cohorts:
     - name: test
       count: 1
-      spawn_cells: [[1, 1]]
+      spawn_cells:
+        - {floor: "0", x: 1, y: 1}
 hazards:
   - type: GAS
     field:
@@ -124,7 +128,7 @@ def test_imported_hazard_field_can_drive_ground_truth_route_cost(tmp_path):
     sim = Simulation(
         layout=layout,
         agents=[],
-        exits=[Exit(pos=(4, 1))],
+        exits=[Exit(pos=("0", 4, 1))],
         hazards=[ImportedHazardField.from_file(field_path)],
         config=SimulationConfig(hazard_avoidance_weight=10.0),
     )
@@ -133,5 +137,5 @@ def test_imported_hazard_field_can_drive_ground_truth_route_cost(tmp_path):
     path = navigator.find_optimal_path((1, 1), [(4, 1)])
 
     assert path is not None
-    assert (1, 2) in path
-    assert (2, 1) not in path
+    assert ("0", 1, 2) in path
+    assert ("0", 2, 1) not in path

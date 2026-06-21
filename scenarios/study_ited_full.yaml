@@ -38,9 +38,9 @@ study:
             release_step: 60
             ppe_factor: 0.1
             spawn_cells:
-              - [37, 11]
-              - [37, 16]
-            mission_target: [20, 10]
+              - {floor: "0", x: 37, y: 11}
+              - {floor: "0", x: 37, y: 16}
+            mission_target: [20, 10, 0]
 
     - name: "responder_late"
       description: "First responders arrive at step 200 (t=20s)."
@@ -50,9 +50,9 @@ study:
             release_step: 200
             ppe_factor: 0.1
             spawn_cells:
-              - [37, 11]
-              - [37, 16]
-            mission_target: [20, 10]
+              - {floor: "0", x: 37, y: 11}
+              - {floor: "0", x: 37, y: 16}
+            mission_target: [20, 10, 0]
 
     - name: "no_responder"
       description: "No first responders — tests information propagation without authority injection."

@@ -429,7 +429,15 @@ def _draw_layout(axis, bundle: StudyBundle, faint: bool = False) -> None:
                 axis.add_patch(Rectangle((x, y), 1, 1, facecolor="#1f2933", edgecolor="none", alpha=alpha))
 
     for key, label in dict(bundle.metadata.get("exit_labels", {})).items():
-        x, y = [int(part) for part in key.split(",")]
+        parts = key.split(",")
+        if len(parts) == 3:
+            floor_id, raw_x, raw_y = parts
+            primary_floor = str((bundle.metadata.get("layout_floors") or [{"id": "0"}])[0].get("id", "0"))
+            if floor_id != primary_floor:
+                continue
+            x, y = int(raw_x), int(raw_y)
+        else:
+            x, y = [int(part) for part in parts]
         axis.scatter(x + 0.5, y + 0.5, marker="*", s=120, c="#2a9d8f")
         axis.text(x + 0.65, y + 0.55, label.split()[1], fontsize=8, color="#2a9d8f")
 
@@ -605,23 +613,27 @@ def _figure_belief_survival(bundle: StudyBundle) -> plt.Figure:
     evacuated = merged[merged["evacuated"] == True]
     incapacitated = merged[merged["evacuated"] == False]
     
-    axis.hist(
-        evacuated["belief_accuracy"].dropna(), 
-        bins=20, 
-        alpha=0.5, 
+    plotted = _safe_density_hist(
+        axis,
+        evacuated["belief_accuracy"],
+        bins=20,
+        alpha=0.5,
         label="Evacuated (Survived)",
         color="green",
-        density=True
     )
     if not incapacitated.empty:
-        axis.hist(
-            incapacitated["belief_accuracy"].dropna(), 
-            bins=20, 
-            alpha=0.5, 
+        plotted = _safe_density_hist(
+            axis,
+            incapacitated["belief_accuracy"],
+            bins=20,
+            alpha=0.5,
             label="Incapacitated",
             color="red",
-            density=True
-        )
+        ) or plotted
+    if not plotted:
+        axis.text(0.5, 0.5, "Not enough belief accuracy samples", ha="center", va="center")
+        axis.axis("off")
+        return fig
         
     axis.set_xlabel("Mean Belief Accuracy")
     axis.set_ylabel("Density")
@@ -629,6 +641,16 @@ def _figure_belief_survival(bundle: StudyBundle) -> plt.Figure:
     axis.legend()
     
     return fig
+
+
+def _safe_density_hist(axis, values, **kwargs) -> bool:
+    finite = pd.to_numeric(pd.Series(values), errors="coerce").dropna()
+    if len(finite) < 2:
+        return False
+    if float(finite.max()) == float(finite.min()):
+        return False
+    axis.hist(finite, density=True, **kwargs)
+    return True
 
 
 def _figure_responder_timing(bundle: StudyBundle) -> plt.Figure:

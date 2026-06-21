@@ -32,8 +32,8 @@ from chiyoda.information.llm import (
 )
 
 
-Cell = Tuple[int, int]
-Point = Tuple[float, float]
+Cell = tuple
+Point = tuple
 
 
 @dataclass
@@ -511,7 +511,7 @@ class LLMGuidancePolicy(EntropyTargetedPolicy):
             exits=[tuple(exit_.pos) for exit_ in simulation.exits],
             hazards=[
                 HazardSnapshot(
-                    position=(float(hazard.pos[0]), float(hazard.pos[1])),
+                    position=_point3(hazard.pos),
                     kind=str(hazard.kind),
                     radius=float(hazard.radius),
                     severity=float(hazard.severity),
@@ -654,7 +654,7 @@ def _update_agent_beliefs(agent, message: InterventionMessage, current_step: int
             existing.congestion_est = max(existing.congestion_est, congestion)
 
     for hazard in message.hazards:
-        h_pos = (float(hazard.pos[0]), float(hazard.pos[1]))
+        h_pos = _point3(hazard.pos)
         matched = False
         for hb in agent.beliefs.hazard_beliefs:
             if _distance(hb.position, h_pos) < 3.0:
@@ -686,7 +686,13 @@ def _update_agent_beliefs(agent, message: InterventionMessage, current_step: int
 
 
 def _distance(a: Point, b: Point) -> float:
-    return float(np.linalg.norm(np.array(a, dtype=float) - np.array(b, dtype=float)))
+    return float(np.linalg.norm(np.array(_point3(a), dtype=float) - np.array(_point3(b), dtype=float)))
+
+
+def _point3(value) -> tuple[float, float, float]:
+    if len(value) >= 3:
+        return (float(value[0]), float(value[1]), float(value[2]))
+    return (float(value[0]), float(value[1]), 0.0)
 
 
 def _mean(values: Sequence[float], default: float = 0.0) -> float:

@@ -1,7 +1,7 @@
 hazard_low: &hazard_low
   hazards:
     - type: "GAS"
-      location: [20, 10]
+      location: [20, 10, 0]
       radius: 0.5
       severity: 0.45
       spread_rate: 0.10
@@ -12,7 +12,7 @@ hazard_low: &hazard_low
 hazard_medium: &hazard_medium
   hazards:
     - type: "GAS"
-      location: [20, 10]
+      location: [20, 10, 0]
       radius: 0.5
       severity: 0.70
       spread_rate: 0.15
@@ -23,7 +23,7 @@ hazard_medium: &hazard_medium
 hazard_high: &hazard_high
   hazards:
     - type: "GAS"
-      location: [20, 10]
+      location: [20, 10, 0]
       radius: 0.5
       severity: 0.90
       spread_rate: 0.22

@@ -21,8 +21,8 @@ from chiyoda.information.llm import (
 )
 
 
-Cell = Tuple[int, int]
-Point = Tuple[float, float]
+Cell = tuple
+Point = tuple
 ALLOWED_INTENTS = {INTENTION_EVACUATE, INTENTION_EXPLORE, INTENTION_FOLLOW}
 
 
@@ -129,6 +129,7 @@ class LLMDecisionEvent:
     validation_status: str
     validation_reasons: str
     selected_intent: str
+    target_exit_floor: Optional[str]
     target_exit_x: Optional[int]
     target_exit_y: Optional[int]
     trust_delta: float
@@ -439,8 +440,9 @@ class AgentDecisionPolicy:
             validation_status=validation.status,
             validation_reasons=";".join(validation.reasons),
             selected_intent=str(decision.intent),
-            target_exit_x=None if target is None else int(target[0]),
-            target_exit_y=None if target is None else int(target[1]),
+            target_exit_floor=_cell_floor(target),
+            target_exit_x=None if target is None else _cell_xy(target)[0],
+            target_exit_y=None if target is None else _cell_xy(target)[1],
             trust_delta=float(decision.trust_delta),
             avoid_congested=bool(decision.avoid_congested),
             confidence=float(decision.confidence),
@@ -506,7 +508,7 @@ def _build_decision_request(simulation, agent, config: AgentDecisionConfig) -> L
         congested_exits=_congested_exits(simulation),
         hazards=[
             HazardSnapshot(
-                position=(float(hazard.pos[0]), float(hazard.pos[1])),
+                position=_point3(hazard.pos),
                 kind=str(hazard.kind),
                 radius=float(hazard.radius),
                 severity=float(hazard.severity),
@@ -563,13 +565,39 @@ def _parse_optional_cell(value: Any) -> Optional[Cell]:
     if value in (None, ""):
         return None
     if isinstance(value, dict):
-        value = [value.get("x"), value.get("y")]
+        if value.get("floor") is not None:
+            value = [value.get("floor"), value.get("x"), value.get("y")]
+        else:
+            value = [value.get("x"), value.get("y")]
+    if isinstance(value, (list, tuple)) and len(value) >= 3 and isinstance(value[0], str):
+        try:
+            return (str(value[0]), int(value[1]), int(value[2]))
+        except (TypeError, ValueError):
+            return None
     if isinstance(value, (list, tuple)) and len(value) >= 2:
         try:
             return (int(value[0]), int(value[1]))
         except (TypeError, ValueError):
             return None
     return None
+
+
+def _cell_floor(cell: Optional[Cell]) -> Optional[str]:
+    if cell is None:
+        return None
+    return str(cell[0]) if len(cell) >= 3 and isinstance(cell[0], str) else None
+
+
+def _cell_xy(cell: Cell) -> tuple[int, int]:
+    if len(cell) >= 3 and isinstance(cell[0], str):
+        return int(cell[1]), int(cell[2])
+    return int(cell[0]), int(cell[1])
+
+
+def _point3(value: Any) -> tuple[float, float, float]:
+    if len(value) >= 3:
+        return (float(value[0]), float(value[1]), float(value[2]))
+    return (float(value[0]), float(value[1]), 0.0)
 
 
 def _to_jsonable(value: Any) -> Any:

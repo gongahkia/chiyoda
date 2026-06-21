@@ -18,8 +18,8 @@ from urllib.error import HTTPError, URLError
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 
-Cell = Tuple[int, int]
-Point = Tuple[float, float]
+Cell = tuple
+Point = tuple
 DEFAULT_OPENAI_MODEL = "gpt-5.5"
 
 
@@ -509,7 +509,7 @@ def build_llm_request(simulation, target, objective: str, policy: str) -> LLMMes
         exits=[tuple(exit_.pos) for exit_ in simulation.exits],
         hazards=[
             HazardSnapshot(
-                position=(float(hazard.pos[0]), float(hazard.pos[1])),
+                position=_point3(hazard.pos),
                 kind=str(hazard.kind),
                 radius=float(hazard.radius),
                 severity=float(hazard.severity),
@@ -565,7 +565,16 @@ def _parse_cells(value: Any) -> List[Cell]:
         return cells
     for item in value:
         if isinstance(item, dict):
-            item = [item.get("x"), item.get("y")]
+            if item.get("floor") is not None:
+                item = [item.get("floor"), item.get("x"), item.get("y")]
+            else:
+                item = [item.get("x"), item.get("y")]
+        if isinstance(item, (list, tuple)) and len(item) >= 3 and isinstance(item[0], str):
+            try:
+                cells.append((str(item[0]), int(item[1]), int(item[2])))
+            except (TypeError, ValueError):
+                continue
+            continue
         if isinstance(item, (list, tuple)) and len(item) >= 2:
             try:
                 cells.append((int(item[0]), int(item[1])))
@@ -580,10 +589,11 @@ def _parse_points(value: Any) -> List[Point]:
         return points
     for item in value:
         if isinstance(item, dict):
-            item = [item.get("x"), item.get("y")]
+            item = [item.get("x"), item.get("y"), item.get("z", 0.0)]
         if isinstance(item, (list, tuple)) and len(item) >= 2:
             try:
-                points.append((float(item[0]), float(item[1])))
+                z = float(item[2]) if len(item) >= 3 else 0.0
+                points.append((float(item[0]), float(item[1]), z))
             except (TypeError, ValueError):
                 continue
     return points
@@ -611,7 +621,15 @@ def _near_any(point: Point, candidates: Sequence[Point], tolerance: float) -> bo
 
 
 def _distance(a: Point, b: Point) -> float:
-    return ((float(a[0]) - float(b[0])) ** 2 + (float(a[1]) - float(b[1])) ** 2) ** 0.5
+    ax, ay, az = _point3(a)
+    bx, by, bz = _point3(b)
+    return ((ax - bx) ** 2 + (ay - by) ** 2 + (az - bz) ** 2) ** 0.5
+
+
+def _point3(value: Any) -> tuple[float, float, float]:
+    if len(value) >= 3:
+        return (float(value[0]), float(value[1]), float(value[2]))
+    return (float(value[0]), float(value[1]), 0.0)
 
 
 def _mean(values: Sequence[float]) -> float:

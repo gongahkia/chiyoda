@@ -44,6 +44,8 @@ Controls:
 - toggle hazards, bottlenecks, messages, source floors, validation, and path
   usage,
 - use `floor gap` to flatten or vertically separate source GeoJSON levels.
+- drag/pan/zoom the camera with OrbitControls; rotation is disabled so the
+  viewer behaves like a navigable tilted plan.
 
 Authoring:
 
@@ -72,12 +74,12 @@ Paint tokens map to the simulator's raster layout tokens:
 
 When the study metadata points to a GeoJSON scenario, the viewer reads source
 feature levels such as OSM `level` or GTFS-like `level_id` and renders them as
-separate source-floor overlays. The simulation itself still runs on the current
-flat rasterized grid.
+separate source-floor overlays. Runtime `layout.floors` are also rendered at
+their stored `z` values, and exported telemetry includes per-agent floor IDs,
+per-floor path usage, hazards with `z`, and per-floor cell grids.
 
 The current viewer is static and local. Authoring exports a runnable raster
-`layout.text` scenario; it does not edit the original GeoJSON/CAD source, run
-simulations in the browser, preserve multi-floor routing semantics, or replace
-trajectory-analysis tools. Source floors are rendered as overlays for geometry
-inspection; simulation and exported authoring currently remain single raster
-grid workflows.
+`layout.floors` scenario; it does not edit the original GeoJSON/CAD source, run
+simulations in the browser, or replace trajectory-analysis tools. Authoring
+edits the primary floor grid only. Non-primary runtime floors are preserved in
+the exported YAML but are not browser-editable yet.

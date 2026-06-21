@@ -204,7 +204,7 @@ class Layout:
                 fid = floor_id or self.floor_for_z(float(value[2]))
             else:
                 fid = floor_id or self.primary_floor_id
-            return (str(fid), int(round(float(value[0]))), int(round(float(value[1]))))
+            return (str(fid), int(np.floor(float(value[0]))), int(np.floor(float(value[1]))))
         if len(value) >= 3 and isinstance(value[0], str):
             return (str(value[0]), int(value[1]), int(value[2]))
         if len(value) >= 3 and floor_id is None:

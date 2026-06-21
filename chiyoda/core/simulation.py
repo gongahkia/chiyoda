@@ -618,6 +618,16 @@ class Simulation:
                     self.exit_flow_cumulative[label] += 1
                     exit_flow_step[label] += 1
 
+        self.current_step += 1
+        self.time_s += dt
+        self._update_spatial_index()
+        self._refresh_agent_context()
+        bn_metrics = self._update_bottleneck_metrics()
+        # measurement line recording
+        for ml in self.measurement_lines:
+            ml.record(self.current_step, self.time_s, dt, self._active_agents(), self._prev_positions)
+        self._capture_step_telemetry(exit_flow_step=exit_flow_step, bottleneck_metrics=bn_metrics)
+
     def _handle_elevator_transfer(self, agent) -> bool:
         transfer = self._elevator_transfers.get(agent.id)
         if transfer is not None:
@@ -645,16 +655,6 @@ class Simulation:
         self._elevator_transfers[agent.id] = (connector, target_cell, self.time_s + duration)
         agent.current_speed = 0.0
         return True
-
-        self.current_step += 1
-        self.time_s += dt
-        self._update_spatial_index()
-        self._refresh_agent_context()
-        bn_metrics = self._update_bottleneck_metrics()
-        # measurement line recording
-        for ml in self.measurement_lines:
-            ml.record(self.current_step, self.time_s, dt, self._active_agents(), self._prev_positions)
-        self._capture_step_telemetry(exit_flow_step=exit_flow_step, bottleneck_metrics=bn_metrics)
 
     def run(self, visualize: bool = False, visualizer=None) -> None:
         self._ensure_bootstrapped()

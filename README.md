@@ -49,7 +49,7 @@ Core capabilities include:
 | **Information** | Shannon-entropy beliefs, gossip propagation, beacon broadcast, responder relay, belief decay |
 | **Agents** | BDI-style cognitive agents, familiarity priors, herding/exploration, physiological impairment |
 | **Hazards** | Stylized GAS/SMOKE/FIRE/CRUSH hazards, spread fields, imported-field checks, visibility reduction |
-| **Navigation** | Social-force dynamics, belief-weighted A* routing, bottleneck and counterflow pressure |
+| **Navigation** | Social-force dynamics, belief-weighted A* routing, bottleneck and counterflow pressure, floor-aware connector routing |
 | **Interventions** | Static, global, responder, entropy-targeted, density-aware, exposure-aware, and bottleneck-avoidance messaging |
 | **Analysis** | Belief entropy, belief accuracy, information-safety efficiency, harmful-convergence index, trajectory exports, static 3D viewer exports |
 
@@ -85,7 +85,7 @@ $ cd out/information_control/viewer
 $ python3 -m http.server 8000
 ```
 
-The viewer can also export edited raster `layout.text` scenarios; see
+The viewer can also export edited strict `layout.floors` scenarios; see
 [`docs/3d_viewer.md`](./docs/3d_viewer.md).
 
 Validate edited scenarios before rerunning them:
@@ -132,7 +132,10 @@ Important documentation:
 * [`docs/3d_viewer.md`](./docs/3d_viewer.md) describes the static Three.js
   viewer export.
 * [`docs/implementation_audit.md`](./docs/implementation_audit.md) states the
-  current runtime semantics and known multi-floor/viewer gaps.
+  current runtime semantics and known viewer/modeling gaps.
+* [`docs/standards_research.md`](./docs/standards_research.md) records the
+  GTFS Pathways, OSM indoor, and pedestrian LOS references used to shape the
+  multi-floor schema.
 * [`docs/llm_agent_decisions.md`](./docs/llm_agent_decisions.md) describes
   bounded, replayable LLM agent-decision experiments.
 

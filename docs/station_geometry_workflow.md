@@ -2,17 +2,21 @@
 
 Chiyoda treats station geometry as a calibrated scenario input, not as a claim
 that the simulator is operationally validated for a real station. The goal of
-this workflow is to convert auditable indoor or pathway data into the existing
-`layout.geojson` or `layout.cad` ingestion paths, then record what was kept,
+this workflow is to convert auditable indoor or pathway data into explicit
+`layout.floors` plus optional `layout.connectors`, then record what was kept,
 discarded, simplified, or hand-audited.
 
 ## Supported Inputs
 
-Chiyoda can load:
+Runnable scenarios should load:
 
-- Text grids through `layout.file`, `layout.text`, or `layout.grid`.
-- GeoJSON through `layout.geojson`.
-- A small DXF subset through `layout.cad`.
+- `layout.floors`: one or more floor records with `id`, `z`, and raster `text`.
+- `layout.connectors`: optional typed links between floors using `{floor,x,y}`
+  endpoints.
+
+Compatibility helpers still exist in code for converting text, GeoJSON, and a
+small DXF subset into raster grids, but strict scenario YAML should not use
+`layout.file`, `layout.text`, `layout.grid`, `layout.geojson`, or `layout.cad`.
 
 GeoJSON features can use explicit Chiyoda roles:
 
@@ -50,9 +54,10 @@ Indoor Tagging, OpenStationMap, and GTFS Pathways:
 
 ## Calibration Path
 
-1. Pick one physical level. Chiyoda currently rasterizes one 2D grid per
-   scenario. For multi-level stations, make a separate single-level scenario
-   or flatten levels only when that simplification is part of the experiment.
+1. Define the physical floors to simulate. Each floor needs a stable `id`,
+   a numeric `z`, and a raster `text` grid. Use one floor for abstract
+   scenarios; use multiple floors when stairs, ramps, escalators, or elevators
+   are part of the question.
 
 2. Export or convert geometry to GeoJSON or DXF. For OSM/OpenStationMap data,
    preserve `indoor`, `level`, `entrance`, `railway`, `public_transport`,
@@ -65,26 +70,33 @@ Indoor Tagging, OpenStationMap, and GTFS Pathways:
    source semantics are ambiguous. In particular, decide whether a room is
    public walkable space, staff-only blocked space, or irrelevant.
 
-4. Choose `cell_size`. Start near 1 meter for station-scale studies. Decrease
+4. Convert each audited level into a `layout.floors[]` raster. Do not rely on
+   hidden flattening for report-facing work.
+
+5. Add `layout.connectors[]` for stairs, ramps, escalators, and elevators.
+   Endpoints must be walkable cells. Elevators can declare `capacity`,
+   `dwell_s`, and `travel_s`; stairs/ramps/escalators are weighted graph edges.
+
+6. Choose `cell_size`. Start near 1 meter for station-scale studies. Decrease
    only when the scenario question depends on narrow doors, platform edges, or
    queue geometry. Record the choice because it changes bottleneck detection.
 
-5. Audit exits and spawns. Every station scenario should have at least one
+7. Audit exits and spawns. Every station scenario should have at least one
    exit and a documented population origin. If imported geometry lacks
    population origins, use explicit cohort `spawn_cells` or add synthetic
    `role=spawn` points.
 
-6. Run a geometry smoke check:
+8. Run a geometry smoke check:
 
    ```sh
    PYTHONPATH=. .venv/bin/python -m chiyoda.cli run scenarios/edge_bottleneck_station.yaml -o out/edge_bottleneck_station_smoke
    ```
 
-7. Inspect the serialized layout in the exported `metadata.json` and confirm
-   the grid has plausible exits, walkable areas, walls, and bottlenecks before
-   using it in a study.
+9. Inspect the serialized layout floors in the exported `metadata.json` and
+   confirm each floor has plausible exits, walkable areas, walls, bottlenecks,
+   and connector endpoints before using it in a study.
 
-8. Record provenance. For report-facing scenarios, record the source URL or
+10. Record provenance. For report-facing scenarios, record the source URL or
    file, license, access date, station, level, coordinate transform,
    `cell_size`, known missing data, and every manual edit.
 
@@ -129,10 +141,12 @@ small CI proxy and must not be used as operational validation evidence.
 Before promoting imported geometry into a report artifact, confirm:
 
 - Source license permits use in the intended artifact.
-- Imported features are limited to the studied level or flattening is stated.
+- Imported features are limited to the studied floors; any flattening is stated.
 - Exit cells match public egress points in the source.
 - Walkable cells do not silently cross walls, fare barriers, shafts, or tracks.
 - Bottlenecks visible in the source remain visible after rasterization.
+- Stairs, ramps, escalators, and elevators that affect route choice are encoded
+  as `layout.connectors`.
 - Disconnected-looking interior features are either true obstacles or explicitly
   removed.
 - Population origins and cohort mixes are documented separately from geometry.

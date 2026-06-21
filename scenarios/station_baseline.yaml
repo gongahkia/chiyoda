@@ -1,24 +1,49 @@
 scenario:
-  name: "Station Baseline"
+  name: Station Baseline
   layout:
-    file: "scenarios/layouts/station_layout.txt"
+    cell_size: 1.0
+    floors:
+    - id: '0'
+      z: 0.0
+      text: |-
+        XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+        X......S.........X..........S.........X
+        X................X....................X
+        X....@@@@........X.......@@@@.........X
+        X....@@@@...S..........X.@@@@.........X
+        XXXXX..XXXXXX..XXXX..XXXX..XXXXXX..XXXX
+        X......................................X
+        X.....@@@@...........S.....@@@@.......X
+        X......................................X
+        E......................................E
+        XXXXX..XXXXX..XX.......XX..XXXXX..XXXXX
+        X......................................X
+        X.......S..............................X
+        X..@@@@.........S..........@@@@.......X
+        X......................................X
+        XXXXX..XXXXX..XXXX..XXXX..XXXXX..XXXXX
+        X......................................X
+        X.......S............S.................X
+        X..@@@@..............@@@@..............X
+        E..@@@@..............@@@@..............E
+        XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
   population:
     total: 120
     cohorts:
-      - name: "regular_commuters"
-        count: 80
-        personality: "NORMAL"
-        calmness: 0.8
-        familiarity: 0.7
-        group_size: 1
-      - name: "tourists"
-        count: 40
-        personality: "NORMAL"
-        calmness: 0.6
-        familiarity: 0.1
-        group_size: 2
+    - name: regular_commuters
+      count: 80
+      personality: NORMAL
+      calmness: 0.8
+      familiarity: 0.7
+      group_size: 1
+    - name: tourists
+      count: 40
+      personality: NORMAL
+      calmness: 0.6
+      familiarity: 0.1
+      group_size: 2
   information:
-    mode: "asymmetric"
+    mode: asymmetric
     decay_rate: 0.01
     observation_radius: 5.0
     gossip_radius: 2.0

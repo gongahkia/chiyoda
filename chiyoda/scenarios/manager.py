@@ -376,13 +376,28 @@ class ScenarioManager:
     def serialize_layout(self, layout: Layout) -> str:
         return "\n".join("".join(str(c) for c in row) for row in layout.grid)
 
+    def serialize_layout_floors(self, layout: Layout) -> List[Dict[str, Any]]:
+        return [
+            {
+                "id": floor_id,
+                "z": layout.floor_z(floor_id),
+                "text": "\n".join("".join(str(c) for c in row) for row in floor.grid),
+            }
+            for floor_id, floor in layout.floors.items()
+        ]
+
     def apply_layout_cells(self, scenario, *, cells, fill) -> Dict[str, Any]:
         layout = self._build_layout(scenario)
-        for x, y in cells:
-            if 0 <= y < layout.height and 0 <= x < layout.width:
-                layout.grid[y, x] = fill
+        for raw in cells:
+            floor_id, x, y = layout.cell(raw)
+            floor = layout.floors.get(floor_id)
+            if floor is not None and 0 <= y < floor.grid.shape[0] and 0 <= x < floor.grid.shape[1]:
+                floor.grid[y, x] = fill
         updated = dict(scenario)
-        updated["layout"] = {"text": self.serialize_layout(layout)}
+        layout_cfg = dict(scenario.get("layout", {}))
+        layout_cfg["cell_size"] = layout.cell_size
+        layout_cfg["floors"] = self.serialize_layout_floors(layout)
+        updated["layout"] = layout_cfg
         return updated
 
     def _parse_cell(self, raw, layout: Layout):

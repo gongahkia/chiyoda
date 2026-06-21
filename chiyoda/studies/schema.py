@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from typing import Any, Dict, List, Literal, Optional, Tuple
+from typing import Any, Dict, List, Literal, Optional, Tuple, Union
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 
-Cell = Tuple[int, int]
+Cell = Union[Tuple[int, int], Tuple[str, int, int], Dict[str, Any]]
 
 
 class ExportConfig(BaseModel):

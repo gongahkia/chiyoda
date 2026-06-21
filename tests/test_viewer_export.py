@@ -15,6 +15,7 @@ def _bundle() -> StudyBundle:
             "scenario_name": "viewer_test",
             "representative_run_id": "run_1",
             "layout_text": "XXX\nXEX\nX@X",
+            "layout_floors": [{"id": "0", "z": 0.0, "text": "XXX\nXEX\nX@X"}],
             "layout_width": 3,
             "layout_height": 3,
             "layout_cell_size": 1.0,
@@ -28,6 +29,8 @@ def _bundle() -> StudyBundle:
                     "run_id": "run_1",
                     "step": 0,
                     "time_s": 0.0,
+                    "floor_id": "0",
+                    "z": 0.0,
                     "x": 1,
                     "y": 1,
                     "occupancy": 1,
@@ -43,8 +46,10 @@ def _bundle() -> StudyBundle:
                     "run_id": "run_1",
                     "step": 0,
                     "agent_id": 1,
+                    "floor_id": "0",
                     "x": 1.0,
                     "y": 2.0,
+                    "z": 0.0,
                     "speed": 0.0,
                     "entropy": 0.5,
                     "state": "CALM",
@@ -57,7 +62,7 @@ def _bundle() -> StudyBundle:
         dwell_samples=pd.DataFrame(),
         exits=pd.DataFrame(),
         hazards=pd.DataFrame(
-            [{"run_id": "run_1", "step": 0, "time_s": 0.0, "x": 1.0, "y": 1.0, "radius": 1.0}]
+            [{"run_id": "run_1", "step": 0, "time_s": 0.0, "x": 1.0, "y": 1.0, "z": 0.0, "radius": 1.0}]
         ),
     )
 
@@ -82,8 +87,9 @@ def test_export_viewer_writes_static_threejs_artifact(tmp_path):
     assert data["metadata"]["study_name"] == "viewer_test"
     assert data["frames"][0]["agents"][0]["intent"] == "EVACUATE"
     assert data["layout"]
-    assert data["path_usage"] == [{"x": 1, "y": 1, "path_usage": 3}]
+    assert data["path_usage"] == [{"floor_id": "0", "z": 0.0, "x": 1, "y": 1, "path_usage": 3}]
     assert data["layout_grid"] == [["X", "X", "X"], ["X", "E", "X"], ["X", "@", "X"]]
+    assert data["layout_floors"][0]["id"] == "0"
 
 
 def test_export_viewer_includes_source_geojson_levels(tmp_path):

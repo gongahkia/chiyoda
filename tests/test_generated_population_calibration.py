@@ -18,6 +18,10 @@ from chiyoda.scenarios.manager import ScenarioManager
 from chiyoda.studies.runner import _materialize_variants, _prepare_scenario, load_study_config
 
 
+def _layout(text: str) -> dict:
+    return {"floors": [{"id": "0", "z": 0.0, "text": text}]}
+
+
 def _request() -> PopulationCalibrationRequest:
     return PopulationCalibrationRequest(
         scenario_name="calibration_test",
@@ -61,7 +65,7 @@ def test_population_calibration_cache_round_trips_record(tmp_path):
 def test_generated_calibration_fills_missing_fields_without_overwriting_existing(tmp_path):
     scenario = {
         "name": "generated_prior_smoke",
-        "layout": {"text": "XXXXX\nX@.EX\nXXXXX\n"},
+        "layout": _layout("XXXXX\nX@.EX\nXXXXX\n"),
         "population": {
             "total": 1,
             "cohorts": [
@@ -100,7 +104,7 @@ def test_generated_calibration_fills_missing_fields_without_overwriting_existing
 def test_replay_generated_calibration_uses_existing_cache(tmp_path):
     base = {
         "name": "generated_replay_smoke",
-        "layout": {"text": "XXXXX\nX@.EX\nXXXXX\n"},
+        "layout": _layout("XXXXX\nX@.EX\nXXXXX\n"),
         "population": {
             "total": 1,
             "cohorts": [{"name": "visitors", "count": 1}],
@@ -160,7 +164,7 @@ def test_generated_calibration_rejects_disallowed_target():
 def test_generated_cohort_mix_only_materializes_when_no_authored_cohorts(tmp_path):
     scenario = {
         "name": "generated_cohort_mix",
-        "layout": {"text": "XXXXX\nX@.EX\nXXXXX\n"},
+        "layout": _layout("XXXXX\nX@.EX\nXXXXX\n"),
         "population": {"total": 4, "cohorts": []},
         "generated_population_calibration": {
             "enabled": True,
@@ -181,7 +185,7 @@ def test_generated_cohort_mix_only_materializes_when_no_authored_cohorts(tmp_pat
 def test_scenario_manager_applies_generated_population_before_building_agents(tmp_path):
     scenario = {
         "name": "manager_generated_prior_smoke",
-        "layout": {"text": "XXXXX\nX@.EX\nXXXXX\n"},
+        "layout": _layout("XXXXX\nX@.EX\nXXXXX\n"),
         "population": {
             "total": 1,
             "cohorts": [{"name": "visitors", "count": 1}],

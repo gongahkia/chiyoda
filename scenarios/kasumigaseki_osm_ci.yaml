@@ -1,28 +1,81 @@
 name: kasumigaseki_osm_ci
-description: >
-  CI-scale OSM-style Kasumigaseki Station geometry fixture for ingestion checks.
-  This is a manually simplified local-coordinate proxy and not validation data.
+description: 'CI-scale OSM-style Kasumigaseki Station geometry fixture for ingestion
+  checks. This is a manually simplified local-coordinate proxy and not validation
+  data.
+
+  '
 metadata:
   provenance_file: scenarios/layouts/kasumigaseki_osm_ci.metadata.json
 layout:
-  geojson:
-    file: layouts/kasumigaseki_osm_ci.geojson
-    cell_size: 1.0
-    padding: 1
-    add_border_walls: true
+  cell_size: 1.0
+  floors:
+  - id: '0'
+    z: 0.0
+    text: |-
+      ...................................
+      ...................................
+      ...........XXXXX...................
+      ...........XXXXX...................
+      ...........XXXXX...................
+      ......@....XXXXX...................
+      .E.........XXXXX.................E.
+      ...........XXXXX...................
+      ...........XXXXX...................
+      ...........XXXXX...................
+      ...........XXXXX...................
+      ...................................
+      ...................................
+      XXXXXXXXXXXXXX.......XXXXXXXXXXXXXX
+      XXXXXXXXXXXXXX.......XXXXXXXXXXXXXX
+      XXXXXXXXXXXXXX.......XXXXXXXXXXXXXX
+      XXXXXXXXXXXXXX.......XXXXXXXXXXXXXX
+      XXXXXXXXXXXXXX.......XXXXXXXXXXXXXX
+      XXXXXXXXXXXXXX.......XXXXXXXXXXXXXX
+      XXXXXXXXXXXXXX...@...XXXXXXXXXXXXXX
+      XXXXXXXXXXXXXX.......XXXXXXXXXXXXXX
+      XXXXXXXXXXXXXX.......XXXXXXXXXXXXXX
+      XXXXXXXXXXXXXX.......XXXXXXXXXXXXXX
+      XXXXXXXXXXXXXX.......XXXXXXXXXXXXXX
+      XXXXXXXXXXXXXX.......XXXXXXXXXXXXXX
+      XXXXXXXXXXXXXX...E...XXXXXXXXXXXXXX
+      XXXXXXXXXXXXXX.......XXXXXXXXXXXXXX
 population:
   total: 8
   cohorts:
-    - name: concourse_ci
-      count: 4
-      spawn_cells: [[6, 5], [7, 5], [8, 5], [9, 5]]
-      familiarity: 0.6
-      calmness: 0.8
-    - name: transfer_ci
-      count: 4
-      spawn_cells: [[17, 19], [17, 20], [17, 21], [17, 22]]
-      familiarity: 0.45
-      calmness: 0.75
+  - name: concourse_ci
+    count: 4
+    spawn_cells:
+    - floor: '0'
+      x: 6
+      y: 5
+    - floor: '0'
+      x: 7
+      y: 5
+    - floor: '0'
+      x: 8
+      y: 5
+    - floor: '0'
+      x: 9
+      y: 5
+    familiarity: 0.6
+    calmness: 0.8
+  - name: transfer_ci
+    count: 4
+    spawn_cells:
+    - floor: '0'
+      x: 17
+      y: 19
+    - floor: '0'
+      x: 17
+      y: 20
+    - floor: '0'
+      x: 17
+      y: 21
+    - floor: '0'
+      x: 17
+      y: 22
+    familiarity: 0.45
+    calmness: 0.75
 simulation:
   max_steps: 8
   dt: 0.2

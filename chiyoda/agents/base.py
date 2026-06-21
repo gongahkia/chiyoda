@@ -185,6 +185,12 @@ class CognitiveAgent:
             self._navigate_follow(simulation)
             return
 
+        if self.current_path and self.path_index < len(self.current_path):
+            current_cell = simulation._grid_cell(self)
+            next_cell = simulation.layout.cell(self.current_path[self.path_index])
+            if simulation.layout.connector_for_edge(current_cell, next_cell) is not None:
+                return
+
         # EVACUATE or ASSIST: path to target
         needs_path = (not self.current_path) or (self.path_index >= len(self.current_path))
         stale_path = (
@@ -364,7 +370,8 @@ class CognitiveAgent:
                 dist = np.linalg.norm(direction)
                 if dist > 1e-6:
                     direction = direction / dist
-                noise = np.random.randn(2) * 0.03
+                noise = np.zeros(3, dtype=float)
+                noise[:2] = np.random.randn(2) * 0.03
                 desired_step = (direction + noise) * self.speed() * dt
                 neighbors = (
                     simulation.spatial_index.neighbor_positions(self.pos, radius=1.0)

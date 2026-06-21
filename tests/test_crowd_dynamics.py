@@ -23,6 +23,10 @@ from chiyoda.information.propagation import GossipModel, GossipConfig
 from chiyoda.information.entropy import agent_entropy, global_entropy, belief_accuracy, information_efficiency
 
 
+def _agent_pos(layout: Layout, cell) -> np.ndarray:
+    return np.array(layout.world_position(cell), dtype=float)
+
+
 # -- Information Layer Tests --
 
 class TestBeliefVector:
@@ -108,8 +112,8 @@ class TestInformationInterventions:
         )
         exits = [Exit(pos=p) for p in layout.exit_positions()]
         agents = [
-            Commuter(id=i, pos=np.array([x + 0.5, y + 0.5], dtype=float), familiarity=0.0)
-            for i, (x, y) in enumerate(layout.people_positions())
+            Commuter(id=i, pos=_agent_pos(layout, cell), familiarity=0.0)
+            for i, cell in enumerate(layout.people_positions())
         ]
         config = SimulationConfig(max_steps=3, dt=0.1, random_seed=42, information_mode="none")
         sim = Simulation(layout=layout, agents=agents, exits=exits, config=config)
@@ -267,8 +271,8 @@ class TestSimulationIntegration:
         )
         exits = [Exit(pos=p) for p in layout.exit_positions()]
         agents = [
-            Commuter(id=i, pos=np.array([x + 0.5, y + 0.5], dtype=float), familiarity=0.5)
-            for i, (x, y) in enumerate(layout.people_positions())
+            Commuter(id=i, pos=_agent_pos(layout, cell), familiarity=0.5)
+            for i, cell in enumerate(layout.people_positions())
         ]
         config = SimulationConfig(max_steps=50, dt=0.1, random_seed=42, information_mode=info_mode)
         sim = Simulation(layout=layout, agents=agents, exits=exits, config=config)
@@ -317,8 +321,8 @@ class TestSimulationIntegration:
         )
         exits = [Exit(pos=p) for p in layout.exit_positions()]
         agents = [
-            Commuter(id=i, pos=np.array([x + 0.5, y + 0.5], dtype=float))
-            for i, (x, y) in enumerate(layout.people_positions())
+            Commuter(id=i, pos=_agent_pos(layout, cell))
+            for i, cell in enumerate(layout.people_positions())
         ]
         hazards = [Hazard(pos=(4.0, 1.5), kind="GAS", radius=5.0, severity=0.9)]
         config = SimulationConfig(max_steps=200, dt=0.1, random_seed=42)

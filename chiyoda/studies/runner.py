@@ -49,6 +49,7 @@ def run_study(study: str | Path | StudyConfig) -> StudyBundle:
     runs_manifest: List[Dict[str, Any]] = []
 
     first_layout_text = None
+    first_layout_floors: List[Dict[str, Any]] = []
     first_bottlenecks: List[Dict[str, Any]] = []
     first_exit_labels: Dict[str, str] = {}
     first_scenario_metadata: Dict[str, Any] = {}
@@ -66,6 +67,7 @@ def run_study(study: str | Path | StudyConfig) -> StudyBundle:
             scenario_name = prepared.get("name", Path(config.scenario_file).stem)
             if first_layout_text is None:
                 first_layout_text = manager.serialize_layout(simulation.layout)
+                first_layout_floors = manager.serialize_layout_floors(simulation.layout)
                 first_bottlenecks = [
                     {
                         "zone_id": zone.zone_id,
@@ -76,7 +78,7 @@ def run_study(study: str | Path | StudyConfig) -> StudyBundle:
                     for zone in simulation.bottleneck_zones
                 ]
                 first_exit_labels = {
-                    f"{cell[0]},{cell[1]}": label
+                    f"{cell[0]},{cell[1]},{cell[2]}": label
                     for cell, label in simulation.exit_labels.items()
                 }
                 first_scenario_metadata = dict(prepared.get("metadata", {}) or {})
@@ -132,6 +134,7 @@ def run_study(study: str | Path | StudyConfig) -> StudyBundle:
             runs_manifest[0]["requested_acceleration_backend"] if runs_manifest else "auto"
         ),
         "layout_text": first_layout_text or "",
+        "layout_floors": first_layout_floors,
         "layout_width": summary["layout_width"].dropna().iloc[0] if not summary.empty else 0,
         "layout_height": summary["layout_height"].dropna().iloc[0] if not summary.empty else 0,
         "layout_origin_x": summary["layout_origin_x"].dropna().iloc[0] if not summary.empty else 0.0,
@@ -324,7 +327,7 @@ def _apply_intervention(
                 "base_speed_multiplier": intervention.base_speed_multiplier,
                 "release_step": int(intervention.release_step or 0),
                 "group_size": intervention.group_size,
-                "spawn_cells": [list(cell) for cell in intervention.spawn_cells],
+                "spawn_cells": [dict(cell) if isinstance(cell, dict) else list(cell) for cell in intervention.spawn_cells],
             }
         )
         population["cohorts"] = cohorts
@@ -428,34 +431,41 @@ def _collect_run_tables(
             }
         )
 
-        active_cells = np.argwhere(
-            (step.occupancy_grid > 0)
-            | (step.path_usage_grid > 0)
-            | (step.speed_grid > 0)
-            | (step.density_grid > 0)
-        )
-        for y, x in active_cells:
-            cells_rows.append(
-                {
-                    "study_name": study_name,
-                    "scenario_name": scenario_name,
-                    "variant_name": variant_name,
-                    "seed": seed,
-                    "run_id": run_id,
-                    "step": step.step,
-                    "time_s": step.time_s,
-                    "x": int(x),
-                    "y": int(y),
-                    "occupancy": int(step.occupancy_grid[y, x]),
-                    "density": float(step.density_grid[y, x]),
-                    "speed": float(step.speed_grid[y, x]),
-                    "path_usage": int(step.path_usage_grid[y, x]),
-                }
+        for floor_id, grids in step.floor_grids.items():
+            occupancy = grids["occupancy_grid"]
+            density = grids["density_grid"]
+            speed = grids["speed_grid"]
+            path_usage = grids["path_usage_grid"]
+            active_cells = np.argwhere(
+                (occupancy > 0)
+                | (path_usage > 0)
+                | (speed > 0)
+                | (density > 0)
             )
+            for y, x in active_cells:
+                cells_rows.append(
+                    {
+                        "study_name": study_name,
+                        "scenario_name": scenario_name,
+                        "variant_name": variant_name,
+                        "seed": seed,
+                        "run_id": run_id,
+                        "step": step.step,
+                        "time_s": step.time_s,
+                        "floor_id": floor_id,
+                        "z": float(simulation.layout.floor_z(floor_id)),
+                        "x": int(x),
+                        "y": int(y),
+                        "occupancy": int(occupancy[y, x]),
+                        "density": float(density[y, x]),
+                        "speed": float(speed[y, x]),
+                        "path_usage": int(path_usage[y, x]),
+                    }
+        )
 
         for agent in step.agents:
-            target_exit_x = None if agent.target_exit is None else agent.target_exit[0]
-            target_exit_y = None if agent.target_exit is None else agent.target_exit[1]
+            target_exit_floor = _cell_floor(agent.target_exit)
+            target_exit_x, target_exit_y = _cell_xy(agent.target_exit)
             agent_step_rows.append(
                 {
                     "study_name": study_name,
@@ -466,13 +476,16 @@ def _collect_run_tables(
                     "step": step.step,
                     "time_s": step.time_s,
                     "agent_id": agent.agent_id,
+                    "floor_id": agent.cell[0],
                     "x": float(agent.position[0]),
                     "y": float(agent.position[1]),
-                    "cell_x": int(agent.cell[0]),
-                    "cell_y": int(agent.cell[1]),
+                    "z": float(agent.position[2]),
+                    "cell_x": int(agent.cell[1]),
+                    "cell_y": int(agent.cell[2]),
                     "state": agent.state,
                     "speed": float(agent.speed),
                     "local_density": float(agent.local_density),
+                    "target_exit_floor": target_exit_floor,
                     "target_exit_x": target_exit_x,
                     "target_exit_y": target_exit_y,
                     "cohort_name": agent.cohort_name,
@@ -538,6 +551,7 @@ def _collect_run_tables(
                     "kind": hazard.get("kind", "GAS"),
                     "x": float(hazard["pos"][0]),
                     "y": float(hazard["pos"][1]),
+                    "z": float(hazard["pos"][2]) if len(hazard.get("pos", [])) >= 3 else 0.0,
                     "radius": float(hazard.get("radius", 0.0)),
                     "severity": float(hazard.get("severity", 0.0)),
                 }
@@ -700,6 +714,7 @@ def _collect_run_tables(
                 "validation_status": event.validation_status,
                 "validation_reasons": event.validation_reasons,
                 "selected_intent": event.selected_intent,
+                "target_exit_floor": event.target_exit_floor,
                 "target_exit_x": event.target_exit_x,
                 "target_exit_y": event.target_exit_y,
                 "trust_delta": event.trust_delta,
@@ -726,6 +741,20 @@ def _collect_run_tables(
         "interventions": pd.DataFrame(intervention_rows),
         "llm_decisions": pd.DataFrame(llm_decision_rows),
     }
+
+
+def _cell_floor(cell) -> str | None:
+    if cell is None:
+        return None
+    return str(cell[0]) if len(cell) >= 3 and isinstance(cell[0], str) else None
+
+
+def _cell_xy(cell) -> tuple[int | None, int | None]:
+    if cell is None:
+        return None, None
+    if len(cell) >= 3 and isinstance(cell[0], str):
+        return int(cell[1]), int(cell[2])
+    return int(cell[0]), int(cell[1])
 
 
 def _aggregate_summary(summary: pd.DataFrame) -> pd.DataFrame:
