@@ -1,11 +1,3 @@
-(A) 2026-06-21 Curate canonical benchmark scenario suite v1 (transit_cbrn, transit_shooter, transit_mixed) +Benchmark @scenarios release:v1
-(A) 2026-06-21 Define BenchmarkSpec dataclass and JSON schema (metrics, seeds, scoring rule, allowed knobs) +Benchmark @studies release:v1
-(A) 2026-06-21 Implement submission API chiyoda.cli benchmark submit --policy path --suite v1 +Benchmark @core release:v1
-(A) 2026-06-21 Implement scoring rule combining egress time, exposure, equity, HCI-adversarial into a single composite +Benchmark @analysis release:v1
-(A) 2026-06-21 Generate reference trajectories per scenario across N seeds and persist as parquet artifacts +Benchmark @scenarios release:v1
-(A) 2026-06-21 Add leaderboard JSON export and reproducibility kit (config hash, seed set, version pin) +Benchmark @studies release:v1
-(B) 2026-06-21 Static leaderboard site generator (markdown to HTML) checked into docs/benchmark/ +Benchmark @docs release:v1
-(B) 2026-06-21 Write benchmark spec doc (metric definitions, submission rules, scoring, ablation expectations) +Benchmark @docs release:v1
 (A) 2026-06-21 Ingest Sci Data 2025 s41597-025-04440-y route-choice dataset into data/calibration/route_choice_2025/ +Calibration @env release:v1
 (A) 2026-06-21 Fit route-choice prior parameters (familiarity, herding, exit-affinity) against the 2025 dataset +Calibration @info release:v1
 (A) 2026-06-21 Document calibration procedure and provenance in docs/calibration_route_choice_2025.md +Calibration @docs release:v1

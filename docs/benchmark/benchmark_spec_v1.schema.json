@@ -1,0 +1,55 @@
+{
+  "type": "object",
+  "required": [
+    "suite",
+    "metrics",
+    "seeds",
+    "scoring_rule",
+    "allowed_knobs",
+    "scenarios"
+  ],
+  "properties": {
+    "suite": {
+      "type": "string"
+    },
+    "metrics": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "seeds": {
+      "type": "array",
+      "items": {
+        "type": "integer"
+      }
+    },
+    "scoring_rule": {
+      "type": "string"
+    },
+    "allowed_knobs": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "scenarios": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "name",
+          "scenario_file"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "scenario_file": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}
