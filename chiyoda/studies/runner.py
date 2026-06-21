@@ -114,6 +114,7 @@ def run_study(study: str | Path | StudyConfig) -> StudyBundle:
                     "run_id": run_id,
                     "variant_name": variant.name,
                     "seed": seed,
+                    "treatment_assignment": config.treatment_assignments.get(seed, variant.name),
                     "acceleration_backend": simulation.acceleration.name,
                     "requested_acceleration_backend": simulation.acceleration.requested_backend,
                     "agents_total": len(simulation.agents),
@@ -148,6 +149,7 @@ def run_study(study: str | Path | StudyConfig) -> StudyBundle:
         "scenario_metadata": first_scenario_metadata,
         "station_provenance": first_scenario_metadata.get("station_provenance"),
         "variants": [variant.model_dump() for variant in variants],
+        "treatment_assignments": dict(config.treatment_assignments),
         "runs": runs_manifest,
         "representative_run_id": runs_manifest[0]["run_id"] if runs_manifest else None,
     }

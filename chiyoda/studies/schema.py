@@ -126,6 +126,7 @@ class StudyConfig(BaseModel):
     scenario_file: str
     description: Optional[str] = None
     seeds: List[int] = Field(default_factory=list)
+    treatment_assignments: Dict[int, str] = Field(default_factory=dict)
     repetitions: int = 1
     variants: List[StudyVariant] = Field(default_factory=list)
     sweep: List[SweepParameter] = Field(default_factory=list)

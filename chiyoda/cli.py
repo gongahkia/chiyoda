@@ -12,7 +12,7 @@ from chiyoda.analysis.trajectory_reference import (
     compare_trajectory_reference,
     load_trajectory_table,
 )
-from chiyoda.studies import StudyBundle, compare_studies, load_study_config, run_study
+from chiyoda.studies import StudyBundle, compare_bundles, compare_studies, load_study_config, run_study
 from chiyoda.scenarios.assertions import evaluate_scenario_assertions
 from chiyoda.scenarios.manager import ScenarioManager
 from chiyoda.scenarios.validation import validate_scenario_file
@@ -211,6 +211,33 @@ def compare(baseline, variant, out_dir, figure_formats, table_formats, profile):
             formats=resolved_figures,
         )
     click.echo(f"Exported study comparison to {out_dir}")
+
+
+@cli.command("causal-compare")
+@click.argument("baseline_bundle")
+@click.argument("treated_bundle")
+@click.option("--metric", "metrics", multiple=True, required=True, help="Summary metric to compare")
+@click.option("--estimator", default="ate", type=click.Choice(["ate"]), help="Estimator")
+@click.option("--bootstrap-samples", default=1000, type=int, help="Bootstrap sample count")
+@click.option("--random-seed", default=42, type=int, help="Bootstrap random seed")
+@click.option("-o", "--out", "out_file", default=None, help="Optional CSV output path")
+def causal_compare_command(baseline_bundle, treated_bundle, metrics, estimator, bootstrap_samples, random_seed, out_file):
+    """Compare matched-seed counterfactual study bundles."""
+    baseline = StudyBundle.load(baseline_bundle)
+    treated = StudyBundle.load(treated_bundle)
+    result = compare_bundles(
+        baseline,
+        treated,
+        metrics=tuple(metrics),
+        estimator=estimator,
+        bootstrap_samples=bootstrap_samples,
+        random_seed=random_seed,
+    )
+    if out_file is not None:
+        output = Path(out_file)
+        output.parent.mkdir(parents=True, exist_ok=True)
+        result.to_csv(output, index=False)
+    click.echo(result.to_json(orient="records", indent=2))
 
 
 @cli.command("export-figures")
