@@ -16,6 +16,15 @@ def _bundle() -> StudyBundle:
             "representative_run_id": "run_1",
             "layout_text": "XXX\nXEX\nX@X",
             "layout_floors": [{"id": "0", "z": 0.0, "text": "XXX\nXEX\nX@X"}],
+            "layout_connectors": [
+                {
+                    "id": "stairs_a",
+                    "type": "stairs",
+                    "from": {"floor": "0", "x": 1, "y": 2},
+                    "to": {"floor": "0", "x": 1, "y": 1},
+                    "bidirectional": True,
+                }
+            ],
             "layout_width": 3,
             "layout_height": 3,
             "layout_cell_size": 1.0,
@@ -77,6 +86,8 @@ def test_export_viewer_writes_static_threejs_artifact(tmp_path):
     assert "three.module.js" in html
     assert "OrbitControls" in html
     assert "authorMode" in html
+    assert "activeFloor" in html
+    assert "runtimeConnectors" in html
     assert "paintToken" in html
     assert "pathUsage" in html
     assert "validationOverlay" in html
@@ -90,6 +101,7 @@ def test_export_viewer_writes_static_threejs_artifact(tmp_path):
     assert data["path_usage"] == [{"floor_id": "0", "z": 0.0, "x": 1, "y": 1, "path_usage": 3}]
     assert data["layout_grid"] == [["X", "X", "X"], ["X", "E", "X"], ["X", "@", "X"]]
     assert data["layout_floors"][0]["id"] == "0"
+    assert data["layout_connectors"][0]["id"] == "stairs_a"
 
 
 def test_export_viewer_includes_source_geojson_levels(tmp_path):

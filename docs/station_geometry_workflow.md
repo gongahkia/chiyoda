@@ -18,6 +18,12 @@ Compatibility helpers still exist in code for converting text, GeoJSON, and a
 small DXF subset into raster grids, but strict scenario YAML should not use
 `layout.file`, `layout.text`, `layout.grid`, `layout.geojson`, or `layout.cad`.
 
+Use the converter for OSM/GTFS-like GeoJSON:
+
+```sh
+.venv/bin/python -m chiyoda.cli convert-layout station.geojson scenarios/station_converted.yaml --name station_converted
+```
+
 GeoJSON features can use explicit Chiyoda roles:
 
 | Role | Token | Meaning |
@@ -70,8 +76,9 @@ Indoor Tagging, OpenStationMap, and GTFS Pathways:
    source semantics are ambiguous. In particular, decide whether a room is
    public walkable space, staff-only blocked space, or irrelevant.
 
-4. Convert each audited level into a `layout.floors[]` raster. Do not rely on
-   hidden flattening for report-facing work.
+4. Convert each audited level into a `layout.floors[]` raster. Use
+   `convert-layout` for OSM/GTFS-like GeoJSON, then inspect the output by hand.
+   Do not rely on hidden flattening for report-facing work.
 
 5. Add `layout.connectors[]` for stairs, ramps, escalators, and elevators.
    Endpoints must be walkable cells. Elevators can declare `capacity`,

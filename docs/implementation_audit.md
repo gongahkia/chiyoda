@@ -19,6 +19,8 @@ the simulator is externally validated for station evacuation prediction.
   this is not CFD.
 - Study exports persist telemetry tables, metadata, figures, and a static
   Three.js viewer.
+- Runtime assertions can check evacuation counts, travel-time bounds,
+  connector usage, and impossible floor jumps.
 
 ## Viewer And Authoring
 
@@ -61,8 +63,8 @@ Connector support is intentionally simple:
 - `elevator` adds capacity, dwell time, and travel time holds.
 - There is no elevator dispatch, door state, car position, or queue discipline
   beyond active transfer capacity.
-- Browser authoring edits only the primary floor. Non-primary floors are
-  preserved on export but not editable.
+- Browser authoring can paint any runtime floor and preserves existing
+  connectors on export.
 
 ## High-Impact Gaps
 
@@ -71,3 +73,6 @@ Connector support is intentionally simple:
 - Static validation catches topology errors but not behavioral plausibility.
 - Path-usage debug is aggregate max usage per cell, not per-step route intent.
 - No browser-side simulation loop exists; edited YAML must be rerun through CLI.
+- Browser authoring cannot create new connectors yet.
+- The GeoJSON converter is a pragmatic OSM/GTFS-like bridge, not a
+  standards-complete indoor data importer.

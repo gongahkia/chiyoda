@@ -237,13 +237,14 @@ def rasterize_geojson_layout(
     role_property: str = "role",
     default_token: str | None = None,
     add_border_walls: bool = False,
+    bounds: tuple[float, float, float, float] | None = None,
 ) -> tuple[np.ndarray, Point, float]:
     payload = _load_geojson_payload(source)
     features = _geojson_features(payload)
     if not features:
         raise ValueError("GeoJSON layout must contain at least one feature")
 
-    min_x, min_y, max_x, max_y = _feature_bounds(features)
+    min_x, min_y, max_x, max_y = bounds if bounds is not None else _feature_bounds(features)
     origin = (min_x - (padding * cell_size), min_y - (padding * cell_size))
     width = max(1, int(math.ceil((max_x - min_x) / cell_size)) + (padding * 2) + 1)
     height = max(1, int(math.ceil((max_y - min_y) / cell_size)) + (padding * 2) + 1)

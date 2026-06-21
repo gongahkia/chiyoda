@@ -95,6 +95,26 @@ $ python -m chiyoda.cli validate-scenario ~/Downloads/chiyoda_edited_scenario.ya
 $ python -m chiyoda.cli run ~/Downloads/chiyoda_edited_scenario.yaml -o out/edited
 ```
 
+Run scenario runtime assertions:
+
+```console
+$ python -m chiyoda.cli assert-scenario scenarios/validation_multifloor_connectors.yaml
+$ python -m chiyoda.cli assert-scenario scenarios/validation_elevator_queue.yaml
+```
+
+Convert OSM/GTFS-like GeoJSON into strict scenario YAML:
+
+```console
+$ python -m chiyoda.cli convert-layout station.geojson scenarios/station_converted.yaml --name station_converted
+```
+
+Run toy calibration/regression and profiler scripts:
+
+```console
+$ python scripts/run_toy_calibrations.py -o out/toy_calibrations.json
+$ python scripts/profile_large_scenario.py scenarios/station_sarin.yaml --max-steps 100 --population-total 250 -o out/profile_station_sarin.json
+```
+
 Compare study outputs or reference trajectories:
 
 ```console
@@ -133,6 +153,8 @@ Important documentation:
   viewer export.
 * [`docs/implementation_audit.md`](./docs/implementation_audit.md) states the
   current runtime semantics and known viewer/modeling gaps.
+* [`docs/scenario_assertions.md`](./docs/scenario_assertions.md) describes
+  runtime assertion checks, toy calibration scenarios, and profiling scripts.
 * [`docs/standards_research.md`](./docs/standards_research.md) records the
   GTFS Pathways, OSM indoor, and pedestrian LOS references used to shape the
   multi-floor schema.

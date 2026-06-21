@@ -43,17 +43,19 @@ Controls:
 - reset camera from the toolbar,
 - toggle hazards, bottlenecks, messages, source floors, validation, and path
   usage,
-- use `floor gap` to flatten or vertically separate source GeoJSON levels.
+- use `floor gap` to flatten or vertically separate source GeoJSON levels,
+- toggle connector rendering.
 - drag/pan/zoom the camera with OrbitControls; rotation is disabled so the
   viewer behaves like a navigable tilted plan.
 
 Authoring:
 
 - enable `author`,
+- choose the active `edit floor`,
 - choose a paint token,
 - click or drag on the grid to paint cells,
-- use the validation overlay to check exits, disconnected cells, and reachable
-  spawn/responder starts,
+- use the validation overlay to check exits, disconnected cells, reachable
+  spawn/responder starts, and connector-crossing paths,
 - export `chiyoda_edited_scenario.yaml`,
 - validate the exported scenario,
 - run the exported scenario with `python -m chiyoda.cli run <file> -o <out>`.
@@ -80,6 +82,6 @@ per-floor path usage, hazards with `z`, and per-floor cell grids.
 
 The current viewer is static and local. Authoring exports a runnable raster
 `layout.floors` scenario; it does not edit the original GeoJSON/CAD source, run
-simulations in the browser, or replace trajectory-analysis tools. Authoring
-edits the primary floor grid only. Non-primary runtime floors are preserved in
-the exported YAML but are not browser-editable yet.
+simulations in the browser, or replace trajectory-analysis tools. Authoring can
+paint any runtime floor and preserves existing connectors in exported YAML.
+Creating new connectors in the browser is not implemented.

@@ -353,7 +353,7 @@ class CognitiveAgent:
         while self.current_path and self.path_index < len(self.current_path):
             candidate = self.current_path[self.path_index]
             target = simulation.layout.world_position(candidate)
-            if np.linalg.norm(target - self.pos) < 0.2:
+            if np.linalg.norm(target - self.pos) < 0.35:
                 self.path_index += 1
                 continue
             waypoint = candidate
@@ -402,7 +402,7 @@ class CognitiveAgent:
             )
             new_pos = self.pos + adjusted
 
-            if np.linalg.norm(target - new_pos) < 0.2:
+            if np.linalg.norm(target - new_pos) < 0.35:
                 self.path_index += 1
                 if len(waypoint) >= 3:
                     self.floor_id = str(waypoint[0])

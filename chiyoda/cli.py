@@ -12,9 +12,10 @@ from chiyoda.analysis.trajectory_reference import (
     compare_trajectory_reference,
     load_trajectory_table,
 )
-from chiyoda.studies import StudyBundle, compare_bundles, compare_studies, load_study_config, run_study
+from chiyoda.studies import StudyBundle, compare_bundles, compare_studies, load_study_config, run_study, submit_policy
 from chiyoda.scenarios.assertions import evaluate_scenario_assertions
 from chiyoda.scenarios.manager import ScenarioManager
+from chiyoda.scenarios.standards import strict_scenario_from_geojson
 from chiyoda.scenarios.validation import validate_scenario_file
 from chiyoda.information.warfare import AttackerObjective
 
@@ -170,6 +171,28 @@ def assert_scenario_command(ctx, scenario_file, json_output):
         ctx.exit(1)
 
 
+@cli.command("convert-layout")
+@click.argument("geojson_file")
+@click.argument("output_file")
+@click.option("--name", default="converted_station", help="Scenario name")
+@click.option("--cell-size", default=1.0, type=float, help="Raster cell size")
+@click.option("--padding", default=1, type=int, help="Raster padding in cells")
+def convert_layout_command(geojson_file, output_file, name, cell_size, padding):
+    """Convert OSM/GTFS-like GeoJSON into strict layout.floors/connectors YAML."""
+    import yaml
+
+    payload = strict_scenario_from_geojson(
+        geojson_file,
+        name=name,
+        cell_size=cell_size,
+        padding=padding,
+    )
+    output = Path(output_file)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(yaml.safe_dump(payload, sort_keys=False))
+    click.echo(f"Exported strict scenario to {output}")
+
+
 @cli.command()
 @click.argument("baseline")
 @click.argument("variant")
@@ -238,6 +261,22 @@ def causal_compare_command(baseline_bundle, treated_bundle, metrics, estimator, 
         output.parent.mkdir(parents=True, exist_ok=True)
         result.to_csv(output, index=False)
     click.echo(result.to_json(orient="records", indent=2))
+
+
+@cli.group()
+def benchmark():
+    """Benchmark suite commands."""
+    pass
+
+
+@benchmark.command("submit")
+@click.option("--policy", "policy_path", default=None, help="Policy YAML/JSON path")
+@click.option("--suite", default="v1", help="Benchmark suite")
+@click.option("-o", "--out", "out_dir", default="out/benchmark_submission", help="Output directory")
+def benchmark_submit_command(policy_path, suite, out_dir):
+    """Run a benchmark submission and export leaderboard artifacts."""
+    result = submit_policy(policy_path=policy_path, suite=suite, output_dir=out_dir)
+    click.echo(json.dumps(result["leaderboard"], indent=2, sort_keys=True))
 
 
 @cli.command("export-figures")

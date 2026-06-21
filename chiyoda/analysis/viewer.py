@@ -72,6 +72,7 @@ def _viewer_payload(bundle: StudyBundle, *, max_frames: int) -> dict[str, Any]:
         "layout": _layout_cells(str(bundle.metadata.get("layout_text", ""))),
         "layout_grid": _layout_grid(str(bundle.metadata.get("layout_text", ""))),
         "layout_floors": _layout_floors(bundle.metadata),
+        "layout_connectors": bundle.metadata.get("layout_connectors", []),
         "floors": floors,
         "bottlenecks": bundle.metadata.get("bottleneck_zones", []),
         "path_usage": _path_usage_cells(bundle.cells, run_id=run_id),
@@ -295,6 +296,7 @@ def _viewer_html() -> str:
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="icon" href="data:,">
   <title>Chiyoda 3D Viewer</title>
   <style>
     html, body { margin: 0; height: 100%; font-family: system-ui, sans-serif; background: #111; color: #f5f5f5; }
@@ -322,6 +324,8 @@ def _viewer_html() -> str:
     <label><input id="validationOverlay" type="checkbox" checked> validation</label>
     <label><input id="messages" type="checkbox" checked> messages</label>
     <label>floor gap <input id="floorGap" type="range" min="0" max="8" step="0.5" value="2.5"></label>
+    <label>edit floor <select id="activeFloor" aria-label="edit floor"></select></label>
+    <label><input id="connectors" type="checkbox" checked> connectors</label>
     <label><input id="authorMode" type="checkbox"> author</label>
     <select id="paintToken" aria-label="paint token">
       <option value=".">floor</option>
@@ -370,8 +374,12 @@ const paintToken = document.querySelector("#paintToken");
 const editorStatus = document.querySelector("#editorStatus");
 const validationOverlay = document.querySelector("#validationOverlay");
 const runtimeFloors = normalizeRuntimeFloors(data.layout_floors || []);
-const editorGrid = normalizeLayoutGrid(data.layout_grid && data.layout_grid.length ? data.layout_grid : layoutGridFromCells());
-window.chiyodaViewer = { camera, controls, renderer, scene, data, editorGrid };
+const runtimeConnectors = normalizeRuntimeConnectors(data.layout_connectors || []);
+const activeFloorSelect = document.querySelector("#activeFloor");
+const editorFloors = runtimeFloors.map(floor => ({ id: floor.id, z: floor.z, grid: floor.grid.map(row => row.slice()) }));
+const editorGrid = editorFloors[0]?.grid || normalizeLayoutGrid(data.layout_grid && data.layout_grid.length ? data.layout_grid : layoutGridFromCells());
+populateActiveFloorSelect();
+window.chiyodaViewer = { camera, controls, renderer, scene, data, editorGrid, editorFloors, runtimeConnectors };
 
 const root = new THREE.Group();
 scene.add(root);
@@ -382,8 +390,9 @@ const bottleneckGroup = new THREE.Group();
 const pathUsageGroup = new THREE.Group();
 const validationGroup = new THREE.Group();
 const messageGroup = new THREE.Group();
+const connectorGroup = new THREE.Group();
 const sourceFloorGroup = new THREE.Group();
-scene.add(sourceFloorGroup, agentGroup, hazardGroup, bottleneckGroup, pathUsageGroup, validationGroup, messageGroup);
+scene.add(sourceFloorGroup, connectorGroup, agentGroup, hazardGroup, bottleneckGroup, pathUsageGroup, validationGroup, messageGroup);
 
 function box(x, z, sx, sz, color, y = 0.05, h = 0.1) {
   const geo = new THREE.BoxGeometry(sx, h, sz);
@@ -435,6 +444,49 @@ function normalizeRuntimeFloors(rawFloors) {
   }));
 }
 
+function normalizeRuntimeConnectors(rawConnectors) {
+  return rawConnectors.map((connector, index) => ({
+    id: String(connector.id ?? `connector_${index + 1}`),
+    type: String(connector.type || "stairs"),
+    from: normalizeConnectorEndpoint(connector.from || connector.from_cell),
+    to: normalizeConnectorEndpoint(connector.to || connector.to_cell),
+    bidirectional: connector.bidirectional !== false,
+    width: Number(connector.width ?? 1),
+    speed_multiplier: Number(connector.speed_multiplier ?? 1),
+    capacity: connector.capacity == null ? null : Number(connector.capacity),
+    dwell_s: Number(connector.dwell_s ?? 0),
+    travel_s: Number(connector.travel_s ?? 0),
+  })).filter(connector => connector.from && connector.to);
+}
+
+function normalizeConnectorEndpoint(value) {
+  if (!value) return null;
+  if (Array.isArray(value) && value.length >= 3) return { floor: String(value[0]), x: Number(value[1]), y: Number(value[2]) };
+  return { floor: String(value.floor), x: Number(value.x), y: Number(value.y) };
+}
+
+function populateActiveFloorSelect() {
+  activeFloorSelect.innerHTML = "";
+  editorFloors.forEach((floor, index) => {
+    const option = document.createElement("option");
+    option.value = String(index);
+    option.textContent = `${floor.id} z=${floor.z}`;
+    activeFloorSelect.appendChild(option);
+  });
+}
+
+function activeFloorIndex() {
+  return Math.max(0, Math.min(editorFloors.length - 1, Number(activeFloorSelect.value || 0)));
+}
+
+function activeFloor() {
+  return editorFloors[activeFloorIndex()] || editorFloors[0];
+}
+
+function activeEditorGrid() {
+  return activeFloor().grid;
+}
+
 function floorZ(floorId) {
   const floor = runtimeFloors.find(item => item.id === String(floorId));
   return floor ? floor.z : 0;
@@ -458,8 +510,8 @@ function cellHeight(token) {
 function renderLayoutGrid() {
   layoutGroup.clear();
   const showFloorCells = authorMode.checked;
-  for (const floor of runtimeFloors) {
-    const grid = floor.id === runtimeFloors[0].id ? editorGrid : floor.grid;
+  for (const floor of editorFloors) {
+    const grid = floor.grid;
     for (let y = 0; y < height; y += 1) {
       for (let x = 0; x < width; x += 1) {
         const token = grid[y][x] || ".";
@@ -511,6 +563,33 @@ function lineObject(points, y, color) {
   const geo = new THREE.BufferGeometry().setFromPoints(points.map(p => new THREE.Vector3(Number(p[0]), y + 0.05, Number(p[1]))));
   return new THREE.Line(geo, new THREE.LineBasicMaterial({ color, linewidth: 2 }));
 }
+
+function connectorColor(type) {
+  if (type === "elevator") return 0x43d9ff;
+  if (type === "ramp") return 0x8fd16a;
+  if (type === "escalator") return 0xd4b24c;
+  return 0xffffff;
+}
+
+function renderConnectors() {
+  connectorGroup.clear();
+  for (const connector of runtimeConnectors) {
+    const from = connector.from;
+    const to = connector.to;
+    const color = connectorColor(connector.type);
+    const points = [
+      new THREE.Vector3(from.x + 0.5, floorZ(from.floor) + 0.7, from.y + 0.5),
+      new THREE.Vector3(to.x + 0.5, floorZ(to.floor) + 0.7, to.y + 0.5),
+    ];
+    connectorGroup.add(new THREE.Line(
+      new THREE.BufferGeometry().setFromPoints(points),
+      new THREE.LineBasicMaterial({ color })
+    ));
+    connectorGroup.add(overlayBox(from.x + 0.5, from.y + 0.5, 0.55, 0.55, color, 0.6, floorZ(from.floor) + 0.2, 0.16));
+    connectorGroup.add(overlayBox(to.x + 0.5, to.y + 0.5, 0.55, 0.55, color, 0.6, floorZ(to.floor) + 0.2, 0.16));
+  }
+}
+renderConnectors();
 
 function renderSourceFloors() {
   sourceFloorGroup.clear();
@@ -634,8 +713,13 @@ document.querySelector("#bottlenecks").addEventListener("change", event => bottl
 document.querySelector("#pathUsage").addEventListener("change", event => pathUsageGroup.visible = event.target.checked);
 validationOverlay.addEventListener("change", renderValidationOverlay);
 document.querySelector("#messages").addEventListener("change", event => messageGroup.visible = event.target.checked);
+document.querySelector("#connectors").addEventListener("change", event => connectorGroup.visible = event.target.checked);
 document.querySelector("#sourceFloors").addEventListener("change", event => sourceFloorGroup.visible = event.target.checked);
 document.querySelector("#floorGap").addEventListener("input", renderSourceFloors);
+activeFloorSelect.addEventListener("change", () => {
+  renderValidationOverlay();
+  updateEditorStatus(`floor ${activeFloor().id} | ${tokenLabel(paintToken.value)} | ${validationSummary(validateEditorGrid())}`);
+});
 document.querySelector("#resetCamera").addEventListener("click", () => {
   camera.position.set(width * 0.55, Math.max(width, height) * 0.9, height * 1.1);
   controls.target.set(width / 2, 0, height / 2);
@@ -674,7 +758,7 @@ function updateEditorStatus(text) {
 }
 
 function layoutText() {
-  return floorText(editorGrid);
+  return floorText(activeEditorGrid());
 }
 
 function floorText(grid) {
@@ -682,19 +766,19 @@ function floorText(grid) {
 }
 
 function exportedFloors() {
-  if (!runtimeFloors.length) return [{ id: "0", z: 0, grid: editorGrid }];
-  return runtimeFloors.map((floor, index) => ({
+  return editorFloors.map((floor, index) => ({
     id: String(floor.id ?? index),
     z: Number(floor.z ?? index * 3),
-    grid: index === 0 ? editorGrid : floor.grid,
+    grid: floor.grid,
   }));
 }
 
 function collectTokenCells(token) {
   const cells = [];
+  const grid = activeEditorGrid();
   for (let y = 0; y < height; y += 1) {
     for (let x = 0; x < width; x += 1) {
-      if (editorGrid[y][x] === token) cells.push([x, y]);
+      if (grid[y][x] === token) cells.push([x, y]);
     }
   }
   return cells;
@@ -712,75 +796,104 @@ function collectFloorTokenCells(token) {
   return cells;
 }
 
-function cellKey(x, y) {
-  return `${x},${y}`;
+function cellKey(floor, x, y) {
+  return `${floor},${x},${y}`;
 }
 
-function inBounds(x, y) {
-  return x >= 0 && x < width && y >= 0 && y < height;
+function floorById(floorId) {
+  return editorFloors.find(floor => floor.id === String(floorId));
 }
 
-function isWalkable(x, y) {
-  return inBounds(x, y) && editorGrid[y][x] !== "X";
+function inBounds(floorId, x, y) {
+  const floor = floorById(floorId);
+  return !!floor && y >= 0 && y < floor.grid.length && x >= 0 && x < floor.grid[y].length;
 }
 
-function neighbors(x, y) {
-  return [[x + 1, y], [x - 1, y], [x, y + 1], [x, y - 1]].filter(cell => isWalkable(cell[0], cell[1]));
+function isWalkable(floorId, x, y) {
+  const floor = floorById(floorId);
+  return inBounds(floorId, x, y) && floor.grid[y][x] !== "X";
+}
+
+function connectorEdges() {
+  const edges = [];
+  for (const connector of runtimeConnectors) {
+    edges.push([connector.from, connector.to]);
+    if (connector.bidirectional) edges.push([connector.to, connector.from]);
+  }
+  return edges;
+}
+
+function neighbors(floorId, x, y) {
+  const cells = [
+    { floor: floorId, x: x + 1, y },
+    { floor: floorId, x: x - 1, y },
+    { floor: floorId, x, y: y + 1 },
+    { floor: floorId, x, y: y - 1 },
+  ].filter(cell => isWalkable(cell.floor, cell.x, cell.y));
+  for (const [source, target] of connectorEdges()) {
+    if (source.floor === String(floorId) && source.x === x && source.y === y && isWalkable(target.floor, target.x, target.y)) {
+      cells.push(target);
+    }
+  }
+  return cells;
 }
 
 function validateEditorGrid() {
-  const exits = collectTokenCells("E");
+  const exits = collectFloorTokenCells("E").map(cell => ({ floor: cell.floor_id, x: cell.x, y: cell.y }));
   const starts = [
-    ...collectTokenCells("@").map(cell => ({ kind: "spawn", label: "layout spawn", source: "layout.@", cell })),
-    ...collectTokenCells("R").map(cell => ({ kind: "responder", label: "layout responder entry", source: "layout.R", cell })),
+    ...collectFloorTokenCells("@").map(cell => ({ kind: "spawn", label: "layout spawn", source: "layout.@", cell: { floor: cell.floor_id, x: cell.x, y: cell.y } })),
+    ...collectFloorTokenCells("R").map(cell => ({ kind: "responder", label: "layout responder entry", source: "layout.R", cell: { floor: cell.floor_id, x: cell.x, y: cell.y } })),
   ];
   const issues = [];
   const reachable = new Set();
   const parent = new Map();
   const queue = [];
-  for (const [x, y] of exits) {
-    if (!isWalkable(x, y)) continue;
-    const key = cellKey(x, y);
+  for (const exit of exits) {
+    if (!isWalkable(exit.floor, exit.x, exit.y)) continue;
+    const key = cellKey(exit.floor, exit.x, exit.y);
     reachable.add(key);
     parent.set(key, null);
-    queue.push([x, y]);
+    queue.push(exit);
   }
   while (queue.length) {
-    const [x, y] = queue.shift();
-    for (const [nx, ny] of neighbors(x, y)) {
-      const key = cellKey(nx, ny);
+    const cell = queue.shift();
+    for (const next of neighbors(cell.floor, cell.x, cell.y)) {
+      const key = cellKey(next.floor, next.x, next.y);
       if (reachable.has(key)) continue;
       reachable.add(key);
-      parent.set(key, [x, y]);
-      queue.push([nx, ny]);
+      parent.set(key, cell);
+      queue.push(next);
     }
   }
   if (!exits.length) {
     issues.push({ severity: "error", code: "no_exits", message: "layout has no exit cells" });
   }
-  if (Number(frames[0]?.agents?.length || 0) > 0 && !collectTokenCells("@").length) {
+  if (Number(frames[0]?.agents?.length || 0) > 0 && !collectFloorTokenCells("@").length) {
     issues.push({ severity: "warning", code: "implicit_population_spawn", message: "no @ spawn cells; exported run will use random walkable cells" });
   }
   for (const start of starts) {
-    const [x, y] = start.cell;
-    if (!isWalkable(x, y)) {
+    const { floor, x, y } = start.cell;
+    if (!isWalkable(floor, x, y)) {
       issues.push({ severity: "error", code: "start_on_wall", message: `${start.label} is on a wall cell`, cell: start.cell, source: start.source });
       continue;
     }
-    if (exits.length && !reachable.has(cellKey(x, y))) {
+    if (exits.length && !reachable.has(cellKey(floor, x, y))) {
       issues.push({ severity: "error", code: "start_unreachable", message: `${start.label} cannot reach any exit`, cell: start.cell, source: start.source });
     }
-    if (editorGrid[y][x] === "E") {
+    if (floorById(floor).grid[y][x] === "E") {
       issues.push({ severity: "warning", code: "start_on_exit", message: `${start.label} is already on an exit cell`, cell: start.cell, source: start.source });
     }
   }
   const walkableCells = [];
   const unreachableCells = [];
-  for (let y = 0; y < height; y += 1) {
-    for (let x = 0; x < width; x += 1) {
-      if (!isWalkable(x, y)) continue;
-      walkableCells.push([x, y]);
-      if (exits.length && !reachable.has(cellKey(x, y))) unreachableCells.push([x, y]);
+  for (const floor of editorFloors) {
+    for (let y = 0; y < floor.grid.length; y += 1) {
+      for (let x = 0; x < floor.grid[y].length; x += 1) {
+        if (!isWalkable(floor.id, x, y)) continue;
+        const cell = { floor: floor.id, x, y };
+        walkableCells.push(cell);
+        if (exits.length && !reachable.has(cellKey(floor.id, x, y))) unreachableCells.push(cell);
+      }
     }
   }
   if (!walkableCells.length) {
@@ -791,14 +904,14 @@ function validateEditorGrid() {
   }
   const paths = {};
   starts.forEach((start, index) => {
-    const [x, y] = start.cell;
-    const key = cellKey(x, y);
+    const { floor, x, y } = start.cell;
+    const key = cellKey(floor, x, y);
     if (!reachable.has(key)) return;
-    paths[`${start.kind}_${index}`] = pathToExit([x, y], parent);
+    paths[`${start.kind}_${index}`] = pathToExit(start.cell, parent);
   });
   return {
     ok: !issues.some(issue => issue.severity === "error"),
-    exits,
+    exits: exits.map(cell => [cell.floor, cell.x, cell.y]),
     starts,
     reachableCells: Array.from(reachable).map(parseCellKey),
     unreachableWalkableCells: unreachableCells,
@@ -808,17 +921,18 @@ function validateEditorGrid() {
 }
 
 function parseCellKey(key) {
-  return key.split(",").map(value => Number(value));
+  const [floor, x, y] = key.split(",");
+  return [floor, Number(x), Number(y)];
 }
 
 function pathToExit(start, parent) {
   const path = [start];
   let current = start;
-  while (parent.get(cellKey(current[0], current[1]))) {
-    current = parent.get(cellKey(current[0], current[1]));
+  while (parent.get(cellKey(current.floor, current.x, current.y))) {
+    current = parent.get(cellKey(current.floor, current.x, current.y));
     path.push(current);
   }
-  return path;
+  return path.map(cell => [cell.floor, cell.x, cell.y]);
 }
 
 function validationSummary(result) {
@@ -837,20 +951,20 @@ function renderValidationOverlay() {
   if (validationOverlay.checked) {
     const seenPathCells = new Set();
     for (const path of Object.values(result.paths)) {
-      for (const [x, y] of path) {
-        const key = cellKey(x, y);
+      for (const [floor, x, y] of path) {
+        const key = cellKey(floor, x, y);
         if (seenPathCells.has(key)) continue;
         seenPathCells.add(key);
-        validationGroup.add(overlayBox(x + 0.5, y + 0.5, 0.52, 0.52, 0x46d983, 0.55, 0.16, 0.05));
+        validationGroup.add(overlayBox(x + 0.5, y + 0.5, 0.52, 0.52, 0x46d983, 0.55, floorZ(floor) + 0.16, 0.05));
       }
     }
-    for (const [x, y] of result.unreachableWalkableCells) {
-      validationGroup.add(overlayBox(x + 0.5, y + 0.5, 0.82, 0.82, 0xc44cff, 0.42, 0.14, 0.05));
+    for (const cell of result.unreachableWalkableCells) {
+      validationGroup.add(overlayBox(cell.x + 0.5, cell.y + 0.5, 0.82, 0.82, 0xc44cff, 0.42, floorZ(cell.floor) + 0.14, 0.05));
     }
     for (const issue of result.issues) {
       if (issue.severity !== "error" || !issue.cell) continue;
-      const [x, y] = issue.cell;
-      validationGroup.add(overlayBox(x + 0.5, y + 0.5, 0.95, 0.95, 0xff4f4f, 0.7, 0.22, 0.08));
+      const cell = issue.cell;
+      validationGroup.add(overlayBox(cell.x + 0.5, cell.y + 0.5, 0.95, 0.95, 0xff4f4f, 0.7, floorZ(cell.floor) + 0.22, 0.08));
     }
   }
   return result;
@@ -906,6 +1020,23 @@ function exportScenarioYaml() {
       "        text: |"
     );
     for (const line of floorText(floor.grid).split("\\n")) lines.push(`          ${line}`);
+  }
+  if (runtimeConnectors.length) {
+    lines.push("    connectors:");
+    for (const connector of runtimeConnectors) {
+      lines.push(
+        `      - id: ${yamlQuote(connector.id)}`,
+        `        type: ${yamlQuote(connector.type)}`,
+        `        from: {floor: ${yamlQuote(connector.from.floor)}, x: ${connector.from.x}, y: ${connector.from.y}}`,
+        `        to: {floor: ${yamlQuote(connector.to.floor)}, x: ${connector.to.x}, y: ${connector.to.y}}`,
+        `        bidirectional: ${connector.bidirectional ? "true" : "false"}`,
+        `        width: ${yamlNumber(connector.width, 1)}`,
+        `        speed_multiplier: ${yamlNumber(connector.speed_multiplier, 1)}`
+      );
+      if (connector.capacity !== null) lines.push(`        capacity: ${Math.max(1, Math.round(connector.capacity))}`);
+      if (connector.dwell_s) lines.push(`        dwell_s: ${yamlNumber(connector.dwell_s)}`);
+      if (connector.travel_s) lines.push(`        travel_s: ${yamlNumber(connector.travel_s)}`);
+    }
   }
   lines.push("  population:", `    total: ${populationTotal}`);
   if (spawns.length) {
@@ -967,6 +1098,7 @@ function gridCellFromEvent(event) {
   pointer.y = -(((event.clientY - rect.top) / Math.max(rect.height, 1)) * 2 - 1);
   raycaster.setFromCamera(pointer, camera);
   const point = new THREE.Vector3();
+  paintPlane.constant = -activeFloor().z;
   if (!raycaster.ray.intersectPlane(paintPlane, point)) return null;
   const x = Math.floor(point.x);
   const y = Math.floor(point.z);
@@ -978,10 +1110,11 @@ function paintCellFromEvent(event) {
   const cell = gridCellFromEvent(event);
   if (!cell) return false;
   const token = String(paintToken.value || ".").slice(0, 1);
-  editorGrid[cell.y][cell.x] = token;
+  activeEditorGrid()[cell.y][cell.x] = token;
+  if (activeFloorIndex() === 0) editorGrid[cell.y][cell.x] = token;
   renderLayoutGrid();
   const result = renderValidationOverlay();
-  updateEditorStatus(`${cell.x},${cell.y} ${tokenLabel(token)} | ${validationSummary(result)}`);
+  updateEditorStatus(`${activeFloor().id}:${cell.x},${cell.y} ${tokenLabel(token)} | ${validationSummary(result)}`);
   return true;
 }
 
@@ -1005,7 +1138,7 @@ canvas.addEventListener("pointermove", event => {
   }
   if (authorMode.checked && paintPointerId === null) {
     const cell = gridCellFromEvent(event);
-    if (cell) updateEditorStatus(`${cell.x},${cell.y} ${tokenLabel(paintToken.value)}`);
+    if (cell) updateEditorStatus(`${activeFloor().id}:${cell.x},${cell.y} ${tokenLabel(paintToken.value)}`);
   }
   if (!dragStart || event.pointerId !== dragStart.pointerId) return;
   const dx = event.clientX - dragStart.x;

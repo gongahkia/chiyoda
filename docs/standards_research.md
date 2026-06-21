@@ -22,9 +22,16 @@ matter for simulation.
 
 ## Implementation Mapping
 
+- `chiyoda.cli convert-layout` converts OSM/GTFS-like GeoJSON into strict
+  scenario YAML.
 - `layout.floors[]` preserves floor identity with `id`, `z`, and raster `text`.
 - `layout.connectors[]` models GTFS/indoor-style vertical links as `stairs`,
   `ramp`, `elevator`, or `escalator`.
+- `convert-layout` maps GTFS `pathway_mode=2` to stairs, `3` to ramp-like
+  moving walkway/travelator, `4` to escalator, and `5` to elevator.
+- It maps OSM `highway=steps` to stairs, `highway=steps` plus
+  `conveying=*` to escalator, `highway=elevator` to elevator, and `ramp=yes`
+  to ramp.
 - Connector endpoints use `{floor, x, y}` mappings rather than ambiguous 2D
   tuples.
 - Hazards are positioned in `[x, y, z]` world coordinates and use 3D distance.
@@ -32,9 +39,9 @@ matter for simulation.
 
 ## Limits
 
-- GeoJSON/CAD ingestion remains a compatibility rasterizer, not a full
-  standards-complete indoor importer.
-- Viewer authoring edits the primary floor only. Export preserves all runtime
-  floors, but non-primary floor editing is not implemented.
+- The converter is pragmatic and supports common GTFS Pathways / OSM indoor
+  fields; it is not a full standards-complete indoor importer.
+- Viewer authoring can paint existing runtime floors and preserve existing
+  connectors, but it cannot create new connectors yet.
 - Elevator behavior is capacity/dwell/travel-time holding, not a physical car
   dispatch model.

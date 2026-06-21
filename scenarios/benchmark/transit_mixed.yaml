@@ -1,0 +1,49 @@
+scenario:
+  name: transit_mixed
+  description: "Mixed CBRN and misinformation transit benchmark."
+  layout:
+    cell_size: 1.0
+    floors:
+      - id: "0"
+        z: 0.0
+        text: |
+          XXXXXXXXXXXX
+          X@....S...EX
+          X..XXXX....X
+          X@.........X
+          XXXXXXXXXXXX
+  population:
+    total: 2
+    cohorts:
+      - name: mixed_public
+        count: 2
+        familiarity: 0.2
+        spawn_cells:
+          - {floor: "0", x: 1, y: 1}
+          - {floor: "0", x: 1, y: 3}
+  hazards:
+    - type: SMOKE
+      location: [5.5, 3.0, 0.0]
+      radius: 1.0
+      severity: 0.35
+      spread_rate: 0.01
+      diffusion_rate: 0.02
+      visibility_reduction: 0.4
+  hostile_channels:
+    - id: mixed_decoy
+      channel_type: gossip
+      objective: decoy-exit
+      budget: 2
+      plausibility: 0.65
+      claimed_exit: {floor: "0", x: 2, y: 2}
+  information:
+    mode: asymmetric
+    observation_radius: 4.0
+    gossip_radius: 2.0
+    beacon_radius: 8.0
+  behavior:
+    freeze_probability: 0.0
+  simulation:
+    max_steps: 80
+    dt: 0.1
+    random_seed: 42
