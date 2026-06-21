@@ -242,6 +242,7 @@ class ScenarioManager:
                 ))
                 continue
             wind = hc.get("wind_vector", [0.0, 0.0])
+            flow = hc.get("flow_vector", hc.get("flow", [0.0, 0.0]))
             hazards.append(Hazard(
                 pos=tuple(float(value) for value in hc.get("location", [0, 0, 0])),
                 kind=hc.get("type", "GAS"),
@@ -261,6 +262,17 @@ class ScenarioManager:
                 ember_spotting_rate=float(hc.get("ember_spotting_rate", 0.0)),
                 ember_ignition_radius=float(hc.get("ember_ignition_radius", 0.0)),
                 ember_decay_rate=float(hc.get("ember_decay_rate", 0.15)),
+                flow_vector=(float(flow[0]), float(flow[1])),
+                inundation_depth_m=float(hc.get("inundation_depth_m", hc.get("initial_depth_m", 0.0))),
+                inundation_rise_rate_mps=float(hc.get("inundation_rise_rate_mps", hc.get("rise_rate_mps", 0.0))),
+                inundation_decay_rate=float(hc.get("inundation_decay_rate", hc.get("recession_rate", 0.0))),
+                flood_depth_threshold_m=float(hc.get("flood_depth_threshold_m", hc.get("depth_threshold_m", 0.6))),
+                max_depth_m=float(hc.get("max_depth_m", 2.0)),
+                aftershock_schedule=tuple(int(value) for value in hc.get("aftershock_schedule", hc.get("aftershock_steps", [])) or []),
+                aftershock_decay_rate=float(hc.get("aftershock_decay_rate", 0.12)),
+                aftershock_damage_increment=float(hc.get("aftershock_damage_increment", hc.get("terrain_damage_increment", 0.35))),
+                damage_radius=float(hc.get("damage_radius", hc.get("terrain_damage_radius", 0.0))),
+                re_evacuation_radius=float(hc.get("re_evacuation_radius", hc.get("reevacuation_radius", 0.0))),
             ))
         return hazards
 

@@ -133,6 +133,8 @@ class Simulation:
         self.wui_egress_segments: List[Dict[str, Any]] = []
         self.road_segment_cells: Dict[Tuple[str, int, int], Dict[str, Any]] = {}
         self.mode_switch_events: List[Dict[str, Any]] = []
+        self.terrain_damage_cells: Dict[Tuple[str, int, int], float] = {}
+        self.aftershock_events: List[Dict[str, Any]] = []
 
         # ITED: information layer
         self.info_field = InformationField(
@@ -233,6 +235,7 @@ class Simulation:
                 ("current_hazard_load", 0.0), ("hazard_speed_factor", 1.0),
                 ("hazard_risk", 0.0), ("evacuated_via", None),
                 ("evacuation_mode", "pedestrian"), ("mode_switch_step", None),
+                ("re_evacuation_count", 0), ("re_evacuation_step", None),
             ]:
                 if not hasattr(agent, attr):
                     setattr(agent, attr, default)
@@ -282,18 +285,19 @@ class Simulation:
         return min(visible, key=lambda item: item["distance"])
 
     def hazard_penalty_at_cell(self, cell: Tuple[int, int]) -> float:
-        if any(hasattr(hazard, "intensity_grid") or getattr(hazard, "height_aware", False) for hazard in self.hazards):
+        if any(self._hazard_requires_direct_sampling(hazard) for hazard in self.hazards):
             intensity = self._cell_hazard_intensity(cell, height_offset=1.5)
         else:
             intensity = self.hazard_intensity_at(self.layout.world_position(cell))
-        return self.config.hazard_avoidance_weight * intensity
+        terrain_damage = self.terrain_damage_cells.get(tuple(self.layout.cell(cell)), 0.0)
+        return self.config.hazard_avoidance_weight * (intensity + terrain_damage)
 
     def _cell_hazard_intensity(self, cell, *, height_offset: float) -> float:
         floor_point = self.layout.world_position(cell)
         exposure_point = self.layout.world_position(cell, height_offset=height_offset)
         intensity = 0.0
         for hazard in self.hazards:
-            sample = exposure_point if hasattr(hazard, "intensity_grid") or getattr(hazard, "height_aware", False) else floor_point
+            sample = exposure_point if self._hazard_requires_direct_sampling(hazard) else floor_point
             intensity += float(hazard.intensity_at(sample))
         return intensity
 
@@ -341,7 +345,7 @@ class Simulation:
             if self.hazards else np.zeros((0,), dtype=float)
         )
         hazard_loads = self.acceleration.hazard_intensities(positions, hazard_positions, radii, severities)
-        if any(hasattr(hazard, "intensity_grid") or getattr(hazard, "height_aware", False) for hazard in self.hazards):
+        if any(self._hazard_requires_direct_sampling(hazard) for hazard in self.hazards):
             hazard_loads = np.array(
                 [self._agent_hazard_intensity(agent) for agent in active_agents],
                 dtype=float,
@@ -870,6 +874,61 @@ class Simulation:
             "mode": "vehicle",
             "speed_multiplier": multiplier,
         })
+
+    def apply_terrain_damage(self, center, radius: float, severity: float, *, source: str) -> Dict[str, Any]:
+        origin = _point3(center)
+        radius = max(float(radius), 1e-6)
+        severity = max(0.0, float(severity))
+        affected = 0
+        max_damage = 0.0
+        for cell in self.layout.all_walkable_cells():
+            point = self.layout.world_position(cell)
+            dist = float(np.linalg.norm(point - origin))
+            if dist > radius:
+                continue
+            increment = severity * max(0.0, 1.0 - dist / radius)
+            if increment <= 0.0:
+                continue
+            key = tuple(cell)
+            value = min(1.0, self.terrain_damage_cells.get(key, 0.0) + increment)
+            self.terrain_damage_cells[key] = value
+            affected += 1
+            max_damage = max(max_damage, value)
+        return {
+            "source": source,
+            "affected_cells": affected,
+            "max_damage": max_damage,
+        }
+
+    def trigger_re_evacuation_wave(self, center, radius: float, *, source: str) -> int:
+        origin = _point3(center)
+        radius = max(float(radius), 1e-6)
+        triggered = 0
+        for agent in self.agents:
+            if agent.has_evacuated:
+                continue
+            dist = float(np.linalg.norm(_point3(agent.pos) - origin))
+            if dist > radius:
+                continue
+            agent.release_step = min(int(getattr(agent, "release_step", 0)), int(self.current_step))
+            agent.current_path = []
+            agent.path_index = 0
+            agent.target_exit = None
+            agent.last_navigation_step = -9999
+            agent.re_evacuation_count = int(getattr(agent, "re_evacuation_count", 0)) + 1
+            agent.re_evacuation_step = int(self.current_step)
+            if getattr(agent, "state", "CALM") == "CALM":
+                agent.state = "ALERT"
+            triggered += 1
+        return triggered
+
+    def _hazard_requires_direct_sampling(self, hazard) -> bool:
+        kind = str(getattr(hazard, "kind", "")).upper()
+        return (
+            hasattr(hazard, "intensity_grid")
+            or getattr(hazard, "height_aware", False)
+            or kind in {"WILDFIRE", "EMBER", "FLOOD", "EARTHQUAKE", "AFTERSHOCK"}
+        )
 
     def _connector_telemetry(self) -> Dict[str, Dict[str, float | int]]:
         return {

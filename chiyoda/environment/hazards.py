@@ -42,6 +42,24 @@ HAZARD_PROFILES = {
         "rationality_decay": 0.25,
         "incapacitation_threshold": 4.0,
     },
+    "FLOOD": {
+        "speed_decay": 0.7,
+        "vision_decay": 0.15,
+        "rationality_decay": 0.25,
+        "incapacitation_threshold": 4.0,
+    },
+    "EARTHQUAKE": {
+        "speed_decay": 0.45,
+        "vision_decay": 0.1,
+        "rationality_decay": 0.55,
+        "incapacitation_threshold": 3.5,
+    },
+    "AFTERSHOCK": {
+        "speed_decay": 0.4,
+        "vision_decay": 0.1,
+        "rationality_decay": 0.45,
+        "incapacitation_threshold": 4.0,
+    },
     "CRUSH": { # crowd crush (density-induced)
         "speed_decay": 0.9,
         "vision_decay": 0.1,
@@ -79,6 +97,22 @@ class Hazard:
     ember_cell_size: float = 1.0
     ember_origin: Tuple[float, float] = (0.0, 0.0)
     ember_field: Dict[Tuple[int, int], float] = field(default_factory=dict)
+    flow_vector: Tuple[float, float] = (0.0, 0.0)
+    inundation_depth_m: float = 0.0
+    inundation_rise_rate_mps: float = 0.0
+    inundation_decay_rate: float = 0.0
+    flood_depth_threshold_m: float = 0.6
+    max_depth_m: float = 2.0
+    inundation_cell_size: float = 1.0
+    inundation_origin: Tuple[float, float] = (0.0, 0.0)
+    inundation_field: Dict[Tuple[int, int], float] = field(default_factory=dict)
+    aftershock_schedule: Tuple[int, ...] = field(default_factory=tuple)
+    aftershock_decay_rate: float = 0.12
+    aftershock_damage_increment: float = 0.35
+    damage_radius: float = 0.0
+    re_evacuation_radius: float = 0.0
+    aftershock_index: int = 0
+    shock_intensity: float = 0.0
     active: bool = True
 
     def step(self, dt: float, simulation) -> None:
@@ -106,6 +140,24 @@ class Hazard:
                 z,
             )
             self._step_ember_field(dt, simulation)
+        elif self.kind.upper() == "FLOOD":
+            flow = np.array(self.flow_vector or self.wind_vector, dtype=float)
+            flow_speed = float(np.linalg.norm(flow))
+            self.radius += (self.spread_rate + self.diffusion_rate + 0.03 * flow_speed) * dt
+            self.inundation_depth_m = min(
+                self.max_depth_m,
+                max(0.0, self.inundation_depth_m + self.inundation_rise_rate_mps * dt),
+            )
+            z = float(self.pos[2]) if len(self.pos) >= 3 else 0.0
+            self.pos = (
+                self.pos[0] + float(flow[0]) * dt * 0.1,
+                self.pos[1] + float(flow[1]) * dt * 0.1,
+                z,
+            )
+            self._step_inundation_field(dt, simulation, flow)
+        elif self.kind.upper() in {"EARTHQUAKE", "AFTERSHOCK"}:
+            self.shock_intensity *= max(0.0, 1.0 - self.aftershock_decay_rate * dt)
+            self._step_aftershocks(simulation)
 
     def intensity_at(self, point: np.ndarray) -> float:
         if not self.active:
@@ -119,6 +171,10 @@ class Hazard:
         )
         effective_radius = self.range_m if self.kind.upper() == "SHOOTER" else self.radius
         ember = self._ember_intensity_at(sample) if self.kind.upper() in {"WILDFIRE", "EMBER"} else 0.0
+        flood = self._flood_intensity_at(sample) if self.kind.upper() == "FLOOD" else 0.0
+        shock = self._shock_intensity_at(sample) if self.kind.upper() in {"EARTHQUAKE", "AFTERSHOCK"} else 0.0
+        if flood > 0.0 or shock > 0.0:
+            return min(1.0, flood + shock)
         if effective_radius <= 1e-6:
             base = float(self.severity) if dist <= 0.75 else 0.0
             return min(1.0, base * _height_factor(sample[2] - origin[2], self) + ember)
@@ -172,6 +228,16 @@ class Hazard:
             "ember_origin": self.ember_origin,
             "ember_cell_count": len(self.ember_field),
             "max_ember_intensity": max(self.ember_field.values(), default=0.0),
+            "flow_vector": self.flow_vector,
+            "inundation_depth_m": self.inundation_depth_m,
+            "inundation_rise_rate_mps": self.inundation_rise_rate_mps,
+            "flood_depth_threshold_m": self.flood_depth_threshold_m,
+            "max_depth_m": self.max_depth_m,
+            "inundation_cell_count": len(self.inundation_field),
+            "max_inundation_depth_m": max(self.inundation_field.values(), default=0.0),
+            "aftershock_schedule": self.aftershock_schedule,
+            "aftershock_index": self.aftershock_index,
+            "shock_intensity": self.shock_intensity,
         }
 
     def _step_ember_field(self, dt: float, simulation) -> None:
@@ -225,6 +291,106 @@ class Hazard:
             int(np.floor((float(sample[1]) - self.ember_origin[1]) / cell_size)),
         )
         return float(self.ember_field.get(key, 0.0))
+
+    def _step_inundation_field(self, dt: float, simulation, flow: np.ndarray) -> None:
+        decay = max(0.0, 1.0 - self.inundation_decay_rate * dt)
+        self.inundation_field = {
+            cell: value * decay
+            for cell, value in self.inundation_field.items()
+            if value * decay > 0.01
+        }
+        flow_norm = float(np.linalg.norm(flow))
+        flow_dir = flow / flow_norm if flow_norm > 1e-6 else np.array([1.0, 0.0], dtype=float)
+        origin = _point3(self.pos)
+        centers = [
+            origin[:2],
+            origin[:2] + flow_dir * max(0.0, self.radius * 0.6 + flow_norm * dt),
+        ]
+        cell_size = max(float(getattr(simulation.layout, "cell_size", self.inundation_cell_size)), 1e-6)
+        self.inundation_cell_size = cell_size
+        layout_origin = getattr(simulation.layout, "origin", (0.0, 0.0))
+        self.inundation_origin = (float(layout_origin[0]), float(layout_origin[1]))
+        field_origin = np.array(self.inundation_origin, dtype=float)
+        base_depth = min(
+            self.max_depth_m,
+            max(self.inundation_depth_m, self.severity * self.flood_depth_threshold_m),
+        )
+        for center in centers:
+            radius = max(1.0, self.radius)
+            min_x = int(np.floor((center[0] - radius - field_origin[0]) / cell_size))
+            max_x = int(np.ceil((center[0] + radius - field_origin[0]) / cell_size))
+            min_y = int(np.floor((center[1] - radius - field_origin[1]) / cell_size))
+            max_y = int(np.ceil((center[1] + radius - field_origin[1]) / cell_size))
+            for x in range(min_x, max_x + 1):
+                for y in range(min_y, max_y + 1):
+                    point = field_origin + np.array([(x + 0.5) * cell_size, (y + 0.5) * cell_size], dtype=float)
+                    dist = float(np.linalg.norm(point - center))
+                    if dist > radius:
+                        continue
+                    depth = base_depth * max(0.0, 1.0 - dist / radius)
+                    key = (x, y)
+                    self.inundation_field[key] = min(self.max_depth_m, max(self.inundation_field.get(key, 0.0), depth))
+
+    def _flood_intensity_at(self, sample: np.ndarray) -> float:
+        depth = self._inundation_depth_at(sample)
+        if depth <= 0.0:
+            return 0.0
+        threshold = max(float(self.flood_depth_threshold_m), 1e-6)
+        return float(np.clip(self.severity * (depth / threshold), 0.0, 1.0))
+
+    def _inundation_depth_at(self, sample: np.ndarray) -> float:
+        if not self.inundation_field:
+            return 0.0
+        cell_size = max(float(self.inundation_cell_size), 1e-6)
+        key = (
+            int(np.floor((float(sample[0]) - self.inundation_origin[0]) / cell_size)),
+            int(np.floor((float(sample[1]) - self.inundation_origin[1]) / cell_size)),
+        )
+        return float(self.inundation_field.get(key, 0.0))
+
+    def _step_aftershocks(self, simulation) -> None:
+        step = int(getattr(simulation, "current_step", 0))
+        schedule = tuple(int(value) for value in self.aftershock_schedule)
+        while self.aftershock_index < len(schedule) and step >= schedule[self.aftershock_index]:
+            pulse_scale = max(0.2, float(np.exp(-self.aftershock_decay_rate * self.aftershock_index)))
+            radius = max(float(self.damage_radius), float(self.radius), 1.0)
+            damage = float(self.aftershock_damage_increment) * float(self.severity) * pulse_scale
+            center = _point3(self.pos)
+            terrain = (
+                simulation.apply_terrain_damage(center, radius, damage, source=str(self.kind).lower())
+                if hasattr(simulation, "apply_terrain_damage")
+                else {"affected_cells": 0, "max_damage": 0.0}
+            )
+            wave_radius = max(float(self.re_evacuation_radius), radius)
+            triggered = (
+                simulation.trigger_re_evacuation_wave(center, wave_radius, source=str(self.kind).lower())
+                if hasattr(simulation, "trigger_re_evacuation_wave")
+                else 0
+            )
+            if hasattr(simulation, "aftershock_events"):
+                simulation.aftershock_events.append({
+                    "step": step,
+                    "time_s": float(getattr(simulation, "time_s", 0.0)),
+                    "hazard_kind": str(self.kind),
+                    "aftershock_index": int(self.aftershock_index),
+                    "radius": radius,
+                    "damage_increment": damage,
+                    "affected_cells": int(terrain.get("affected_cells", 0)),
+                    "max_damage": float(terrain.get("max_damage", 0.0)),
+                    "triggered_agents": int(triggered),
+                })
+            self.shock_intensity = max(self.shock_intensity, float(self.severity) * pulse_scale)
+            self.aftershock_index += 1
+
+    def _shock_intensity_at(self, sample: np.ndarray) -> float:
+        if self.shock_intensity <= 0.01:
+            return 0.0
+        origin = _point3(self.pos)
+        dist = float(np.linalg.norm(sample - origin))
+        radius = max(float(self.radius), float(self.damage_radius), 1e-6)
+        if dist > radius:
+            return 0.0
+        return float(np.clip(self.shock_intensity * max(0.0, 1.0 - dist / radius), 0.0, 1.0))
 
 
 @dataclass
