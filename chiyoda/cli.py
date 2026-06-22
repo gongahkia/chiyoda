@@ -21,7 +21,11 @@ from chiyoda.information.route_choice_calibration import (
 from chiyoda.information.warfare import AttackerObjective
 from chiyoda.scenarios.assertions import evaluate_scenario_assertions
 from chiyoda.scenarios.manager import ScenarioManager
-from chiyoda.scenarios.standards import strict_scenario_from_geojson
+from chiyoda.scenarios.standards import (
+    OVERPASS_URL,
+    strict_scenario_from_geojson,
+    strict_scenario_from_osm_bbox,
+)
 from chiyoda.scenarios.validation import validate_scenario_file
 from chiyoda.studies import (
     StudyBundle,
@@ -224,22 +228,51 @@ def assert_scenario_command(ctx, scenario_file, json_output):
 
 
 @cli.command("convert-layout")
-@click.argument("geojson_file")
-@click.argument("output_file")
+@click.argument("source_or_output")
+@click.argument("output_file", required=False)
 @click.option("--name", default="converted_station", help="Scenario name")
 @click.option("--cell-size", default=1.0, type=float, help="Raster cell size")
 @click.option("--padding", default=1, type=int, help="Raster padding in cells")
-def convert_layout_command(geojson_file, output_file, name, cell_size, padding):
+@click.option(
+    "--osm-bbox",
+    default=None,
+    help="Fetch OSM via Overpass using south,west,north,east lat/lon bbox",
+)
+@click.option("--overpass-url", default=OVERPASS_URL, help="Overpass interpreter URL")
+@click.option("--overpass-timeout", default=25, type=int, help="Overpass timeout")
+def convert_layout_command(
+    source_or_output,
+    output_file,
+    name,
+    cell_size,
+    padding,
+    osm_bbox,
+    overpass_url,
+    overpass_timeout,
+):
     """Convert OSM/GTFS-like GeoJSON into strict layout.floors/connectors YAML."""
     import yaml
 
-    payload = strict_scenario_from_geojson(
-        geojson_file,
-        name=name,
-        cell_size=cell_size,
-        padding=padding,
-    )
-    output = Path(output_file)
+    if osm_bbox:
+        payload = strict_scenario_from_osm_bbox(
+            osm_bbox,
+            name=name,
+            cell_size=cell_size,
+            padding=padding,
+            overpass_url=overpass_url,
+            timeout=overpass_timeout,
+        )
+        output = Path(output_file or source_or_output)
+    else:
+        if output_file is None:
+            raise click.UsageError("convert-layout requires OUTPUT_FILE")
+        payload = strict_scenario_from_geojson(
+            source_or_output,
+            name=name,
+            cell_size=cell_size,
+            padding=padding,
+        )
+        output = Path(output_file)
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(yaml.safe_dump(payload, sort_keys=False))
     click.echo(f"Exported strict scenario to {output}")

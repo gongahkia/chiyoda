@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 
+import yaml
 from click.testing import CliRunner
 
 from chiyoda.cli import cli
@@ -88,3 +89,66 @@ def test_convert_layout_cli_writes_strict_scenario(tmp_path):
     assert "floors:" in text
     assert "connectors:" in text
     assert "layout:" in text
+
+
+def test_convert_layout_cli_fetches_osm_bbox(monkeypatch, tmp_path):
+    import chiyoda.scenarios.standards as standards
+
+    output = tmp_path / "osm.yaml"
+    calls = []
+
+    def fake_fetch(query, overpass_url, timeout):
+        calls.append((query, overpass_url, timeout))
+        return {
+            "elements": [
+                {
+                    "type": "way",
+                    "id": 10,
+                    "tags": {"indoor": "corridor", "level": "0"},
+                    "geometry": [
+                        {"lat": 35.0, "lon": 139.0},
+                        {"lat": 35.0, "lon": 139.00002},
+                        {"lat": 35.00002, "lon": 139.00002},
+                        {"lat": 35.00002, "lon": 139.0},
+                        {"lat": 35.0, "lon": 139.0},
+                    ],
+                },
+                {
+                    "type": "node",
+                    "id": 20,
+                    "tags": {"entrance": "yes", "level": "0"},
+                    "lat": 35.00001,
+                    "lon": 139.00002,
+                },
+            ]
+        }
+
+    monkeypatch.setattr(standards, "_fetch_overpass_json", fake_fetch)
+
+    result = CliRunner().invoke(
+        cli,
+        [
+            "convert-layout",
+            str(output),
+            "--osm-bbox",
+            "35.0,139.0,35.00003,139.00003",
+            "--name",
+            "osm_fixture",
+            "--overpass-timeout",
+            "7",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert calls
+    query, overpass_url, timeout = calls[0]
+    assert "35.0,139.0,35.00003,139.00003" in query
+    assert overpass_url == standards.OVERPASS_URL
+    assert timeout == 7
+    payload = yaml.safe_load(output.read_text())["scenario"]
+    provenance = payload["metadata"]["station_provenance"]
+    assert provenance["station"] == "osm_fixture"
+    assert "way/10" in provenance["osm_objects"]
+    assert "node/20" in provenance["osm_objects"]
+    assert "ODbL" in provenance["license"]
+    assert payload["layout"]["floors"][0]["id"] == "0"

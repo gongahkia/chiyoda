@@ -2,11 +2,16 @@ from __future__ import annotations
 
 import json
 import math
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping, Sequence
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+from urllib import parse as urlparse
+from urllib import request as urlrequest
 
 from chiyoda.environment.obstacles import rasterize_geojson_layout
+
+OVERPASS_URL = "https://overpass-api.de/api/interpreter"
 
 GTFS_CONNECTOR_MODES = {
     "2": "stairs",
@@ -154,10 +159,224 @@ def strict_scenario_from_geojson(
     }
 
 
+def strict_scenario_from_osm_bbox(
+    osm_bbox: str | Sequence[float],
+    *,
+    name: str = "osm_bbox_import",
+    cell_size: float = 1.0,
+    padding: int = 1,
+    overpass_url: str = OVERPASS_URL,
+    timeout: int = 25,
+    fetcher: Callable[[str, str, int], Mapping[str, Any]] | None = None,
+) -> dict[str, Any]:
+    bbox = _parse_osm_bbox(osm_bbox)
+    query = _overpass_query(bbox, timeout=timeout)
+    payload = (
+        fetcher(query, overpass_url, timeout)
+        if fetcher is not None
+        else _fetch_overpass_json(query, overpass_url, timeout)
+    )
+    geojson = overpass_json_to_geojson(payload, bbox=bbox)
+    scenario = strict_scenario_from_geojson(
+        geojson,
+        name=name,
+        cell_size=cell_size,
+        padding=padding,
+    )
+    scenario["scenario"]["metadata"] = {
+        "station_provenance": _osm_station_provenance(
+            name=name,
+            bbox=bbox,
+            overpass_url=overpass_url,
+            query=query,
+            payload=payload,
+        )
+    }
+    return scenario
+
+
+def overpass_json_to_geojson(
+    payload: Mapping[str, Any],
+    *,
+    bbox: tuple[float, float, float, float],
+) -> dict[str, Any]:
+    features = []
+    for element in payload.get("elements", []):
+        if not isinstance(element, Mapping):
+            continue
+        feature = _overpass_element_to_feature(element, bbox=bbox)
+        if feature is not None:
+            features.append(feature)
+    if not features:
+        raise ValueError("Overpass response did not contain supported geometry")
+    return {"type": "FeatureCollection", "features": features}
+
+
 def _load_geojson(source: str | Path | Mapping[str, Any]) -> Mapping[str, Any]:
     if isinstance(source, Mapping):
         return source
     return json.loads(Path(source).read_text())
+
+
+def _parse_osm_bbox(value: str | Sequence[float]) -> tuple[float, float, float, float]:
+    parts = value.split(",") if isinstance(value, str) else list(value)
+    if len(parts) != 4:
+        raise ValueError("--osm-bbox must be lat,lon,lat,lon")
+    south, west, north, east = (float(part) for part in parts)
+    if south >= north or west >= east:
+        raise ValueError("--osm-bbox must be south,west,north,east")
+    if not (-90 <= south <= 90 and -90 <= north <= 90):
+        raise ValueError("--osm-bbox latitude values must be within [-90,90]")
+    if not (-180 <= west <= 180 and -180 <= east <= 180):
+        raise ValueError("--osm-bbox longitude values must be within [-180,180]")
+    return south, west, north, east
+
+
+def _overpass_query(
+    bbox: tuple[float, float, float, float],
+    *,
+    timeout: int,
+) -> str:
+    south, west, north, east = bbox
+    bbox_text = f"{south},{west},{north},{east}"
+    return f"""[out:json][timeout:{int(timeout)}][bbox:{bbox_text}];
+(
+  node["entrance"];
+  node["railway"~"station|subway_entrance|train_station_entrance"];
+  node["public_transport"~"platform|entrance|station_entrance"];
+  way["indoor"];
+  way["highway"~"corridor|elevator|footway|path|pedestrian|steps"];
+  way["area:highway"];
+  way["railway"~"platform|subway_entrance|train_station_entrance"];
+  way["public_transport"~"platform|entrance|station_entrance"];
+  way["barrier"~"block|fence|wall"];
+  relation["public_transport"~"platform|entrance|station_entrance"];
+);
+out geom({bbox_text});"""
+
+
+def _fetch_overpass_json(
+    query: str,
+    overpass_url: str,
+    timeout: int,
+) -> Mapping[str, Any]:
+    data = urlparse.urlencode({"data": query}).encode()
+    request = urlrequest.Request(
+        overpass_url,
+        data=data,
+        headers={
+            "Content-Type": "application/x-www-form-urlencoded",
+            "User-Agent": "chiyoda-osm-import",
+        },
+        method="POST",
+    )
+    with urlrequest.urlopen(request, timeout=timeout) as response:
+        return json.loads(response.read().decode())
+
+
+def _overpass_element_to_feature(
+    element: Mapping[str, Any],
+    *,
+    bbox: tuple[float, float, float, float],
+) -> dict[str, Any] | None:
+    element_type = str(element.get("type", ""))
+    properties = dict(element.get("tags", {}) or {})
+    properties["osm_type"] = element_type
+    properties["osm_id"] = element.get("id")
+
+    if element_type == "node":
+        if element.get("lat") is None or element.get("lon") is None:
+            return None
+        geometry = {
+            "type": "Point",
+            "coordinates": _project_osm_point(
+                float(element["lat"]), float(element["lon"]), bbox=bbox
+            ),
+        }
+    else:
+        raw_geometry = element.get("geometry", [])
+        if not isinstance(raw_geometry, list) or len(raw_geometry) < 2:
+            return None
+        coords = [
+            _project_osm_point(float(point["lat"]), float(point["lon"]), bbox=bbox)
+            for point in raw_geometry
+            if isinstance(point, Mapping)
+            and point.get("lat") is not None
+            and point.get("lon") is not None
+        ]
+        if len(coords) < 2:
+            return None
+        if _is_closed_ring(coords):
+            if coords[0] != coords[-1]:
+                coords.append(coords[0])
+            geometry = {"type": "Polygon", "coordinates": [coords]}
+        else:
+            geometry = {"type": "LineString", "coordinates": coords}
+
+    return {"type": "Feature", "properties": properties, "geometry": geometry}
+
+
+def _project_osm_point(
+    lat: float,
+    lon: float,
+    *,
+    bbox: tuple[float, float, float, float],
+) -> list[float]:
+    south, west, north, _ = bbox
+    mean_lat_rad = math.radians((south + north) / 2.0)
+    meters_per_lat = 110_574.0
+    meters_per_lon = 111_320.0 * math.cos(mean_lat_rad)
+    return [(lon - west) * meters_per_lon, (lat - south) * meters_per_lat]
+
+
+def _is_closed_ring(coords: Sequence[Sequence[float]]) -> bool:
+    if len(coords) < 4:
+        return False
+    first, last = coords[0], coords[-1]
+    return abs(first[0] - last[0]) < 1e-9 and abs(first[1] - last[1]) < 1e-9
+
+
+def _osm_station_provenance(
+    *,
+    name: str,
+    bbox: tuple[float, float, float, float],
+    overpass_url: str,
+    query: str,
+    payload: Mapping[str, Any],
+) -> dict[str, Any]:
+    return {
+        "station": name,
+        "level": "OSM bbox import",
+        "source_url": overpass_url,
+        "license": "OpenStreetMap data: Open Data Commons Open Database License (ODbL) 1.0",
+        "license_url": "https://www.openstreetmap.org/copyright/",
+        "access_date": datetime.now(UTC).date().isoformat(),
+        "osm_bbox": list(bbox),
+        "osm_objects": _osm_object_ids(payload),
+        "overpass_query": query,
+        "coordinate_transform": "Equirectangular projection to local meters from the south-west bbox corner.",
+        "manual_edits": [
+            "Converted supported Overpass node and way geometry into strict layout cells."
+        ],
+        "known_missing_indoor_topology": [
+            "OSM bbox imports may omit indoor corridors, doors, fare gates, platform edges, and vertical transfer details."
+        ],
+        "validation_use": "Diagnostic import only; not validation-grade station geometry.",
+        "attribution": "Contains information from OpenStreetMap contributors, ODbL.",
+    }
+
+
+def _osm_object_ids(payload: Mapping[str, Any]) -> list[str]:
+    objects = []
+    for element in payload.get("elements", []):
+        if not isinstance(element, Mapping):
+            continue
+        element_type = element.get("type")
+        element_id = element.get("id")
+        if element_type is None or element_id is None:
+            continue
+        objects.append(f"{element_type}/{element_id}")
+    return sorted(set(objects))
 
 
 def _floor_ids(features: list[dict[str, Any]]) -> list[str]:
