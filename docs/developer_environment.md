@@ -31,3 +31,19 @@ rerun:
 .venv/bin/python -m pytest
 make doctor PYTHON=.venv/bin/python
 ```
+
+## Profiling
+
+To produce a cProfile run on a large scenario:
+
+```sh
+make profile PYTHON=.venv/bin/python
+```
+
+This writes `out/profile.prof`. Inspect interactively with
+[snakeviz](https://jiffyclub.github.io/snakeviz/):
+
+```sh
+.venv/bin/python -m pip install snakeviz
+.venv/bin/snakeviz out/profile.prof
+```

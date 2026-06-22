@@ -1,7 +1,7 @@
 PYTHON ?= python3
 VENV_PYTHON ?= .venv/bin/python
 
-.PHONY: all config venv test verify doctor precommit
+.PHONY: all config venv test verify doctor precommit profile
 
 all:config
 
@@ -23,9 +23,14 @@ verify: test
 doctor:
 	@$(PYTHON) -m pytest --version
 
-precommit: 
+precommit:
 	@echo "installing precommit hooks..."
 	@$(PYTHON) -m pip install pre-commit
 	@pre-commit install
 	@pre-commit autoupdate
 	@pre-commit run --all-files
+
+profile:
+	@mkdir -p out
+	@$(PYTHON) -m cProfile -o out/profile.prof scripts/profile_large_scenario.py
+	@echo "wrote out/profile.prof; inspect with: snakeviz out/profile.prof"
