@@ -1,3 +1,2 @@
 (A) 2026-06-21 Add `CLAUDE.md` to `.gitignore` (line after `.env`) and `rm` the local symlink at repo root so the committed project CLAUDE.md is authoritative; verify `git ls-files | grep CLAUDE.md` returns the tracked file only +Style @config release:v3.1
 (A) 2026-06-21 Commit the working-tree deletion of `TODO.md` *as the replacement step* of this file: new TODO.md content lives here; `git add TODO.md` after editing finishes the housekeeping +Repro @config release:v3.1
-(D) 2026-06-21 Add an opt-in stress-test profile harness `scripts/perf_regression_suite.py` running `transit_cbrn`, `transit_cbrn_10k`, and `wildfire_wui` with timing + memory captures; emit a CSV under `out/perf/` that CI can diff for regressions +Perf @code release:v4

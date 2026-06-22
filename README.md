@@ -116,6 +116,7 @@ Run toy calibration/regression and profiler scripts:
 ```console
 $ python scripts/run_toy_calibrations.py -o out/toy_calibrations.json
 $ python scripts/profile_large_scenario.py scenarios/station_sarin.yaml --max-steps 100 --population-total 250 -o out/profile_station_sarin.json
+$ python scripts/perf_regression_suite.py --out out/perf
 ```
 
 Compare study outputs or reference trajectories:
