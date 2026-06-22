@@ -33,6 +33,20 @@ class AccelerationBackend:
     ) -> np.ndarray:
         raise NotImplementedError
 
+    def social_force_steps(
+        self,
+        current_positions: np.ndarray,
+        desired_velocities: np.ndarray,
+        current_velocities: np.ndarray,
+        neighbor_positions: np.ndarray,
+        neighbor_counts: np.ndarray,
+        neighbor_velocities: np.ndarray | None = None,
+        walls: np.ndarray | None = None,
+        dt: float = 0.1,
+        counter_flow: bool = False,
+    ) -> np.ndarray:
+        raise NotImplementedError
+
 
 class PythonAccelerationBackend(AccelerationBackend):
     def __init__(
@@ -113,6 +127,50 @@ class PythonAccelerationBackend(AccelerationBackend):
 
         return intensities
 
+    def social_force_steps(
+        self,
+        current_positions: np.ndarray,
+        desired_velocities: np.ndarray,
+        current_velocities: np.ndarray,
+        neighbor_positions: np.ndarray,
+        neighbor_counts: np.ndarray,
+        neighbor_velocities: np.ndarray | None = None,
+        walls: np.ndarray | None = None,
+        dt: float = 0.1,
+        counter_flow: bool = False,
+    ) -> np.ndarray:
+        from chiyoda.navigation.social_force import social_force_step
+
+        positions = np.asarray(current_positions, dtype=float)
+        desired = np.asarray(desired_velocities, dtype=float)
+        current = np.asarray(current_velocities, dtype=float)
+        neighbors = np.asarray(neighbor_positions, dtype=float)
+        counts = np.asarray(neighbor_counts, dtype=int)
+        velocities = (
+            None
+            if neighbor_velocities is None
+            else np.asarray(neighbor_velocities, dtype=float)
+        )
+        wall_array = np.asarray(walls if walls is not None else [], dtype=float)
+        results = np.zeros_like(positions, dtype=float)
+        for idx in range(positions.shape[0]):
+            count = int(counts[idx])
+            agent_neighbors = neighbors[idx, :count, :]
+            agent_neighbor_velocities = (
+                None if velocities is None else velocities[idx, :count, :]
+            )
+            results[idx] = social_force_step(
+                current_pos=positions[idx],
+                desired_velocity=desired[idx],
+                current_velocity=current[idx],
+                neighbors=agent_neighbors,
+                neighbor_velocities=agent_neighbor_velocities,
+                walls=wall_array.tolist(),
+                dt=dt,
+                counter_flow=counter_flow,
+            )
+        return results
+
 
 class JuliaAccelerationBackend(AccelerationBackend):
     def __init__(self, requested_backend: str = "julia") -> None:
@@ -158,6 +216,43 @@ class JuliaAccelerationBackend(AccelerationBackend):
                 np.asarray(hazard_positions, dtype=float),
                 np.asarray(radii, dtype=float),
                 np.asarray(severities, dtype=float),
+            ),
+            dtype=float,
+        )
+
+    def social_force_steps(
+        self,
+        current_positions: np.ndarray,
+        desired_velocities: np.ndarray,
+        current_velocities: np.ndarray,
+        neighbor_positions: np.ndarray,
+        neighbor_counts: np.ndarray,
+        neighbor_velocities: np.ndarray | None = None,
+        walls: np.ndarray | None = None,
+        dt: float = 0.1,
+        counter_flow: bool = False,
+    ) -> np.ndarray:
+        positions = np.asarray(current_positions, dtype=float)
+        neighbors = np.asarray(neighbor_positions, dtype=float)
+        velocities = (
+            np.zeros_like(neighbors, dtype=float)
+            if neighbor_velocities is None
+            else np.asarray(neighbor_velocities, dtype=float)
+        )
+        wall_array = np.asarray(walls if walls is not None else [], dtype=float)
+        if wall_array.size == 0:
+            wall_array = np.zeros((0, positions.shape[1]), dtype=float)
+        return np.asarray(
+            self._module.social_force_steps(
+                positions,
+                np.asarray(desired_velocities, dtype=float),
+                np.asarray(current_velocities, dtype=float),
+                neighbors,
+                np.asarray(neighbor_counts, dtype=int),
+                velocities,
+                wall_array,
+                float(dt),
+                bool(counter_flow),
             ),
             dtype=float,
         )

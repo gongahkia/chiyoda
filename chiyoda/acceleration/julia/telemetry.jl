@@ -1,5 +1,12 @@
 module ChiyodaAccel
 
+const TAU = 0.5
+const A_AGENT = 2.1
+const B_AGENT = 0.3
+const A_WALL = 5.0
+const B_WALL = 0.2
+const COUNTER_FLOW_K = 1.5
+
 function aggregate_step_grids(
     width::Int,
     height::Int,
@@ -68,6 +75,71 @@ function hazard_intensities(
     end
 
     return intensities
+end
+
+function social_force_steps(
+    current_positions::Matrix{Float64},
+    desired_velocities::Matrix{Float64},
+    current_velocities::Matrix{Float64},
+    neighbor_positions::Array{Float64, 3},
+    neighbor_counts::Vector{Int},
+    neighbor_velocities::Array{Float64, 3},
+    walls::Matrix{Float64},
+    dt::Float64,
+    counter_flow::Bool,
+)
+    count = size(current_positions, 1)
+    dim = size(current_positions, 2)
+    displacements = zeros(Float64, count, dim)
+
+    for idx in 1:count
+        f_total = (
+            desired_velocities[idx, :] - current_velocities[idx, :]
+        ) ./ TAU
+
+        for n in 1:neighbor_counts[idx]
+            delta = current_positions[idx, :] - neighbor_positions[idx, n, :]
+            dist = sqrt(sum(delta .^ 2)) + 1e-6
+            if dist < 3.0
+                n_hat = delta ./ dist
+                f_total .+= A_AGENT * exp((0.6 - dist) / B_AGENT) .* n_hat
+
+                if counter_flow
+                    n_vel = neighbor_velocities[idx, n, :]
+                    dot_value = sum(desired_velocities[idx, :] .* n_vel)
+                    if dot_value < 0 && sqrt(sum(n_vel .^ 2)) > 0.1
+                        tangent = zeros(Float64, dim)
+                        tangent[1] = -n_hat[2]
+                        tangent[2] = n_hat[1]
+                        f_total .+= (
+                            COUNTER_FLOW_K
+                            * abs(dot_value)
+                            * sign(sum(tangent .* desired_velocities[idx, :]))
+                        ) .* tangent
+                    end
+                end
+            end
+        end
+
+        for w in 1:size(walls, 1)
+            delta = current_positions[idx, :] - walls[w, :]
+            dist = sqrt(sum(delta .^ 2)) + 1e-6
+            if dist < 2.0
+                n_hat = delta ./ dist
+                f_total .+= A_WALL * exp((0.3 - dist) / B_WALL) .* n_hat
+            end
+        end
+
+        new_velocity = current_velocities[idx, :] + f_total .* dt
+        max_speed = max(sqrt(sum(desired_velocities[idx, :] .^ 2)) * 1.5, 0.5)
+        speed = sqrt(sum(new_velocity .^ 2))
+        if speed > max_speed
+            new_velocity = new_velocity ./ speed .* max_speed
+        end
+        displacements[idx, :] = new_velocity .* dt
+    end
+
+    return displacements
 end
 
 end
