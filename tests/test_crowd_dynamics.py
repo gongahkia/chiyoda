@@ -7,6 +7,8 @@ social force model, and full simulation integration.
 
 from __future__ import annotations
 
+from copy import deepcopy
+
 import numpy as np
 import pytest
 
@@ -21,7 +23,12 @@ from chiyoda.information.entropy import (
     agent_entropy,
     global_entropy,
 )
-from chiyoda.information.field import BeliefVector, InformationField
+from chiyoda.information.field import (
+    BeliefVector,
+    ExitBelief,
+    HazardBelief,
+    InformationField,
+)
 from chiyoda.information.interventions import create_intervention_policy
 from chiyoda.information.propagation import GossipConfig, GossipModel
 from chiyoda.navigation.pathfinding import SmartNavigator
@@ -31,6 +38,93 @@ from chiyoda.navigation.spatial_index import SpatialIndex
 
 def _agent_pos(layout: Layout, cell) -> np.ndarray:
     return np.array(layout.world_position(cell), dtype=float)
+
+
+def _test_point3(value) -> np.ndarray:
+    if len(value) >= 3 and not isinstance(value[0], str):
+        return np.array([float(value[0]), float(value[1]), float(value[2])])
+    return np.array([float(value[0]), float(value[1]), 0.0])
+
+
+def _scalar_observe_reference(
+    field: InformationField,
+    agent_beliefs: BeliefVector,
+    agent_pos: tuple[float, ...],
+    vision_radius: float,
+    exits: list[tuple],
+    hazards: list[Hazard],
+    current_step: int,
+) -> None:
+    agent_point = _test_point3(agent_pos)
+    for exit_pos in exits:
+        exit_point = field.exit_world_positions[tuple(exit_pos)]
+        if (
+            float(np.linalg.norm(agent_point - _test_point3(exit_point)))
+            <= vision_radius
+        ):
+            agent_beliefs.exit_beliefs[exit_pos] = ExitBelief(
+                position=exit_pos,
+                exists_prob=1.0,
+                congestion_est=0.0,
+                freshness=0.0,
+                source_credibility=1.0,
+                hop_count=0,
+            )
+
+    for hazard in hazards:
+        h_pos = tuple(float(value) for value in hazard.pos)
+        if float(np.linalg.norm(agent_point - _test_point3(h_pos))) <= vision_radius:
+            updated = False
+            for hb in agent_beliefs.hazard_beliefs:
+                hb_dist = float(
+                    np.linalg.norm(_test_point3(hb.position) - _test_point3(h_pos))
+                )
+                if hb_dist < 2.0:
+                    hb.severity_est = float(hazard.severity)
+                    hb.radius_est = float(hazard.radius)
+                    hb.freshness = 0.0
+                    hb.source_credibility = 1.0
+                    hb.hop_count = 0
+                    updated = True
+                    break
+            if not updated:
+                agent_beliefs.hazard_beliefs.append(
+                    HazardBelief(
+                        position=h_pos,
+                        severity_est=float(hazard.severity),
+                        radius_est=float(hazard.radius),
+                        freshness=0.0,
+                        source_credibility=1.0,
+                        hop_count=0,
+                    )
+                )
+    agent_beliefs.last_update_step = current_step
+
+
+def _assert_beliefs_close(got: BeliefVector, want: BeliefVector) -> None:
+    assert got.last_update_step == want.last_update_step
+    assert got.exit_beliefs.keys() == want.exit_beliefs.keys()
+    for key, got_exit in got.exit_beliefs.items():
+        want_exit = want.exit_beliefs[key]
+        assert got_exit.exists_prob == pytest.approx(want_exit.exists_prob)
+        assert got_exit.congestion_est == pytest.approx(want_exit.congestion_est)
+        assert got_exit.freshness == pytest.approx(want_exit.freshness)
+        assert got_exit.source_credibility == pytest.approx(
+            want_exit.source_credibility
+        )
+        assert got_exit.hop_count == want_exit.hop_count
+    assert len(got.hazard_beliefs) == len(want.hazard_beliefs)
+    for got_hazard, want_hazard in zip(
+        got.hazard_beliefs, want.hazard_beliefs, strict=False
+    ):
+        assert got_hazard.position == want_hazard.position
+        assert got_hazard.severity_est == pytest.approx(want_hazard.severity_est)
+        assert got_hazard.radius_est == pytest.approx(want_hazard.radius_est)
+        assert got_hazard.freshness == pytest.approx(want_hazard.freshness)
+        assert got_hazard.source_credibility == pytest.approx(
+            want_hazard.source_credibility
+        )
+        assert got_hazard.hop_count == want_hazard.hop_count
 
 
 # -- Information Layer Tests --
@@ -70,13 +164,124 @@ class TestInformationField:
     def test_decay(self):
         field = InformationField(30, 20, decay_rate=0.5)
         b = BeliefVector()
-        from chiyoda.information.field import ExitBelief
 
         b.exit_beliefs[(5, 0)] = ExitBelief(
             position=(5, 0), exists_prob=1.0, freshness=0.0
         )
         field.decay_beliefs(b, dt=1.0)
         assert b.exit_beliefs[(5, 0)].freshness > 0.0
+
+    def test_decay_batch_matches_scalar_reference(self):
+        field = InformationField(30, 20, decay_rate=0.25)
+        batch = [
+            BeliefVector(
+                exit_beliefs={
+                    (5, 0): ExitBelief(position=(5, 0), exists_prob=0.8, freshness=0.1),
+                    (25, 19): ExitBelief(
+                        position=(25, 19), exists_prob=0.2, freshness=0.9
+                    ),
+                },
+                hazard_beliefs=[
+                    HazardBelief(
+                        position=(3.0, 4.0),
+                        severity_est=0.7,
+                        radius_est=2.0,
+                        freshness=0.2,
+                    )
+                ],
+                information_age_s=2.0,
+            ),
+            BeliefVector(
+                exit_beliefs={
+                    (12, 2): ExitBelief(
+                        position=(12, 2), exists_prob=0.01, freshness=0.99
+                    )
+                },
+                hazard_beliefs=[
+                    HazardBelief(
+                        position=(8.0, 1.0),
+                        severity_est=0.3,
+                        radius_est=1.0,
+                        freshness=0.8,
+                    )
+                ],
+                information_age_s=4.0,
+            ),
+        ]
+        expected = deepcopy(batch)
+        dt = 1.5
+        decay = field.decay_rate * dt
+
+        for beliefs in expected:
+            for eb in beliefs.exit_beliefs.values():
+                eb.freshness = min(1.0, eb.freshness + decay)
+                eb.exists_prob *= 1.0 - decay * 0.1
+                eb.exists_prob = max(0.0, eb.exists_prob)
+            for hb in beliefs.hazard_beliefs:
+                hb.freshness = min(1.0, hb.freshness + decay)
+            beliefs.information_age_s += dt
+
+        field.decay_beliefs_batch(batch, dt=dt)
+
+        for got, want in zip(batch, expected, strict=False):
+            assert got.information_age_s == pytest.approx(want.information_age_s)
+            for key, got_exit in got.exit_beliefs.items():
+                want_exit = want.exit_beliefs[key]
+                assert got_exit.exists_prob == pytest.approx(want_exit.exists_prob)
+                assert got_exit.freshness == pytest.approx(want_exit.freshness)
+            for got_hazard, want_hazard in zip(
+                got.hazard_beliefs, want.hazard_beliefs, strict=False
+            ):
+                assert got_hazard.freshness == pytest.approx(want_hazard.freshness)
+
+    def test_observe_many_matches_scalar_reference(self):
+        field = InformationField(30, 20)
+        field.exit_world_positions = {
+            (5, 0): (5.5, 0.5, 0.0),
+            (25, 19): (25.5, 19.5, 0.0),
+        }
+        exits = [(5, 0), (25, 19)]
+        hazards = [
+            Hazard(pos=(3.0, 2.0, 0.0), kind="SMOKE", radius=2.0, severity=0.7),
+            Hazard(pos=(24.0, 18.5, 0.0), kind="FIRE", radius=1.5, severity=0.4),
+        ]
+        batch = [
+            BeliefVector(
+                hazard_beliefs=[
+                    HazardBelief(
+                        position=(2.5, 2.0, 0.0),
+                        severity_est=0.1,
+                        radius_est=0.5,
+                        freshness=0.5,
+                    )
+                ]
+            ),
+            BeliefVector(),
+        ]
+        expected = deepcopy(batch)
+        observations = [
+            (batch[0], (3.0, 2.0, 0.0), 5.0),
+            (batch[1], (24.0, 18.0, 0.0), 4.0),
+        ]
+        expected_observations = [
+            (expected[0], (3.0, 2.0, 0.0), 5.0),
+            (expected[1], (24.0, 18.0, 0.0), 4.0),
+        ]
+
+        for beliefs, agent_pos, vision_radius in expected_observations:
+            _scalar_observe_reference(
+                field,
+                beliefs,
+                agent_pos,
+                vision_radius,
+                exits,
+                hazards,
+                current_step=7,
+            )
+        field.observe_many(observations, exits, hazards, current_step=7)
+
+        for got, want in zip(batch, expected, strict=False):
+            _assert_beliefs_close(got, want)
 
 
 class TestEntropy:

@@ -173,52 +173,107 @@ class InformationField:
         current_step: int,
     ) -> None:
         """Agent directly observes environment within vision cone."""
-        for exit_pos in exits:
-            exit_point = self.exit_world_positions.get(
-                tuple(exit_pos), tuple(_cell_center3(exit_pos))
+        self.observe_many(
+            [(agent_beliefs, agent_pos, vision_radius)],
+            exits,
+            hazards,
+            current_step,
+        )
+
+    def observe_many(
+        self,
+        observations: list[tuple[BeliefVector, tuple[float, ...], float]],
+        exits: list[tuple],
+        hazards: list,
+        current_step: int,
+    ) -> None:
+        """Batch direct observations with broadcasted distance checks."""
+        if not observations:
+            return
+
+        beliefs = [row[0] for row in observations]
+        agent_points = _points3_array([row[1] for row in observations])
+        vision_sq = np.square(np.array([row[2] for row in observations], dtype=float))
+
+        exit_keys = [tuple(exit_pos) for exit_pos in exits]
+        exit_points = _points3_array(
+            [
+                self.exit_world_positions.get(exit_pos, tuple(_cell_center3(exit_pos)))
+                for exit_pos in exit_keys
+            ]
+        )
+        if exit_keys:
+            visible_agents, visible_exits = np.nonzero(
+                _squared_distance_matrix(agent_points, exit_points)
+                <= vision_sq[:, None]
             )
-            dist = float(np.linalg.norm(_point3(agent_pos) - _point3(exit_point)))
-            if dist <= vision_radius:
-                agent_beliefs.exit_beliefs[exit_pos] = ExitBelief(
+            for agent_idx, exit_idx in zip(visible_agents, visible_exits, strict=False):
+                exit_pos = exit_keys[int(exit_idx)]
+                beliefs[int(agent_idx)].exit_beliefs[exit_pos] = ExitBelief(
                     position=exit_pos,
                     exists_prob=1.0,
-                    congestion_est=0.0,  # will be updated by density observation
+                    congestion_est=0.0,  # updated by density observation
                     freshness=0.0,
                     source_credibility=1.0,
                     hop_count=0,
                 )
 
-        for hazard in hazards:
-            h_pos = tuple(float(value) for value in hazard.pos)
-            dist = float(np.linalg.norm(_point3(agent_pos) - _point3(h_pos)))
-            if dist <= vision_radius:
-                # update or add hazard belief with direct observation
-                updated = False
-                for hb in agent_beliefs.hazard_beliefs:
-                    hb_dist = float(
-                        np.linalg.norm(_point3(hb.position) - _point3(h_pos))
-                    )
-                    if hb_dist < 2.0:  # same hazard
-                        hb.severity_est = float(hazard.severity)
-                        hb.radius_est = float(hazard.radius)
-                        hb.freshness = 0.0
-                        hb.source_credibility = 1.0
-                        hb.hop_count = 0
-                        updated = True
-                        break
-                if not updated:
-                    agent_beliefs.hazard_beliefs.append(
-                        HazardBelief(
-                            position=h_pos,
-                            severity_est=float(hazard.severity),
-                            radius_est=float(hazard.radius),
-                            freshness=0.0,
-                            source_credibility=1.0,
-                            hop_count=0,
-                        )
-                    )
+        hazard_positions = [
+            tuple(float(value) for value in hazard.pos) for hazard in hazards
+        ]
+        hazard_points = _points3_array(hazard_positions)
+        if hazard_positions:
+            visible_agents, visible_hazards = np.nonzero(
+                _squared_distance_matrix(agent_points, hazard_points)
+                <= vision_sq[:, None]
+            )
+            for agent_idx, hazard_idx in zip(
+                visible_agents, visible_hazards, strict=False
+            ):
+                hazard = hazards[int(hazard_idx)]
+                self._apply_hazard_observation(
+                    beliefs[int(agent_idx)],
+                    hazard_positions[int(hazard_idx)],
+                    hazard_points[int(hazard_idx)],
+                    float(hazard.severity),
+                    float(hazard.radius),
+                )
 
-        agent_beliefs.last_update_step = current_step
+        for belief in beliefs:
+            belief.last_update_step = current_step
+
+    def _apply_hazard_observation(
+        self,
+        agent_beliefs: BeliefVector,
+        hazard_pos: tuple[float, ...],
+        hazard_point: np.ndarray,
+        severity: float,
+        radius: float,
+    ) -> None:
+        existing = agent_beliefs.hazard_beliefs
+        if existing:
+            existing_points = _points3_array([hb.position for hb in existing])
+            matches = np.flatnonzero(
+                _squared_distances(hazard_point, existing_points) < 4.0
+            )
+            if matches.size > 0:
+                hb = existing[int(matches[0])]
+                hb.severity_est = severity
+                hb.radius_est = radius
+                hb.freshness = 0.0
+                hb.source_credibility = 1.0
+                hb.hop_count = 0
+                return
+        agent_beliefs.hazard_beliefs.append(
+            HazardBelief(
+                position=hazard_pos,
+                severity_est=severity,
+                radius_est=radius,
+                freshness=0.0,
+                source_credibility=1.0,
+                hop_count=0,
+            )
+        )
 
     def beacon_broadcast(
         self,
@@ -226,32 +281,66 @@ class InformationField:
         agent_pos: tuple[float, ...],
     ) -> None:
         """Agent receives info from nearby beacons (signage/PA)."""
-        for beacon_pos in self.beacons:
-            dist = float(np.linalg.norm(_point3(agent_pos) - _point3(beacon_pos)))
-            if dist <= self.beacon_radius:
-                known = self.beacon_exit_info.get(beacon_pos, [])
-                for exit_pos in known:
-                    existing = agent_beliefs.exit_beliefs.get(exit_pos)
-                    if existing is None or existing.source_credibility < 0.9:
-                        agent_beliefs.exit_beliefs[exit_pos] = ExitBelief(
-                            position=exit_pos,
-                            exists_prob=0.95,  # high but not perfect — agent may not fully trust PA
-                            freshness=0.0,
-                            source_credibility=0.9,
-                            hop_count=0,
-                        )
+        beacon_points = _points3_array(self.beacons)
+        if beacon_points.size == 0:
+            return
+        visible = np.flatnonzero(
+            _squared_distances(_point3(agent_pos), beacon_points)
+            <= self.beacon_radius * self.beacon_radius
+        )
+        for beacon_idx in visible:
+            beacon_pos = self.beacons[int(beacon_idx)]
+            known = self.beacon_exit_info.get(beacon_pos, [])
+            for exit_pos in known:
+                existing = agent_beliefs.exit_beliefs.get(exit_pos)
+                if existing is None or existing.source_credibility < 0.9:
+                    agent_beliefs.exit_beliefs[exit_pos] = ExitBelief(
+                        position=exit_pos,
+                        exists_prob=0.95,
+                        freshness=0.0,
+                        source_credibility=0.9,
+                        hop_count=0,
+                    )
 
     def decay_beliefs(self, agent_beliefs: BeliefVector, dt: float) -> None:
         """Age all beliefs — information becomes stale over time."""
-        for eb in agent_beliefs.exit_beliefs.values():
-            eb.freshness = min(1.0, eb.freshness + self.decay_rate * dt)
-            eb.exists_prob *= (
-                1.0 - self.decay_rate * dt * 0.1
-            )  # very slow confidence decay
-            eb.exists_prob = max(0.0, eb.exists_prob)
-        for hb in agent_beliefs.hazard_beliefs:
-            hb.freshness = min(1.0, hb.freshness + self.decay_rate * dt)
-        agent_beliefs.information_age_s += dt
+        self.decay_beliefs_batch([agent_beliefs], dt)
+
+    def decay_beliefs_batch(self, all_beliefs: list[BeliefVector], dt: float) -> None:
+        """Batch age beliefs with vectorized numeric updates."""
+        if not all_beliefs:
+            return
+
+        decay = self.decay_rate * dt
+        exit_beliefs = [
+            belief
+            for agent_beliefs in all_beliefs
+            for belief in agent_beliefs.exit_beliefs.values()
+        ]
+        if exit_beliefs:
+            freshness = np.array([belief.freshness for belief in exit_beliefs])
+            exists = np.array([belief.exists_prob for belief in exit_beliefs])
+            next_freshness = np.minimum(1.0, freshness + decay)
+            next_exists = np.maximum(0.0, exists * (1.0 - decay * 0.1))
+            for belief, fresh, exists_prob in zip(
+                exit_beliefs, next_freshness, next_exists, strict=False
+            ):
+                belief.freshness = float(fresh)
+                belief.exists_prob = float(exists_prob)
+
+        hazard_beliefs = [
+            belief
+            for agent_beliefs in all_beliefs
+            for belief in agent_beliefs.hazard_beliefs
+        ]
+        if hazard_beliefs:
+            freshness = np.array([belief.freshness for belief in hazard_beliefs])
+            next_freshness = np.minimum(1.0, freshness + decay)
+            for belief, fresh in zip(hazard_beliefs, next_freshness, strict=False):
+                belief.freshness = float(fresh)
+
+        for agent_beliefs in all_beliefs:
+            agent_beliefs.information_age_s += dt
 
 
 def _point3(value: Any) -> np.ndarray:
@@ -272,3 +361,23 @@ def _cell_center3(value: Any) -> np.ndarray:
             [float(value[0]) + 0.5, float(value[1]) + 0.5, float(value[2])], dtype=float
         )
     return np.array([float(value[0]) + 0.5, float(value[1]) + 0.5, 0.0], dtype=float)
+
+
+def _points3_array(values: list[Any]) -> np.ndarray:
+    if not values:
+        return np.empty((0, 3), dtype=float)
+    return np.vstack([_point3(value) for value in values])
+
+
+def _squared_distances(origin: np.ndarray, points: np.ndarray) -> np.ndarray:
+    if points.size == 0:
+        return np.empty((0,), dtype=float)
+    delta = points - origin.reshape(1, 3)
+    return np.einsum("ij,ij->i", delta, delta)
+
+
+def _squared_distance_matrix(left: np.ndarray, right: np.ndarray) -> np.ndarray:
+    if left.size == 0 or right.size == 0:
+        return np.empty((left.shape[0], right.shape[0]), dtype=float)
+    delta = left[:, None, :] - right[None, :, :]
+    return np.einsum("ijk,ijk->ij", delta, delta)

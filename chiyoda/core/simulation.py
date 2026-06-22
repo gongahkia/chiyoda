@@ -460,6 +460,7 @@ class Simulation:
         active = self._active_agents()
         dt = self.config.dt
         exit_positions = [tuple(e.pos) for e in self.exits]
+        observation_batch = []
 
         for agent in active:
             if not hasattr(agent, "beliefs"):
@@ -471,24 +472,40 @@ class Simulation:
                 getattr(agent, "vision_radius", self.config.observation_radius) * vis
             )
             evaluate_pending_provenance(agent, self, effective_vision)
-            self.info_field.observe(
-                agent.beliefs,
-                tuple(float(value) for value in agent.pos),
-                effective_vision,
-                exit_positions,
-                self.hazards,
-                self.current_step,
+            observation_batch.append(
+                (
+                    agent,
+                    tuple(float(value) for value in agent.pos),
+                    effective_vision,
+                )
             )
 
+        self.info_field.observe_many(
+            [
+                (agent.beliefs, agent_pos, effective_vision)
+                for agent, agent_pos, effective_vision in observation_batch
+            ],
+            exit_positions,
+            self.hazards,
+            self.current_step,
+        )
+
+        for agent, agent_pos, _effective_vision in observation_batch:
             # beacon broadcast
             self.info_field.beacon_broadcast(
                 agent.beliefs,
-                tuple(float(value) for value in agent.pos),
+                agent_pos,
             )
 
-            # belief decay
-            self.info_field.decay_beliefs(agent.beliefs, dt)
+        self.info_field.decay_beliefs_batch(
+            [
+                agent.beliefs
+                for agent, _agent_pos, _effective_vision in observation_batch
+            ],
+            dt,
+        )
 
+        for agent, _agent_pos, _effective_vision in observation_batch:
             # update intention based on beliefs
             if hasattr(agent, "update_intention"):
                 agent.update_intention(self)
