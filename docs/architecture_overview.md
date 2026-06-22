@@ -68,15 +68,22 @@ LLM output is never treated as ground truth. Rejected generations fall back to d
 
 ## Benchmark Layer
 
-Benchmark v1 lives in `chiyoda/studies/benchmark.py` and `docs/benchmark/`.
+Benchmark suites live in `chiyoda/studies/benchmark.py` and `docs/benchmark/`.
 
-Spec:
+Spec common to all suites:
 
-- suite: `v1`,
 - seeds: `42`, `137`,
-- scenarios: `transit_cbrn`, `transit_shooter`, `transit_mixed`,
+- scoring rule: `composite_v1`,
 - allowed knobs: `interventions`, `information`, `behavior`, `hostile_channels`,
 - outputs: `benchmark_runs.csv`, `leaderboard.json`, `reproducibility_manifest.json`.
+
+Per-suite scenarios:
+
+- `v1`: `transit_cbrn`, `transit_shooter`, `transit_mixed` (baseline CBRN + active-shooter mix).
+- `v2`: `wildfire_wui`, `transit_shooter` (wildland-urban interface egress + active shooter).
+- `v3`: `flood_urban`, `quake_aftershock` (urban flood inundation + earthquake re-evacuation).
+
+Select a suite with `chiyoda benchmark submit --suite {v1,v2,v3}`.
 
 The composite score rewards lower travel time, lower hazard exposure, lower equity gap, and lower induced harmful convergence:
 

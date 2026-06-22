@@ -40,13 +40,17 @@ Emergency communication is a control input, not a uniformly positive signal. In 
 
 ## Benchmark Introduction
 
-Benchmark v1 uses three scenarios and two seeds:
+Benchmark suites v1/v2/v3 share seeds `42, 137` and composite_v1 scoring.
 
-| Scenario | Stressor |
-|:--|:--|
-| `transit_cbrn` | compact gas-release evacuation |
-| `transit_shooter` | multi-floor active-shooter evacuation |
-| `transit_mixed` | smoke plus hostile misinformation |
+| Suite | Scenario | Stressor |
+|:--|:--|:--|
+| v1 | `transit_cbrn` | compact gas-release evacuation |
+| v1 | `transit_shooter` | multi-floor active-shooter evacuation |
+| v1 | `transit_mixed` | smoke plus hostile misinformation |
+| v2 | `wildfire_wui` | wind-driven wildland-urban interface fire with ember spotting |
+| v2 | `transit_shooter` | multi-floor active-shooter evacuation |
+| v3 | `flood_urban` | urban inundation with rising depth field |
+| v3 | `quake_aftershock` | earthquake plus aftershock-driven re-evacuation waves |
 
 Composite score:
 
