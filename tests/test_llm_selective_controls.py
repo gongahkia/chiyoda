@@ -6,8 +6,10 @@ import yaml
 
 from chiyoda.information.llm import (
     AnthropicMessagesGenerator,
+    GeneratedEvacuationMessage,
     HazardSnapshot,
     LLMMessageRequest,
+    TemplateLLMGenerator,
 )
 from chiyoda.scenarios.generated_calibration import (
     apply_generated_population_calibration,
@@ -210,3 +212,44 @@ def test_study_bundle_surfaces_llm_call_audit(tmp_path):
     assert {"surface", "provider", "cache_key", "cache_status"}.issubset(
         bundle.llm_calls.columns
     )
+
+
+def test_llm_judge_rejects_generated_message_and_exports_verdict(monkeypatch, tmp_path):
+    def panic_message(self, request, cache_key):
+        return GeneratedEvacuationMessage(
+            text="Run to exit 1 now.",
+            recommended_exits=[("0", 3, 1)],
+            confidence=1.0,
+            provider=self.provider,
+            model=self.model,
+        )
+
+    monkeypatch.setattr(TemplateLLMGenerator, "generate", panic_message)
+    scenario = _scenario()
+    scenario["interventions"] = {
+        "policy": "llm_guidance",
+        "llm_provider": "template",
+        "llm_cache_path": str(tmp_path / "cache"),
+        "interval_steps": 1,
+        "message_radius": 10.0,
+        "llm_judge_enabled": True,
+        "llm_judge_threshold": 0.9,
+    }
+    scenario_path = tmp_path / "scenario.yaml"
+    scenario_path.write_text(yaml.safe_dump({"scenario": scenario}))
+    config = StudyConfig(
+        name="llm_judge_study",
+        scenario_file=str(scenario_path),
+        seeds=[1],
+        variants=[StudyVariant(name="base")],
+        export=ExportConfig(include_figures=False, table_formats=["csv"]),
+    )
+
+    bundle = run_study(config)
+    row = bundle.llm_calls.iloc[0]
+
+    assert row["validation_status"] == "rejected"
+    assert "llm_judge:panic_terms" in row["validation_reasons"]
+    assert row["judge_status"] == "rejected"
+    assert row["judge_safety"] < 0.9
+    assert bool(row["used_fallback"]) is True

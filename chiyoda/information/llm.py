@@ -91,14 +91,18 @@ class LLMGenerationRecord:
     request: LLMMessageRequest
     message: GeneratedEvacuationMessage
     validation: ValidationResult
+    judge_verdict: dict[str, Any] | None = None
 
     def to_json_dict(self) -> dict[str, Any]:
-        return {
+        payload = {
             "cache_key": self.cache_key,
             "request": _to_jsonable(self.request),
             "message": _to_jsonable(self.message),
             "validation": _to_jsonable(self.validation),
         }
+        if self.judge_verdict is not None:
+            payload["judge_verdict"] = _to_jsonable(self.judge_verdict)
+        return payload
 
     @classmethod
     def from_json_dict(cls, payload: dict[str, Any]) -> LLMGenerationRecord:
@@ -163,6 +167,7 @@ class LLMGenerationRecord:
                 accepted=bool(validation_payload["accepted"]),
                 reasons=[str(item) for item in validation_payload.get("reasons", [])],
             ),
+            judge_verdict=payload.get("judge_verdict"),
         )
 
 

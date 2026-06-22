@@ -39,6 +39,7 @@ from chiyoda.information.llm import (
     validate_generated_message,
     validator_settings,
 )
+from chiyoda.information.llm_judge import JudgeVerdict, judge
 
 Cell = tuple
 Point = tuple
@@ -70,6 +71,9 @@ class InformationInterventionConfig:
     llm_max_estimated_usd_per_run: float | None = None
     llm_input_usd_per_mtok: float = 0.0
     llm_output_usd_per_mtok: float = 0.0
+    llm_judge_enabled: bool = False
+    llm_judge_threshold: float = 0.4
+    llm_judge_provider: str = "heuristic"
 
     @classmethod
     def from_mapping(
@@ -123,6 +127,9 @@ class InformationInterventionConfig:
             ),
             llm_input_usd_per_mtok=float(data.get("llm_input_usd_per_mtok", 0.0)),
             llm_output_usd_per_mtok=float(data.get("llm_output_usd_per_mtok", 0.0)),
+            llm_judge_enabled=bool(data.get("llm_judge_enabled", False)),
+            llm_judge_threshold=float(data.get("llm_judge_threshold", 0.4)),
+            llm_judge_provider=str(data.get("llm_judge_provider", "heuristic")),
         )
 
 
@@ -539,6 +546,12 @@ class LLMGuidancePolicy(EntropyTargetedPolicy):
             and validation.reasons == cached_validation.reasons
         ):
             validation = cached_validation
+        validation, judge_verdict = self._judge_message(
+            request,
+            generated,
+            validation,
+            cached_verdict=audit.get("judge_verdict"),
+        )
 
         if validation.accepted:
             effective = generated
@@ -560,6 +573,9 @@ class LLMGuidancePolicy(EntropyTargetedPolicy):
                     request=request,
                     message=generated,
                     validation=validation,
+                    judge_verdict=(
+                        None if judge_verdict is None else judge_verdict.to_dict()
+                    ),
                 )
             )
 
@@ -581,6 +597,7 @@ class LLMGuidancePolicy(EntropyTargetedPolicy):
             used_fallback=used_fallback,
             audit=audit,
             target=target,
+            judge_verdict=judge_verdict,
         )
         return InterventionMessage(
             message_type=effective.message_type or self.config.message_type,
@@ -636,7 +653,7 @@ class LLMGuidancePolicy(EntropyTargetedPolicy):
                 cached.message,
                 cached.validation,
                 "hit",
-                self._cached_audit(cached.message),
+                self._cached_audit(cached.message, cached.judge_verdict),
             )
 
         if self.config.llm_cache_mode == "replay_only":
@@ -673,9 +690,13 @@ class LLMGuidancePolicy(EntropyTargetedPolicy):
             "check": check,
         }
 
-    def _cached_audit(self, message: GeneratedEvacuationMessage) -> dict[str, Any]:
+    def _cached_audit(
+        self,
+        message: GeneratedEvacuationMessage,
+        judge_verdict: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         usage = raw_usage_tokens(message.raw_response)
-        return {
+        audit = {
             "allowed": True,
             "budget_reason": "cache_hit",
             "estimated_input_tokens": usage["input_tokens"],
@@ -688,6 +709,47 @@ class LLMGuidancePolicy(EntropyTargetedPolicy):
                 output_usd_per_mtok=self.config.llm_output_usd_per_mtok,
             ),
         }
+        if judge_verdict is not None:
+            audit["judge_verdict"] = judge_verdict
+        return audit
+
+    def _judge_message(
+        self,
+        request: LLMMessageRequest,
+        generated: GeneratedEvacuationMessage,
+        validation: ValidationResult,
+        *,
+        cached_verdict: dict[str, Any] | None = None,
+    ) -> tuple[ValidationResult, JudgeVerdict | None]:
+        if not self.config.llm_judge_enabled:
+            return validation, None
+        if cached_verdict is not None:
+            verdict = JudgeVerdict(**cached_verdict)
+            if validation.accepted and not verdict.accepted:
+                reasons = list(validation.reasons)
+                judge_reasons = verdict.reasons or ["below_threshold"]
+                reasons.extend(f"llm_judge:{reason}" for reason in judge_reasons)
+                return ValidationResult(accepted=False, reasons=reasons), verdict
+            return validation, verdict
+        if not validation.accepted:
+            return validation, None
+        verdict = judge(
+            request=request,
+            message=generated,
+            ground_truth={
+                "exits": list(request.exits),
+                "hazards": [hazard.position for hazard in request.hazards],
+                "congested_exits": list(request.congested_exits),
+            },
+            threshold=self.config.llm_judge_threshold,
+            provider=self.config.llm_judge_provider,
+        )
+        if verdict.accepted:
+            return validation, verdict
+        reasons = list(validation.reasons)
+        judge_reasons = verdict.reasons or ["below_threshold"]
+        reasons.extend(f"llm_judge:{reason}" for reason in judge_reasons)
+        return ValidationResult(accepted=False, reasons=reasons), verdict
 
     def _budget_exceeded_message(
         self, audit: dict[str, Any]
@@ -1047,6 +1109,7 @@ def _append_llm_audit(
     used_fallback: bool,
     audit: dict[str, Any],
     target: InterventionTarget,
+    judge_verdict: JudgeVerdict | None = None,
 ) -> None:
     rows = getattr(simulation, "llm_call_audit", None)
     if rows is None:
@@ -1065,6 +1128,24 @@ def _append_llm_audit(
             "cache_status": cache_status,
             "validation_status": validation.status,
             "validation_reasons": ";".join(validation.reasons),
+            "judge_status": (
+                ""
+                if judge_verdict is None
+                else ("accepted" if judge_verdict.accepted else "rejected")
+            ),
+            "judge_safety": (
+                None if judge_verdict is None else float(judge_verdict.safety)
+            ),
+            "judge_specificity": (
+                None if judge_verdict is None else float(judge_verdict.specificity)
+            ),
+            "judge_alignment": (
+                None if judge_verdict is None else float(judge_verdict.alignment)
+            ),
+            "judge_reasons": (
+                "" if judge_verdict is None else ";".join(judge_verdict.reasons)
+            ),
+            "judge_provider": "" if judge_verdict is None else judge_verdict.provider,
             "used_fallback": bool(used_fallback),
             "objective": request.objective,
             "prompt_style": request.prompt_style,
