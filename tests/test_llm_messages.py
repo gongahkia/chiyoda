@@ -25,7 +25,9 @@ def _request() -> LLMMessageRequest:
         selected_reason="test",
         objective="reduce_entropy_without_bottlenecking",
         exits=[(10, 1), (1, 1)],
-        hazards=[HazardSnapshot(position=(3.0, 3.0), kind="GAS", radius=2.0, severity=0.8)],
+        hazards=[
+            HazardSnapshot(position=(3.0, 3.0), kind="GAS", radius=2.0, severity=0.8)
+        ],
         congested_exits=[(1, 1)],
         recipients_estimate=4,
         mean_local_density=0.3,
@@ -112,7 +114,9 @@ def test_validator_rejects_invented_exit_and_hazard():
     result = validate_generated_message(
         message,
         known_exits=[(10, 1)],
-        known_hazards=[HazardSnapshot(position=(3.0, 3.0), kind="GAS", radius=2.0, severity=0.8)],
+        known_hazards=[
+            HazardSnapshot(position=(3.0, 3.0), kind="GAS", radius=2.0, severity=0.8)
+        ],
         base_radius=8.0,
         max_radius=20.0,
         base_credibility=0.9,

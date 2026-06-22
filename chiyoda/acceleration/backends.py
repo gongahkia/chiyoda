@@ -36,8 +36,14 @@ class AccelerationBackend:
 
 
 class PythonAccelerationBackend(AccelerationBackend):
-    def __init__(self, requested_backend: str = "python", fallback_reason: str | None = None) -> None:
-        super().__init__(name="python", requested_backend=requested_backend, fallback_reason=fallback_reason)
+    def __init__(
+        self, requested_backend: str = "python", fallback_reason: str | None = None
+    ) -> None:
+        super().__init__(
+            name="python",
+            requested_backend=requested_backend,
+            fallback_reason=fallback_reason,
+        )
 
     def aggregate_step_grids(
         self,
@@ -116,7 +122,9 @@ class JuliaAccelerationBackend(AccelerationBackend):
         except Exception as exc:  # pragma: no cover - exercised in fallback tests
             raise RuntimeError(f"Unable to import juliacall: {exc}") from exc
 
-        super().__init__(name="julia", requested_backend=requested_backend, fallback_reason=None)
+        super().__init__(
+            name="julia", requested_backend=requested_backend, fallback_reason=None
+        )
         module_path = Path(__file__).resolve().parent / "julia" / "telemetry.jl"
         jl.seval(f"include({json.dumps(str(module_path))})")
         self._module = jl.seval("ChiyodaAccel")

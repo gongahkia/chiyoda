@@ -11,7 +11,9 @@ from chiyoda.scenarios.validation import validate_scenario_file
 def test_multifloor_connector_regression_assertions_pass():
     manager = ScenarioManager()
     scenario = manager.load_config("scenarios/validation_multifloor_connectors.yaml")
-    validation = validate_scenario_file("scenarios/validation_multifloor_connectors.yaml")
+    validation = validate_scenario_file(
+        "scenarios/validation_multifloor_connectors.yaml"
+    )
 
     sim = manager.build_simulation(scenario)
     sim.run()
@@ -37,7 +39,9 @@ def test_elevator_queue_regression_assertions_pass():
 
     assert result.ok
     assert sim.connector_usage_cumulative["elevator_queue"] >= 3
-    assert len([event for event in sim.connector_events if event["phase"] == "start"]) >= 3
+    assert (
+        len([event for event in sim.connector_events if event["phase"] == "start"]) >= 3
+    )
     assert sim.step_history[-1].connector_capacity["elevator_queue"] == 1
     assert sim.step_history[-1].connector_queue_length["elevator_queue"] == 0
     assert not sim.impossible_floor_jumps

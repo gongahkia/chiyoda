@@ -2,6 +2,7 @@
 FirstResponder — counter-flow agent with PPE, high credibility,
 and mission-oriented pathfinding toward hazard source.
 """
+
 from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Optional, Tuple
@@ -10,10 +11,11 @@ from chiyoda.agents.base import CognitiveAgent, INTENTION_RESPOND, INTENTION_FRE
 from chiyoda.information.field import BeliefVector
 from chiyoda.navigation.social_force import adjusted_step
 
+
 @dataclass
 class FirstResponder(CognitiveAgent):
     mission_target: Optional[Tuple[float, ...]] = None
-    ppe_factor: float = 0.1 # 90% PPE protection
+    ppe_factor: float = 0.1  # 90% PPE protection
     broadcast_radius: float = 5.0
     is_responder: bool = True
 
@@ -45,8 +47,13 @@ class FirstResponder(CognitiveAgent):
                 self.mission_target = tuple(float(value) for value in h.pos)
             else:
                 return
-        needs_path = (not self.current_path) or (self.path_index >= len(self.current_path))
-        stale = simulation.current_step - self.last_navigation_step >= simulation.navigation_replan_interval_steps
+        needs_path = (not self.current_path) or (
+            self.path_index >= len(self.current_path)
+        )
+        stale = (
+            simulation.current_step - self.last_navigation_step
+            >= simulation.navigation_replan_interval_steps
+        )
         if not (needs_path or stale):
             return
         start = simulation._grid_cell(self)
@@ -85,13 +92,17 @@ class FirstResponder(CognitiveAgent):
                 if simulation.spatial_index is not None
                 else np.zeros((0, 3), dtype=float)
             )
-            adj = adjusted_step(self.pos, desired_step, neighbors, [], dt, counter_flow=True)
+            adj = adjusted_step(
+                self.pos, desired_step, neighbors, [], dt, counter_flow=True
+            )
             new_pos = self.pos + adj
             if np.linalg.norm(target - new_pos) < 0.35:
                 self.path_index += 1
             current_cell = simulation._grid_cell(self)
             next_cell = simulation.layout.cell(waypoint)
-            if current_cell[0] != next_cell[0] or simulation.layout.is_walkable(new_pos):
+            if current_cell[0] != next_cell[0] or simulation.layout.is_walkable(
+                new_pos
+            ):
                 self.pos = new_pos
                 self.floor_id = simulation.layout.floor_for_z(float(self.pos[2]))
         if self.mission_target:
@@ -101,5 +112,7 @@ class FirstResponder(CognitiveAgent):
 
 def _point3(value) -> np.ndarray:
     if len(value) >= 3:
-        return np.array([float(value[0]), float(value[1]), float(value[2])], dtype=float)
+        return np.array(
+            [float(value[0]), float(value[1]), float(value[2])], dtype=float
+        )
     return np.array([float(value[0]), float(value[1]), 0.0], dtype=float)

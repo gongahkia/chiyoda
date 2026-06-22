@@ -11,13 +11,7 @@ from chiyoda.scenarios.manager import ScenarioManager
 
 
 def test_flood_hazard_evolves_inundation_field_and_route_penalty():
-    layout = Layout.from_text(
-        "XXXXXX\n"
-        "X@..EX\n"
-        "X....X\n"
-        "X....X\n"
-        "XXXXXX\n"
-    )
+    layout = Layout.from_text("XXXXXX\n" "X@..EX\n" "X....X\n" "X....X\n" "XXXXXX\n")
     hazard = Hazard(
         pos=(2.0, 2.5, 0.0),
         kind="FLOOD",
@@ -44,19 +38,18 @@ def test_flood_hazard_evolves_inundation_field_and_route_penalty():
     assert hazard.radius > 1.0
     assert hazard.inundation_field
     assert hazard.intensity_at(np.array([2.5, 2.5, 0.0])) > 0.0
-    assert sim.hazard_penalty_at_cell(("0", 2, 2)) > sim.hazard_penalty_at_cell(("0", 4, 1))
+    assert sim.hazard_penalty_at_cell(("0", 2, 2)) > sim.hazard_penalty_at_cell(
+        ("0", 4, 1)
+    )
 
 
 def test_aftershock_damages_terrain_and_triggers_re_evacuation_wave():
-    layout = Layout.from_text(
-        "XXXXXXX\n"
-        "X@..EX\n"
-        "X..@.X\n"
-        "XXXXXXX\n"
-    )
+    layout = Layout.from_text("XXXXXXX\n" "X@..EX\n" "X..@.X\n" "XXXXXXX\n")
     agents = [
         Commuter(id=0, pos=layout.world_position(("0", 1, 1)), floor_id="0"),
-        Commuter(id=1, pos=layout.world_position(("0", 3, 2)), floor_id="0", release_step=100),
+        Commuter(
+            id=1, pos=layout.world_position(("0", 3, 2)), floor_id="0", release_step=100
+        ),
     ]
     hazard = Hazard(
         pos=(3.0, 2.0, 0.0),

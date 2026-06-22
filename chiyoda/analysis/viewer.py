@@ -36,10 +36,17 @@ def _viewer_payload(bundle: StudyBundle, *, max_frames: int) -> dict[str, Any]:
     if agent_steps.empty:
         frames: list[dict[str, Any]] = []
     else:
-        steps = sorted(pd.to_numeric(agent_steps["step"], errors="coerce").dropna().unique().tolist())
+        steps = sorted(
+            pd.to_numeric(agent_steps["step"], errors="coerce")
+            .dropna()
+            .unique()
+            .tolist()
+        )
         selected = set(_sample_values([int(step) for step in steps], max_frames))
         frames = []
-        for step, frame in agent_steps[agent_steps["step"].isin(selected)].groupby("step", sort=True):
+        for step, frame in agent_steps[agent_steps["step"].isin(selected)].groupby(
+            "step", sort=True
+        ):
             agents = []
             for row in frame.itertuples(index=False):
                 agents.append(
@@ -108,7 +115,13 @@ def _layout_floors(metadata: dict[str, Any]) -> list[dict[str, Any]]:
             for index, floor in enumerate(floors)
             if isinstance(floor, dict)
         ]
-    return [{"id": "0", "z": 0.0, "grid": _layout_grid(str(metadata.get("layout_text", "")))}]
+    return [
+        {
+            "id": "0",
+            "z": 0.0,
+            "grid": _layout_grid(str(metadata.get("layout_text", ""))),
+        }
+    ]
 
 
 def _source_floors(bundle: StudyBundle) -> list[dict[str, Any]]:
@@ -151,7 +164,9 @@ def _source_floors(bundle: StudyBundle) -> list[dict[str, Any]]:
         properties = dict(feature.get("properties", {}) or {})
         level = str(properties.get("level", properties.get("level_id", "unassigned")))
         geometry = feature.get("geometry", {}) or {}
-        converted = _viewer_geometry(geometry, origin_x=origin_x, origin_y=origin_y, cell_size=cell_size)
+        converted = _viewer_geometry(
+            geometry, origin_x=origin_x, origin_y=origin_y, cell_size=cell_size
+        )
         if converted is None:
             continue
         by_level.setdefault(level, []).append(
@@ -177,9 +192,17 @@ def _viewer_geometry(
     kind = geometry.get("type")
     coords = geometry.get("coordinates")
     if kind == "Point":
-        return {"type": kind, "coordinates": _project_point(coords, origin_x, origin_y, cell_size)}
+        return {
+            "type": kind,
+            "coordinates": _project_point(coords, origin_x, origin_y, cell_size),
+        }
     if kind == "LineString":
-        return {"type": kind, "coordinates": [_project_point(point, origin_x, origin_y, cell_size) for point in coords]}
+        return {
+            "type": kind,
+            "coordinates": [
+                _project_point(point, origin_x, origin_y, cell_size) for point in coords
+            ],
+        }
     if kind == "Polygon":
         return {
             "type": kind,
@@ -201,7 +224,10 @@ def _viewer_geometry(
             "type": kind,
             "coordinates": [
                 [
-                    [_project_point(point, origin_x, origin_y, cell_size) for point in ring]
+                    [
+                        _project_point(point, origin_x, origin_y, cell_size)
+                        for point in ring
+                    ]
                     for ring in polygon
                 ]
                 for polygon in coords
@@ -210,7 +236,9 @@ def _viewer_geometry(
     return None
 
 
-def _project_point(point: Any, origin_x: float, origin_y: float, cell_size: float) -> list[float]:
+def _project_point(
+    point: Any, origin_x: float, origin_y: float, cell_size: float
+) -> list[float]:
     return [
         (float(point[0]) - origin_x) / cell_size,
         (float(point[1]) - origin_y) / cell_size,
@@ -224,11 +252,16 @@ def _feature_role(properties: dict[str, Any]) -> str:
         return str(properties["chiyoda_role"])
     if str(properties.get("indoor", "")).lower() in {"wall", "column"}:
         return "wall"
-    if properties.get("entrance") or str(properties.get("railway", "")).endswith("entrance"):
+    if properties.get("entrance") or str(properties.get("railway", "")).endswith(
+        "entrance"
+    ):
         return "exit"
     if str(properties.get("location_type", "")) == "2":
         return "exit"
-    if properties.get("public_transport") == "platform" or properties.get("railway") == "platform":
+    if (
+        properties.get("public_transport") == "platform"
+        or properties.get("railway") == "platform"
+    ):
         return "platform"
     if properties.get("pathway_mode"):
         return "pathway"
@@ -255,12 +288,20 @@ def _path_usage_cells(frame: pd.DataFrame, *, run_id: str) -> list[dict[str, Any
         current = current[current["run_id"] == run_id]
     if current.empty:
         return []
-    current["path_usage"] = pd.to_numeric(current["path_usage"], errors="coerce").fillna(0)
+    current["path_usage"] = pd.to_numeric(
+        current["path_usage"], errors="coerce"
+    ).fillna(0)
     grouped = current.groupby(["x", "y"], as_index=False)["path_usage"].max()
     if "floor_id" in current.columns:
-        grouped = current.groupby(["floor_id", "x", "y"], as_index=False)["path_usage"].max()
+        grouped = current.groupby(["floor_id", "x", "y"], as_index=False)[
+            "path_usage"
+        ].max()
     if "z" in current.columns:
-        z_by_cell = current.groupby(["floor_id", "x", "y"], as_index=False)["z"].first() if "floor_id" in current.columns else current.groupby(["x", "y"], as_index=False)["z"].first()
+        z_by_cell = (
+            current.groupby(["floor_id", "x", "y"], as_index=False)["z"].first()
+            if "floor_id" in current.columns
+            else current.groupby(["x", "y"], as_index=False)["z"].first()
+        )
         grouped = grouped.merge(z_by_cell, how="left")
     grouped = grouped[grouped["path_usage"] > 0]
     return grouped.to_dict(orient="records")

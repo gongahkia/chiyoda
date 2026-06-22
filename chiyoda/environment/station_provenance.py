@@ -33,7 +33,9 @@ def load_station_provenance(
 
     if inline is None and provenance_file is None:
         if report_facing:
-            raise ValueError("report-facing station cases require metadata.provenance_file or metadata.station_provenance")
+            raise ValueError(
+                "report-facing station cases require metadata.provenance_file or metadata.station_provenance"
+            )
         return None
 
     if inline is not None:
@@ -53,18 +55,32 @@ def validate_station_provenance(
     *,
     report_facing: bool = True,
 ) -> None:
-    missing = sorted(field for field in REQUIRED_FIELDS if _is_missing(provenance.get(field)))
+    missing = sorted(
+        field for field in REQUIRED_FIELDS if _is_missing(provenance.get(field))
+    )
     if missing:
         raise ValueError(f"Station provenance missing required fields: {missing}")
-    if not (provenance.get("osm_objects") or provenance.get("gtfs_feeds") or provenance.get("source_files")):
-        raise ValueError("Station provenance requires one of osm_objects, gtfs_feeds, or source_files")
+    if not (
+        provenance.get("osm_objects")
+        or provenance.get("gtfs_feeds")
+        or provenance.get("source_files")
+    ):
+        raise ValueError(
+            "Station provenance requires one of osm_objects, gtfs_feeds, or source_files"
+        )
     for field in ("manual_edits", "known_missing_indoor_topology"):
         value = provenance.get(field)
         if not isinstance(value, list) or not value:
-            raise ValueError(f"Station provenance field {field} must be a non-empty list")
+            raise ValueError(
+                f"Station provenance field {field} must be a non-empty list"
+            )
     limitation = str(provenance.get("validation_use", "")).lower()
-    if report_facing and not any(token in limitation for token in ("not", "only", "proxy", "diagnostic")):
-        raise ValueError("Report-facing station provenance must state validation limitations")
+    if report_facing and not any(
+        token in limitation for token in ("not", "only", "proxy", "diagnostic")
+    ):
+        raise ValueError(
+            "Report-facing station provenance must state validation limitations"
+        )
 
 
 def _resolve_path(raw_path: str, source_file: Optional[str]) -> Path:

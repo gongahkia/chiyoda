@@ -12,7 +12,14 @@ from chiyoda.analysis.trajectory_reference import (
     compare_trajectory_reference,
     load_trajectory_table,
 )
-from chiyoda.studies import StudyBundle, compare_bundles, compare_studies, load_study_config, run_study, submit_policy
+from chiyoda.studies import (
+    StudyBundle,
+    compare_bundles,
+    compare_studies,
+    load_study_config,
+    run_study,
+    submit_policy,
+)
 from chiyoda.scenarios.assertions import evaluate_scenario_assertions
 from chiyoda.scenarios.manager import ScenarioManager
 from chiyoda.scenarios.standards import strict_scenario_from_geojson
@@ -32,7 +39,9 @@ def cli():
     pass
 
 
-def _normalized_values(values: tuple[str, ...], fallback: tuple[str, ...]) -> tuple[str, ...]:
+def _normalized_values(
+    values: tuple[str, ...], fallback: tuple[str, ...]
+) -> tuple[str, ...]:
     if values:
         return tuple(dict.fromkeys(value.lower() for value in values))
     return fallback
@@ -101,7 +110,9 @@ def _export_bundle(
 def run(scenario_file, out_dir, figure_formats, table_formats, profile):
     """Run a single scenario and export a structured study bundle."""
     bundle = run_study(scenario_file)
-    _export_bundle(bundle, out_dir, tuple(figure_formats), tuple(table_formats), profile)
+    _export_bundle(
+        bundle, out_dir, tuple(figure_formats), tuple(table_formats), profile
+    )
     click.echo(f"Exported study bundle to {out_dir}")
 
 
@@ -127,13 +138,20 @@ def sweep(study_file, out_dir, figure_formats, table_formats, profile):
     """Run a study definition with repeated seeds, variants, and sweeps."""
     config = load_study_config(study_file)
     bundle = run_study(config)
-    _export_bundle(bundle, out_dir, tuple(figure_formats), tuple(table_formats), profile)
+    _export_bundle(
+        bundle, out_dir, tuple(figure_formats), tuple(table_formats), profile
+    )
     click.echo(f"Exported sweep study to {out_dir}")
 
 
 @cli.command("validate-scenario")
 @click.argument("scenario_file")
-@click.option("--json", "json_output", is_flag=True, help="Emit machine-readable validation output")
+@click.option(
+    "--json",
+    "json_output",
+    is_flag=True,
+    help="Emit machine-readable validation output",
+)
 @click.pass_context
 def validate_scenario_command(ctx, scenario_file, json_output):
     """Validate scenario layout starts, exits, and static exit reachability."""
@@ -150,14 +168,18 @@ def validate_scenario_command(ctx, scenario_file, json_output):
         for issue in result.issues:
             cell = f" cell={issue.cell}" if issue.cell is not None else ""
             source = f" source={issue.source}" if issue.source else ""
-            click.echo(f"{issue.severity.upper()} {issue.code}:{cell}{source} {issue.message}")
+            click.echo(
+                f"{issue.severity.upper()} {issue.code}:{cell}{source} {issue.message}"
+            )
     if result.has_errors:
         ctx.exit(1)
 
 
 @cli.command("assert-scenario")
 @click.argument("scenario_file")
-@click.option("--json", "json_output", is_flag=True, help="Emit machine-readable assertion output")
+@click.option(
+    "--json", "json_output", is_flag=True, help="Emit machine-readable assertion output"
+)
 @click.pass_context
 def assert_scenario_command(ctx, scenario_file, json_output):
     """Run a scenario and evaluate its runtime assertions."""
@@ -172,7 +194,9 @@ def assert_scenario_command(ctx, scenario_file, json_output):
         status = "OK" if result.ok else "ERROR"
         click.echo(f"{status}: {scenario_file} assertions={len(result.issues)}")
         for issue in result.issues:
-            click.echo(f"ERROR {issue.code}: {issue.message} observed={issue.observed} expected={issue.expected}")
+            click.echo(
+                f"ERROR {issue.code}: {issue.message} observed={issue.observed} expected={issue.expected}"
+            )
     if not result.ok:
         ctx.exit(1)
 
@@ -229,7 +253,9 @@ def calibrate_route_choice_command(archive, out_file, normalized_out):
 @cli.command()
 @click.argument("baseline")
 @click.argument("variant")
-@click.option("-o", "--out", "out_dir", required=True, help="Output comparison directory")
+@click.option(
+    "-o", "--out", "out_dir", required=True, help="Output comparison directory"
+)
 @click.option(
     "--format",
     "figure_formats",
@@ -272,12 +298,30 @@ def compare(baseline, variant, out_dir, figure_formats, table_formats, profile):
 @cli.command("causal-compare")
 @click.argument("baseline_bundle")
 @click.argument("treated_bundle")
-@click.option("--metric", "metrics", multiple=True, required=True, help="Summary metric to compare")
-@click.option("--estimator", default="ate", type=click.Choice(["ate"]), help="Estimator")
-@click.option("--bootstrap-samples", default=1000, type=int, help="Bootstrap sample count")
+@click.option(
+    "--metric",
+    "metrics",
+    multiple=True,
+    required=True,
+    help="Summary metric to compare",
+)
+@click.option(
+    "--estimator", default="ate", type=click.Choice(["ate"]), help="Estimator"
+)
+@click.option(
+    "--bootstrap-samples", default=1000, type=int, help="Bootstrap sample count"
+)
 @click.option("--random-seed", default=42, type=int, help="Bootstrap random seed")
 @click.option("-o", "--out", "out_file", default=None, help="Optional CSV output path")
-def causal_compare_command(baseline_bundle, treated_bundle, metrics, estimator, bootstrap_samples, random_seed, out_file):
+def causal_compare_command(
+    baseline_bundle,
+    treated_bundle,
+    metrics,
+    estimator,
+    bootstrap_samples,
+    random_seed,
+    out_file,
+):
     """Compare matched-seed counterfactual study bundles."""
     baseline = StudyBundle.load(baseline_bundle)
     treated = StudyBundle.load(treated_bundle)
@@ -305,7 +349,13 @@ def benchmark():
 @benchmark.command("submit")
 @click.option("--policy", "policy_path", default=None, help="Policy YAML/JSON path")
 @click.option("--suite", default="v1", help="Benchmark suite")
-@click.option("-o", "--out", "out_dir", default="out/benchmark_submission", help="Output directory")
+@click.option(
+    "-o",
+    "--out",
+    "out_dir",
+    default="out/benchmark_submission",
+    help="Output directory",
+)
 def benchmark_submit_command(policy_path, suite, out_dir):
     """Run a benchmark submission and export leaderboard artifacts."""
     result = submit_policy(policy_path=policy_path, suite=suite, output_dir=out_dir)
@@ -326,10 +376,12 @@ def export_figures_command(study_dir, figure_formats, profile):
     """Re-export research figures from an existing study directory."""
     bundle = StudyBundle.load(study_dir)
     export_dir = Path(study_dir) / "figures"
-    resolved_figures, _, resolved_profile, should_export_figures = _bundle_export_settings(
-        bundle,
-        tuple(figure_formats),
-        profile=profile,
+    resolved_figures, _, resolved_profile, should_export_figures = (
+        _bundle_export_settings(
+            bundle,
+            tuple(figure_formats),
+            profile=profile,
+        )
     )
     if should_export_figures and resolved_figures:
         export_figures(
@@ -389,8 +441,18 @@ def compare_trajectory_reference_command(simulated, reference, out_file, group_c
 @click.option("--channel-type", default="gossip", help="Hostile channel type")
 @click.option("--plausibility", default=0.65, type=float, help="Claim plausibility")
 @click.option("--interval-steps", default=1, type=int, help="Injection interval")
-@click.option("-o", "--out", "out_file", default=None, help="Optional JSON summary path")
-def red_team_command(scenario_file, budget, objective, channel_type, plausibility, interval_steps, out_file):
+@click.option(
+    "-o", "--out", "out_file", default=None, help="Optional JSON summary path"
+)
+def red_team_command(
+    scenario_file,
+    budget,
+    objective,
+    channel_type,
+    plausibility,
+    interval_steps,
+    out_file,
+):
     """Run a scenario with an injected hostile information channel."""
     manager = ScenarioManager()
     scenario = manager.load_config(scenario_file)

@@ -1,4 +1,5 @@
 """Line-of-sight checks over strict 3D layouts."""
+
 from __future__ import annotations
 
 from typing import Sequence
@@ -6,7 +7,13 @@ from typing import Sequence
 import numpy as np
 
 
-def line_of_sight(layout, source: Sequence[float], target: Sequence[float], *, max_range: float | None = None) -> bool:
+def line_of_sight(
+    layout,
+    source: Sequence[float],
+    target: Sequence[float],
+    *,
+    max_range: float | None = None,
+) -> bool:
     src = _point3(source)
     dst = _point3(target)
     distance = float(np.linalg.norm(dst - src))
@@ -26,5 +33,7 @@ def line_of_sight(layout, source: Sequence[float], target: Sequence[float], *, m
 
 def _point3(value: Sequence[float]) -> np.ndarray:
     if len(value) >= 3:
-        return np.array([float(value[0]), float(value[1]), float(value[2])], dtype=float)
+        return np.array(
+            [float(value[0]), float(value[1]), float(value[2])], dtype=float
+        )
     return np.array([float(value[0]), float(value[1]), 0.0], dtype=float)

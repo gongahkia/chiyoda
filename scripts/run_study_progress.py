@@ -111,17 +111,23 @@ def write_run_checkpoint(
 
     for table_name, frame in tables.items():
         frame.to_parquet(tmp_dir / f"{table_name}.parquet", index=False)
-    (tmp_dir / "manifest.json").write_text(json.dumps(manifest, indent=2, default=str) + "\n")
+    (tmp_dir / "manifest.json").write_text(
+        json.dumps(manifest, indent=2, default=str) + "\n"
+    )
     tmp_dir.replace(final_dir)
 
 
-def load_run_checkpoint(root: Path, run_index: int) -> tuple[dict[str, pd.DataFrame], dict[str, object]]:
+def load_run_checkpoint(
+    root: Path, run_index: int
+) -> tuple[dict[str, pd.DataFrame], dict[str, object]]:
     run_dir = run_checkpoint_dir(root, run_index)
     manifest = json.loads((run_dir / "manifest.json").read_text())
     tables = {
-        table_name: pd.read_parquet(run_dir / f"{table_name}.parquet")
-        if (run_dir / f"{table_name}.parquet").exists()
-        else pd.DataFrame()
+        table_name: (
+            pd.read_parquet(run_dir / f"{table_name}.parquet")
+            if (run_dir / f"{table_name}.parquet").exists()
+            else pd.DataFrame()
+        )
         for table_name in frame_names()
     }
     return tables, manifest
@@ -131,7 +137,9 @@ def main() -> int:
     args = parse_args()
     config = load_study_config(args.study_file)
     if args.seed_count is not None:
-        config = config.model_copy(update={"seeds": seed_sequence(args.seed_count, args.seed_start)})
+        config = config.model_copy(
+            update={"seeds": seed_sequence(args.seed_count, args.seed_start)}
+        )
 
     manager = ScenarioManager()
     analytics = SimulationAnalytics()
@@ -147,7 +155,9 @@ def main() -> int:
     ckpt_root = checkpoint_root(args)
     if ckpt_root is not None:
         ckpt_root.mkdir(parents=True, exist_ok=True)
-        (ckpt_root / "study_file.txt").write_text(str(Path(args.study_file).resolve()) + "\n")
+        (ckpt_root / "study_file.txt").write_text(
+            str(Path(args.study_file).resolve()) + "\n"
+        )
 
     total = sum(len(_resolve_seeds(config, variant)) for variant in variants)
     run_index = 0
@@ -171,7 +181,9 @@ def main() -> int:
                     first_bottlenecks = list(context.get("bottleneck_zones", []))
                     first_exit_labels = dict(context.get("exit_labels", {}))
                     first_scenario_metadata = dict(context.get("scenario_metadata", {}))
-                    scenario_name = str(context.get("scenario_name", Path(config.scenario_file).stem))
+                    scenario_name = str(
+                        context.get("scenario_name", Path(config.scenario_file).stem)
+                    )
                 elapsed = time.perf_counter() - run_start
                 print(
                     f"  checkpoint hit in {elapsed:.1f}s; interventions={manifest.get('interventions', 0)} "
@@ -232,7 +244,8 @@ def main() -> int:
                     {
                         "run": run_manifest,
                         "context": {
-                            "scenario_name": scenario_name or Path(config.scenario_file).stem,
+                            "scenario_name": scenario_name
+                            or Path(config.scenario_file).stem,
                             "layout_text": first_layout_text or "",
                             "bottleneck_zones": first_bottlenecks,
                             "exit_labels": first_exit_labels,
@@ -258,16 +271,30 @@ def main() -> int:
         "scenario_name": scenario_name or Path(config.scenario_file).stem,
         "created_at_utc": datetime.now(timezone.utc).isoformat(),
         "export_config": config.export.model_dump(),
-        "acceleration_backend": runs_manifest[0]["acceleration_backend"] if runs_manifest else "python",
+        "acceleration_backend": (
+            runs_manifest[0]["acceleration_backend"] if runs_manifest else "python"
+        ),
         "requested_acceleration_backend": (
-            runs_manifest[0]["requested_acceleration_backend"] if runs_manifest else "auto"
+            runs_manifest[0]["requested_acceleration_backend"]
+            if runs_manifest
+            else "auto"
         ),
         "layout_text": first_layout_text or "",
-        "layout_width": summary["layout_width"].dropna().iloc[0] if not summary.empty else 0,
-        "layout_height": summary["layout_height"].dropna().iloc[0] if not summary.empty else 0,
-        "layout_origin_x": summary["layout_origin_x"].dropna().iloc[0] if not summary.empty else 0.0,
-        "layout_origin_y": summary["layout_origin_y"].dropna().iloc[0] if not summary.empty else 0.0,
-        "layout_cell_size": summary["layout_cell_size"].dropna().iloc[0] if not summary.empty else 1.0,
+        "layout_width": (
+            summary["layout_width"].dropna().iloc[0] if not summary.empty else 0
+        ),
+        "layout_height": (
+            summary["layout_height"].dropna().iloc[0] if not summary.empty else 0
+        ),
+        "layout_origin_x": (
+            summary["layout_origin_x"].dropna().iloc[0] if not summary.empty else 0.0
+        ),
+        "layout_origin_y": (
+            summary["layout_origin_y"].dropna().iloc[0] if not summary.empty else 0.0
+        ),
+        "layout_cell_size": (
+            summary["layout_cell_size"].dropna().iloc[0] if not summary.empty else 1.0
+        ),
         "bottleneck_zones": first_bottlenecks,
         "exit_labels": first_exit_labels,
         "scenario_metadata": first_scenario_metadata,

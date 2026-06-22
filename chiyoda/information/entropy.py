@@ -54,7 +54,9 @@ def agent_entropy(
         h_hazards += max(0, total_hazards - known_hazards) * 1.0
         for hb in beliefs.hazard_beliefs:
             # freshness increases entropy (stale info is less certain)
-            h_hazards += _binary_entropy(0.5 + 0.5 * (1.0 - hb.freshness) * (2.0 * hb.severity_est - 1.0))
+            h_hazards += _binary_entropy(
+                0.5 + 0.5 * (1.0 - hb.freshness) * (2.0 * hb.severity_est - 1.0)
+            )
 
     # general danger level entropy
     h_danger = _binary_entropy(beliefs.general_danger_level)
@@ -110,14 +112,14 @@ def belief_accuracy(
         total += 1.0
         eb = beliefs.exit_beliefs.get(exit_pos)
         if eb is not None:
-            score += eb.exists_prob # higher prob = more accurate
+            score += eb.exists_prob  # higher prob = more accurate
         # else: agent doesn't know → 0 contribution
 
     # false exits (agent believes exits exist that don't)
     for exit_pos, eb in beliefs.exit_beliefs.items():
         if exit_pos not in true_exits and eb.exists_prob > 0.5:
             total += 1.0
-            score += 0.0 # penalize false beliefs
+            score += 0.0  # penalize false beliefs
 
     # hazard accuracy
     for hazard in true_hazards:
@@ -155,5 +157,5 @@ def information_efficiency(
     h_final = global_entropy(final_beliefs, total_exits, total_hazards)
 
     if h_initial < 1e-9:
-        return 1.0 # started with perfect info
+        return 1.0  # started with perfect info
     return max(0.0, 1.0 - h_final / h_initial)

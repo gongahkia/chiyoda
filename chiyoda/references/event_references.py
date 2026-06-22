@@ -76,7 +76,10 @@ class EventReference:
                     "agent_count": observation.agent_count,
                     "confidence": observation.confidence,
                     "notes": observation.notes,
-                    **{f"attribute_{key}": value for key, value in observation.attributes.items()},
+                    **{
+                        f"attribute_{key}": value
+                        for key, value in observation.attributes.items()
+                    },
                 }
             )
         return pd.DataFrame(rows)
@@ -95,7 +98,9 @@ class EventReference:
                     "station": self.provenance.station,
                     "level": self.provenance.level,
                     "coordinate_transform": self.provenance.coordinate_transform,
-                    "scenario_assumptions": "; ".join(self.provenance.scenario_assumptions),
+                    "scenario_assumptions": "; ".join(
+                        self.provenance.scenario_assumptions
+                    ),
                     "known_missing_data": "; ".join(self.provenance.known_missing_data),
                     "notes": self.provenance.notes,
                 }
@@ -128,7 +133,9 @@ def parse_event_reference(
         raise ValueError("Event reference requires a provenance mapping")
     missing = REQUIRED_PROVENANCE_FIELDS.difference(provenance_payload.keys())
     if missing:
-        raise ValueError(f"Event reference provenance missing fields: {sorted(missing)}")
+        raise ValueError(
+            f"Event reference provenance missing fields: {sorted(missing)}"
+        )
 
     observations_payload = payload.get("observations", [])
     if not isinstance(observations_payload, list) or not observations_payload:
@@ -168,7 +175,9 @@ def _parse_observation(
     source: Path | None,
 ) -> EventObservation:
     if not isinstance(payload, Mapping):
-        raise ValueError(f"Observation {index} in {source or '<memory>'} must be a mapping")
+        raise ValueError(
+            f"Observation {index} in {source or '<memory>'} must be a mapping"
+        )
     event_id = str(payload.get("event_id", f"event_{index}")).strip()
     label = str(payload.get("label", "")).strip()
     if not label:

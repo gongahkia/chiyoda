@@ -2,6 +2,7 @@
 Multi-hazard physics engine with advection-diffusion, visibility effects,
 and physiological impact tables for ITED CBRN scenarios.
 """
+
 from __future__ import annotations
 from dataclasses import dataclass, field
 import csv
@@ -12,19 +13,19 @@ import numpy as np
 
 # physiological effect profiles: (speed_factor, rationality_factor, vision_factor)
 HAZARD_PROFILES = {
-    "GAS": { # nerve agent (sarin-like)
-        "speed_decay": 0.8,     # strong motor impairment
-        "vision_decay": 0.6,    # miosis (pupil constriction)
+    "GAS": {  # nerve agent (sarin-like)
+        "speed_decay": 0.8,  # strong motor impairment
+        "vision_decay": 0.6,  # miosis (pupil constriction)
         "rationality_decay": 0.5,
-        "incapacitation_threshold": 4.0, # cumulative exposure units
+        "incapacitation_threshold": 4.0,  # cumulative exposure units
     },
-    "SMOKE": { # obscurant
-        "speed_decay": 0.3,     # mild physical effect
-        "vision_decay": 0.9,    # severe visibility reduction
+    "SMOKE": {  # obscurant
+        "speed_decay": 0.3,  # mild physical effect
+        "vision_decay": 0.9,  # severe visibility reduction
         "rationality_decay": 0.2,
         "incapacitation_threshold": 10.0,
     },
-    "FIRE": { # thermal
+    "FIRE": {  # thermal
         "speed_decay": 0.5,
         "vision_decay": 0.4,
         "rationality_decay": 0.3,
@@ -60,7 +61,7 @@ HAZARD_PROFILES = {
         "rationality_decay": 0.45,
         "incapacitation_threshold": 4.0,
     },
-    "CRUSH": { # crowd crush (density-induced)
+    "CRUSH": {  # crowd crush (density-induced)
         "speed_decay": 0.9,
         "vision_decay": 0.1,
         "rationality_decay": 0.4,
@@ -74,6 +75,7 @@ HAZARD_PROFILES = {
     },
 }
 
+
 @dataclass
 class Hazard:
     pos: Tuple[float, ...]
@@ -81,9 +83,9 @@ class Hazard:
     radius: float = 0.0
     severity: float = 0.5
     spread_rate: float = 0.0
-    wind_vector: Tuple[float, float] = (0.0, 0.0) # advection direction
-    diffusion_rate: float = 0.1 # isotropic diffusion coefficient
-    visibility_reduction: float = 0.0 # how much this hazard reduces visibility [0,1]
+    wind_vector: Tuple[float, float] = (0.0, 0.0)  # advection direction
+    diffusion_rate: float = 0.1  # isotropic diffusion coefficient
+    visibility_reduction: float = 0.0  # how much this hazard reduces visibility [0,1]
     range_m: float = 8.0
     accuracy: float = 0.35
     height_aware: bool = False
@@ -129,7 +131,7 @@ class Hazard:
                 z,
             )
         elif self.kind.upper() == "FIRE":
-            self.radius += self.spread_rate * dt * 0.5 # fire spreads slower
+            self.radius += self.spread_rate * dt * 0.5  # fire spreads slower
         elif self.kind.upper() in {"WILDFIRE", "EMBER"}:
             wind_speed = float(np.linalg.norm(np.array(self.wind_vector, dtype=float)))
             self.radius += (self.spread_rate + 0.05 * wind_speed) * dt
@@ -143,7 +145,9 @@ class Hazard:
         elif self.kind.upper() == "FLOOD":
             flow = np.array(self.flow_vector or self.wind_vector, dtype=float)
             flow_speed = float(np.linalg.norm(flow))
-            self.radius += (self.spread_rate + self.diffusion_rate + 0.03 * flow_speed) * dt
+            self.radius += (
+                self.spread_rate + self.diffusion_rate + 0.03 * flow_speed
+            ) * dt
             self.inundation_depth_m = min(
                 self.max_depth_m,
                 max(0.0, self.inundation_depth_m + self.inundation_rise_rate_mps * dt),
@@ -169,10 +173,22 @@ class Hazard:
             if self.height_aware
             else float(np.linalg.norm(sample - origin))
         )
-        effective_radius = self.range_m if self.kind.upper() == "SHOOTER" else self.radius
-        ember = self._ember_intensity_at(sample) if self.kind.upper() in {"WILDFIRE", "EMBER"} else 0.0
-        flood = self._flood_intensity_at(sample) if self.kind.upper() == "FLOOD" else 0.0
-        shock = self._shock_intensity_at(sample) if self.kind.upper() in {"EARTHQUAKE", "AFTERSHOCK"} else 0.0
+        effective_radius = (
+            self.range_m if self.kind.upper() == "SHOOTER" else self.radius
+        )
+        ember = (
+            self._ember_intensity_at(sample)
+            if self.kind.upper() in {"WILDFIRE", "EMBER"}
+            else 0.0
+        )
+        flood = (
+            self._flood_intensity_at(sample) if self.kind.upper() == "FLOOD" else 0.0
+        )
+        shock = (
+            self._shock_intensity_at(sample)
+            if self.kind.upper() in {"EARTHQUAKE", "AFTERSHOCK"}
+            else 0.0
+        )
         if flood > 0.0 or shock > 0.0:
             return min(1.0, flood + shock)
         if effective_radius <= 1e-6:
@@ -196,9 +212,16 @@ class Hazard:
         )
         height_factor = _height_factor(sample[2] - origin[2], self)
         if self.radius <= 1e-6:
-            return 1.0 - self.visibility_reduction * height_factor if dist <= 0.75 else 1.0
+            return (
+                1.0 - self.visibility_reduction * height_factor if dist <= 0.75 else 1.0
+            )
         if dist <= self.radius:
-            return 1.0 - self.visibility_reduction * max(0.0, 1.0 - (dist / self.radius)) * height_factor
+            return (
+                1.0
+                - self.visibility_reduction
+                * max(0.0, 1.0 - (dist / self.radius))
+                * height_factor
+            )
         return 1.0
 
     def affects(self, point: np.ndarray) -> bool:
@@ -256,12 +279,16 @@ class Hazard:
         else:
             wind_dir = wind / wind_norm
         origin = _point3(self.pos)
-        spot_distance = max(float(self.ember_ignition_radius), self.radius + wind_norm * dt)
+        spot_distance = max(
+            float(self.ember_ignition_radius), self.radius + wind_norm * dt
+        )
         centers = [
             origin[:2],
             origin[:2] + wind_dir * spot_distance,
         ]
-        cell_size = max(float(getattr(simulation.layout, "cell_size", self.ember_cell_size)), 1e-6)
+        cell_size = max(
+            float(getattr(simulation.layout, "cell_size", self.ember_cell_size)), 1e-6
+        )
         self.ember_cell_size = cell_size
         layout_origin = getattr(simulation.layout, "origin", (0.0, 0.0))
         self.ember_origin = (float(layout_origin[0]), float(layout_origin[1]))
@@ -274,13 +301,22 @@ class Hazard:
             max_y = int(np.ceil((center[1] + radius - ember_origin[1]) / cell_size))
             for x in range(min_x, max_x + 1):
                 for y in range(min_y, max_y + 1):
-                    point = ember_origin + np.array([(x + 0.5) * cell_size, (y + 0.5) * cell_size], dtype=float)
+                    point = ember_origin + np.array(
+                        [(x + 0.5) * cell_size, (y + 0.5) * cell_size], dtype=float
+                    )
                     dist = float(np.linalg.norm(point - center))
                     if dist > radius:
                         continue
-                    value = self.severity * self.ember_spotting_rate * dt * max(0.0, 1.0 - dist / radius)
+                    value = (
+                        self.severity
+                        * self.ember_spotting_rate
+                        * dt
+                        * max(0.0, 1.0 - dist / radius)
+                    )
                     key = (x, y)
-                    self.ember_field[key] = min(1.0, self.ember_field.get(key, 0.0) + value)
+                    self.ember_field[key] = min(
+                        1.0, self.ember_field.get(key, 0.0) + value
+                    )
 
     def _ember_intensity_at(self, sample: np.ndarray) -> float:
         if not self.ember_field:
@@ -300,13 +336,18 @@ class Hazard:
             if value * decay > 0.01
         }
         flow_norm = float(np.linalg.norm(flow))
-        flow_dir = flow / flow_norm if flow_norm > 1e-6 else np.array([1.0, 0.0], dtype=float)
+        flow_dir = (
+            flow / flow_norm if flow_norm > 1e-6 else np.array([1.0, 0.0], dtype=float)
+        )
         origin = _point3(self.pos)
         centers = [
             origin[:2],
             origin[:2] + flow_dir * max(0.0, self.radius * 0.6 + flow_norm * dt),
         ]
-        cell_size = max(float(getattr(simulation.layout, "cell_size", self.inundation_cell_size)), 1e-6)
+        cell_size = max(
+            float(getattr(simulation.layout, "cell_size", self.inundation_cell_size)),
+            1e-6,
+        )
         self.inundation_cell_size = cell_size
         layout_origin = getattr(simulation.layout, "origin", (0.0, 0.0))
         self.inundation_origin = (float(layout_origin[0]), float(layout_origin[1]))
@@ -323,13 +364,18 @@ class Hazard:
             max_y = int(np.ceil((center[1] + radius - field_origin[1]) / cell_size))
             for x in range(min_x, max_x + 1):
                 for y in range(min_y, max_y + 1):
-                    point = field_origin + np.array([(x + 0.5) * cell_size, (y + 0.5) * cell_size], dtype=float)
+                    point = field_origin + np.array(
+                        [(x + 0.5) * cell_size, (y + 0.5) * cell_size], dtype=float
+                    )
                     dist = float(np.linalg.norm(point - center))
                     if dist > radius:
                         continue
                     depth = base_depth * max(0.0, 1.0 - dist / radius)
                     key = (x, y)
-                    self.inundation_field[key] = min(self.max_depth_m, max(self.inundation_field.get(key, 0.0), depth))
+                    self.inundation_field[key] = min(
+                        self.max_depth_m,
+                        max(self.inundation_field.get(key, 0.0), depth),
+                    )
 
     def _flood_intensity_at(self, sample: np.ndarray) -> float:
         depth = self._inundation_depth_at(sample)
@@ -351,35 +397,52 @@ class Hazard:
     def _step_aftershocks(self, simulation) -> None:
         step = int(getattr(simulation, "current_step", 0))
         schedule = tuple(int(value) for value in self.aftershock_schedule)
-        while self.aftershock_index < len(schedule) and step >= schedule[self.aftershock_index]:
-            pulse_scale = max(0.2, float(np.exp(-self.aftershock_decay_rate * self.aftershock_index)))
+        while (
+            self.aftershock_index < len(schedule)
+            and step >= schedule[self.aftershock_index]
+        ):
+            pulse_scale = max(
+                0.2, float(np.exp(-self.aftershock_decay_rate * self.aftershock_index))
+            )
             radius = max(float(self.damage_radius), float(self.radius), 1.0)
-            damage = float(self.aftershock_damage_increment) * float(self.severity) * pulse_scale
+            damage = (
+                float(self.aftershock_damage_increment)
+                * float(self.severity)
+                * pulse_scale
+            )
             center = _point3(self.pos)
             terrain = (
-                simulation.apply_terrain_damage(center, radius, damage, source=str(self.kind).lower())
+                simulation.apply_terrain_damage(
+                    center, radius, damage, source=str(self.kind).lower()
+                )
                 if hasattr(simulation, "apply_terrain_damage")
                 else {"affected_cells": 0, "max_damage": 0.0}
             )
             wave_radius = max(float(self.re_evacuation_radius), radius)
             triggered = (
-                simulation.trigger_re_evacuation_wave(center, wave_radius, source=str(self.kind).lower())
+                simulation.trigger_re_evacuation_wave(
+                    center, wave_radius, source=str(self.kind).lower()
+                )
                 if hasattr(simulation, "trigger_re_evacuation_wave")
                 else 0
             )
             if hasattr(simulation, "aftershock_events"):
-                simulation.aftershock_events.append({
-                    "step": step,
-                    "time_s": float(getattr(simulation, "time_s", 0.0)),
-                    "hazard_kind": str(self.kind),
-                    "aftershock_index": int(self.aftershock_index),
-                    "radius": radius,
-                    "damage_increment": damage,
-                    "affected_cells": int(terrain.get("affected_cells", 0)),
-                    "max_damage": float(terrain.get("max_damage", 0.0)),
-                    "triggered_agents": int(triggered),
-                })
-            self.shock_intensity = max(self.shock_intensity, float(self.severity) * pulse_scale)
+                simulation.aftershock_events.append(
+                    {
+                        "step": step,
+                        "time_s": float(getattr(simulation, "time_s", 0.0)),
+                        "hazard_kind": str(self.kind),
+                        "aftershock_index": int(self.aftershock_index),
+                        "radius": radius,
+                        "damage_increment": damage,
+                        "affected_cells": int(terrain.get("affected_cells", 0)),
+                        "max_damage": float(terrain.get("max_damage", 0.0)),
+                        "triggered_agents": int(triggered),
+                    }
+                )
+            self.shock_intensity = max(
+                self.shock_intensity, float(self.severity) * pulse_scale
+            )
             self.aftershock_index += 1
 
     def _shock_intensity_at(self, sample: np.ndarray) -> float:
@@ -390,7 +453,9 @@ class Hazard:
         radius = max(float(self.radius), float(self.damage_radius), 1e-6)
         if dist > radius:
             return 0.0
-        return float(np.clip(self.shock_intensity * max(0.0, 1.0 - dist / radius), 0.0, 1.0))
+        return float(
+            np.clip(self.shock_intensity * max(0.0, 1.0 - dist / radius), 0.0, 1.0)
+        )
 
 
 @dataclass
@@ -444,9 +509,15 @@ class ImportedHazardField:
     def from_json(cls, path: str | Path, *, kind: str = "GAS") -> "ImportedHazardField":
         source = Path(path)
         payload = json.loads(source.read_text())
-        intensity = _numeric_grid(payload.get("intensity") or payload.get("intensity_grid"))
+        intensity = _numeric_grid(
+            payload.get("intensity") or payload.get("intensity_grid")
+        )
         visibility_payload = payload.get("visibility") or payload.get("visibility_grid")
-        visibility = _numeric_grid(visibility_payload) if visibility_payload is not None else None
+        visibility = (
+            _numeric_grid(visibility_payload)
+            if visibility_payload is not None
+            else None
+        )
         if visibility is not None and visibility.shape != intensity.shape:
             raise ValueError("Visibility grid must match intensity grid shape")
         return cls(
@@ -505,7 +576,9 @@ class ImportedHazardField:
         if cell is None:
             return 0.0
         x, y = cell
-        return float(self.intensity_grid[y, x]) * _height_factor(float(_point3(point)[2]) - self.base_z, self)
+        return float(self.intensity_grid[y, x]) * _height_factor(
+            float(_point3(point)[2]) - self.base_z, self
+        )
 
     def visibility_at(self, point: np.ndarray) -> float:
         if not self.active or self.visibility_grid is None:
@@ -515,7 +588,15 @@ class ImportedHazardField:
             return 1.0
         x, y = cell
         obscuration = 1.0 - float(np.clip(self.visibility_grid[y, x], 0.0, 1.0))
-        return float(np.clip(1.0 - obscuration * _height_factor(float(_point3(point)[2]) - self.base_z, self), 0.0, 1.0))
+        return float(
+            np.clip(
+                1.0
+                - obscuration
+                * _height_factor(float(_point3(point)[2]) - self.base_z, self),
+                0.0,
+                1.0,
+            )
+        )
 
     def affects(self, point: np.ndarray) -> bool:
         return self.intensity_at(point) > 0.0
@@ -563,7 +644,9 @@ def _numeric_grid(values: Any) -> np.ndarray:
 
 def _point3(value: Any) -> np.ndarray:
     if len(value) >= 3:
-        return np.array([float(value[0]), float(value[1]), float(value[2])], dtype=float)
+        return np.array(
+            [float(value[0]), float(value[1]), float(value[2])], dtype=float
+        )
     return np.array([float(value[0]), float(value[1]), 0.0], dtype=float)
 
 

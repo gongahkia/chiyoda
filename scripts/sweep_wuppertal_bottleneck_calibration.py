@@ -77,7 +77,9 @@ def main() -> int:
 
     manager = ScenarioManager()
     base_scenario = manager.load_config(args.scenario)
-    reference = load_petrack_trajectory(args.reference, frame_rate_hz=args.frame_rate_hz)
+    reference = load_petrack_trajectory(
+        args.reference, frame_rate_hz=args.frame_rate_hz
+    )
     reference_summary = summarize_bottleneck_flow(
         reference,
         source="wuppertal_2018",
@@ -141,7 +143,9 @@ def main() -> int:
     if best is not None:
         _, best_candidate, best_summaries, best_comparison, best_scenario = best
         best_summaries.to_csv(out_dir / "best_bottleneck_flow_summary.csv", index=False)
-        best_comparison.to_csv(out_dir / "best_bottleneck_flow_comparison.csv", index=False)
+        best_comparison.to_csv(
+            out_dir / "best_bottleneck_flow_comparison.csv", index=False
+        )
         (out_dir / "best_candidate_parameters.json").write_text(
             json.dumps(asdict(best_candidate), indent=2) + "\n"
         )
@@ -192,7 +196,9 @@ def configure_scenario(
     max_steps: int,
 ) -> dict:
     scenario = yaml.safe_load(yaml.safe_dump(base_scenario))
-    scenario["layout"] = {"grid": bottleneck_grid(candidate.bottleneck_width, candidate.exit_width)}
+    scenario["layout"] = {
+        "grid": bottleneck_grid(candidate.bottleneck_width, candidate.exit_width)
+    }
     scenario.setdefault("population", {})
     for cohort in scenario["population"].get("cohorts", []):
         cohort["base_speed"] = candidate.base_speed
@@ -203,7 +209,9 @@ def configure_scenario(
     scenario["simulation"]["min_crowd_speed_factor"] = candidate.min_crowd_speed_factor
     scenario.setdefault("metadata", {})
     scenario["metadata"]["calibration_candidate"] = asdict(candidate)
-    scenario["metadata"]["validation_scope"] = "wuppertal_bottleneck_flow_calibration_sweep"
+    scenario["metadata"][
+        "validation_scope"
+    ] = "wuppertal_bottleneck_flow_calibration_sweep"
     return scenario
 
 
@@ -218,13 +226,17 @@ def bottleneck_grid(bottleneck_width: int, exit_width: int) -> list[str]:
 
 def opening_row(width: int, center: int, opening_width: int, token: str) -> str:
     if opening_width < 1 or opening_width > width - 2 or opening_width % 2 == 0:
-        raise ValueError("opening_width must be an odd value within the walkable interior")
+        raise ValueError(
+            "opening_width must be an odd value within the walkable interior"
+        )
     left = center - opening_width // 2
     right = center + opening_width // 2
     return "".join(token if left <= x <= right else "X" for x in range(width))
 
 
-def measurement_line_for_width(bottleneck_width: int) -> tuple[tuple[float, float], tuple[float, float]]:
+def measurement_line_for_width(
+    bottleneck_width: int,
+) -> tuple[tuple[float, float], tuple[float, float]]:
     center = 5.0
     half = bottleneck_width / 2.0
     return ((center - half, 6.0), (center + half, 6.0))
@@ -253,7 +265,9 @@ def calibration_score(comparison: pd.DataFrame) -> float:
     return flow_error + 0.5 * headway_error + 0.5 * crossing_error
 
 
-def result_row(candidate: Candidate, comparison: pd.DataFrame, score: float) -> dict[str, float | int | str]:
+def result_row(
+    candidate: Candidate, comparison: pd.DataFrame, score: float
+) -> dict[str, float | int | str]:
     values = comparison.set_index("metric")
     row: dict[str, float | int | str] = asdict(candidate)
     row["simulated_crossing_count"] = float(values.loc["crossing_count", "simulated"])
@@ -262,9 +276,15 @@ def result_row(candidate: Candidate, comparison: pd.DataFrame, score: float) -> 
     row["simulated_mean_flow_ped_s"] = float(values.loc["mean_flow_ped_s", "simulated"])
     row["reference_mean_flow_ped_s"] = float(values.loc["mean_flow_ped_s", "reference"])
     row["mean_flow_pct_delta"] = float(values.loc["mean_flow_ped_s", "pct_delta"])
-    row["simulated_mean_time_headway_s"] = float(values.loc["mean_time_headway_s", "simulated"])
-    row["reference_mean_time_headway_s"] = float(values.loc["mean_time_headway_s", "reference"])
-    row["mean_time_headway_pct_delta"] = float(values.loc["mean_time_headway_s", "pct_delta"])
+    row["simulated_mean_time_headway_s"] = float(
+        values.loc["mean_time_headway_s", "simulated"]
+    )
+    row["reference_mean_time_headway_s"] = float(
+        values.loc["mean_time_headway_s", "reference"]
+    )
+    row["mean_time_headway_pct_delta"] = float(
+        values.loc["mean_time_headway_s", "pct_delta"]
+    )
     row["calibration_score"] = score
     row["claim_status"] = claim_status(row)
     return row

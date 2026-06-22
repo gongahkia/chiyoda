@@ -55,7 +55,9 @@ def main() -> int:
         output_usd_per_mtok=args.output_usd_per_mtok,
     )
     totals = summarize_totals(summary)
-    population_records = collect_population_calibration_records(Path(args.population_cache_root))
+    population_records = collect_population_calibration_records(
+        Path(args.population_cache_root)
+    )
     population_summary = summarize_population_calibration_records(
         population_records,
         input_usd_per_mtok=args.input_usd_per_mtok,
@@ -65,14 +67,22 @@ def main() -> int:
 
     summary.to_csv(out_dir / "llm_cache_usage.csv", index=False)
     totals.to_csv(out_dir / "llm_cache_usage_totals.csv", index=False)
-    population_records.to_csv(out_dir / "generated_population_calibration_cache_records.csv", index=False)
-    population_summary.to_csv(out_dir / "generated_population_calibration_cache_usage.csv", index=False)
-    population_totals.to_csv(out_dir / "generated_population_calibration_cache_usage_totals.csv", index=False)
+    population_records.to_csv(
+        out_dir / "generated_population_calibration_cache_records.csv", index=False
+    )
+    population_summary.to_csv(
+        out_dir / "generated_population_calibration_cache_usage.csv", index=False
+    )
+    population_totals.to_csv(
+        out_dir / "generated_population_calibration_cache_usage_totals.csv", index=False
+    )
     print(f"wrote {out_dir / 'llm_cache_usage.csv'}")
     print(f"wrote {out_dir / 'llm_cache_usage_totals.csv'}")
     print(f"wrote {out_dir / 'generated_population_calibration_cache_records.csv'}")
     print(f"wrote {out_dir / 'generated_population_calibration_cache_usage.csv'}")
-    print(f"wrote {out_dir / 'generated_population_calibration_cache_usage_totals.csv'}")
+    print(
+        f"wrote {out_dir / 'generated_population_calibration_cache_usage_totals.csv'}"
+    )
     return 0
 
 
@@ -96,9 +106,13 @@ def collect_cache_records(cache_root: Path) -> pd.DataFrame:
                 "provider": provider,
                 "model": model,
                 "validation_status": status,
-                "validation_reasons": ";".join(str(item) for item in validation.get("reasons", []) or []),
+                "validation_reasons": ";".join(
+                    str(item) for item in validation.get("reasons", []) or []
+                ),
                 "input_tokens": _usage_int(usage, "input_tokens", "prompt_tokens"),
-                "output_tokens": _usage_int(usage, "output_tokens", "completion_tokens"),
+                "output_tokens": _usage_int(
+                    usage, "output_tokens", "completion_tokens"
+                ),
                 "total_tokens": _usage_int(usage, "total_tokens"),
                 "has_usage": bool(usage),
                 "path": str(path),
@@ -133,8 +147,14 @@ def summarize_cache_records(
         records.groupby(["cache_dir", "provider", "model"], dropna=False)
         .agg(
             records=("cache_key", "count"),
-            accepted=("validation_status", lambda values: int((values == "accepted").sum())),
-            rejected=("validation_status", lambda values: int((values == "rejected").sum())),
+            accepted=(
+                "validation_status",
+                lambda values: int((values == "accepted").sum()),
+            ),
+            rejected=(
+                "validation_status",
+                lambda values: int((values == "rejected").sum()),
+            ),
             records_with_usage=("has_usage", "sum"),
             input_tokens=("input_tokens", "sum"),
             output_tokens=("output_tokens", "sum"),
@@ -176,16 +196,28 @@ def collect_population_calibration_records(cache_root: Path) -> pd.DataFrame:
                 "scenario_name": request.get("scenario_name", ""),
                 "provider": str(calibration.get("provider", "")),
                 "model": str(calibration.get("model", "")),
-                "validation_status": "accepted" if validation.get("accepted") else "rejected",
-                "validation_reasons": ";".join(str(item) for item in validation.get("reasons", []) or []),
+                "validation_status": (
+                    "accepted" if validation.get("accepted") else "rejected"
+                ),
+                "validation_reasons": ";".join(
+                    str(item) for item in validation.get("reasons", []) or []
+                ),
                 "confidence": float(calibration.get("confidence", 0.0) or 0.0),
                 "abstain": bool(calibration.get("abstain", False)),
-                "allowed_targets": ";".join(str(item) for item in request.get("allowed_targets", []) or []),
+                "allowed_targets": ";".join(
+                    str(item) for item in request.get("allowed_targets", []) or []
+                ),
                 "proposed_targets": ";".join(proposed_targets),
-                "applied_targets": ";".join(str(item) for item in application.get("applied_targets", []) or []),
-                "skipped_overwrite_attempts": ";".join(str(item) for item in application.get("skipped", []) or []),
+                "applied_targets": ";".join(
+                    str(item) for item in application.get("applied_targets", []) or []
+                ),
+                "skipped_overwrite_attempts": ";".join(
+                    str(item) for item in application.get("skipped", []) or []
+                ),
                 "input_tokens": _usage_int(usage, "input_tokens", "prompt_tokens"),
-                "output_tokens": _usage_int(usage, "output_tokens", "completion_tokens"),
+                "output_tokens": _usage_int(
+                    usage, "output_tokens", "completion_tokens"
+                ),
                 "total_tokens": _usage_int(usage, "total_tokens"),
                 "has_usage": bool(usage),
                 "path": str(path),
@@ -222,8 +254,14 @@ def summarize_population_calibration_records(
         records.groupby(["cache_dir", "provider", "model"], dropna=False)
         .agg(
             records=("cache_key", "count"),
-            accepted=("validation_status", lambda values: int((values == "accepted").sum())),
-            rejected=("validation_status", lambda values: int((values == "rejected").sum())),
+            accepted=(
+                "validation_status",
+                lambda values: int((values == "accepted").sum()),
+            ),
+            rejected=(
+                "validation_status",
+                lambda values: int((values == "rejected").sum()),
+            ),
             records_with_usage=("has_usage", "sum"),
             input_tokens=("input_tokens", "sum"),
             output_tokens=("output_tokens", "sum"),

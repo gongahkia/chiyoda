@@ -33,6 +33,7 @@ INTENTION_FIGHT = "FIGHT"  # active-shooter response: last-resort close engageme
 @dataclass
 class PhysiologyState:
     """Tracks physiological effects of hazard exposure."""
+
     cumulative_exposure: float = 0.0
     speed_factor: float = 1.0  # [0,1] multiplier on base speed
     vision_factor: float = 1.0  # [0,1] multiplier on observation radius
@@ -64,6 +65,7 @@ class PhysiologyState:
 @dataclass
 class CognitiveAgent:
     """ITED cognitive agent with BDI decision-making and physiological model."""
+
     id: int
     pos: np.ndarray  # [x, y, z] float coordinates
     floor_id: str = "0"
@@ -110,7 +112,9 @@ class CognitiveAgent:
     intention: str = INTENTION_EVACUATE
     rationality: float = 1.0  # effective rationality (base * physiology)
     base_rationality: float = 0.8
-    explore_direction: Optional[np.ndarray] = None  # random walk direction when exploring
+    explore_direction: Optional[np.ndarray] = (
+        None  # random walk direction when exploring
+    )
     explore_steps_remaining: int = 0
 
     # ITED: physiology
@@ -168,7 +172,8 @@ class CognitiveAgent:
 
         shooter_pressure = (
             simulation.shooter_pressure_for(self)
-            if hasattr(simulation, "shooter_pressure_for") and not getattr(self, "is_hostile", False)
+            if hasattr(simulation, "shooter_pressure_for")
+            and not getattr(self, "is_hostile", False)
             else None
         )
         if shooter_pressure is not None:
@@ -183,7 +188,11 @@ class CognitiveAgent:
 
         if self.assisted_agent_id is not None:
             partner = simulation.agent_lookup.get(self.assisted_agent_id)
-            if partner and not partner.has_evacuated and partner.is_released(simulation):
+            if (
+                partner
+                and not partner.has_evacuated
+                and partner.is_released(simulation)
+            ):
                 self.intention = INTENTION_ASSIST
                 return
 
@@ -208,11 +217,16 @@ class CognitiveAgent:
         same_family_targets = {}
         if self.family_id:
             for other in getattr(simulation, "agents", []):
-                if other.id == self.id or getattr(other, "family_id", None) != self.family_id:
+                if (
+                    other.id == self.id
+                    or getattr(other, "family_id", None) != self.family_id
+                ):
                     continue
                 target = getattr(other, "target_exit", None)
                 if target is not None:
-                    same_family_targets[tuple(target)] = same_family_targets.get(tuple(target), 0) + 1
+                    same_family_targets[tuple(target)] = (
+                        same_family_targets.get(tuple(target), 0) + 1
+                    )
         family_target_total = max(1, sum(same_family_targets.values()))
         scored = []
         for exit_pos in known_exits:
@@ -220,8 +234,12 @@ class CognitiveAgent:
             belief = self.beliefs.exit_beliefs.get(key)
             if belief is None:
                 continue
-            base_score = (belief.exists_prob - belief.congestion_est) * (1.0 - belief.freshness * 0.3)
-            profile_score = _profile_similarity(self.homophily_profile, destination_profiles.get(key, {}))
+            base_score = (belief.exists_prob - belief.congestion_est) * (
+                1.0 - belief.freshness * 0.3
+            )
+            profile_score = _profile_similarity(
+                self.homophily_profile, destination_profiles.get(key, {})
+            )
             family_score = same_family_targets.get(key, 0) / family_target_total
             distance_score = 0.0
             if hasattr(simulation, "layout"):
@@ -258,7 +276,10 @@ class CognitiveAgent:
         if self.current_path and self.path_index < len(self.current_path):
             current_cell = simulation._grid_cell(self)
             next_cell = simulation.layout.cell(self.current_path[self.path_index])
-            if simulation.layout.connector_for_edge(current_cell, next_cell) is not None:
+            if (
+                simulation.layout.connector_for_edge(current_cell, next_cell)
+                is not None
+            ):
                 return
 
         if self.intention == INTENTION_HIDE:
@@ -269,7 +290,8 @@ class CognitiveAgent:
         if self.intention == INTENTION_FIGHT:
             hostile = min(
                 [
-                    agent for agent in simulation._active_agents()
+                    agent
+                    for agent in simulation._active_agents()
                     if getattr(agent, "is_hostile", False)
                 ],
                 key=lambda agent: float(np.linalg.norm(agent.pos - self.pos)),
@@ -288,7 +310,9 @@ class CognitiveAgent:
             return
 
         # EVACUATE, RUN, FIGHT, or ASSIST: path to target
-        needs_path = (not self.current_path) or (self.path_index >= len(self.current_path))
+        needs_path = (not self.current_path) or (
+            self.path_index >= len(self.current_path)
+        )
         stale_path = (
             simulation.current_step - self.last_navigation_step
             >= simulation.navigation_replan_interval_steps
@@ -298,22 +322,31 @@ class CognitiveAgent:
             and simulation.current_step > self.last_navigation_step
         )
 
-        if not (needs_path or self.target_exit is None or stale_path or congestion_trigger):
+        if not (
+            needs_path or self.target_exit is None or stale_path or congestion_trigger
+        ):
             return
 
         # use only believed exits for pathfinding
         known_exits = self.beliefs.known_exits()
         if not known_exits:
             # fallback: try all actual exits (degenerate case compatibility)
-            known_exits = [tuple(e.pos) if hasattr(e, "pos") else e for e in simulation.exits]
+            known_exits = [
+                tuple(e.pos) if hasattr(e, "pos") else e for e in simulation.exits
+            ]
 
         exit_coords = [simulation.layout.cell(ex) for ex in known_exits]
         start = simulation._grid_cell(self)
 
         # pathfind using belief-weighted navigator
         path = navigator.find_optimal_path(
-            start, exit_coords,
-            hazard_beliefs=self.beliefs.hazard_beliefs if hasattr(navigator, '_belief_weight') else None,
+            start,
+            exit_coords,
+            hazard_beliefs=(
+                self.beliefs.hazard_beliefs
+                if hasattr(navigator, "_belief_weight")
+                else None
+            ),
         )
         if path:
             self.current_path = path
@@ -336,14 +369,18 @@ class CognitiveAgent:
             return
         neighbors = simulation.spatial_index.neighbor_agents(self.pos, radius=3.0)
         if not neighbors:
-            self._navigate_explore(simulation) # fallback to exploring
+            self._navigate_explore(simulation)  # fallback to exploring
             return
 
         # follow the average velocity of nearby agents (herding)
         avg_direction = np.zeros(3)
         count = 0
         for other in neighbors:
-            if hasattr(other, 'current_path') and other.current_path and other.path_index < len(other.current_path):
+            if (
+                hasattr(other, "current_path")
+                and other.current_path
+                and other.path_index < len(other.current_path)
+            ):
                 wp = other.current_path[other.path_index]
                 d = simulation.layout.world_position(wp) - other.pos
                 norm = np.linalg.norm(d)
@@ -362,7 +399,10 @@ class CognitiveAgent:
     def step(self, dt: float, simulation) -> None:
         if self.has_evacuated or not self.is_released(simulation):
             return
-        if self.physiology.incapacitated or self.intention in {INTENTION_FREEZE, INTENTION_HIDE}:
+        if self.physiology.incapacitated or self.intention in {
+            INTENTION_FREEZE,
+            INTENTION_HIDE,
+        }:
             self.current_speed = 0.0
             return
 
@@ -413,11 +453,17 @@ class CognitiveAgent:
             # leader following
             if self.leader_id is not None:
                 leader = simulation.agent_lookup.get(self.leader_id)
-                if leader is not None and leader.is_released(simulation) and not leader.has_evacuated:
+                if (
+                    leader is not None
+                    and leader.is_released(simulation)
+                    and not leader.has_evacuated
+                ):
                     leader_delta = leader.pos - self.pos
                     leader_dist = np.linalg.norm(leader_delta)
                     if leader_dist > self.separation_anxiety_threshold:
-                        direction = 0.65 * direction + 0.35 * (leader_delta / leader_dist)
+                        direction = 0.65 * direction + 0.35 * (
+                            leader_delta / leader_dist
+                        )
                         dir_norm = np.linalg.norm(direction)
                         if dir_norm > 1e-6:
                             direction = direction / dir_norm
@@ -425,7 +471,11 @@ class CognitiveAgent:
             # assist partner
             if self.assisted_agent_id is not None:
                 partner = simulation.agent_lookup.get(self.assisted_agent_id)
-                if partner is not None and partner.is_released(simulation) and not partner.has_evacuated:
+                if (
+                    partner is not None
+                    and partner.is_released(simulation)
+                    and not partner.has_evacuated
+                ):
                     partner_delta = partner.pos - self.pos
                     partner_dist = np.linalg.norm(partner_delta)
                     if partner_dist > 2.5:
@@ -461,7 +511,9 @@ class CognitiveAgent:
             # no path — fallback to nearest known exit
             exits = self.beliefs.known_exits() or simulation.layout.exit_positions()
             if exits:
-                goal = simulation.layout.world_position(simulation.layout.cell(exits[0]))
+                goal = simulation.layout.world_position(
+                    simulation.layout.cell(exits[0])
+                )
                 direction = goal - self.pos
                 dist = np.linalg.norm(direction)
                 if dist > 1e-6:
@@ -493,5 +545,7 @@ def _profile_similarity(left: dict[str, Any], right: dict[str, Any]) -> float:
     keys = sorted(set(left) & set(right))
     if not keys:
         return 0.0
-    matches = sum(1 for key in keys if str(left[key]).lower() == str(right[key]).lower())
+    matches = sum(
+        1 for key in keys if str(left[key]).lower() == str(right[key]).lower()
+    )
     return float(matches / len(keys))

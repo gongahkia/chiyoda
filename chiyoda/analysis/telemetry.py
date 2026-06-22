@@ -4,6 +4,7 @@ Telemetry data structures for ITED framework.
 Includes per-step agent telemetry with entropy, belief accuracy,
 impairment, and decision mode fields.
 """
+
 from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Dict, Iterable, List, Optional, Tuple
@@ -11,12 +12,14 @@ import numpy as np
 
 Cell = tuple
 
+
 @dataclass(frozen=True)
 class BottleneckZone:
     zone_id: str
     cells: Tuple[Cell, ...]
     orientation: str
     centroid: Tuple[float, ...]
+
 
 @dataclass
 class BottleneckStepTelemetry:
@@ -27,6 +30,7 @@ class BottleneckStepTelemetry:
     mean_dwell_s: float = 0.0
     mean_speed: float = 0.0
     mean_density: float = 0.0
+
 
 @dataclass
 class AgentStepTelemetry:
@@ -52,6 +56,7 @@ class AgentStepTelemetry:
     belief_accuracy: float = 1.0
     impairment: float = 0.0
     decision_mode: str = "EVACUATE"
+
 
 @dataclass
 class StepTelemetry:
@@ -90,6 +95,7 @@ def _walkable_neighbors(layout, cell: Cell) -> List[Cell]:
             neighbors.append(candidate)
     return neighbors
 
+
 def _local_openness(layout, cell: Cell) -> int:
     floor_id, x, y = layout.cell(cell)
     openness = 0
@@ -100,6 +106,7 @@ def _local_openness(layout, cell: Cell) -> int:
             if layout.is_walkable((floor_id, x + dx, y + dy)):
                 openness += 1
     return openness
+
 
 def _corridor_orientation(neighbors: List[Cell], cell: Cell) -> Optional[str]:
     floor_id, x, y = cell
@@ -115,6 +122,7 @@ def _corridor_orientation(neighbors: List[Cell], cell: Cell) -> Optional[str]:
     if len(ys) == 2 and len(xs) == 1 and x in xs:
         return "vertical"
     return None
+
 
 def detect_bottleneck_zones(layout) -> List[BottleneckZone]:
     candidates: List[Tuple[Cell, str]] = []
@@ -147,7 +155,10 @@ def detect_bottleneck_zones(layout) -> List[BottleneckZone]:
             cell = stack.pop()
             group.append(cell)
             for neighbor in _walkable_neighbors(layout, cell):
-                if neighbor in remaining and orientation_by_cell[neighbor] == orientation:
+                if (
+                    neighbor in remaining
+                    and orientation_by_cell[neighbor] == orientation
+                ):
                     remaining.remove(neighbor)
                     stack.append(neighbor)
         cells = tuple(sorted(group))
@@ -156,11 +167,16 @@ def detect_bottleneck_zones(layout) -> List[BottleneckZone]:
             float(np.mean([c[2] + 0.5 for c in cells])),
             float(np.mean([layout.floor_z(c[0]) for c in cells])),
         )
-        zones.append(BottleneckZone(
-            zone_id=f"bn_{len(zones) + 1}", cells=cells,
-            orientation=orientation, centroid=centroid,
-        ))
+        zones.append(
+            BottleneckZone(
+                zone_id=f"bn_{len(zones) + 1}",
+                cells=cells,
+                orientation=orientation,
+                centroid=centroid,
+            )
+        )
     return zones
+
 
 def zone_lookup(zones: Iterable[BottleneckZone]) -> Dict[Cell, str]:
     lookup: Dict[Cell, str] = {}
@@ -168,6 +184,7 @@ def zone_lookup(zones: Iterable[BottleneckZone]) -> Dict[Cell, str]:
         for cell in zone.cells:
             lookup[cell] = zone.zone_id
     return lookup
+
 
 def zone_distance(cell: Cell, zone: BottleneckZone) -> int:
     floor_id, x, y = cell

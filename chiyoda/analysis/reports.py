@@ -49,7 +49,10 @@ def export_figures(
         ("10_responder_timing", _figure_responder_timing(artifact)),
         ("11_info_flow_network", _figure_info_flow_network(artifact)),
         ("12_intervention_timeline", _figure_intervention_timeline(artifact)),
-        ("13_information_safety_frontier", _figure_information_safety_frontier(artifact)),
+        (
+            "13_information_safety_frontier",
+            _figure_information_safety_frontier(artifact),
+        ),
     ]
 
     for name, fig in figures:
@@ -94,7 +97,13 @@ def generate_report(simulation, output_path: str | Path) -> list[Path]:
                 f"{cell[0]},{cell[1]}": label
                 for cell, label in simulation.exit_labels.items()
             },
-            "runs": [{"run_id": "legacy_run", "variant_name": "baseline", "seed": simulation.config.random_seed}],
+            "runs": [
+                {
+                    "run_id": "legacy_run",
+                    "variant_name": "baseline",
+                    "seed": simulation.config.random_seed,
+                }
+            ],
             "representative_run_id": "legacy_run",
         },
         summary=tables["summary"],
@@ -118,7 +127,9 @@ def generate_report(simulation, output_path: str | Path) -> list[Path]:
 def _figure_layout_and_keyframes(bundle: StudyBundle) -> plt.Figure:
     run_id = _representative_run_id(bundle)
     agent_steps = bundle.agent_steps[bundle.agent_steps["run_id"] == run_id].copy()
-    available_steps = sorted(agent_steps["step"].unique().tolist()) if not agent_steps.empty else [0]
+    available_steps = (
+        sorted(agent_steps["step"].unique().tolist()) if not agent_steps.empty else [0]
+    )
     keyframe_steps = [
         available_steps[0],
         available_steps[len(available_steps) // 2],
@@ -143,7 +154,9 @@ def _figure_layout_and_keyframes(bundle: StudyBundle) -> plt.Figure:
                 alpha=0.9,
                 edgecolors="none",
             )
-            fig.colorbar(scatter, ax=axis, fraction=0.046, pad=0.04, label="Speed (m/s)")
+            fig.colorbar(
+                scatter, ax=axis, fraction=0.046, pad=0.04, label="Speed (m/s)"
+            )
         axis.set_title(f"Keyframe at step {step}")
     fig.suptitle("01 Layout and Keyframes", fontsize=16, fontweight="bold")
     return fig
@@ -173,13 +186,17 @@ def _figure_occupancy_and_slowdown(bundle: StudyBundle) -> plt.Figure:
         )
 
     fig, axes = plt.subplots(1, 2, figsize=(13, 5), constrained_layout=True)
-    sns.heatmap(peak_occupancy, cmap="YlOrRd", ax=axes[0], cbar_kws={"label": "Peak occupancy"})
+    sns.heatmap(
+        peak_occupancy, cmap="YlOrRd", ax=axes[0], cbar_kws={"label": "Peak occupancy"}
+    )
     axes[0].invert_yaxis()
     axes[0].set_title("Peak occupancy hotspot map")
     axes[0].set_xlabel("X")
     axes[0].set_ylabel("Y")
 
-    sns.heatmap(slowdown, cmap="rocket_r", ax=axes[1], cbar_kws={"label": "Slowdown index"})
+    sns.heatmap(
+        slowdown, cmap="rocket_r", ax=axes[1], cbar_kws={"label": "Slowdown index"}
+    )
     axes[1].invert_yaxis()
     axes[1].set_title("Mean slowdown map")
     axes[1].set_xlabel("X")
@@ -195,14 +212,15 @@ def _figure_bottleneck_dynamics(bundle: StudyBundle) -> plt.Figure:
     fig, axes = plt.subplots(2, 2, figsize=(14, 10), constrained_layout=True)
     if bottlenecks.empty:
         for axis in axes.flatten():
-            axis.text(0.5, 0.5, "No bottleneck telemetry available", ha="center", va="center")
+            axis.text(
+                0.5, 0.5, "No bottleneck telemetry available", ha="center", va="center"
+            )
             axis.axis("off")
         return fig
 
-    mean_ts = (
-        bottlenecks.groupby(["variant_name", "time_s"], as_index=False)[["queue_length", "outflow"]]
-        .mean()
-    )
+    mean_ts = bottlenecks.groupby(["variant_name", "time_s"], as_index=False)[
+        ["queue_length", "outflow"]
+    ].mean()
     for variant_name, frame in mean_ts.groupby("variant_name"):
         axes[0, 0].plot(frame["time_s"], frame["queue_length"], label=variant_name)
         axes[0, 1].plot(frame["time_s"], frame["outflow"], label=variant_name)
@@ -219,7 +237,13 @@ def _figure_bottleneck_dynamics(bundle: StudyBundle) -> plt.Figure:
         else pd.DataFrame(columns=["variant_name", "zone_id", "dwell_s"])
     )
     if not dwell_by_zone.empty:
-        sns.barplot(data=dwell_by_zone, x="zone_id", y="dwell_s", hue="variant_name", ax=axes[1, 0])
+        sns.barplot(
+            data=dwell_by_zone,
+            x="zone_id",
+            y="dwell_s",
+            hue="variant_name",
+            ax=axes[1, 0],
+        )
         axes[1, 0].legend(loc="best")
     else:
         axes[1, 0].text(0.5, 0.5, "No dwell samples recorded", ha="center", va="center")
@@ -227,10 +251,16 @@ def _figure_bottleneck_dynamics(bundle: StudyBundle) -> plt.Figure:
     axes[1, 0].set_xlabel("Zone")
     axes[1, 0].set_ylabel("Seconds")
 
-    peak_queue = (
-        bottlenecks.groupby(["variant_name", "zone_id"], as_index=False)["queue_length"].max()
+    peak_queue = bottlenecks.groupby(["variant_name", "zone_id"], as_index=False)[
+        "queue_length"
+    ].max()
+    sns.barplot(
+        data=peak_queue,
+        x="zone_id",
+        y="queue_length",
+        hue="variant_name",
+        ax=axes[1, 1],
     )
-    sns.barplot(data=peak_queue, x="zone_id", y="queue_length", hue="variant_name", ax=axes[1, 1])
     axes[1, 1].set_title("Peak queue by zone")
     axes[1, 1].set_xlabel("Zone")
     axes[1, 1].set_ylabel("Peak queue")
@@ -248,7 +278,9 @@ def _figure_exit_and_flow(bundle: StudyBundle) -> plt.Figure:
 
     fig, axes = plt.subplots(1, 3, figsize=(15, 5), constrained_layout=True)
     evac = (
-        steps.groupby(["variant_name", "time_s"], as_index=False)["evacuated_total"].mean()
+        steps.groupby(["variant_name", "time_s"], as_index=False)[
+            "evacuated_total"
+        ].mean()
         if not steps.empty
         else pd.DataFrame(columns=["variant_name", "time_s", "evacuated_total"])
     )
@@ -265,20 +297,40 @@ def _figure_exit_and_flow(bundle: StudyBundle) -> plt.Figure:
             .groupby(["variant_name", "run_id", "exit_label"], as_index=False)
             .tail(1)
         )
-        mean_exits = (
-            final_exits.groupby(["variant_name", "exit_label"], as_index=False)["flow_cumulative"].mean()
+        mean_exits = final_exits.groupby(
+            ["variant_name", "exit_label"], as_index=False
+        )["flow_cumulative"].mean()
+        sns.barplot(
+            data=mean_exits,
+            x="exit_label",
+            y="flow_cumulative",
+            hue="variant_name",
+            ax=axes[1],
         )
-        sns.barplot(data=mean_exits, x="exit_label", y="flow_cumulative", hue="variant_name", ax=axes[1])
         axes[1].tick_params(axis="x", rotation=25)
         axes[1].legend(loc="best")
 
         imbalance_rows = []
-        for (variant_name, run_id), frame in final_exits.groupby(["variant_name", "run_id"]):
+        for (variant_name, run_id), frame in final_exits.groupby(
+            ["variant_name", "run_id"]
+        ):
             total = float(frame["flow_cumulative"].sum())
             share = 0.0 if total <= 0 else float(frame["flow_cumulative"].max()) / total
-            imbalance_rows.append({"variant_name": variant_name, "run_id": run_id, "dominant_share": share})
+            imbalance_rows.append(
+                {
+                    "variant_name": variant_name,
+                    "run_id": run_id,
+                    "dominant_share": share,
+                }
+            )
         imbalance = pd.DataFrame(imbalance_rows)
-        sns.barplot(data=imbalance, x="variant_name", y="dominant_share", ax=axes[2], color="#4c72b0")
+        sns.barplot(
+            data=imbalance,
+            x="variant_name",
+            y="dominant_share",
+            ax=axes[2],
+            color="#4c72b0",
+        )
     else:
         axes[1].text(0.5, 0.5, "No exit telemetry available", ha="center", va="center")
         axes[2].text(0.5, 0.5, "No route imbalance available", ha="center", va="center")
@@ -316,7 +368,9 @@ def _figure_distributions(bundle: StudyBundle) -> plt.Figure:
         )
     else:
         axes[0].text(0.5, 0.5, "No agent outcomes available", ha="center", va="center")
-        axes[2].text(0.5, 0.5, "No exposure outcomes available", ha="center", va="center")
+        axes[2].text(
+            0.5, 0.5, "No exposure outcomes available", ha="center", va="center"
+        )
 
     if not bundle.dwell_samples.empty:
         sns.histplot(
@@ -343,12 +397,20 @@ def _figure_distributions(bundle: StudyBundle) -> plt.Figure:
 
 def _figure_bundle_comparison(bundle: StudyBundle) -> plt.Figure:
     fig, axes = plt.subplots(1, 2, figsize=(13, 5), constrained_layout=True)
-    variant_rows = bundle.summary[bundle.summary["record_type"] == "variant_aggregate"].copy()
+    variant_rows = bundle.summary[
+        bundle.summary["record_type"] == "variant_aggregate"
+    ].copy()
     steps = bundle.steps.copy()
 
     if variant_rows["variant_name"].nunique() <= 1:
         axes[0].text(0.5, 0.5, "Only one variant available", ha="center", va="center")
-        axes[1].text(0.5, 0.5, "Run a sweep or add variants for comparison", ha="center", va="center")
+        axes[1].text(
+            0.5,
+            0.5,
+            "Run a sweep or add variants for comparison",
+            ha="center",
+            va="center",
+        )
         for axis in axes:
             axis.axis("off")
         fig.suptitle("06 Scenario Comparison", fontsize=16, fontweight="bold")
@@ -362,21 +424,30 @@ def _figure_bundle_comparison(bundle: StudyBundle) -> plt.Figure:
         comparison_rows.append(
             {
                 "variant_name": row["variant_name"],
-                "travel_time_delta": float(row["mean_travel_time_s"]) - float(baseline["mean_travel_time_s"]),
-                "queue_delta": float(row["peak_bottleneck_queue"]) - float(baseline["peak_bottleneck_queue"]),
-                "exposure_delta": float(row["mean_hazard_exposure"]) - float(baseline["mean_hazard_exposure"]),
+                "travel_time_delta": float(row["mean_travel_time_s"])
+                - float(baseline["mean_travel_time_s"]),
+                "queue_delta": float(row["peak_bottleneck_queue"])
+                - float(baseline["peak_bottleneck_queue"]),
+                "exposure_delta": float(row["mean_hazard_exposure"])
+                - float(baseline["mean_hazard_exposure"]),
             }
         )
     comparison = pd.DataFrame(comparison_rows)
-    comparison_plot = comparison.melt(id_vars="variant_name", var_name="metric", value_name="delta")
-    sns.barplot(data=comparison_plot, x="metric", y="delta", hue="variant_name", ax=axes[0])
+    comparison_plot = comparison.melt(
+        id_vars="variant_name", var_name="metric", value_name="delta"
+    )
+    sns.barplot(
+        data=comparison_plot, x="metric", y="delta", hue="variant_name", ax=axes[0]
+    )
     axes[0].tick_params(axis="x", rotation=20)
     axes[0].set_title(f"Delta vs {baseline['variant_name']}")
     axes[0].set_xlabel("Metric")
     axes[0].set_ylabel("Delta")
     axes[0].legend(loc="best")
 
-    evac = steps.groupby(["variant_name", "time_s"], as_index=False)["evacuated_total"].mean()
+    evac = steps.groupby(["variant_name", "time_s"], as_index=False)[
+        "evacuated_total"
+    ].mean()
     for variant_name, frame in evac.groupby("variant_name"):
         axes[1].plot(frame["time_s"], frame["evacuated_total"], label=variant_name)
     axes[1].set_title("Evacuation curves by variant")
@@ -391,22 +462,39 @@ def _figure_comparison_result(result: ComparisonResult) -> plt.Figure:
     fig, axes = plt.subplots(1, 2, figsize=(13, 5), constrained_layout=True)
 
     if not result.metrics.empty:
-        top_metrics = result.metrics.sort_values("pct_change", key=np.abs, ascending=False).head(8)
-        sns.barplot(data=top_metrics, x="metric", y="pct_change", ax=axes[0], color="#55a868")
+        top_metrics = result.metrics.sort_values(
+            "pct_change", key=np.abs, ascending=False
+        ).head(8)
+        sns.barplot(
+            data=top_metrics, x="metric", y="pct_change", ax=axes[0], color="#55a868"
+        )
         axes[0].tick_params(axis="x", rotation=25)
         axes[0].set_title("Percentage change by metric")
         axes[0].set_xlabel("Metric")
         axes[0].set_ylabel("Percent change")
     else:
-        axes[0].text(0.5, 0.5, "No comparison metrics available", ha="center", va="center")
+        axes[0].text(
+            0.5, 0.5, "No comparison metrics available", ha="center", va="center"
+        )
 
     if not result.timeseries.empty:
         for series_name, frame in result.timeseries.groupby("series"):
-            axes[1].plot(frame["time_s"], frame["evacuated_total"], label=f"{series_name} evacuated")
-            axes[1].plot(frame["time_s"], frame["mean_speed"], linestyle="--", label=f"{series_name} speed")
+            axes[1].plot(
+                frame["time_s"],
+                frame["evacuated_total"],
+                label=f"{series_name} evacuated",
+            )
+            axes[1].plot(
+                frame["time_s"],
+                frame["mean_speed"],
+                linestyle="--",
+                label=f"{series_name} speed",
+            )
         axes[1].legend(loc="best")
     else:
-        axes[1].text(0.5, 0.5, "No comparison timeseries available", ha="center", va="center")
+        axes[1].text(
+            0.5, 0.5, "No comparison timeseries available", ha="center", va="center"
+        )
     axes[1].set_title("Study comparison timeline")
     axes[1].set_xlabel("Time (s)")
     axes[1].set_ylabel("Value")
@@ -426,13 +514,21 @@ def _draw_layout(axis, bundle: StudyBundle, faint: bool = False) -> None:
     for y, row in enumerate(layout_text):
         for x, cell in enumerate(row):
             if cell == "X":
-                axis.add_patch(Rectangle((x, y), 1, 1, facecolor="#1f2933", edgecolor="none", alpha=alpha))
+                axis.add_patch(
+                    Rectangle(
+                        (x, y), 1, 1, facecolor="#1f2933", edgecolor="none", alpha=alpha
+                    )
+                )
 
     for key, label in dict(bundle.metadata.get("exit_labels", {})).items():
         parts = key.split(",")
         if len(parts) == 3:
             floor_id, raw_x, raw_y = parts
-            primary_floor = str((bundle.metadata.get("layout_floors") or [{"id": "0"}])[0].get("id", "0"))
+            primary_floor = str(
+                (bundle.metadata.get("layout_floors") or [{"id": "0"}])[0].get(
+                    "id", "0"
+                )
+            )
             if floor_id != primary_floor:
                 continue
             x, y = int(raw_x), int(raw_y)
@@ -457,7 +553,11 @@ def _draw_layout(axis, bundle: StudyBundle, faint: bool = False) -> None:
     representative_run = _representative_run_id(bundle)
     hazard_rows = bundle.hazards[bundle.hazards["run_id"] == representative_run]
     if not hazard_rows.empty:
-        latest_hazards = hazard_rows.sort_values("time_s").groupby("hazard_id", as_index=False).tail(1)
+        latest_hazards = (
+            hazard_rows.sort_values("time_s")
+            .groupby("hazard_id", as_index=False)
+            .tail(1)
+        )
         for _, hazard in latest_hazards.iterrows():
             axis.add_patch(
                 Circle(
@@ -486,7 +586,9 @@ def _representative_run_id(bundle: StudyBundle) -> str:
     return "run_1"
 
 
-def _save_figure(fig: plt.Figure, output_dir: Path, name: str, formats: Sequence[str]) -> list[Path]:
+def _save_figure(
+    fig: plt.Figure, output_dir: Path, name: str, formats: Sequence[str]
+) -> list[Path]:
     exported: list[Path] = []
     for output_format in formats:
         target = output_dir / f"{name}.{output_format}"
@@ -512,11 +614,14 @@ def _apply_style(profile: str) -> None:
             }
         )
 
+
 def _figure_entropy_heatmap_series(bundle: StudyBundle) -> plt.Figure:
     run_id = _representative_run_id(bundle)
     agent_steps = bundle.agent_steps[bundle.agent_steps["run_id"] == run_id].copy()
-    available_steps = sorted(agent_steps["step"].unique().tolist()) if not agent_steps.empty else [0]
-    
+    available_steps = (
+        sorted(agent_steps["step"].unique().tolist()) if not agent_steps.empty else [0]
+    )
+
     if len(available_steps) < 3:
         keyframe_steps = available_steps * 3
     else:
@@ -527,7 +632,7 @@ def _figure_entropy_heatmap_series(bundle: StudyBundle) -> plt.Figure:
         ]
 
     fig, axes = plt.subplots(1, 3, figsize=(18, 5), constrained_layout=True)
-    
+
     for axis, step in zip(axes, keyframe_steps):
         _draw_layout(axis, bundle, faint=True)
         frame = agent_steps[agent_steps["step"] == step]
@@ -544,75 +649,97 @@ def _figure_entropy_heatmap_series(bundle: StudyBundle) -> plt.Figure:
                 vmax=1.0,
             )
             if step == keyframe_steps[-1]:
-                fig.colorbar(scatter, ax=axis, fraction=0.046, pad=0.04, label="Information Entropy (nats)")
+                fig.colorbar(
+                    scatter,
+                    ax=axis,
+                    fraction=0.046,
+                    pad=0.04,
+                    label="Information Entropy (nats)",
+                )
         axis.set_title(f"Entropy at step {step}")
-        
+
     fig.suptitle("07 Entropy Heatmap Time-Series", fontsize=16, fontweight="bold")
     return fig
 
 
 def _figure_fundamental_diagram(bundle: StudyBundle) -> plt.Figure:
     fig, axis = plt.subplots(1, 1, figsize=(8, 6), constrained_layout=True)
-    
-    if not hasattr(bundle, 'measurements') or bundle.measurements.empty:
-        axis.text(0.5, 0.5, "No MeasurementLine telemetry available", ha="center", va="center")
+
+    if not hasattr(bundle, "measurements") or bundle.measurements.empty:
+        axis.text(
+            0.5, 0.5, "No MeasurementLine telemetry available", ha="center", va="center"
+        )
         axis.axis("off")
         return fig
 
     measurements = bundle.measurements.copy()
     run_id = _representative_run_id(bundle)
     m_run = measurements[measurements["run_id"] == run_id]
-    
+
     if m_run.empty:
-        axis.text(0.5, 0.5, "No MeasurementLine telemetry for representative run", ha="center", va="center")
+        axis.text(
+            0.5,
+            0.5,
+            "No MeasurementLine telemetry for representative run",
+            ha="center",
+            va="center",
+        )
         axis.axis("off")
         return fig
-        
+
     m_run = m_run[(m_run["density"] > 0.05) & (m_run["n_in_region"] >= 2)]
-    
+
     axis.scatter(
-        m_run["density"], 
-        m_run["speed"], 
-        alpha=0.5, 
+        m_run["density"],
+        m_run["speed"],
+        alpha=0.5,
         c="steelblue",
-        label="Simulated (Measurement Line)"
+        label="Simulated (Measurement Line)",
     )
-    
+
     if not m_run.empty:
         densities = np.linspace(0.01, min(6.0, m_run["density"].max() * 1.5), 100)
         speeds = weidmann_speed(densities)
-        axis.plot(densities, speeds, "r--", linewidth=2, label="Weidmann (1993) Theoretical")
-        
+        axis.plot(
+            densities, speeds, "r--", linewidth=2, label="Weidmann (1993) Theoretical"
+        )
+
     axis.set_xlabel("Density (ped/m²)")
     axis.set_ylabel("Speed (m/s)")
     axis.set_title("08 Fundamental Diagram Overlay")
     axis.legend()
     axis.grid(True, linestyle=":", alpha=0.6)
-    
+
     return fig
 
 
 def _figure_belief_survival(bundle: StudyBundle) -> plt.Figure:
     fig, axis = plt.subplots(1, 1, figsize=(8, 6), constrained_layout=True)
-    
+
     agents = bundle.agents.copy()
     agent_steps = bundle.agent_steps.copy()
-    
-    if agents.empty or agent_steps.empty or "belief_accuracy" not in agent_steps.columns:
-        axis.text(0.5, 0.5, "No belief accuracy telemetry available", ha="center", va="center")
+
+    if (
+        agents.empty
+        or agent_steps.empty
+        or "belief_accuracy" not in agent_steps.columns
+    ):
+        axis.text(
+            0.5, 0.5, "No belief accuracy telemetry available", ha="center", va="center"
+        )
         axis.axis("off")
         return fig
-        
+
     run_id = _representative_run_id(bundle)
     a_run = agents[agents["run_id"] == run_id]
     s_run = agent_steps[agent_steps["run_id"] == run_id]
-    
+
     mean_accuracy = s_run.groupby("agent_id")["belief_accuracy"].mean().reset_index()
     merged = a_run.merge(mean_accuracy, on="agent_id", how="left")
-    
+
     evacuated = merged[merged["evacuated"] == True]
     incapacitated = merged[merged["evacuated"] == False]
-    
+
     plotted = _safe_density_hist(
         axis,
         evacuated["belief_accuracy"],
@@ -622,24 +749,29 @@ def _figure_belief_survival(bundle: StudyBundle) -> plt.Figure:
         color="green",
     )
     if not incapacitated.empty:
-        plotted = _safe_density_hist(
-            axis,
-            incapacitated["belief_accuracy"],
-            bins=20,
-            alpha=0.5,
-            label="Incapacitated",
-            color="red",
-        ) or plotted
+        plotted = (
+            _safe_density_hist(
+                axis,
+                incapacitated["belief_accuracy"],
+                bins=20,
+                alpha=0.5,
+                label="Incapacitated",
+                color="red",
+            )
+            or plotted
+        )
     if not plotted:
-        axis.text(0.5, 0.5, "Not enough belief accuracy samples", ha="center", va="center")
+        axis.text(
+            0.5, 0.5, "Not enough belief accuracy samples", ha="center", va="center"
+        )
         axis.axis("off")
         return fig
-        
+
     axis.set_xlabel("Mean Belief Accuracy")
     axis.set_ylabel("Density")
     axis.set_title("09 Belief Accuracy vs. Survival")
     axis.legend()
-    
+
     return fig
 
 
@@ -655,74 +787,95 @@ def _safe_density_hist(axis, values, **kwargs) -> bool:
 
 def _figure_responder_timing(bundle: StudyBundle) -> plt.Figure:
     fig, axis = plt.subplots(1, 1, figsize=(8, 6), constrained_layout=True)
-    
+
     steps = bundle.steps.copy()
     if steps.empty or "global_entropy" not in steps.columns:
-        axis.text(0.5, 0.5, "No global entropy telemetry available", ha="center", va="center")
+        axis.text(
+            0.5, 0.5, "No global entropy telemetry available", ha="center", va="center"
+        )
         axis.axis("off")
         return fig
-        
+
     run_id = _representative_run_id(bundle)
     st = steps[steps["run_id"] == run_id].sort_values("time_s")
-    
-    axis.plot(st["time_s"], st["global_entropy"], linewidth=2, color="purple", label="Global Entropy")
-    
+
+    axis.plot(
+        st["time_s"],
+        st["global_entropy"],
+        linewidth=2,
+        color="purple",
+        label="Global Entropy",
+    )
+
     agent_steps = bundle.agent_steps.copy()
     if not agent_steps.empty:
         # Find responder insertion time (when agent with cohort_name 'responders' first appears)
         s_run = agent_steps[agent_steps["run_id"] == run_id]
         if "cohort_name" in s_run.columns:
-            responders = s_run[s_run["cohort_name"].str.contains("responder", case=False, na=False)]
+            responders = s_run[
+                s_run["cohort_name"].str.contains("responder", case=False, na=False)
+            ]
             if not responders.empty:
                 first_t = responders["time_s"].min()
-                axis.axvline(first_t, color="red", linestyle="--", label=f"Responder Insertion (t={first_t}s)")
-                
+                axis.axvline(
+                    first_t,
+                    color="red",
+                    linestyle="--",
+                    label=f"Responder Insertion (t={first_t}s)",
+                )
+
     axis.set_xlabel("Time (s)")
     axis.set_ylabel("Global Information Entropy (nats)")
     axis.set_title("10 Responder Timing & Entropy Cascade")
     axis.legend()
     axis.grid(True, linestyle=":", alpha=0.6)
-    
+
     return fig
 
 
 def _figure_info_flow_network(bundle: StudyBundle) -> plt.Figure:
     fig, axis = plt.subplots(1, 1, figsize=(10, 8), constrained_layout=True)
-    
-    if not hasattr(bundle, 'gossip') or bundle.gossip.empty:
+
+    if not hasattr(bundle, "gossip") or bundle.gossip.empty:
         axis.text(0.5, 0.5, "No Gossip telemetry available", ha="center", va="center")
         axis.axis("off")
         return fig
-        
+
     gossip = bundle.gossip.copy()
     run_id = _representative_run_id(bundle)
     g_run = gossip[gossip["run_id"] == run_id]
-    
+
     _draw_layout(axis, bundle, faint=True)
-    
+
     agent_steps = bundle.agent_steps.copy()
     s_run = agent_steps[agent_steps["run_id"] == run_id]
-    
+
     if not g_run.empty and not s_run.empty:
         # Plot only a sample to avoid extreme clutter (e.g., first 500 events)
         sample = g_run.head(500)
-        
+
         for _, row in sample.iterrows():
             t = row["time_s"]
             sender_id = row["sender_id"]
             receiver_id = row["receiver_id"]
-            
-            s_pos = s_run[(s_run["agent_id"] == sender_id) & (np.isclose(s_run["time_s"], t, atol=0.5))]
-            r_pos = s_run[(s_run["agent_id"] == receiver_id) & (np.isclose(s_run["time_s"], t, atol=0.5))]
-            
+
+            s_pos = s_run[
+                (s_run["agent_id"] == sender_id)
+                & (np.isclose(s_run["time_s"], t, atol=0.5))
+            ]
+            r_pos = s_run[
+                (s_run["agent_id"] == receiver_id)
+                & (np.isclose(s_run["time_s"], t, atol=0.5))
+            ]
+
             if not s_pos.empty and not r_pos.empty:
                 sx, sy = s_pos.iloc[0]["x"], s_pos.iloc[0]["y"]
                 rx, ry = r_pos.iloc[0]["x"], r_pos.iloc[0]["y"]
-                
+
                 axis.plot([sx, rx], [sy, ry], color="orange", alpha=0.3, linewidth=1)
-                
+
     axis.set_title("11 Information Flow Network (Gossip Transfers)")
-    
+
     return fig
 
 
@@ -733,27 +886,48 @@ def _figure_intervention_timeline(bundle: StudyBundle) -> plt.Figure:
     steps = bundle.steps.copy()
     if interventions.empty:
         for axis in axes:
-            axis.text(0.5, 0.5, "No intervention telemetry available", ha="center", va="center")
+            axis.text(
+                0.5,
+                0.5,
+                "No intervention telemetry available",
+                ha="center",
+                va="center",
+            )
             axis.axis("off")
         fig.suptitle("12 Intervention Timeline", fontsize=16, fontweight="bold")
         return fig
 
-    policy_ts = (
-        interventions.groupby(["variant_name", "time_s"], as_index=False)
-        .agg(
-            recipients=("recipients", "sum"),
-            entropy_reduction=("entropy_delta", lambda s: float((-s).clip(lower=0).sum())),
-            accuracy_gain=("accuracy_delta", lambda s: float(s.clip(lower=0).sum())),
-        )
+    policy_ts = interventions.groupby(["variant_name", "time_s"], as_index=False).agg(
+        recipients=("recipients", "sum"),
+        entropy_reduction=("entropy_delta", lambda s: float((-s).clip(lower=0).sum())),
+        accuracy_gain=("accuracy_delta", lambda s: float(s.clip(lower=0).sum())),
     )
     for variant_name, frame in policy_ts.groupby("variant_name"):
-        axes[0].plot(frame["time_s"], frame["recipients"], marker="o", label=f"{variant_name} reach")
-        axes[1].plot(frame["time_s"], frame["entropy_reduction"], marker="o", label=f"{variant_name} entropy")
+        axes[0].plot(
+            frame["time_s"],
+            frame["recipients"],
+            marker="o",
+            label=f"{variant_name} reach",
+        )
+        axes[1].plot(
+            frame["time_s"],
+            frame["entropy_reduction"],
+            marker="o",
+            label=f"{variant_name} entropy",
+        )
 
     if not steps.empty:
-        entropy_ts = steps.groupby(["variant_name", "time_s"], as_index=False)["global_entropy"].mean()
+        entropy_ts = steps.groupby(["variant_name", "time_s"], as_index=False)[
+            "global_entropy"
+        ].mean()
         for variant_name, frame in entropy_ts.groupby("variant_name"):
-            axes[1].plot(frame["time_s"], frame["global_entropy"], linestyle="--", alpha=0.65, label=f"{variant_name} H")
+            axes[1].plot(
+                frame["time_s"],
+                frame["global_entropy"],
+                linestyle="--",
+                alpha=0.65,
+                label=f"{variant_name} H",
+            )
 
     axes[0].set_title("Intervention reach over time")
     axes[0].set_xlabel("Time (s)")
@@ -769,12 +943,24 @@ def _figure_intervention_timeline(bundle: StudyBundle) -> plt.Figure:
 
 def _figure_information_safety_frontier(bundle: StudyBundle) -> plt.Figure:
     fig, axes = plt.subplots(1, 2, figsize=(14, 5), constrained_layout=True)
-    summary = bundle.summary[bundle.summary["record_type"] == "variant_aggregate"].copy()
+    summary = bundle.summary[
+        bundle.summary["record_type"] == "variant_aggregate"
+    ].copy()
 
-    required = {"intervention_entropy_reduction", "mean_hazard_exposure", "peak_bottleneck_queue"}
+    required = {
+        "intervention_entropy_reduction",
+        "mean_hazard_exposure",
+        "peak_bottleneck_queue",
+    }
     if summary.empty or not required.issubset(summary.columns):
         for axis in axes:
-            axis.text(0.5, 0.5, "No intervention summary metrics available", ha="center", va="center")
+            axis.text(
+                0.5,
+                0.5,
+                "No intervention summary metrics available",
+                ha="center",
+                va="center",
+            )
             axis.axis("off")
         fig.suptitle("13 Information Safety Frontier", fontsize=16, fontweight="bold")
         return fig
@@ -788,14 +974,19 @@ def _figure_information_safety_frontier(bundle: StudyBundle) -> plt.Figure:
         alpha=0.9,
     )
     for _, row in summary.iterrows():
-        axes[0].annotate(str(row["variant_name"]), (row["intervention_entropy_reduction"], row["mean_hazard_exposure"]), fontsize=8)
+        axes[0].annotate(
+            str(row["variant_name"]),
+            (row["intervention_entropy_reduction"], row["mean_hazard_exposure"]),
+            fontsize=8,
+        )
     fig.colorbar(scatter, ax=axes[0], label="Information safety efficiency")
     axes[0].set_title("Entropy reduction vs. exposure")
     axes[0].set_xlabel("Intervention entropy reduction")
     axes[0].set_ylabel("Mean hazard exposure")
 
     plot_cols = [
-        col for col in [
+        col
+        for col in [
             "information_safety_efficiency",
             "harmful_convergence_index",
             "exit_imbalance",
@@ -808,11 +999,15 @@ def _figure_information_safety_frontier(bundle: StudyBundle) -> plt.Figure:
         value_name="value",
     )
     if not frontier.empty:
-        sns.barplot(data=frontier, x="variant_name", y="value", hue="metric", ax=axes[1])
+        sns.barplot(
+            data=frontier, x="variant_name", y="value", hue="metric", ax=axes[1]
+        )
         axes[1].tick_params(axis="x", rotation=25)
         axes[1].legend(loc="best")
     else:
-        axes[1].text(0.5, 0.5, "No frontier metrics available", ha="center", va="center")
+        axes[1].text(
+            0.5, 0.5, "No frontier metrics available", ha="center", va="center"
+        )
     axes[1].set_title("Safety tradeoff metrics")
     axes[1].set_xlabel("Variant")
     axes[1].set_ylabel("Value")

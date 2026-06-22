@@ -1,4 +1,5 @@
 """Benchmark suite definitions, scoring, and submission helpers."""
+
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
@@ -38,7 +39,14 @@ class BenchmarkSpec:
     def json_schema() -> Dict[str, Any]:
         return {
             "type": "object",
-            "required": ["suite", "metrics", "seeds", "scoring_rule", "allowed_knobs", "scenarios"],
+            "required": [
+                "suite",
+                "metrics",
+                "seeds",
+                "scoring_rule",
+                "allowed_knobs",
+                "scenarios",
+            ],
             "properties": {
                 "suite": {"type": "string"},
                 "metrics": {"type": "array", "items": {"type": "string"}},
@@ -81,7 +89,9 @@ def benchmark_spec_v1() -> BenchmarkSpec:
         scenarios=[
             BenchmarkScenario("transit_cbrn", "scenarios/benchmark/transit_cbrn.yaml"),
             BenchmarkScenario("transit_shooter", "scenarios/transit_shooter.yaml"),
-            BenchmarkScenario("transit_mixed", "scenarios/benchmark/transit_mixed.yaml"),
+            BenchmarkScenario(
+                "transit_mixed", "scenarios/benchmark/transit_mixed.yaml"
+            ),
         ],
     )
 
@@ -121,22 +131,28 @@ def submit_policy(
             metrics = analytics.calculate_performance_metrics(sim)
             metrics["equity_time_gap_s"] = _equity_time_gap(sim)
             metrics["benchmark_score"] = benchmark_score(metrics)
-            rows.append({
-                "suite": spec.suite,
-                "scenario": scenario.name,
-                "seed": seed,
-                "policy_hash": policy_hash,
-                **metrics,
-            })
+            rows.append(
+                {
+                    "suite": spec.suite,
+                    "scenario": scenario.name,
+                    "seed": seed,
+                    "policy_hash": policy_hash,
+                    **metrics,
+                }
+            )
 
     frame = pd.DataFrame(rows)
     leaderboard = _leaderboard(frame, policy_hash)
     out = Path(output_dir)
     out.mkdir(parents=True, exist_ok=True)
     frame.to_csv(out / "benchmark_runs.csv", index=False)
-    (out / "leaderboard.json").write_text(json.dumps(leaderboard, indent=2, default=str) + "\n")
+    (out / "leaderboard.json").write_text(
+        json.dumps(leaderboard, indent=2, default=str) + "\n"
+    )
     manifest = reproducibility_manifest(spec, policy_hash)
-    (out / "reproducibility_manifest.json").write_text(json.dumps(manifest, indent=2, default=str) + "\n")
+    (out / "reproducibility_manifest.json").write_text(
+        json.dumps(manifest, indent=2, default=str) + "\n"
+    )
     write_leaderboard_site(leaderboard, Path("docs/benchmark/index.html"))
     return {"leaderboard": leaderboard, "manifest": manifest, "output_dir": str(out)}
 
@@ -145,7 +161,15 @@ def benchmark_score(metrics: Dict[str, Any]) -> float:
     egress = 1.0 / (1.0 + float(metrics.get("mean_travel_time_s", 0.0)))
     exposure = 1.0 / (1.0 + float(metrics.get("p95_hazard_exposure", 0.0)))
     equity = 1.0 / (1.0 + float(metrics.get("equity_time_gap_s", 0.0)))
-    hci = 1.0 / (1.0 + float(metrics.get("harmful_convergence_index_induced", metrics.get("harmful_convergence_index", 0.0))))
+    hci = 1.0 / (
+        1.0
+        + float(
+            metrics.get(
+                "harmful_convergence_index_induced",
+                metrics.get("harmful_convergence_index", 0.0),
+            )
+        )
+    )
     return float(100.0 * (0.35 * egress + 0.30 * exposure + 0.20 * equity + 0.15 * hci))
 
 
@@ -166,16 +190,18 @@ def generate_reference_trajectories(
             sim.run()
             for agent_id, trace in sim.agent_traces.items():
                 for index, point in enumerate(trace):
-                    rows.append({
-                        "suite": spec.suite,
-                        "scenario": scenario.name,
-                        "seed": seed,
-                        "agent_id": agent_id,
-                        "trace_index": index,
-                        "x": float(point[0]),
-                        "y": float(point[1]),
-                        "z": float(point[2]) if len(point) >= 3 else 0.0,
-                    })
+                    rows.append(
+                        {
+                            "suite": spec.suite,
+                            "scenario": scenario.name,
+                            "seed": seed,
+                            "agent_id": agent_id,
+                            "trace_index": index,
+                            "x": float(point[0]),
+                            "y": float(point[1]),
+                            "z": float(point[2]) if len(point) >= 3 else 0.0,
+                        }
+                    )
     output = Path(output_file)
     output.parent.mkdir(parents=True, exist_ok=True)
     pd.DataFrame(rows).to_parquet(output, index=False)
@@ -198,8 +224,12 @@ def write_spec_artifacts() -> None:
     spec = benchmark_spec_v1()
     root = Path("docs/benchmark")
     root.mkdir(parents=True, exist_ok=True)
-    (root / "benchmark_spec_v1.json").write_text(json.dumps(spec.to_dict(), indent=2) + "\n")
-    (root / "benchmark_spec_v1.schema.json").write_text(json.dumps(BenchmarkSpec.json_schema(), indent=2) + "\n")
+    (root / "benchmark_spec_v1.json").write_text(
+        json.dumps(spec.to_dict(), indent=2) + "\n"
+    )
+    (root / "benchmark_spec_v1.schema.json").write_text(
+        json.dumps(BenchmarkSpec.json_schema(), indent=2) + "\n"
+    )
 
 
 def write_leaderboard_site(leaderboard: Dict[str, Any], output_file: Path) -> Path:
@@ -209,7 +239,7 @@ def write_leaderboard_site(leaderboard: Dict[str, Any], output_file: Path) -> Pa
         for item in leaderboard["entries"]
     )
     output_file.write_text(
-        "<!doctype html><html><head><meta charset=\"utf-8\"><title>Chiyoda Benchmark</title></head>"
+        '<!doctype html><html><head><meta charset="utf-8"><title>Chiyoda Benchmark</title></head>'
         "<body><h1>Chiyoda Benchmark v1</h1>"
         "<table><thead><tr><th>Policy</th><th>Score</th><th>Runs</th></tr></thead>"
         f"<tbody>{rows}</tbody></table></body></html>\n"
@@ -238,7 +268,9 @@ def _equity_time_gap(simulation) -> float:
     return float(max(values) - min(values))
 
 
-def _apply_policy(config: Dict[str, Any], policy: Dict[str, Any], allowed_knobs: Iterable[str]) -> Dict[str, Any]:
+def _apply_policy(
+    config: Dict[str, Any], policy: Dict[str, Any], allowed_knobs: Iterable[str]
+) -> Dict[str, Any]:
     if not policy:
         return config
     overrides = policy.get("scenario_overrides", policy)
@@ -258,4 +290,6 @@ def _spec_for_suite(suite: str) -> BenchmarkSpec:
 
 
 def _hash_json(value: Any) -> str:
-    return sha256(json.dumps(value, sort_keys=True, default=str).encode("utf-8")).hexdigest()[:16]
+    return sha256(
+        json.dumps(value, sort_keys=True, default=str).encode("utf-8")
+    ).hexdigest()[:16]

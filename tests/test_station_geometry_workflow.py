@@ -21,9 +21,7 @@ def test_geojson_ingestion_infers_osm_and_gtfs_station_roles():
                     "properties": {"indoor": "corridor", "level": "0"},
                     "geometry": {
                         "type": "Polygon",
-                        "coordinates": [
-                            [[0, 0], [8, 0], [8, 4], [0, 4], [0, 0]]
-                        ],
+                        "coordinates": [[[0, 0], [8, 0], [8, 4], [0, 4], [0, 0]]],
                     },
                 },
                 {
@@ -31,9 +29,7 @@ def test_geojson_ingestion_infers_osm_and_gtfs_station_roles():
                     "properties": {"indoor": "wall", "level": "0"},
                     "geometry": {
                         "type": "Polygon",
-                        "coordinates": [
-                            [[3, 0], [4, 0], [4, 3], [3, 3], [3, 0]]
-                        ],
+                        "coordinates": [[[3, 0], [4, 0], [4, 3], [3, 3], [3, 0]]],
                     },
                 },
                 {

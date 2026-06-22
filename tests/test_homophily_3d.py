@@ -38,7 +38,9 @@ def test_group_attachment_roles_and_mobility_defaults_are_loaded():
     assert {agent.group_id for agent in agents} == {1}
     assert {agent.family_id for agent in agents} == {"family_1"}
     assert [agent.role_in_group for agent in agents] == ["leader", "member", "member"]
-    assert all(agent.separation_anxiety_threshold == pytest.approx(2.4) for agent in agents)
+    assert all(
+        agent.separation_anxiety_threshold == pytest.approx(2.4) for agent in agents
+    )
     assert all(agent.mobility_class == "wheelchair" for agent in agents)
     assert all(agent.breathing_height_m == pytest.approx(1.1) for agent in agents)
     assert all(agent.base_speed == pytest.approx(1.34 * 0.55) for agent in agents)
@@ -136,7 +138,9 @@ def test_height_aware_smoke_exposure_and_connector_duration():
     queue = ConnectorQueue.from_connector(connector)
 
     assert connector.height_delta_m == pytest.approx(4.0)
-    assert queue.transfer_duration(connector.from_cell, connector.to_cell) == pytest.approx(4.0 / 1.34)
+    assert queue.transfer_duration(
+        connector.from_cell, connector.to_cell
+    ) == pytest.approx(4.0 / 1.34)
 
 
 def test_equity_metrics_report_group_and_mobility_gaps():
@@ -162,5 +166,8 @@ def test_equity_metrics_report_group_and_mobility_gaps():
 
     assert metrics["left_behind_index"] == pytest.approx(1.0)
     assert json.loads(metrics["exposure_by_group"]) == {"fast": 0.5, "slow": 1.5}
-    assert json.loads(metrics["exposure_by_mobility_class"]) == {"standard": 0.5, "walker": 1.5}
+    assert json.loads(metrics["exposure_by_mobility_class"]) == {
+        "standard": 0.5,
+        "walker": 1.5,
+    }
     assert metrics["percentile_gap_time_to_safety_s"] > 0.0

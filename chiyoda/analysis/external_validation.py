@@ -23,7 +23,9 @@ class BottleneckFlowSummary:
         return pd.DataFrame([self.__dict__])
 
 
-def load_petrack_trajectory(path: str | Path, *, frame_rate_hz: float = 25.0) -> pd.DataFrame:
+def load_petrack_trajectory(
+    path: str | Path, *, frame_rate_hz: float = 25.0
+) -> pd.DataFrame:
     """Load a PeTrack text trajectory file into Chiyoda's trajectory schema."""
     rows: list[dict[str, float | int]] = []
     source = Path(path)
@@ -117,7 +119,9 @@ def summarize_bottleneck_flow(
         crossing_count=int(len(crossing_times)),
         first_crossing_s=first,
         last_crossing_s=last,
-        mean_flow_ped_s=float(len(crossing_times) / duration) if duration > 0 else float("nan"),
+        mean_flow_ped_s=(
+            float(len(crossing_times) / duration) if duration > 0 else float("nan")
+        ),
         mean_time_headway_s=_mean(headways),
     )
 
@@ -143,9 +147,11 @@ def compare_bottleneck_flow(
                 "simulated": sim_value,
                 "reference": ref_value,
                 "delta": delta,
-                "pct_delta": (delta / abs(ref_value) * 100.0)
-                if abs(ref_value) > 1e-12 and np.isfinite(ref_value)
-                else float("nan"),
+                "pct_delta": (
+                    (delta / abs(ref_value) * 100.0)
+                    if abs(ref_value) > 1e-12 and np.isfinite(ref_value)
+                    else float("nan")
+                ),
             }
         )
     return pd.DataFrame(rows)

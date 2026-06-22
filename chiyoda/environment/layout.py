@@ -65,7 +65,11 @@ class Layout:
         for floor_id, floor in floors.items():
             fid = str(floor_id)
             if isinstance(floor, Floor):
-                heights = None if floor.cell_heights is None else np.array(floor.cell_heights, dtype=float, copy=True)
+                heights = (
+                    None
+                    if floor.cell_heights is None
+                    else np.array(floor.cell_heights, dtype=float, copy=True)
+                )
                 parsed[fid] = Floor(
                     id=fid,
                     z=float(floor.z),
@@ -107,9 +111,17 @@ class Layout:
         max_len = max(len(row) for row in lines)
         padded = [row + [EMPTY] * (max_len - len(row)) for row in lines]
         grid = np.array(padded, dtype="<U1")
-        heights = None if cell_height_m is None else np.full(grid.shape, float(cell_height_m), dtype=float)
+        heights = (
+            None
+            if cell_height_m is None
+            else np.full(grid.shape, float(cell_height_m), dtype=float)
+        )
         return cls(
-            floors={str(floor_id): Floor(id=str(floor_id), z=float(z), grid=grid, cell_heights=heights)},
+            floors={
+                str(floor_id): Floor(
+                    id=str(floor_id), z=float(z), grid=grid, cell_heights=heights
+                )
+            },
             primary_floor_id=str(floor_id),
         )
 
@@ -210,7 +222,9 @@ class Layout:
     @grid.setter
     def grid(self, value: np.ndarray) -> None:
         floor = self.floors[self.primary_floor_id]
-        self.floors[self.primary_floor_id] = Floor(id=floor.id, z=floor.z, grid=np.array(value, copy=True))
+        self.floors[self.primary_floor_id] = Floor(
+            id=floor.id, z=floor.z, grid=np.array(value, copy=True)
+        )
 
     @property
     def height(self) -> int:
@@ -231,12 +245,19 @@ class Layout:
         floor = self.floors[str(floor_id)]
         if floor.cell_heights is None:
             return 0.0
-        if y < 0 or y >= floor.cell_heights.shape[0] or x < 0 or x >= floor.cell_heights.shape[1]:
+        if (
+            y < 0
+            or y >= floor.cell_heights.shape[0]
+            or x < 0
+            or x >= floor.cell_heights.shape[1]
+        ):
             return 0.0
         return float(floor.cell_heights[y, x])
 
     def floor_for_z(self, z: float) -> str:
-        return min(self.floors.values(), key=lambda floor: abs(float(floor.z) - float(z))).id
+        return min(
+            self.floors.values(), key=lambda floor: abs(float(floor.z) - float(z))
+        ).id
 
     def cell(self, value: Any, *, floor_id: str | None = None) -> Cell:
         if isinstance(value, np.ndarray):
@@ -244,7 +265,11 @@ class Layout:
                 fid = floor_id or self.floor_for_z(float(value[2]))
             else:
                 fid = floor_id or self.primary_floor_id
-            return (str(fid), int(np.floor(float(value[0]))), int(np.floor(float(value[1]))))
+            return (
+                str(fid),
+                int(np.floor(float(value[0]))),
+                int(np.floor(float(value[1]))),
+            )
         if len(value) >= 3 and isinstance(value[0], str):
             return (str(value[0]), int(value[1]), int(value[2]))
         if len(value) >= 3 and floor_id is None:
@@ -253,7 +278,11 @@ class Layout:
 
     def world_position(self, cell: Cell, *, height_offset: float = 0.0) -> np.ndarray:
         floor_id, x, y = self.cell(cell)
-        z = self.floor_z(floor_id) + self.cell_height((floor_id, x, y)) + float(height_offset)
+        z = (
+            self.floor_z(floor_id)
+            + self.cell_height((floor_id, x, y))
+            + float(height_offset)
+        )
         return np.array([float(x) + 0.5, float(y) + 0.5, z], dtype=float)
 
     def is_walkable(self, pos: Any, *, floor_id: str | None = None) -> bool:
@@ -278,7 +307,9 @@ class Layout:
         cells: list[Cell] = []
         for floor_id, floor in self.floors.items():
             ys, xs = np.where(floor.grid == token)
-            cells.extend((floor_id, int(x), int(y)) for x, y in zip(xs.tolist(), ys.tolist()))
+            cells.extend(
+                (floor_id, int(x), int(y)) for x, y in zip(xs.tolist(), ys.tolist())
+            )
         return cells
 
     def people_positions(self) -> List[Cell]:
@@ -297,7 +328,9 @@ class Layout:
         cells: list[Cell] = []
         for floor_id, floor in self.floors.items():
             ys, xs = np.where(floor.grid != WALL)
-            cells.extend((floor_id, int(x), int(y)) for x, y in zip(xs.tolist(), ys.tolist()))
+            cells.extend(
+                (floor_id, int(x), int(y)) for x, y in zip(xs.tolist(), ys.tolist())
+            )
         return cells
 
     def random_walkable_position(self) -> Cell:
@@ -313,7 +346,11 @@ class Layout:
         for connector in self.connectors:
             if connector.from_cell == source and connector.to_cell == target:
                 return connector
-            if connector.bidirectional and connector.to_cell == source and connector.from_cell == target:
+            if (
+                connector.bidirectional
+                and connector.to_cell == source
+                and connector.from_cell == target
+            ):
                 return connector
         return None
 
@@ -332,7 +369,11 @@ class Layout:
                     id=floor.id,
                     z=floor.z,
                     grid=np.array(floor.grid, copy=True),
-                    cell_heights=None if floor.cell_heights is None else np.array(floor.cell_heights, dtype=float, copy=True),
+                    cell_heights=(
+                        None
+                        if floor.cell_heights is None
+                        else np.array(floor.cell_heights, dtype=float, copy=True)
+                    ),
                 )
                 for key, floor in self.floors.items()
             },
@@ -351,7 +392,9 @@ class Layout:
         from_cell = _parse_endpoint(raw.get("from"))
         to_cell = _parse_endpoint(raw.get("to"))
         if not self.is_walkable(from_cell) or not self.is_walkable(to_cell):
-            raise ValueError(f"Connector {raw.get('id', ctype)} endpoints must be walkable")
+            raise ValueError(
+                f"Connector {raw.get('id', ctype)} endpoints must be walkable"
+            )
         return Connector(
             id=str(raw.get("id", ctype)),
             type=ctype,
@@ -359,11 +402,17 @@ class Layout:
             to_cell=to_cell,
             bidirectional=bool(raw.get("bidirectional", True)),
             width=float(raw.get("width", 1.0)),
-            speed_multiplier=float(raw.get("speed_multiplier", _default_connector_speed(ctype))),
+            speed_multiplier=float(
+                raw.get("speed_multiplier", _default_connector_speed(ctype))
+            ),
             capacity=None if raw.get("capacity") is None else int(raw["capacity"]),
             flow_rate=None if raw.get("flow_rate") is None else float(raw["flow_rate"]),
             queue_mode=str(raw.get("queue_mode", "fifo")),
-            panic_jam_density=None if raw.get("panic_jam_density") is None else float(raw["panic_jam_density"]),
+            panic_jam_density=(
+                None
+                if raw.get("panic_jam_density") is None
+                else float(raw["panic_jam_density"])
+            ),
             jam_flow_multiplier=float(raw.get("jam_flow_multiplier", 0.35)),
             dwell_s=float(raw.get("dwell_s", 0.0)),
             travel_s=float(raw.get("travel_s", 0.0)),
@@ -390,7 +439,9 @@ def _default_connector_speed(connector_type: str) -> float:
     return 0.65
 
 
-def _coerce_height_grid(raw: Mapping[str, Any], shape: tuple[int, int]) -> np.ndarray | None:
+def _coerce_height_grid(
+    raw: Mapping[str, Any], shape: tuple[int, int]
+) -> np.ndarray | None:
     if "cell_heights" in raw:
         heights = np.array(raw["cell_heights"], dtype=float)
     elif "height_grid" in raw:

@@ -46,22 +46,33 @@ def profile_scenario(
     tracemalloc.stop()
 
     stream = io.StringIO()
-    pstats.Stats(profiler, stream=stream).strip_dirs().sort_stats("cumtime").print_stats(top_n)
+    pstats.Stats(profiler, stream=stream).strip_dirs().sort_stats(
+        "cumtime"
+    ).print_stats(top_n)
     top_functions = stream.getvalue()
 
     cells_rows = sum(
-        len(step.agents) + sum(int((grids["occupancy_grid"] > 0).sum()) for grids in step.floor_grids.values())
+        len(step.agents)
+        + sum(
+            int((grids["occupancy_grid"] > 0).sum())
+            for grids in step.floor_grids.values()
+        )
         for step in sim.step_history
     )
-    graph_nodes = sim.navigator.graph.number_of_nodes() if sim.navigator is not None else 0
-    graph_edges = sim.navigator.graph.number_of_edges() if sim.navigator is not None else 0
+    graph_nodes = (
+        sim.navigator.graph.number_of_nodes() if sim.navigator is not None else 0
+    )
+    graph_edges = (
+        sim.navigator.graph.number_of_edges() if sim.navigator is not None else 0
+    )
 
     return {
         "scenario": scenario_file,
         "elapsed_s": elapsed_s,
         "steps": sim.current_step,
         "agents": len(sim.agents),
-        "active_or_completed_agents": len(sim.completed_agents) + len(sim._active_agents()),
+        "active_or_completed_agents": len(sim.completed_agents)
+        + len(sim._active_agents()),
         "navigator_graph_nodes": graph_nodes,
         "navigator_graph_edges": graph_edges,
         "density_updates": sim.current_step + 1,

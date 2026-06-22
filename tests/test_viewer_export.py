@@ -28,7 +28,9 @@ def _bundle() -> StudyBundle:
             "layout_width": 3,
             "layout_height": 3,
             "layout_cell_size": 1.0,
-            "bottleneck_zones": [{"zone_id": "bn_1", "cells": [[1, 1]], "orientation": "vertical"}],
+            "bottleneck_zones": [
+                {"zone_id": "bn_1", "cells": [[1, 1]], "orientation": "vertical"}
+            ],
         },
         summary=pd.DataFrame(),
         steps=pd.DataFrame(),
@@ -71,7 +73,17 @@ def _bundle() -> StudyBundle:
         dwell_samples=pd.DataFrame(),
         exits=pd.DataFrame(),
         hazards=pd.DataFrame(
-            [{"run_id": "run_1", "step": 0, "time_s": 0.0, "x": 1.0, "y": 1.0, "z": 0.0, "radius": 1.0}]
+            [
+                {
+                    "run_id": "run_1",
+                    "step": 0,
+                    "time_s": 0.0,
+                    "x": 1.0,
+                    "y": 1.0,
+                    "z": 0.0,
+                    "radius": 1.0,
+                }
+            ]
         ),
     )
 
@@ -98,7 +110,9 @@ def test_export_viewer_writes_static_threejs_artifact(tmp_path):
     assert data["metadata"]["study_name"] == "viewer_test"
     assert data["frames"][0]["agents"][0]["intent"] == "EVACUATE"
     assert data["layout"]
-    assert data["path_usage"] == [{"floor_id": "0", "z": 0.0, "x": 1, "y": 1, "path_usage": 3}]
+    assert data["path_usage"] == [
+        {"floor_id": "0", "z": 0.0, "x": 1, "y": 1, "path_usage": 3}
+    ]
     assert data["layout_grid"] == [["X", "X", "X"], ["X", "E", "X"], ["X", "@", "X"]]
     assert data["layout_floors"][0]["id"] == "0"
     assert data["layout_connectors"][0]["id"] == "stairs_a"
@@ -122,7 +136,10 @@ def test_export_viewer_includes_source_geojson_levels(tmp_path):
                     {
                         "type": "Feature",
                         "properties": {"railway": "platform", "level": "-2"},
-                        "geometry": {"type": "LineString", "coordinates": [[0, 3], [2, 3]]},
+                        "geometry": {
+                            "type": "LineString",
+                            "coordinates": [[0, 3], [2, 3]],
+                        },
                     },
                 ],
             }

@@ -67,13 +67,17 @@ class BehaviorModel:
             for other in neighbors:
                 if getattr(other, "state", "CALM") == "PANICKED":
                     nearby_panic += 1
-                if hasattr(other, "physiology") and other.physiology.impairment_level > cfg.helping_threshold:
+                if (
+                    hasattr(other, "physiology")
+                    and other.physiology.impairment_level > cfg.helping_threshold
+                ):
                     nearby_impaired += 1
 
         # information entropy (high entropy = high uncertainty = anxiety)
         agent_entropy = 0.0
         if hasattr(agent, "beliefs"):
             from chiyoda.information.entropy import agent_entropy as calc_entropy
+
             total_exits = len(simulation.exits)
             total_hazards = len(simulation.hazards)
             agent_entropy = calc_entropy(agent.beliefs, total_exits, total_hazards)
@@ -88,7 +92,7 @@ class BehaviorModel:
             + cfg.entropy_anxiety_weight * agent_entropy
         )
 
-        anxiety_prob = panic_prob * 0.6 # anxiety is easier to trigger
+        anxiety_prob = panic_prob * 0.6  # anxiety is easier to trigger
 
         # state transitions
         current = agent.state
@@ -105,7 +109,7 @@ class BehaviorModel:
             elif random.random() < cfg.calm_recovery_rate and hazard_load < 0.1:
                 agent.state = "CALM"
             elif agent_entropy > 0.8:
-                agent.state = "FOLLOWING" # high uncertainty → herd
+                agent.state = "FOLLOWING"  # high uncertainty → herd
 
         elif current == "PANICKED":
             if random.random() < cfg.freeze_probability:
@@ -121,11 +125,11 @@ class BehaviorModel:
         elif current in ("EXPLORING", "FOLLOWING"):
             if random.random() < panic_prob:
                 agent.state = "PANICKED"
-            elif agent_entropy < 0.3: # gained enough info
+            elif agent_entropy < 0.3:  # gained enough info
                 agent.state = "CALM"
 
         elif current == "HELPING":
-            pass # HELPING state is managed externally
+            pass  # HELPING state is managed externally
 
         # helping behavior: calm agents near impaired agents may switch
         if current == "CALM" and nearby_impaired > 0 and random.random() < 0.15:

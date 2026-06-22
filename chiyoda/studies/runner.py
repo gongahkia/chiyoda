@@ -13,7 +13,12 @@ import yaml
 from chiyoda.analysis.metrics import SimulationAnalytics
 from chiyoda.scenarios.manager import ScenarioManager
 from chiyoda.studies.models import ComparisonResult, StudyBundle
-from chiyoda.studies.schema import InterventionConfig, StudyConfig, StudyVariant, SweepParameter
+from chiyoda.studies.schema import (
+    InterventionConfig,
+    StudyConfig,
+    StudyVariant,
+    SweepParameter,
+)
 
 
 def load_study_config(path: str | Path) -> StudyConfig:
@@ -70,7 +75,9 @@ def run_study(study: str | Path | StudyConfig) -> StudyBundle:
             if first_layout_text is None:
                 first_layout_text = manager.serialize_layout(simulation.layout)
                 first_layout_floors = manager.serialize_layout_floors(simulation.layout)
-                first_layout_connectors = manager.serialize_layout_connectors(simulation.layout)
+                first_layout_connectors = manager.serialize_layout_connectors(
+                    simulation.layout
+                )
                 first_bottlenecks = [
                     {
                         "zone_id": zone.zone_id,
@@ -116,7 +123,9 @@ def run_study(study: str | Path | StudyConfig) -> StudyBundle:
                     "run_id": run_id,
                     "variant_name": variant.name,
                     "seed": seed,
-                    "treatment_assignment": config.treatment_assignments.get(seed, variant.name),
+                    "treatment_assignment": config.treatment_assignments.get(
+                        seed, variant.name
+                    ),
                     "acceleration_backend": simulation.acceleration.name,
                     "requested_acceleration_backend": simulation.acceleration.requested_backend,
                     "agents_total": len(simulation.agents),
@@ -134,18 +143,32 @@ def run_study(study: str | Path | StudyConfig) -> StudyBundle:
         "scenario_name": scenario_name or Path(config.scenario_file).stem,
         "created_at_utc": datetime.now(timezone.utc).isoformat(),
         "export_config": config.export.model_dump(),
-        "acceleration_backend": runs_manifest[0]["acceleration_backend"] if runs_manifest else "python",
+        "acceleration_backend": (
+            runs_manifest[0]["acceleration_backend"] if runs_manifest else "python"
+        ),
         "requested_acceleration_backend": (
-            runs_manifest[0]["requested_acceleration_backend"] if runs_manifest else "auto"
+            runs_manifest[0]["requested_acceleration_backend"]
+            if runs_manifest
+            else "auto"
         ),
         "layout_text": first_layout_text or "",
         "layout_floors": first_layout_floors,
         "layout_connectors": first_layout_connectors,
-        "layout_width": summary["layout_width"].dropna().iloc[0] if not summary.empty else 0,
-        "layout_height": summary["layout_height"].dropna().iloc[0] if not summary.empty else 0,
-        "layout_origin_x": summary["layout_origin_x"].dropna().iloc[0] if not summary.empty else 0.0,
-        "layout_origin_y": summary["layout_origin_y"].dropna().iloc[0] if not summary.empty else 0.0,
-        "layout_cell_size": summary["layout_cell_size"].dropna().iloc[0] if not summary.empty else 1.0,
+        "layout_width": (
+            summary["layout_width"].dropna().iloc[0] if not summary.empty else 0
+        ),
+        "layout_height": (
+            summary["layout_height"].dropna().iloc[0] if not summary.empty else 0
+        ),
+        "layout_origin_x": (
+            summary["layout_origin_x"].dropna().iloc[0] if not summary.empty else 0.0
+        ),
+        "layout_origin_y": (
+            summary["layout_origin_y"].dropna().iloc[0] if not summary.empty else 0.0
+        ),
+        "layout_cell_size": (
+            summary["layout_cell_size"].dropna().iloc[0] if not summary.empty else 1.0
+        ),
         "bottleneck_zones": first_bottlenecks,
         "exit_labels": first_exit_labels,
         "scenario_metadata": first_scenario_metadata,
@@ -179,8 +202,14 @@ def compare_studies(
     baseline: str | Path | StudyBundle,
     variant: str | Path | StudyBundle,
 ) -> ComparisonResult:
-    baseline_bundle = StudyBundle.load(baseline) if not isinstance(baseline, StudyBundle) else baseline
-    variant_bundle = StudyBundle.load(variant) if not isinstance(variant, StudyBundle) else variant
+    baseline_bundle = (
+        StudyBundle.load(baseline)
+        if not isinstance(baseline, StudyBundle)
+        else baseline
+    )
+    variant_bundle = (
+        StudyBundle.load(variant) if not isinstance(variant, StudyBundle) else variant
+    )
 
     baseline_summary = _study_aggregate_row(baseline_bundle.summary)
     variant_summary = _study_aggregate_row(variant_bundle.summary)
@@ -196,7 +225,9 @@ def compare_studies(
         baseline_value = float(baseline_summary[metric])
         variant_value = float(variant_summary[metric])
         delta = variant_value - baseline_value
-        pct_change = 0.0 if abs(baseline_value) < 1e-9 else (delta / baseline_value) * 100.0
+        pct_change = (
+            0.0 if abs(baseline_value) < 1e-9 else (delta / baseline_value) * 100.0
+        )
         metrics_rows.append(
             {
                 "metric": metric,
@@ -278,8 +309,12 @@ def _materialize_variants(config: StudyConfig) -> List[StudyVariant]:
         for budget in config.adversarial.attacker_budget:
             for policy in config.adversarial.defender_policy:
                 scenario_overrides: Dict[str, Any] = {}
-                _set_nested_value(scenario_overrides, f"hostile_channels.{idx}.budget", int(budget))
-                _set_nested_value(scenario_overrides, "interventions.policy", str(policy))
+                _set_nested_value(
+                    scenario_overrides, f"hostile_channels.{idx}.budget", int(budget)
+                )
+                _set_nested_value(
+                    scenario_overrides, "interventions.policy", str(policy)
+                )
                 variants.append(
                     StudyVariant(
                         name=f"adv_{config.adversarial.pairing}__budget_{budget}__defender_{policy}",
@@ -325,11 +360,17 @@ def _apply_intervention(
     updated = deepcopy(scenario)
 
     if intervention.type in {"corridor_narrowing", "block_cells"}:
-        return manager.apply_layout_cells(updated, cells=list(intervention.cells), fill=manager.wall_token())
+        return manager.apply_layout_cells(
+            updated, cells=list(intervention.cells), fill=manager.wall_token()
+        )
     if intervention.type in {"corridor_widening", "clear_cells"}:
-        return manager.apply_layout_cells(updated, cells=list(intervention.cells), fill=manager.empty_token())
+        return manager.apply_layout_cells(
+            updated, cells=list(intervention.cells), fill=manager.empty_token()
+        )
     if intervention.type == "exit_closure":
-        return manager.apply_layout_cells(updated, cells=list(intervention.exits), fill=manager.wall_token())
+        return manager.apply_layout_cells(
+            updated, cells=list(intervention.exits), fill=manager.wall_token()
+        )
 
     if intervention.type == "staggered_release":
         updated = _ensure_population_cohorts(manager, updated)
@@ -350,17 +391,24 @@ def _apply_intervention(
                 "base_speed_multiplier": intervention.base_speed_multiplier,
                 "release_step": int(intervention.release_step or 0),
                 "group_size": intervention.group_size,
-                "spawn_cells": [dict(cell) if isinstance(cell, dict) else list(cell) for cell in intervention.spawn_cells],
+                "spawn_cells": [
+                    dict(cell) if isinstance(cell, dict) else list(cell)
+                    for cell in intervention.spawn_cells
+                ],
             }
         )
         population["cohorts"] = cohorts
-        population["total"] = int(population.get("total", 0)) + int(intervention.count or 0)
+        population["total"] = int(population.get("total", 0)) + int(
+            intervention.count or 0
+        )
         return updated
 
     raise ValueError(f"Unsupported intervention type: {intervention.type}")
 
 
-def _ensure_population_cohorts(manager: ScenarioManager, scenario: Dict[str, Any]) -> Dict[str, Any]:
+def _ensure_population_cohorts(
+    manager: ScenarioManager, scenario: Dict[str, Any]
+) -> Dict[str, Any]:
     updated = deepcopy(scenario)
     population = updated.setdefault("population", {})
     if population.get("cohorts"):
@@ -450,12 +498,22 @@ def _collect_run_tables(
                 "pending_release": step.pending_release,
                 "mean_speed": step.mean_speed,
                 "mean_density": step.mean_density,
-                "peak_cell_occupancy": int(step.occupancy_grid.max()) if step.occupancy_grid.size else 0,
-                "global_entropy": float(getattr(step, 'global_entropy', 0.0)),
-                "connector_flow": int(sum(getattr(step, "connector_flow", {}).values())),
-                "connector_capacity": int(sum(getattr(step, "connector_capacity", {}).values())),
-                "connector_queue_length": int(sum(getattr(step, "connector_queue_length", {}).values())),
-                "connector_capacity_used": int(sum(getattr(step, "connector_capacity_used", {}).values())),
+                "peak_cell_occupancy": (
+                    int(step.occupancy_grid.max()) if step.occupancy_grid.size else 0
+                ),
+                "global_entropy": float(getattr(step, "global_entropy", 0.0)),
+                "connector_flow": int(
+                    sum(getattr(step, "connector_flow", {}).values())
+                ),
+                "connector_capacity": int(
+                    sum(getattr(step, "connector_capacity", {}).values())
+                ),
+                "connector_queue_length": int(
+                    sum(getattr(step, "connector_queue_length", {}).values())
+                ),
+                "connector_capacity_used": int(
+                    sum(getattr(step, "connector_capacity_used", {}).values())
+                ),
             }
         )
 
@@ -465,10 +523,7 @@ def _collect_run_tables(
             speed = grids["speed_grid"]
             path_usage = grids["path_usage_grid"]
             active_cells = np.argwhere(
-                (occupancy > 0)
-                | (path_usage > 0)
-                | (speed > 0)
-                | (density > 0)
+                (occupancy > 0) | (path_usage > 0) | (speed > 0) | (density > 0)
             )
             for y, x in active_cells:
                 cells_rows.append(
@@ -489,7 +544,7 @@ def _collect_run_tables(
                         "speed": float(speed[y, x]),
                         "path_usage": int(path_usage[y, x]),
                     }
-        )
+                )
 
         for agent in step.agents:
             target_exit_floor = _cell_floor(agent.target_exit)
@@ -525,10 +580,10 @@ def _collect_run_tables(
                     "evacuation_mode": getattr(agent, "evacuation_mode", "pedestrian"),
                     "hazard_exposure": float(agent.hazard_exposure),
                     "hazard_load": float(agent.hazard_load),
-                    "entropy": float(getattr(agent, 'entropy', 0.0)),
-                    "belief_accuracy": float(getattr(agent, 'belief_accuracy', 1.0)),
-                    "impairment": float(getattr(agent, 'impairment', 0.0)),
-                    "decision_mode": str(getattr(agent, 'decision_mode', 'EVACUATE')),
+                    "entropy": float(getattr(agent, "entropy", 0.0)),
+                    "belief_accuracy": float(getattr(agent, "belief_accuracy", 1.0)),
+                    "impairment": float(getattr(agent, "impairment", 0.0)),
+                    "decision_mode": str(getattr(agent, "decision_mode", "EVACUATE")),
                 }
             )
 
@@ -544,7 +599,9 @@ def _collect_run_tables(
                     "time_s": step.time_s,
                     "exit_label": exit_label,
                     "flow_step": int(step.exit_flow_step.get(exit_label, 0)),
-                    "flow_cumulative": int(step.exit_flow_cumulative.get(exit_label, 0)),
+                    "flow_cumulative": int(
+                        step.exit_flow_cumulative.get(exit_label, 0)
+                    ),
                 }
             )
 
@@ -583,7 +640,11 @@ def _collect_run_tables(
                     "kind": hazard.get("kind", "GAS"),
                     "x": float(hazard["pos"][0]),
                     "y": float(hazard["pos"][1]),
-                    "z": float(hazard["pos"][2]) if len(hazard.get("pos", [])) >= 3 else 0.0,
+                    "z": (
+                        float(hazard["pos"][2])
+                        if len(hazard.get("pos", [])) >= 3
+                        else 0.0
+                    ),
                     "radius": float(hazard.get("radius", 0.0)),
                     "severity": float(hazard.get("severity", 0.0)),
                 }
@@ -609,7 +670,9 @@ def _collect_run_tables(
                 "role_in_group": getattr(agent, "role_in_group", "solo"),
                 "mobility_class": getattr(agent, "mobility_class", "standard"),
                 "evacuation_mode": getattr(agent, "evacuation_mode", "pedestrian"),
-                "separation_anxiety_threshold": float(getattr(agent, "separation_anxiety_threshold", 1.5)),
+                "separation_anxiety_threshold": float(
+                    getattr(agent, "separation_anxiety_threshold", 1.5)
+                ),
                 "breathing_height_m": float(getattr(agent, "breathing_height_m", 1.5)),
                 "homophily_weight": float(getattr(agent, "homophily_weight", 0.0)),
                 "evacuated": bool(agent.has_evacuated),
@@ -657,7 +720,7 @@ def _collect_run_tables(
         ]
     )
 
-    for ml in getattr(simulation, 'measurement_lines', []):
+    for ml in getattr(simulation, "measurement_lines", []):
         for rec in ml.records:
             measurement_rows.append(
                 {
@@ -677,7 +740,7 @@ def _collect_run_tables(
                 }
             )
 
-    for event in getattr(simulation, 'gossip_events', []):
+    for event in getattr(simulation, "gossip_events", []):
         gossip_rows.append(
             {
                 "study_name": study_name,
@@ -693,7 +756,7 @@ def _collect_run_tables(
             }
         )
 
-    for event in getattr(simulation, 'intervention_events', []):
+    for event in getattr(simulation, "intervention_events", []):
         intervention_rows.append(
             {
                 "study_name": study_name,
@@ -735,7 +798,7 @@ def _collect_run_tables(
             }
         )
 
-    for event in getattr(simulation, 'agent_decision_events', []):
+    for event in getattr(simulation, "agent_decision_events", []):
         llm_decision_rows.append(
             {
                 "study_name": study_name,
@@ -834,7 +897,9 @@ def _aggregate_summary(summary: pd.DataFrame) -> pd.DataFrame:
         }
         for column in numeric_cols:
             row[column] = float(group[column].mean())
-            row[f"{column}_std"] = float(group[column].std(ddof=0)) if len(group) > 1 else 0.0
+            row[f"{column}_std"] = (
+                float(group[column].std(ddof=0)) if len(group) > 1 else 0.0
+            )
         aggregate_rows.append(row)
 
     whole = {
@@ -848,7 +913,9 @@ def _aggregate_summary(summary: pd.DataFrame) -> pd.DataFrame:
     }
     for column in numeric_cols:
         whole[column] = float(run_rows[column].mean())
-        whole[f"{column}_std"] = float(run_rows[column].std(ddof=0)) if len(run_rows) > 1 else 0.0
+        whole[f"{column}_std"] = (
+            float(run_rows[column].std(ddof=0)) if len(run_rows) > 1 else 0.0
+        )
     aggregate_rows.append(whole)
 
     return pd.DataFrame(aggregate_rows)
@@ -866,9 +933,13 @@ def _study_aggregate_row(summary: pd.DataFrame) -> pd.Series:
 
 def _aggregate_timeseries(steps: pd.DataFrame) -> pd.DataFrame:
     if steps.empty:
-        return pd.DataFrame(columns=["time_s", "evacuated_total", "mean_speed", "mean_density"])
+        return pd.DataFrame(
+            columns=["time_s", "evacuated_total", "mean_speed", "mean_density"]
+        )
     return (
-        steps.groupby("time_s", as_index=False)[["evacuated_total", "mean_speed", "mean_density"]]
+        steps.groupby("time_s", as_index=False)[
+            ["evacuated_total", "mean_speed", "mean_density"]
+        ]
         .mean()
         .sort_values("time_s")
     )

@@ -6,6 +6,7 @@ responder relay, and adaptive targeting based on entropy, density, exposure,
 or bottleneck pressure. They operate on existing agent belief vectors and emit
 study-grade telemetry for information-safety analysis.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -71,7 +72,9 @@ class InformationInterventionConfig:
     llm_output_usd_per_mtok: float = 0.0
 
     @classmethod
-    def from_mapping(cls, payload: Optional[Dict[str, Any]]) -> "InformationInterventionConfig":
+    def from_mapping(
+        cls, payload: Optional[Dict[str, Any]]
+    ) -> "InformationInterventionConfig":
         data = dict(payload or {})
         return cls(
             policy=str(data.get("policy", "none")),
@@ -82,30 +85,42 @@ class InformationInterventionConfig:
             message_radius=float(data.get("message_radius", 8.0)),
             credibility=float(data.get("credibility", 0.9)),
             message_type=str(data.get("message_type", "route_guidance")),
-            objective=str(data.get("objective", "reduce_entropy_without_bottlenecking")),
+            objective=str(
+                data.get("objective", "reduce_entropy_without_bottlenecking")
+            ),
             enabled=bool(data.get("enabled", True)),
             llm_provider=str(data.get("llm_provider", "template")),
             llm_model=str(data.get("llm_model", "template")),
-            llm_cache_path=None
-            if data.get("llm_cache_path") is None
-            else str(data.get("llm_cache_path")),
+            llm_cache_path=(
+                None
+                if data.get("llm_cache_path") is None
+                else str(data.get("llm_cache_path"))
+            ),
             llm_cache_mode=str(data.get("llm_cache_mode", "cache_first")),
             llm_store_cache=bool(data.get("llm_store_cache", True)),
-            llm_max_radius=None
-            if data.get("llm_max_radius") is None
-            else float(data.get("llm_max_radius")),
+            llm_max_radius=(
+                None
+                if data.get("llm_max_radius") is None
+                else float(data.get("llm_max_radius"))
+            ),
             llm_prompt_style=str(data.get("llm_prompt_style", "safety")),
             llm_validator_profile=str(data.get("llm_validator_profile", "standard")),
             llm_target_policy=str(data.get("llm_target_policy", "entropy_targeted")),
-            llm_max_calls_per_run=None
-            if data.get("llm_max_calls_per_run") is None
-            else int(data["llm_max_calls_per_run"]),
-            llm_max_estimated_tokens_per_run=None
-            if data.get("llm_max_estimated_tokens_per_run") is None
-            else int(data["llm_max_estimated_tokens_per_run"]),
-            llm_max_estimated_usd_per_run=None
-            if data.get("llm_max_estimated_usd_per_run") is None
-            else float(data["llm_max_estimated_usd_per_run"]),
+            llm_max_calls_per_run=(
+                None
+                if data.get("llm_max_calls_per_run") is None
+                else int(data["llm_max_calls_per_run"])
+            ),
+            llm_max_estimated_tokens_per_run=(
+                None
+                if data.get("llm_max_estimated_tokens_per_run") is None
+                else int(data["llm_max_estimated_tokens_per_run"])
+            ),
+            llm_max_estimated_usd_per_run=(
+                None
+                if data.get("llm_max_estimated_usd_per_run") is None
+                else float(data["llm_max_estimated_usd_per_run"])
+            ),
             llm_input_usd_per_mtok=float(data.get("llm_input_usd_per_mtok", 0.0)),
             llm_output_usd_per_mtok=float(data.get("llm_output_usd_per_mtok", 0.0)),
         )
@@ -195,7 +210,9 @@ class InterventionPolicy:
     def select_targets(self, simulation) -> List[InterventionTarget]:
         return []
 
-    def build_message(self, simulation, target: InterventionTarget) -> InterventionMessage:
+    def build_message(
+        self, simulation, target: InterventionTarget
+    ) -> InterventionMessage:
         congested = self._congested_exits(simulation)
         return InterventionMessage(
             message_type=self.config.message_type,
@@ -258,7 +275,9 @@ class GlobalBroadcastPolicy(InterventionPolicy):
             )
         ]
 
-    def build_message(self, simulation, target: InterventionTarget) -> InterventionMessage:
+    def build_message(
+        self, simulation, target: InterventionTarget
+    ) -> InterventionMessage:
         message = super().build_message(simulation, target)
         message.radius = max(simulation.layout.width, simulation.layout.height) * 2.0
         return message
@@ -269,7 +288,8 @@ class WildfireLongRangeBroadcastPolicy(GlobalBroadcastPolicy):
 
     def select_targets(self, simulation) -> List[InterventionTarget]:
         hazards = [
-            hazard for hazard in simulation.hazards
+            hazard
+            for hazard in simulation.hazards
             if str(getattr(hazard, "kind", "")).upper() in {"WILDFIRE", "EMBER", "FIRE"}
         ]
         if not hazards:
@@ -291,7 +311,9 @@ class WildfireLongRangeBroadcastPolicy(GlobalBroadcastPolicy):
             )
         ]
 
-    def build_message(self, simulation, target: InterventionTarget) -> InterventionMessage:
+    def build_message(
+        self, simulation, target: InterventionTarget
+    ) -> InterventionMessage:
         message = super().build_message(simulation, target)
         message.message_type = (
             "wildfire_warning"
@@ -307,7 +329,8 @@ class ResponderRelayPolicy(InterventionPolicy):
 
     def select_targets(self, simulation) -> List[InterventionTarget]:
         responders = [
-            agent for agent in simulation._active_agents()
+            agent
+            for agent in simulation._active_agents()
             if getattr(agent, "is_responder", False)
         ]
         return [
@@ -423,7 +446,11 @@ class LLMGuidancePolicy(EntropyTargetedPolicy):
 
     def __init__(self, config: InformationInterventionConfig) -> None:
         super().__init__(config)
-        self.cache = LLMMessageCache(Path(config.llm_cache_path)) if config.llm_cache_path else None
+        self.cache = (
+            LLMMessageCache(Path(config.llm_cache_path))
+            if config.llm_cache_path
+            else None
+        )
         provider = config.llm_provider.lower()
         config.llm_provider = provider
         self.budget_guard = LLMBudgetGuard(
@@ -488,11 +515,15 @@ class LLMGuidancePolicy(EntropyTargetedPolicy):
             target.reason = f"llm_{selector_name}_{target.reason}"
         return targets
 
-    def build_message(self, simulation, target: InterventionTarget) -> InterventionMessage:
+    def build_message(
+        self, simulation, target: InterventionTarget
+    ) -> InterventionMessage:
         congested = self._congested_exits(simulation)
         request = self._build_request(simulation, target, congested)
         cache_key = self.cache.key_for(request) if self.cache is not None else ""
-        generated, cached_validation, cache_status, audit = self._generate_message(request, cache_key)
+        generated, cached_validation, cache_status, audit = self._generate_message(
+            request, cache_key
+        )
         validation = validate_generated_message(
             generated,
             known_exits=[tuple(exit_.pos) for exit_ in simulation.exits],
@@ -503,7 +534,10 @@ class LLMGuidancePolicy(EntropyTargetedPolicy):
             congested_exits=congested,
             settings=validator_settings(self.config.llm_validator_profile),
         )
-        if cached_validation is not None and validation.reasons == cached_validation.reasons:
+        if (
+            cached_validation is not None
+            and validation.reasons == cached_validation.reasons
+        ):
             validation = cached_validation
 
         if validation.accepted:
@@ -529,8 +563,12 @@ class LLMGuidancePolicy(EntropyTargetedPolicy):
                 )
             )
 
-        exits = effective.recommended_exits or [tuple(exit_.pos) for exit_ in simulation.exits]
-        avoid_exits = list({tuple(exit_) for exit_ in [*congested, *effective.avoid_exits]})
+        exits = effective.recommended_exits or [
+            tuple(exit_.pos) for exit_ in simulation.exits
+        ]
+        avoid_exits = list(
+            {tuple(exit_) for exit_ in [*congested, *effective.avoid_exits]}
+        )
         _append_llm_audit(
             simulation,
             surface="intervention",
@@ -546,8 +584,14 @@ class LLMGuidancePolicy(EntropyTargetedPolicy):
         )
         return InterventionMessage(
             message_type=effective.message_type or self.config.message_type,
-            credibility=min(self.config.credibility, effective.credibility or self.config.credibility),
-            radius=min(effective.radius or self.config.message_radius, self._max_radius(simulation)),
+            credibility=min(
+                self.config.credibility,
+                effective.credibility or self.config.credibility,
+            ),
+            radius=min(
+                effective.radius or self.config.message_radius,
+                self._max_radius(simulation),
+            ),
             exits=exits,
             hazards=list(simulation.hazards),
             congested_exits=avoid_exits,
@@ -568,20 +612,40 @@ class LLMGuidancePolicy(EntropyTargetedPolicy):
         self,
         request: LLMMessageRequest,
         cache_key: str,
-    ) -> Tuple[GeneratedEvacuationMessage, Optional[ValidationResult], str, Dict[str, Any]]:
+    ) -> Tuple[
+        GeneratedEvacuationMessage, Optional[ValidationResult], str, Dict[str, Any]
+    ]:
         if self.cache is None:
             check = self._budget_check(request)
             if not check["allowed"]:
-                return self._budget_exceeded_message(check), None, "budget_exceeded", check
+                return (
+                    self._budget_exceeded_message(check),
+                    None,
+                    "budget_exceeded",
+                    check,
+                )
             self.budget_guard.record(check["check"])
             return self.generator.generate(request, cache_key), None, "disabled", check
 
         cached = self.cache.load(cache_key)
-        if cached is not None and self.config.llm_cache_mode in {"cache_first", "replay_only"}:
-            return cached.message, cached.validation, "hit", self._cached_audit(cached.message)
+        if cached is not None and self.config.llm_cache_mode in {
+            "cache_first",
+            "replay_only",
+        }:
+            return (
+                cached.message,
+                cached.validation,
+                "hit",
+                self._cached_audit(cached.message),
+            )
 
         if self.config.llm_cache_mode == "replay_only":
-            return self.generator.generate(request, cache_key), None, "miss", _empty_budget_audit()
+            return (
+                self.generator.generate(request, cache_key),
+                None,
+                "miss",
+                _empty_budget_audit(),
+            )
 
         check = self._budget_check(request)
         if not check["allowed"]:
@@ -625,7 +689,9 @@ class LLMGuidancePolicy(EntropyTargetedPolicy):
             ),
         }
 
-    def _budget_exceeded_message(self, audit: Dict[str, Any]) -> GeneratedEvacuationMessage:
+    def _budget_exceeded_message(
+        self, audit: Dict[str, Any]
+    ) -> GeneratedEvacuationMessage:
         return GeneratedEvacuationMessage(
             text="LLM budget guard blocked generation.",
             abstain=True,
@@ -647,7 +713,8 @@ class LLMGuidancePolicy(EntropyTargetedPolicy):
         congested: Sequence[Cell],
     ) -> LLMMessageRequest:
         active = [
-            agent for agent in simulation._active_agents()
+            agent
+            for agent in simulation._active_agents()
             if _distance((float(agent.pos[0]), float(agent.pos[1])), target.point)
             <= self.config.message_radius
         ]
@@ -670,11 +737,17 @@ class LLMGuidancePolicy(EntropyTargetedPolicy):
             ],
             congested_exits=list(congested),
             recipients_estimate=len(active),
-            mean_local_density=_mean([float(getattr(agent, "local_density", 0.0)) for agent in active]),
-            mean_hazard_load=_mean([float(getattr(agent, "current_hazard_load", 0.0)) for agent in active]),
+            mean_local_density=_mean(
+                [float(getattr(agent, "local_density", 0.0)) for agent in active]
+            ),
+            mean_hazard_load=_mean(
+                [float(getattr(agent, "current_hazard_load", 0.0)) for agent in active]
+            ),
         )
 
-    def _fallback_message(self, request: LLMMessageRequest) -> GeneratedEvacuationMessage:
+    def _fallback_message(
+        self, request: LLMMessageRequest
+    ) -> GeneratedEvacuationMessage:
         fallback = TemplateLLMGenerator().generate(request, "")
         fallback.provider = "deterministic_fallback"
         fallback.model = "template"
@@ -683,7 +756,10 @@ class LLMGuidancePolicy(EntropyTargetedPolicy):
     def _max_radius(self, simulation) -> float:
         if self.config.llm_max_radius is not None:
             return self.config.llm_max_radius
-        return max(self.config.message_radius, min(simulation.layout.width, simulation.layout.height))
+        return max(
+            self.config.message_radius,
+            min(simulation.layout.width, simulation.layout.height),
+        )
 
 
 class LLMResponderCoordinationPolicy(LLMGuidancePolicy):
@@ -696,11 +772,13 @@ class LLMResponderCoordinationPolicy(LLMGuidancePolicy):
 
     def select_targets(self, simulation) -> List[InterventionTarget]:
         responders = [
-            agent for agent in simulation._active_agents()
+            agent
+            for agent in simulation._active_agents()
             if getattr(agent, "is_responder", False)
         ]
         nonresponders = [
-            agent for agent in simulation._active_agents()
+            agent
+            for agent in simulation._active_agents()
             if not getattr(agent, "is_responder", False)
         ]
         total_exits = len(simulation.exits)
@@ -709,17 +787,24 @@ class LLMResponderCoordinationPolicy(LLMGuidancePolicy):
         for responder in responders:
             point = (float(responder.pos[0]), float(responder.pos[1]))
             nearby = [
-                agent for agent in nonresponders
+                agent
+                for agent in nonresponders
                 if _distance((float(agent.pos[0]), float(agent.pos[1])), point)
                 <= self.config.message_radius
             ]
-            entropy = _mean([
-                agent_entropy(agent.beliefs, total_exits, total_hazards)
-                for agent in nearby
-                if hasattr(agent, "beliefs")
-            ])
-            density = _mean([float(getattr(agent, "local_density", 0.0)) for agent in nearby])
-            hazard = _mean([float(getattr(agent, "current_hazard_load", 0.0)) for agent in nearby])
+            entropy = _mean(
+                [
+                    agent_entropy(agent.beliefs, total_exits, total_hazards)
+                    for agent in nearby
+                    if hasattr(agent, "beliefs")
+                ]
+            )
+            density = _mean(
+                [float(getattr(agent, "local_density", 0.0)) for agent in nearby]
+            )
+            hazard = _mean(
+                [float(getattr(agent, "current_hazard_load", 0.0)) for agent in nearby]
+            )
             score = entropy + density + hazard
             rows.append((score, responder, point))
         rows.sort(key=lambda item: item[0], reverse=True)
@@ -749,13 +834,17 @@ POLICIES = {
 }
 
 
-def create_intervention_policy(payload: Optional[Dict[str, Any]]) -> Optional[InterventionPolicy]:
+def create_intervention_policy(
+    payload: Optional[Dict[str, Any]],
+) -> Optional[InterventionPolicy]:
     config = InformationInterventionConfig.from_mapping(payload)
     if not config.enabled or config.policy == "none":
         return None
     cls = POLICIES.get(config.policy)
     if cls is None:
-        raise ValueError(f"Unsupported information intervention policy: {config.policy}")
+        raise ValueError(
+            f"Unsupported information intervention policy: {config.policy}"
+        )
     return cls(config)
 
 
@@ -766,21 +855,25 @@ def _apply_message(
     message: InterventionMessage,
 ) -> InterventionEvent:
     active = [
-        agent for agent in simulation._active_agents()
+        agent
+        for agent in simulation._active_agents()
         if hasattr(agent, "beliefs")
-        and _distance((float(agent.pos[0]), float(agent.pos[1])), target.point) <= message.radius
+        and _distance((float(agent.pos[0]), float(agent.pos[1])), target.point)
+        <= message.radius
     ]
     total_exits = len(simulation.exits)
     total_hazards = len(simulation.hazards)
     true_exits = [tuple(e.pos) for e in simulation.exits]
-    before_entropy = _mean([
-        agent_entropy(agent.beliefs, total_exits, total_hazards)
-        for agent in active
-    ])
-    before_accuracy = _mean([
-        belief_accuracy(agent.beliefs, true_exits, simulation.hazards)
-        for agent in active
-    ], default=1.0)
+    before_entropy = _mean(
+        [agent_entropy(agent.beliefs, total_exits, total_hazards) for agent in active]
+    )
+    before_accuracy = _mean(
+        [
+            belief_accuracy(agent.beliefs, true_exits, simulation.hazards)
+            for agent in active
+        ],
+        default=1.0,
+    )
 
     for agent in active:
         _update_agent_beliefs(
@@ -793,18 +886,22 @@ def _apply_message(
         if hasattr(agent, "update_intention"):
             agent.update_intention(simulation)
 
-    after_entropy = _mean([
-        agent_entropy(agent.beliefs, total_exits, total_hazards)
-        for agent in active
-    ])
-    after_accuracy = _mean([
-        belief_accuracy(agent.beliefs, true_exits, simulation.hazards)
-        for agent in active
-    ], default=1.0)
+    after_entropy = _mean(
+        [agent_entropy(agent.beliefs, total_exits, total_hazards) for agent in active]
+    )
+    after_accuracy = _mean(
+        [
+            belief_accuracy(agent.beliefs, true_exits, simulation.hazards)
+            for agent in active
+        ],
+        default=1.0,
+    )
     latest = simulation.step_history[-1] if simulation.step_history else None
     peak_queue = 0
     if latest is not None:
-        peak_queue = max((m.queue_length for m in latest.bottlenecks.values()), default=0)
+        peak_queue = max(
+            (m.queue_length for m in latest.bottlenecks.values()), default=0
+        )
 
     return InterventionEvent(
         step=simulation.current_step,
@@ -819,8 +916,12 @@ def _apply_message(
         entropy_after=float(after_entropy),
         accuracy_before=float(before_accuracy),
         accuracy_after=float(after_accuracy),
-        mean_local_density=_mean([float(getattr(agent, "local_density", 0.0)) for agent in active]),
-        mean_hazard_load=_mean([float(getattr(agent, "current_hazard_load", 0.0)) for agent in active]),
+        mean_local_density=_mean(
+            [float(getattr(agent, "local_density", 0.0)) for agent in active]
+        ),
+        mean_hazard_load=_mean(
+            [float(getattr(agent, "current_hazard_load", 0.0)) for agent in active]
+        ),
         peak_queue_length=int(peak_queue),
         selected_reason=target.reason,
         target_score=float(target.score),
@@ -832,8 +933,12 @@ def _apply_message(
         validation_reasons=";".join(message.validation_reasons),
         cache_key=message.cache_key,
         cache_status=message.cache_status,
-        generated_recommended_exits=";".join(str(tuple(item)) for item in message.generated_recommended_exits),
-        generated_avoid_exits=";".join(str(tuple(item)) for item in message.generated_avoid_exits),
+        generated_recommended_exits=";".join(
+            str(tuple(item)) for item in message.generated_recommended_exits
+        ),
+        generated_avoid_exits=";".join(
+            str(tuple(item)) for item in message.generated_avoid_exits
+        ),
         generated_confidence=float(message.generated_confidence),
         used_fallback=bool(message.used_fallback),
     )
@@ -869,7 +974,9 @@ def _update_agent_beliefs(
             )
         else:
             existing.freshness = min(existing.freshness, 0.05)
-            existing.source_credibility = max(existing.source_credibility, effective_credibility)
+            existing.source_credibility = max(
+                existing.source_credibility, effective_credibility
+            )
             existing.congestion_est = max(existing.congestion_est, congestion)
         if hasattr(agent, "belief_revision"):
             agent.belief_revision.record_claim(
@@ -886,10 +993,15 @@ def _update_agent_beliefs(
         matched = False
         for hb in agent.beliefs.hazard_beliefs:
             if _distance(hb.position, h_pos) < 3.0:
-                hb.severity_est = max(float(hb.severity_est), float(hazard.severity) * effective_credibility)
+                hb.severity_est = max(
+                    float(hb.severity_est),
+                    float(hazard.severity) * effective_credibility,
+                )
                 hb.radius_est = max(float(hb.radius_est), float(hazard.radius))
                 hb.freshness = 0.0
-                hb.source_credibility = max(float(hb.source_credibility), effective_credibility)
+                hb.source_credibility = max(
+                    float(hb.source_credibility), effective_credibility
+                )
                 matched = True
                 break
         if not matched:
@@ -999,7 +1111,11 @@ def _empty_budget_audit() -> Dict[str, Any]:
 
 
 def _distance(a: Point, b: Point) -> float:
-    return float(np.linalg.norm(np.array(_point3(a), dtype=float) - np.array(_point3(b), dtype=float)))
+    return float(
+        np.linalg.norm(
+            np.array(_point3(a), dtype=float) - np.array(_point3(b), dtype=float)
+        )
+    )
 
 
 def _point3(value) -> tuple[float, float, float]:

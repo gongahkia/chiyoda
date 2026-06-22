@@ -28,7 +28,11 @@ def _hostile_scenario() -> dict:
             "total": 1,
             "cohorts": [{"name": "baseline", "count": 1, "familiarity": 0.0}],
         },
-        "information": {"mode": "asymmetric", "observation_radius": 10.0, "gossip_radius": 0.0},
+        "information": {
+            "mode": "asymmetric",
+            "observation_radius": 10.0,
+            "gossip_radius": 0.0,
+        },
         "simulation": {"max_steps": 3, "random_seed": 7},
         "hostile_channels": [
             {
@@ -68,8 +72,14 @@ def test_hostile_channel_records_provenance_and_adversarial_metrics():
     metrics = SimulationAnalytics().calculate_performance_metrics(simulation)
     assert metrics["hostile_channel_event_count"] == 1
     assert metrics["hostile_channel_recipients"] == 1
-    assert metrics["harmful_convergence_index_induced"] >= metrics["harmful_convergence_index_accidental"]
-    assert metrics["information_safety_efficiency_adversarial"] <= metrics["information_safety_efficiency"]
+    assert (
+        metrics["harmful_convergence_index_induced"]
+        >= metrics["harmful_convergence_index_accidental"]
+    )
+    assert (
+        metrics["information_safety_efficiency_adversarial"]
+        <= metrics["information_safety_efficiency"]
+    )
 
 
 def test_adversarial_study_schema_materializes_budget_defender_pairings():
@@ -89,7 +99,9 @@ def test_adversarial_study_schema_materializes_budget_defender_pairings():
         "adv_stackelberg__budget_3__defender_entropy_targeted",
     ]
     assert variants[0].scenario_overrides["hostile_channels"][0]["budget"] == 1
-    assert variants[0].scenario_overrides["interventions"]["policy"] == "entropy_targeted"
+    assert (
+        variants[0].scenario_overrides["interventions"]["policy"] == "entropy_targeted"
+    )
 
 
 def test_red_team_cli_runs_hostile_channel(tmp_path):

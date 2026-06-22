@@ -1,4 +1,5 @@
 """Adversarial information channels and source credibility updates."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -64,8 +65,12 @@ class ProvenanceRecord:
             "step": self.step,
             "channel_type": self.channel_type,
             "objective": self.objective,
-            "claimed_exit": list(self.claimed_exit) if self.claimed_exit is not None else None,
-            "claimed_hazard": list(self.claimed_hazard) if self.claimed_hazard is not None else None,
+            "claimed_exit": (
+                list(self.claimed_exit) if self.claimed_exit is not None else None
+            ),
+            "claimed_hazard": (
+                list(self.claimed_hazard) if self.claimed_hazard is not None else None
+            ),
             "observed_outcome": self.observed_outcome,
             "credibility_after": self.credibility_after,
         }
@@ -79,11 +84,13 @@ class BeliefRevisionModel:
 
     def source_credibility(self, source_id: str) -> float:
         state = self._state(source_id)
-        return float(np.clip(
-            state.credibility,
-            self.config.min_credibility,
-            self.config.max_credibility,
-        ))
+        return float(
+            np.clip(
+                state.credibility,
+                self.config.min_credibility,
+                self.config.max_credibility,
+            )
+        )
 
     def record_claim(
         self,
@@ -109,11 +116,22 @@ class BeliefRevisionModel:
         self.provenance.append(record)
         return record
 
-    def update_source(self, source_id: str, supported: bool, *, step: int = 0, weight: Optional[float] = None) -> float:
+    def update_source(
+        self,
+        source_id: str,
+        supported: bool,
+        *,
+        step: int = 0,
+        weight: Optional[float] = None,
+    ) -> float:
         state = self._state(source_id)
         cfg = self.config
-        state.alpha = cfg.prior_alpha + (state.alpha - cfg.prior_alpha) * cfg.forgetting_factor
-        state.beta = cfg.prior_beta + (state.beta - cfg.prior_beta) * cfg.forgetting_factor
+        state.alpha = (
+            cfg.prior_alpha + (state.alpha - cfg.prior_alpha) * cfg.forgetting_factor
+        )
+        state.beta = (
+            cfg.prior_beta + (state.beta - cfg.prior_beta) * cfg.forgetting_factor
+        )
         evidence = cfg.evidence_weight if weight is None else float(weight)
         if supported:
             state.alpha += evidence
@@ -122,8 +140,12 @@ class BeliefRevisionModel:
         state.last_updated_step = int(step)
         return self.source_credibility(source_id)
 
-    def observe_record(self, record_id: str, supported: bool, *, step: int = 0) -> float:
-        record = next((item for item in self.provenance if item.record_id == record_id), None)
+    def observe_record(
+        self, record_id: str, supported: bool, *, step: int = 0
+    ) -> float:
+        record = next(
+            (item for item in self.provenance if item.record_id == record_id), None
+        )
         if record is None:
             raise KeyError(record_id)
         credibility = self.update_source(record.source_id, supported, step=step)
@@ -162,17 +184,25 @@ class HostileChannelConfig:
 
     @classmethod
     def from_mapping(cls, payload: Dict[str, Any]) -> "HostileChannelConfig":
-        objective = AttackerObjective(str(payload.get("objective", AttackerObjective.DECOY_EXIT.value)))
+        objective = AttackerObjective(
+            str(payload.get("objective", AttackerObjective.DECOY_EXIT.value))
+        )
         return cls(
             id=str(payload.get("id", "hostile_channel")),
-            channel_type=str(payload.get("channel_type", payload.get("type", "gossip"))),
+            channel_type=str(
+                payload.get("channel_type", payload.get("type", "gossip"))
+            ),
             objective=objective,
             budget=max(0, int(payload.get("budget", 1))),
             start_step=int(payload.get("start_step", 0)),
             interval_steps=max(1, int(payload.get("interval_steps", 1))),
             plausibility=float(payload.get("plausibility", 0.65)),
             radius=float(payload.get("radius", 6.0)),
-            target_cohort=None if payload.get("target_cohort") is None else str(payload["target_cohort"]),
+            target_cohort=(
+                None
+                if payload.get("target_cohort") is None
+                else str(payload["target_cohort"])
+            ),
             source_id=str(payload.get("source_id", "attacker")),
             claimed_exit=_tuple_or_none(payload.get("claimed_exit")),
             claimed_hazard=_tuple_or_none(payload.get("claimed_hazard")),
@@ -225,7 +255,9 @@ class HostileChannel:
             if claim.get("exit") is not None:
                 agent.beliefs.exit_beliefs[claim["exit"]] = ExitBelief(
                     position=claim["exit"],
-                    exists_prob=min(0.99, max(0.01, self.config.plausibility * credibility + 0.2)),
+                    exists_prob=min(
+                        0.99, max(0.01, self.config.plausibility * credibility + 0.2)
+                    ),
                     congestion_est=0.0,
                     freshness=0.0,
                     source_credibility=credibility,
@@ -235,14 +267,18 @@ class HostileChannel:
                 agent.beliefs.hazard_beliefs.append(
                     HazardBelief(
                         position=claim["hazard"],
-                        severity_est=min(1.0, 0.4 + self.config.plausibility * credibility),
+                        severity_est=min(
+                            1.0, 0.4 + self.config.plausibility * credibility
+                        ),
                         radius_est=max(1.0, self.config.radius),
                         freshness=0.0,
                         source_credibility=credibility,
                         hop_count=0,
                     )
                 )
-                agent.beliefs.general_danger_level = max(agent.beliefs.general_danger_level, 0.8)
+                agent.beliefs.general_danger_level = max(
+                    agent.beliefs.general_danger_level, 0.8
+                )
             agent.belief_revision.record_claim(
                 source_id=source_id,
                 timestamp_s=simulation.time_s,
@@ -263,30 +299,45 @@ class HostileChannel:
             objective=objective,
             source_id=self.config.source_id,
             recipients=len(recipients),
-            credibility=float(np.mean(credibility_values)) if credibility_values else 0.0,
+            credibility=(
+                float(np.mean(credibility_values)) if credibility_values else 0.0
+            ),
             claimed_exit=claim.get("exit"),
             claimed_hazard=claim.get("hazard"),
         )
 
     def _select_recipients(self, simulation) -> List[Any]:
         active = [
-            agent for agent in simulation._active_agents()
+            agent
+            for agent in simulation._active_agents()
             if hasattr(agent, "beliefs")
-            and (self.config.target_cohort is None or getattr(agent, "cohort_name", None) == self.config.target_cohort)
+            and (
+                self.config.target_cohort is None
+                or getattr(agent, "cohort_name", None) == self.config.target_cohort
+            )
         ]
         if not active:
             return []
         if self.config.objective == AttackerObjective.GOSSIP_POISON:
-            active.sort(key=lambda item: getattr(item, "credibility", 0.5), reverse=True)
+            active.sort(
+                key=lambda item: getattr(item, "credibility", 0.5), reverse=True
+            )
             return active
-        if self.config.objective == AttackerObjective.PANIC_INDUCE and simulation.hazards:
+        if (
+            self.config.objective == AttackerObjective.PANIC_INDUCE
+            and simulation.hazards
+        ):
             hazard_pos = np.array(simulation.hazards[0].pos, dtype=float)
             active.sort(key=lambda item: float(np.linalg.norm(item.pos - hazard_pos)))
             return active
         return active
 
     def _build_claim(self, simulation) -> Dict[str, Optional[tuple]]:
-        if self.config.objective in {AttackerObjective.DECOY_EXIT, AttackerObjective.RESPONDER_SPOOF, AttackerObjective.GOSSIP_POISON}:
+        if self.config.objective in {
+            AttackerObjective.DECOY_EXIT,
+            AttackerObjective.RESPONDER_SPOOF,
+            AttackerObjective.GOSSIP_POISON,
+        }:
             claimed_exit = self.config.claimed_exit
             if claimed_exit is None:
                 claimed_exit = _default_false_exit(simulation)
@@ -308,15 +359,22 @@ class HostileChannel:
         return float(np.clip(self.config.plausibility * (0.5 + trust), 0.01, 0.99))
 
 
-def create_hostile_channels(payload: Optional[Sequence[Dict[str, Any]]]) -> List[HostileChannel]:
-    return [HostileChannel(HostileChannelConfig.from_mapping(item)) for item in (payload or [])]
+def create_hostile_channels(
+    payload: Optional[Sequence[Dict[str, Any]]],
+) -> List[HostileChannel]:
+    return [
+        HostileChannel(HostileChannelConfig.from_mapping(item))
+        for item in (payload or [])
+    ]
 
 
 def evaluate_pending_provenance(agent, simulation, vision_radius: float) -> None:
     if not hasattr(agent, "belief_revision"):
         return
     true_exits = {tuple(exit_.pos) for exit_ in simulation.exits}
-    true_hazards = [tuple(float(value) for value in hazard.pos) for hazard in simulation.hazards]
+    true_hazards = [
+        tuple(float(value) for value in hazard.pos) for hazard in simulation.hazards
+    ]
     for record in list(agent.belief_revision.pending_records()):
         supported = None
         if record.claimed_exit is not None:
@@ -325,20 +383,33 @@ def evaluate_pending_provenance(agent, simulation, vision_radius: float) -> None
                 supported = tuple(record.claimed_exit) in true_exits
         if supported is None and record.claimed_hazard is not None:
             if _distance(agent.pos, record.claimed_hazard) <= vision_radius:
-                supported = any(_distance(record.claimed_hazard, hazard_pos) < 3.0 for hazard_pos in true_hazards)
+                supported = any(
+                    _distance(record.claimed_hazard, hazard_pos) < 3.0
+                    for hazard_pos in true_hazards
+                )
         if supported is not None:
-            agent.belief_revision.observe_record(record.record_id, supported, step=simulation.current_step)
+            agent.belief_revision.observe_record(
+                record.record_id, supported, step=simulation.current_step
+            )
 
 
 def _default_false_exit(simulation) -> tuple:
     floor_id = simulation.layout.primary_floor_id
-    return (floor_id, max(0, simulation.layout.width - 2), max(0, simulation.layout.height - 2))
+    return (
+        floor_id,
+        max(0, simulation.layout.width - 2),
+        max(0, simulation.layout.height - 2),
+    )
 
 
 def _default_false_hazard(simulation) -> tuple:
     floor_id = simulation.layout.primary_floor_id
     z = float(simulation.layout.floor_z(floor_id))
-    return (max(0.5, simulation.layout.width / 2.0), max(0.5, simulation.layout.height / 2.0), z)
+    return (
+        max(0.5, simulation.layout.width / 2.0),
+        max(0.5, simulation.layout.height / 2.0),
+        z,
+    )
 
 
 def _tuple_or_none(value: Optional[Sequence[Any]]) -> Optional[tuple]:
@@ -358,7 +429,11 @@ def _distance(a: Sequence[Any], b: Sequence[Any]) -> float:
 
 def _point3(value: Sequence[Any]) -> np.ndarray:
     if len(value) >= 3 and isinstance(value[0], str):
-        return np.array([float(value[1]) + 0.5, float(value[2]) + 0.5, 0.0], dtype=float)
+        return np.array(
+            [float(value[1]) + 0.5, float(value[2]) + 0.5, 0.0], dtype=float
+        )
     if len(value) >= 3:
-        return np.array([float(value[0]), float(value[1]), float(value[2])], dtype=float)
+        return np.array(
+            [float(value[0]), float(value[1]), float(value[2])], dtype=float
+        )
     return np.array([float(value[0]), float(value[1]), 0.0], dtype=float)

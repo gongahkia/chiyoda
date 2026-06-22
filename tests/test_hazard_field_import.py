@@ -41,11 +41,7 @@ def test_imported_hazard_field_affects_exposure_visibility_and_route_penalty(tmp
     field_path.write_text(json.dumps(_hazard_field_payload()))
 
     hazard = ImportedHazardField.from_file(field_path)
-    layout = Layout.from_text(
-        "XXXXX\n"
-        "X@.EX\n"
-        "XXXXX\n"
-    )
+    layout = Layout.from_text("XXXXX\n" "X@.EX\n" "XXXXX\n")
     agent = Commuter(id=0, pos=np.array([1.5, 1.5], dtype=float))
     sim = Simulation(
         layout=layout,
@@ -119,12 +115,7 @@ def test_imported_hazard_field_can_drive_ground_truth_route_cost(tmp_path):
     ]
     field_path.write_text(json.dumps(payload))
 
-    layout = Layout.from_text(
-        "XXXXXX\n"
-        "X@..EX\n"
-        "X....X\n"
-        "XXXXXX\n"
-    )
+    layout = Layout.from_text("XXXXXX\n" "X@..EX\n" "X....X\n" "XXXXXX\n")
     sim = Simulation(
         layout=layout,
         agents=[],

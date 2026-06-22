@@ -5,6 +5,7 @@ During Building Evacuations", which reports stair evacuation data from 14
 buildings and more than 22,000 individual measurements:
 https://nvlpubs.nist.gov/nistpubs/TechnicalNotes/NIST.TN.1839.pdf
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -75,21 +76,33 @@ class ConnectorQueue:
     def reset_step(self) -> None:
         self.flow_step = 0
 
-    def enqueue(self, agent_id: int, source: tuple, target: tuple, *, priority: float = 0.0) -> bool:
+    def enqueue(
+        self, agent_id: int, source: tuple, target: tuple, *, priority: float = 0.0
+    ) -> bool:
         if agent_id in self._waiting_ids or agent_id in self._active:
             return False
         seq = next(self._sequence)
         order = -float(priority) if self.queue_mode == "priority" else float(seq)
-        heappush(self._waiting, (order, seq, int(agent_id), tuple(source), tuple(target)))
+        heappush(
+            self._waiting, (order, seq, int(agent_id), tuple(source), tuple(target))
+        )
         self._waiting_ids.add(int(agent_id))
         return True
 
-    def step(self, *, time_s: float, dt: float, density: float) -> list[ConnectorQueueEvent]:
+    def step(
+        self, *, time_s: float, dt: float, density: float
+    ) -> list[ConnectorQueueEvent]:
         events: list[ConnectorQueueEvent] = []
         effective_flow = self.effective_flow_rate(density)
         self.last_effective_flow_rate = effective_flow
-        self.service_credit = min(self.capacity, self.service_credit + effective_flow * dt)
-        while self._waiting and len(self._active) < self.capacity and self.service_credit >= 1.0:
+        self.service_credit = min(
+            self.capacity, self.service_credit + effective_flow * dt
+        )
+        while (
+            self._waiting
+            and len(self._active) < self.capacity
+            and self.service_credit >= 1.0
+        ):
             _order, _seq, agent_id, source, target = heappop(self._waiting)
             self._waiting_ids.remove(agent_id)
             self.service_credit -= 1.0
@@ -107,14 +120,17 @@ class ConnectorQueue:
     def finish_ready(self, *, time_s: float) -> list[ConnectorQueueEvent]:
         events: list[ConnectorQueueEvent] = []
         ready = [
-            agent_id for agent_id, transfer in self._active.items()
+            agent_id
+            for agent_id, transfer in self._active.items()
             if time_s >= transfer.arrival_s
         ]
         for agent_id in ready:
             transfer = self._active.pop(agent_id)
             self.cumulative_finished += 1
             self.flow_step += 1
-            events.append(self._event("finish", agent_id, transfer.source, transfer.target))
+            events.append(
+                self._event("finish", agent_id, transfer.source, transfer.target)
+            )
         return events
 
     def has_agent(self, agent_id: int) -> bool:
@@ -143,8 +159,12 @@ class ConnectorQueue:
         dwell_s = float(getattr(self.connector, "dwell_s", 0.0))
         if travel_s > 0 or self.connector.type == "elevator":
             return max(0.01, dwell_s + travel_s)
-        distance = _connector_distance(source, target, float(getattr(self.connector, "height_delta_m", 0.0)))
-        speed = 1.34 * max(float(getattr(self.connector, "speed_multiplier", 1.0)), 1e-6)
+        distance = _connector_distance(
+            source, target, float(getattr(self.connector, "height_delta_m", 0.0))
+        )
+        speed = 1.34 * max(
+            float(getattr(self.connector, "speed_multiplier", 1.0)), 1e-6
+        )
         return max(0.01, dwell_s + distance / speed)
 
     def telemetry(self) -> dict[str, float | int]:
@@ -159,7 +179,9 @@ class ConnectorQueue:
             "cumulative_finished": int(self.cumulative_finished),
         }
 
-    def _event(self, phase: str, agent_id: int, source: tuple, target: tuple) -> ConnectorQueueEvent:
+    def _event(
+        self, phase: str, agent_id: int, source: tuple, target: tuple
+    ) -> ConnectorQueueEvent:
         return ConnectorQueueEvent(
             phase=phase,
             agent_id=int(agent_id),
@@ -198,8 +220,19 @@ def _point3(cell: tuple) -> np.ndarray:
 
 
 def _connector_distance(source: tuple, target: tuple, height_delta_m: float) -> float:
-    if len(source) >= 3 and len(target) >= 3 and isinstance(source[0], str) and isinstance(target[0], str):
-        horizontal = float(((float(target[1]) - float(source[1])) ** 2 + (float(target[2]) - float(source[2])) ** 2) ** 0.5)
+    if (
+        len(source) >= 3
+        and len(target) >= 3
+        and isinstance(source[0], str)
+        and isinstance(target[0], str)
+    ):
+        horizontal = float(
+            (
+                (float(target[1]) - float(source[1])) ** 2
+                + (float(target[2]) - float(source[2])) ** 2
+            )
+            ** 0.5
+        )
         vertical = abs(float(height_delta_m)) if source[0] != target[0] else 0.0
         if vertical <= 1e-9 and source[0] != target[0]:
             vertical = 3.0

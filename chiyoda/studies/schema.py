@@ -39,7 +39,9 @@ class ExportConfig(BaseModel):
         if not self.table_formats:
             raise ValueError("At least one table format is required")
         if self.include_figures and not self.formats:
-            raise ValueError("At least one figure format is required when include_figures is enabled")
+            raise ValueError(
+                "At least one figure format is required when include_figures is enabled"
+            )
         return self
 
 
@@ -67,16 +69,22 @@ class InterventionConfig(BaseModel):
 
     @model_validator(mode="after")
     def validate_shape(self) -> "InterventionConfig":
-        if self.type in {
-            "corridor_narrowing",
-            "corridor_widening",
-            "block_cells",
-            "clear_cells",
-        } and not self.cells:
+        if (
+            self.type
+            in {
+                "corridor_narrowing",
+                "corridor_widening",
+                "block_cells",
+                "clear_cells",
+            }
+            and not self.cells
+        ):
             raise ValueError(f"{self.type} requires a non-empty cells list")
         if self.type == "exit_closure" and not self.exits:
             raise ValueError("exit_closure requires an exits list")
-        if self.type == "demand_surge" and (self.count is None or self.release_step is None):
+        if self.type == "demand_surge" and (
+            self.count is None or self.release_step is None
+        ):
             raise ValueError("demand_surge requires count and release_step")
         if self.type == "staggered_release" and self.release_step is None:
             raise ValueError("staggered_release requires release_step")
@@ -113,9 +121,13 @@ class AdversarialStudyConfig(BaseModel):
     @model_validator(mode="after")
     def validate_pairing(self) -> "AdversarialStudyConfig":
         if self.attacker_budget and not self.defender_policy:
-            raise ValueError("adversarial.defender_policy is required when attacker_budget is set")
+            raise ValueError(
+                "adversarial.defender_policy is required when attacker_budget is set"
+            )
         if self.defender_policy and not self.attacker_budget:
-            raise ValueError("adversarial.attacker_budget is required when defender_policy is set")
+            raise ValueError(
+                "adversarial.attacker_budget is required when defender_policy is set"
+            )
         if self.hostile_channel_index < 0:
             raise ValueError("hostile_channel_index must be non-negative")
         return self

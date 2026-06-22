@@ -32,39 +32,69 @@ class ScenarioAssertionResult:
         }
 
 
-def evaluate_scenario_assertions(scenario: dict[str, Any], simulation) -> ScenarioAssertionResult:
+def evaluate_scenario_assertions(
+    scenario: dict[str, Any], simulation
+) -> ScenarioAssertionResult:
     config = scenario.get("assertions", {}) or {}
     issues: list[ScenarioAssertionIssue] = []
     if not config:
         return ScenarioAssertionResult(ok=True, issues=[])
 
     evacuated = len(simulation.completed_agents)
-    remaining = len([
-        agent for agent in simulation.agents
-        if not getattr(agent, "has_evacuated", False) and not getattr(agent, "is_responder", False)
-    ])
+    remaining = len(
+        [
+            agent
+            for agent in simulation.agents
+            if not getattr(agent, "has_evacuated", False)
+            and not getattr(agent, "is_responder", False)
+        ]
+    )
 
     _check_count("evacuated", evacuated, config.get("evacuated"), issues)
     _check_count("remaining", remaining, config.get("remaining"), issues)
-    _check_count("impossible_floor_jumps", len(getattr(simulation, "impossible_floor_jumps", [])), config.get("impossible_floor_jumps"), issues)
+    _check_count(
+        "impossible_floor_jumps",
+        len(getattr(simulation, "impossible_floor_jumps", [])),
+        config.get("impossible_floor_jumps"),
+        issues,
+    )
 
-    if bool(config.get("no_impossible_floor_jumps", False)) and getattr(simulation, "impossible_floor_jumps", []):
-        issues.append(ScenarioAssertionIssue(
-            "impossible_floor_jump",
-            "one or more agents changed floor without a configured connector event",
-            observed=getattr(simulation, "impossible_floor_jumps", []),
-            expected=[],
-        ))
+    if bool(config.get("no_impossible_floor_jumps", False)) and getattr(
+        simulation, "impossible_floor_jumps", []
+    ):
+        issues.append(
+            ScenarioAssertionIssue(
+                "impossible_floor_jump",
+                "one or more agents changed floor without a configured connector event",
+                observed=getattr(simulation, "impossible_floor_jumps", []),
+                expected=[],
+            )
+        )
 
     travel = config.get("travel_time_s")
     if travel is not None:
         times = [float(value) for value in getattr(simulation, "travel_times_s", [])]
         if not times:
-            issues.append(ScenarioAssertionIssue("missing_travel_times", "no evacuated-agent travel times were recorded"))
+            issues.append(
+                ScenarioAssertionIssue(
+                    "missing_travel_times",
+                    "no evacuated-agent travel times were recorded",
+                )
+            )
         else:
-            _check_range("travel_time_s.min", min(times), travel.get("min"), None, issues)
-            _check_range("travel_time_s.max", max(times), None, travel.get("max"), issues)
-            _check_range("travel_time_s.mean", sum(times) / len(times), travel.get("mean_min"), travel.get("mean_max"), issues)
+            _check_range(
+                "travel_time_s.min", min(times), travel.get("min"), None, issues
+            )
+            _check_range(
+                "travel_time_s.max", max(times), None, travel.get("max"), issues
+            )
+            _check_range(
+                "travel_time_s.mean",
+                sum(times) / len(times),
+                travel.get("mean_min"),
+                travel.get("mean_max"),
+                issues,
+            )
 
     connectors = config.get("connector_usage", {}) or {}
     observed_connectors = dict(getattr(simulation, "connector_usage_cumulative", {}))
@@ -76,11 +106,28 @@ def evaluate_scenario_assertions(scenario: dict[str, Any], simulation) -> Scenar
             issues,
         )
 
-    latest = simulation.step_history[-1] if getattr(simulation, "step_history", []) else None
+    latest = (
+        simulation.step_history[-1] if getattr(simulation, "step_history", []) else None
+    )
     if latest is not None:
-        _check_connector_map("connector_flow", getattr(latest, "connector_flow", {}), config.get("connector_flow", {}), issues)
-        _check_connector_map("connector_capacity", getattr(latest, "connector_capacity", {}), config.get("connector_capacity", {}), issues)
-        _check_connector_map("connector_queue_length", getattr(latest, "connector_queue_length", {}), config.get("connector_queue_length", {}), issues)
+        _check_connector_map(
+            "connector_flow",
+            getattr(latest, "connector_flow", {}),
+            config.get("connector_flow", {}),
+            issues,
+        )
+        _check_connector_map(
+            "connector_capacity",
+            getattr(latest, "connector_capacity", {}),
+            config.get("connector_capacity", {}),
+            issues,
+        )
+        _check_connector_map(
+            "connector_queue_length",
+            getattr(latest, "connector_queue_length", {}),
+            config.get("connector_queue_length", {}),
+            issues,
+        )
 
     exit_floors = config.get("exit_floors")
     if exit_floors is not None:
@@ -89,21 +136,26 @@ def evaluate_scenario_assertions(scenario: dict[str, Any], simulation) -> Scenar
             str(tuple(exit_.pos)[0])
             for agent in simulation.completed_agents
             for exit_ in simulation.exits
-            if getattr(agent, "evacuated_via", None) == simulation.exit_labels.get(tuple(exit_.pos))
+            if getattr(agent, "evacuated_via", None)
+            == simulation.exit_labels.get(tuple(exit_.pos))
         }
         missing = sorted(expected - observed)
         if missing:
-            issues.append(ScenarioAssertionIssue(
-                "missing_exit_floor",
-                "expected at least one evacuation through each configured floor",
-                observed=sorted(observed),
-                expected=sorted(expected),
-            ))
+            issues.append(
+                ScenarioAssertionIssue(
+                    "missing_exit_floor",
+                    "expected at least one evacuation through each configured floor",
+                    observed=sorted(observed),
+                    expected=sorted(expected),
+                )
+            )
 
     return ScenarioAssertionResult(ok=not issues, issues=issues)
 
 
-def _check_count(name: str, observed: int, expected: Any, issues: list[ScenarioAssertionIssue]) -> None:
+def _check_count(
+    name: str, observed: int, expected: Any, issues: list[ScenarioAssertionIssue]
+) -> None:
     if expected is None:
         return
     if isinstance(expected, dict):

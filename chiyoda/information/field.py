@@ -21,6 +21,7 @@ import numpy as np
 @dataclass
 class ExitBelief:
     """Belief about a single exit."""
+
     position: tuple
     exists_prob: float = 0.0  # probability the agent believes this exit exists
     congestion_est: float = 0.0  # estimated congestion [0,1]
@@ -32,6 +33,7 @@ class ExitBelief:
 @dataclass
 class HazardBelief:
     """Belief about hazard conditions at a region."""
+
     position: tuple
     severity_est: float = 0.0  # estimated severity [0,1]
     radius_est: float = 0.0  # estimated radius
@@ -43,6 +45,7 @@ class HazardBelief:
 @dataclass
 class BeliefVector:
     """Complete belief state for one agent."""
+
     exit_beliefs: Dict[tuple, ExitBelief] = field(default_factory=dict)
     hazard_beliefs: List[HazardBelief] = field(default_factory=list)
     general_danger_level: float = 0.0  # perceived overall danger [0,1]
@@ -52,21 +55,20 @@ class BeliefVector:
     def known_exits(self) -> List[tuple]:
         """Return exits the agent believes exist (p > 0.5)."""
         return [
-            pos for pos, belief in self.exit_beliefs.items()
-            if belief.exists_prob > 0.5
+            pos for pos, belief in self.exit_beliefs.items() if belief.exists_prob > 0.5
         ]
 
     def best_exit(self) -> Optional[tuple]:
         """Return exit with highest probability and lowest congestion."""
         candidates = [
-            (pos, b) for pos, b in self.exit_beliefs.items()
-            if b.exists_prob > 0.5
+            (pos, b) for pos, b in self.exit_beliefs.items() if b.exists_prob > 0.5
         ]
         if not candidates:
             return None
         # score = exists_prob - congestion_est, prefer fresh info
         candidates.sort(
-            key=lambda x: (x[1].exists_prob - x[1].congestion_est) * (1.0 - x[1].freshness * 0.3),
+            key=lambda x: (x[1].exists_prob - x[1].congestion_est)
+            * (1.0 - x[1].freshness * 0.3),
             reverse=True,
         )
         return candidates[0][0]
@@ -108,9 +110,9 @@ class InformationField:
         self.beacon_radius = beacon_radius
         self.gossip_radius = gossip_radius
 
-        self.ground_truth_exits: List[tuple] = [] # actual exit positions
-        self.beacons: List[tuple] = [] # signage/PA positions
-        self.beacon_exit_info: Dict[tuple, List[tuple]] = {} # what each beacon knows
+        self.ground_truth_exits: List[tuple] = []  # actual exit positions
+        self.beacons: List[tuple] = []  # signage/PA positions
+        self.beacon_exit_info: Dict[tuple, List[tuple]] = {}  # what each beacon knows
         self.exit_world_positions: Dict[tuple, tuple] = {}
 
     def set_ground_truth(
@@ -122,7 +124,7 @@ class InformationField:
         self.ground_truth_exits = list(exits)
         if beacons:
             self.beacons = list(beacons)
-            for b in self.beacons: # beacons know all exits by default
+            for b in self.beacons:  # beacons know all exits by default
                 self.beacon_exit_info[b] = list(exits)
 
     def create_agent_beliefs(
@@ -172,13 +174,15 @@ class InformationField:
     ) -> None:
         """Agent directly observes environment within vision cone."""
         for exit_pos in exits:
-            exit_point = self.exit_world_positions.get(tuple(exit_pos), tuple(_cell_center3(exit_pos)))
+            exit_point = self.exit_world_positions.get(
+                tuple(exit_pos), tuple(_cell_center3(exit_pos))
+            )
             dist = float(np.linalg.norm(_point3(agent_pos) - _point3(exit_point)))
             if dist <= vision_radius:
                 agent_beliefs.exit_beliefs[exit_pos] = ExitBelief(
                     position=exit_pos,
                     exists_prob=1.0,
-                    congestion_est=0.0, # will be updated by density observation
+                    congestion_est=0.0,  # will be updated by density observation
                     freshness=0.0,
                     source_credibility=1.0,
                     hop_count=0,
@@ -191,8 +195,10 @@ class InformationField:
                 # update or add hazard belief with direct observation
                 updated = False
                 for hb in agent_beliefs.hazard_beliefs:
-                    hb_dist = float(np.linalg.norm(_point3(hb.position) - _point3(h_pos)))
-                    if hb_dist < 2.0: # same hazard
+                    hb_dist = float(
+                        np.linalg.norm(_point3(hb.position) - _point3(h_pos))
+                    )
+                    if hb_dist < 2.0:  # same hazard
                         hb.severity_est = float(hazard.severity)
                         hb.radius_est = float(hazard.radius)
                         hb.freshness = 0.0
@@ -229,7 +235,7 @@ class InformationField:
                     if existing is None or existing.source_credibility < 0.9:
                         agent_beliefs.exit_beliefs[exit_pos] = ExitBelief(
                             position=exit_pos,
-                            exists_prob=0.95, # high but not perfect — agent may not fully trust PA
+                            exists_prob=0.95,  # high but not perfect — agent may not fully trust PA
                             freshness=0.0,
                             source_credibility=0.9,
                             hop_count=0,
@@ -239,7 +245,9 @@ class InformationField:
         """Age all beliefs — information becomes stale over time."""
         for eb in agent_beliefs.exit_beliefs.values():
             eb.freshness = min(1.0, eb.freshness + self.decay_rate * dt)
-            eb.exists_prob *= (1.0 - self.decay_rate * dt * 0.1) # very slow confidence decay
+            eb.exists_prob *= (
+                1.0 - self.decay_rate * dt * 0.1
+            )  # very slow confidence decay
             eb.exists_prob = max(0.0, eb.exists_prob)
         for hb in agent_beliefs.hazard_beliefs:
             hb.freshness = min(1.0, hb.freshness + self.decay_rate * dt)
@@ -248,13 +256,19 @@ class InformationField:
 
 def _point3(value: Any) -> np.ndarray:
     if len(value) >= 3 and not isinstance(value[0], str):
-        return np.array([float(value[0]), float(value[1]), float(value[2])], dtype=float)
+        return np.array(
+            [float(value[0]), float(value[1]), float(value[2])], dtype=float
+        )
     return np.array([float(value[0]), float(value[1]), 0.0], dtype=float)
 
 
 def _cell_center3(value: Any) -> np.ndarray:
     if len(value) >= 3 and isinstance(value[0], str):
-        return np.array([float(value[1]) + 0.5, float(value[2]) + 0.5, 0.0], dtype=float)
+        return np.array(
+            [float(value[1]) + 0.5, float(value[2]) + 0.5, 0.0], dtype=float
+        )
     if len(value) >= 3:
-        return np.array([float(value[0]) + 0.5, float(value[1]) + 0.5, float(value[2])], dtype=float)
+        return np.array(
+            [float(value[0]) + 0.5, float(value[1]) + 0.5, float(value[2])], dtype=float
+        )
     return np.array([float(value[0]) + 0.5, float(value[1]) + 0.5, 0.0], dtype=float)

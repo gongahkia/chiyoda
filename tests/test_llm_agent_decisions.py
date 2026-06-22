@@ -23,7 +23,9 @@ def _request() -> LLMDecisionRequest:
         objective="bounded_agent_decision",
         known_exits=[(10, 1), (1, 1)],
         congested_exits=[(1, 1)],
-        hazards=[HazardSnapshot(position=(3.0, 3.0), kind="SMOKE", radius=2.0, severity=0.5)],
+        hazards=[
+            HazardSnapshot(position=(3.0, 3.0), kind="SMOKE", radius=2.0, severity=0.5)
+        ],
         local_density=0.2,
         hazard_load=0.1,
         entropy=0.4,
@@ -100,6 +102,12 @@ def test_scenario_llm_decisions_emit_telemetry(tmp_path):
 
     assert sim.agent_decision_events
     assert sim.agent_decision_events[0].validation_status == "accepted"
-    assert sim.agent_decision_events[0].selected_intent in {"EVACUATE", "EXPLORE", "FOLLOW"}
+    assert sim.agent_decision_events[0].selected_intent in {
+        "EVACUATE",
+        "EXPLORE",
+        "FOLLOW",
+    }
     assert list((tmp_path / "cache").glob("*.json"))
-    assert json.loads(next((tmp_path / "cache").glob("*.json")).read_text())["validation"]["accepted"]
+    assert json.loads(next((tmp_path / "cache").glob("*.json")).read_text())[
+        "validation"
+    ]["accepted"]

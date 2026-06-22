@@ -74,22 +74,32 @@ class PopulationCalibrationConfig:
     output_usd_per_mtok: float = 0.0
 
     @classmethod
-    def from_mapping(cls, payload: Optional[Mapping[str, Any]]) -> "PopulationCalibrationConfig":
+    def from_mapping(
+        cls, payload: Optional[Mapping[str, Any]]
+    ) -> "PopulationCalibrationConfig":
         data = dict(payload or {})
-        allowed = tuple(str(item) for item in data.get("allowed_targets", DEFAULT_ALLOWED_TARGETS))
+        allowed = tuple(
+            str(item) for item in data.get("allowed_targets", DEFAULT_ALLOWED_TARGETS)
+        )
         personas_raw = data.get("persona_conditions", data.get("personas", ())) or ()
-        personas = (personas_raw,) if isinstance(personas_raw, str) else tuple(personas_raw)
+        personas = (
+            (personas_raw,) if isinstance(personas_raw, str) else tuple(personas_raw)
+        )
         invalid = sorted(set(allowed) - ALLOWED_TARGETS)
         if invalid:
             raise ValueError(f"Unsupported generated calibration targets: {invalid}")
         overwrite_policy = str(data.get("overwrite_policy", OVERWRITE_POLICY))
         if overwrite_policy != OVERWRITE_POLICY:
-            raise ValueError("generated population calibration only supports overwrite_policy='missing_only'")
+            raise ValueError(
+                "generated population calibration only supports overwrite_policy='missing_only'"
+            )
         return cls(
             enabled=bool(data.get("enabled", False)),
             provider=str(data.get("provider", "template")),
             model=str(data.get("model", "template")),
-            cache_path=None if data.get("cache_path") is None else str(data.get("cache_path")),
+            cache_path=(
+                None if data.get("cache_path") is None else str(data.get("cache_path"))
+            ),
             cache_mode=str(data.get("cache_mode", "cache_first")),
             store_cache=bool(data.get("store_cache", True)),
             allowed_targets=allowed,
@@ -98,15 +108,21 @@ class PopulationCalibrationConfig:
             overwrite_policy=overwrite_policy,
             min_confidence=float(data.get("min_confidence", 0.2)),
             persona_conditions=tuple(str(item) for item in personas),
-            max_calls_per_run=None
-            if data.get("max_calls_per_run") is None
-            else int(data["max_calls_per_run"]),
-            max_estimated_tokens_per_run=None
-            if data.get("max_estimated_tokens_per_run") is None
-            else int(data["max_estimated_tokens_per_run"]),
-            max_estimated_usd_per_run=None
-            if data.get("max_estimated_usd_per_run") is None
-            else float(data["max_estimated_usd_per_run"]),
+            max_calls_per_run=(
+                None
+                if data.get("max_calls_per_run") is None
+                else int(data["max_calls_per_run"])
+            ),
+            max_estimated_tokens_per_run=(
+                None
+                if data.get("max_estimated_tokens_per_run") is None
+                else int(data["max_estimated_tokens_per_run"])
+            ),
+            max_estimated_usd_per_run=(
+                None
+                if data.get("max_estimated_usd_per_run") is None
+                else float(data["max_estimated_usd_per_run"])
+            ),
             input_usd_per_mtok=float(data.get("input_usd_per_mtok", 0.0)),
             output_usd_per_mtok=float(data.get("output_usd_per_mtok", 0.0)),
         )
@@ -167,7 +183,9 @@ class PopulationCalibrationRecord:
         }
 
     @classmethod
-    def from_json_dict(cls, payload: Mapping[str, Any]) -> "PopulationCalibrationRecord":
+    def from_json_dict(
+        cls, payload: Mapping[str, Any]
+    ) -> "PopulationCalibrationRecord":
         request_payload = payload["request"]
         calibration_payload = payload["calibration"]
         validation_payload = payload["validation"]
@@ -177,14 +195,22 @@ class PopulationCalibrationRecord:
                 scenario_name=str(request_payload["scenario_name"]),
                 objective=str(request_payload["objective"]),
                 prompt_style=str(request_payload["prompt_style"]),
-                allowed_targets=tuple(str(item) for item in request_payload["allowed_targets"]),
-                population_total=None
-                if request_payload.get("population_total") is None
-                else int(request_payload["population_total"]),
-                existing_cohorts=tuple(dict(item) for item in request_payload.get("existing_cohorts", [])),
+                allowed_targets=tuple(
+                    str(item) for item in request_payload["allowed_targets"]
+                ),
+                population_total=(
+                    None
+                    if request_payload.get("population_total") is None
+                    else int(request_payload["population_total"])
+                ),
+                existing_cohorts=tuple(
+                    dict(item) for item in request_payload.get("existing_cohorts", [])
+                ),
                 hazard_count=int(request_payload.get("hazard_count", 0)),
                 responder_count=int(request_payload.get("responder_count", 0)),
-                metadata_keys=tuple(str(item) for item in request_payload.get("metadata_keys", [])),
+                metadata_keys=tuple(
+                    str(item) for item in request_payload.get("metadata_keys", [])
+                ),
                 persona_conditions=tuple(
                     str(item) for item in request_payload.get("persona_conditions", [])
                 ),
@@ -193,10 +219,14 @@ class PopulationCalibrationRecord:
                 cohorts=[dict(item) for item in calibration_payload.get("cohorts", [])],
                 parameter_priors={
                     str(name): {str(key): float(value) for key, value in values.items()}
-                    for name, values in calibration_payload.get("parameter_priors", {}).items()
+                    for name, values in calibration_payload.get(
+                        "parameter_priors", {}
+                    ).items()
                     if isinstance(values, Mapping)
                 },
-                scenario_metadata=dict(calibration_payload.get("scenario_metadata", {})),
+                scenario_metadata=dict(
+                    calibration_payload.get("scenario_metadata", {})
+                ),
                 notes=[str(item) for item in calibration_payload.get("notes", [])],
                 confidence=float(calibration_payload.get("confidence", 0.0)),
                 abstain=bool(calibration_payload.get("abstain", False)),
@@ -217,19 +247,25 @@ class PopulationCalibrationCache:
         self.path = Path(path)
 
     def key_for(self, request: PopulationCalibrationRequest) -> str:
-        payload = json.dumps(_to_jsonable(request), sort_keys=True, separators=(",", ":"))
+        payload = json.dumps(
+            _to_jsonable(request), sort_keys=True, separators=(",", ":")
+        )
         return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
     def load(self, key: str) -> Optional[PopulationCalibrationRecord]:
         record_path = self.path / f"{key}.json"
         if not record_path.exists():
             return None
-        return PopulationCalibrationRecord.from_json_dict(json.loads(record_path.read_text()))
+        return PopulationCalibrationRecord.from_json_dict(
+            json.loads(record_path.read_text())
+        )
 
     def store(self, record: PopulationCalibrationRecord) -> None:
         self.path.mkdir(parents=True, exist_ok=True)
         record_path = self.path / f"{record.cache_key}.json"
-        record_path.write_text(json.dumps(record.to_json_dict(), indent=2, sort_keys=True) + "\n")
+        record_path.write_text(
+            json.dumps(record.to_json_dict(), indent=2, sort_keys=True) + "\n"
+        )
 
 
 class PopulationCalibrationGenerator:
@@ -411,7 +447,12 @@ class OpenAIPopulationCalibrationGenerator(PopulationCalibrationGenerator):
                 model=self.model,
                 raw_response={"unparsed_response": response_payload},
             )
-        return _calibration_from_payload(parsed, provider=self.provider, model=self.model, raw_response=response_payload)
+        return _calibration_from_payload(
+            parsed,
+            provider=self.provider,
+            model=self.model,
+            raw_response=response_payload,
+        )
 
     def _error_calibration(self, error: str) -> GeneratedPopulationCalibration:
         return GeneratedPopulationCalibration(
@@ -493,7 +534,12 @@ class AnthropicPopulationCalibrationGenerator(PopulationCalibrationGenerator):
                 model=self.model,
                 raw_response={"unparsed_response": response_payload},
             )
-        return _calibration_from_payload(parsed, provider=self.provider, model=self.model, raw_response=response_payload)
+        return _calibration_from_payload(
+            parsed,
+            provider=self.provider,
+            model=self.model,
+            raw_response=response_payload,
+        )
 
     def _error_calibration(self, error: str) -> GeneratedPopulationCalibration:
         return GeneratedPopulationCalibration(
@@ -505,9 +551,13 @@ class AnthropicPopulationCalibrationGenerator(PopulationCalibrationGenerator):
         )
 
 
-def apply_generated_population_calibration(scenario: Mapping[str, Any]) -> Dict[str, Any]:
+def apply_generated_population_calibration(
+    scenario: Mapping[str, Any],
+) -> Dict[str, Any]:
     updated = deepcopy(dict(scenario))
-    config = PopulationCalibrationConfig.from_mapping(updated.get("generated_population_calibration"))
+    config = PopulationCalibrationConfig.from_mapping(
+        updated.get("generated_population_calibration")
+    )
     if not config.enabled:
         return updated
 
@@ -522,19 +572,31 @@ def apply_generated_population_calibration(scenario: Mapping[str, Any]) -> Dict[
         output_usd_per_mtok=config.output_usd_per_mtok,
     )
     if provider == "template":
-        generator: PopulationCalibrationGenerator = TemplatePopulationCalibrationGenerator()
+        generator: PopulationCalibrationGenerator = (
+            TemplatePopulationCalibrationGenerator()
+        )
     elif provider in {"replay", "local_replay"}:
         if cache is None:
-            raise ValueError("generated_population_calibration replay provider requires cache_path")
+            raise ValueError(
+                "generated_population_calibration replay provider requires cache_path"
+            )
         config = PopulationCalibrationConfig(
             **{**config.__dict__, "cache_mode": "replay_only"}
         )
         generator = ReplayPopulationCalibrationGenerator(cache)
     elif provider == "openai":
-        model = config.model if config.model and config.model != "template" else load_openai_model()
+        model = (
+            config.model
+            if config.model and config.model != "template"
+            else load_openai_model()
+        )
         generator = OpenAIPopulationCalibrationGenerator(model=model)
     elif provider == "anthropic":
-        model = config.model if config.model and config.model != "template" else load_anthropic_model()
+        model = (
+            config.model
+            if config.model and config.model != "template"
+            else load_anthropic_model()
+        )
         generator = AnthropicPopulationCalibrationGenerator(model=model)
     else:
         raise ValueError("Unsupported generated population calibration provider")
@@ -550,13 +612,20 @@ def apply_generated_population_calibration(scenario: Mapping[str, Any]) -> Dict[
         budget_guard,
     )
     validation = validate_generated_population_calibration(calibration, request, config)
-    if cached_validation is not None and cached_validation.reasons == validation.reasons:
+    if (
+        cached_validation is not None
+        and cached_validation.reasons == validation.reasons
+    ):
         validation = cached_validation
 
-    application = _apply_calibration_payload(updated, calibration, validation, cache_key) if validation.accepted else {
-        "applied_targets": [],
-        "skipped": [],
-    }
+    application = (
+        _apply_calibration_payload(updated, calibration, validation, cache_key)
+        if validation.accepted
+        else {
+            "applied_targets": [],
+            "skipped": [],
+        }
+    )
     _attach_calibration_audit(
         updated,
         config=config,
@@ -593,17 +662,26 @@ def build_population_calibration_request(
     config: PopulationCalibrationConfig,
 ) -> PopulationCalibrationRequest:
     population = scenario.get("population", {}) or {}
-    cohorts = tuple(_cohort_request_summary(cohort) for cohort in population.get("cohorts", []) or [])
+    cohorts = tuple(
+        _cohort_request_summary(cohort)
+        for cohort in population.get("cohorts", []) or []
+    )
     return PopulationCalibrationRequest(
         scenario_name=str(scenario.get("name", "unnamed_scenario")),
         objective=config.objective,
         prompt_style=config.prompt_style,
         allowed_targets=tuple(config.allowed_targets),
-        population_total=None if population.get("total") is None else int(population.get("total")),
+        population_total=(
+            None if population.get("total") is None else int(population.get("total"))
+        ),
         existing_cohorts=cohorts,
         hazard_count=len(scenario.get("hazards", []) or []),
-        responder_count=sum(int(item.get("count", 1)) for item in scenario.get("responders", []) or []),
-        metadata_keys=tuple(sorted(str(key) for key in (scenario.get("metadata", {}) or {}).keys())),
+        responder_count=sum(
+            int(item.get("count", 1)) for item in scenario.get("responders", []) or []
+        ),
+        metadata_keys=tuple(
+            sorted(str(key) for key in (scenario.get("metadata", {}) or {}).keys())
+        ),
         persona_conditions=tuple(config.persona_conditions),
     )
 
@@ -652,9 +730,17 @@ def validate_generated_population_calibration(
                 if field_name in SAFE_COHORT_FIELDS:
                     continue
                 if field_name in CALIBRATION_PARAMETER_BOUNDS:
-                    _validate_parameter_value(reasons, f"cohort_{name}", field_name, value)
-        if request.population_total is not None and total > 0 and total != request.population_total:
-            reasons.append(f"cohort_count_total_mismatch:{total}!={request.population_total}")
+                    _validate_parameter_value(
+                        reasons, f"cohort_{name}", field_name, value
+                    )
+        if (
+            request.population_total is not None
+            and total > 0
+            and total != request.population_total
+        ):
+            reasons.append(
+                f"cohort_count_total_mismatch:{total}!={request.population_total}"
+            )
 
     for cohort_name, priors in calibration.parameter_priors.items():
         if existing_names and cohort_name not in existing_names:
@@ -663,7 +749,9 @@ def validate_generated_population_calibration(
             if field_name not in CALIBRATION_PARAMETER_BOUNDS:
                 reasons.append(f"unsupported_parameter_prior:{field_name}")
                 continue
-            _validate_parameter_value(reasons, f"prior_{cohort_name}", field_name, value)
+            _validate_parameter_value(
+                reasons, f"prior_{cohort_name}", field_name, value
+            )
 
     return PopulationCalibrationValidation(accepted=not reasons, reasons=reasons)
 
@@ -675,7 +763,12 @@ def _generate_calibration(
     request: PopulationCalibrationRequest,
     cache_key: str,
     budget_guard: LLMBudgetGuard,
-) -> Tuple[GeneratedPopulationCalibration, Optional[PopulationCalibrationValidation], str, Dict[str, Any]]:
+) -> Tuple[
+    GeneratedPopulationCalibration,
+    Optional[PopulationCalibrationValidation],
+    str,
+    Dict[str, Any],
+]:
     if cache is None:
         audit = _population_budget_check(config, request, budget_guard)
         if not audit["allowed"]:
@@ -685,13 +778,23 @@ def _generate_calibration(
 
     cached = cache.load(cache_key)
     if cached is not None and config.cache_mode in {"cache_first", "replay_only"}:
-        return cached.calibration, cached.validation, "hit", _cached_population_audit(
-            config,
+        return (
             cached.calibration,
+            cached.validation,
+            "hit",
+            _cached_population_audit(
+                config,
+                cached.calibration,
+            ),
         )
 
     if config.cache_mode == "replay_only":
-        return generator.generate(request, cache_key), None, "miss", _empty_budget_audit()
+        return (
+            generator.generate(request, cache_key),
+            None,
+            "miss",
+            _empty_budget_audit(),
+        )
 
     audit = _population_budget_check(config, request, budget_guard)
     if not audit["allowed"]:
@@ -756,7 +859,9 @@ def _empty_budget_audit() -> Dict[str, Any]:
     }
 
 
-def _budget_exceeded_calibration(audit: Mapping[str, Any]) -> GeneratedPopulationCalibration:
+def _budget_exceeded_calibration(
+    audit: Mapping[str, Any],
+) -> GeneratedPopulationCalibration:
     return GeneratedPopulationCalibration(
         notes=["LLM budget guard blocked generated population calibration."],
         abstain=True,
@@ -797,11 +902,15 @@ def _apply_calibration_payload(
                 prepared.setdefault("parameter_provenance", {})
                 for field_name in CALIBRATION_PARAMETER_BOUNDS:
                     if field_name in prepared:
-                        prepared["parameter_provenance"][field_name] = f"generated:{cache_key}"
+                        prepared["parameter_provenance"][
+                            field_name
+                        ] = f"generated:{cache_key}"
                 generated.append(prepared)
             population["cohorts"] = generated
             if "total" not in population:
-                population["total"] = sum(int(cohort.get("count", 0)) for cohort in generated)
+                population["total"] = sum(
+                    int(cohort.get("count", 0)) for cohort in generated
+                )
             applied.append("cohort_mix")
 
     if calibration.parameter_priors:
@@ -813,7 +922,9 @@ def _apply_calibration_payload(
             provenance = cohort.setdefault("parameter_provenance", {})
             for field_name, value in priors.items():
                 if field_name in cohort:
-                    skipped.append(f"parameter_priors:{cohort_name}.{field_name}:existing_value")
+                    skipped.append(
+                        f"parameter_priors:{cohort_name}.{field_name}:existing_value"
+                    )
                     continue
                 cohort[field_name] = float(value)
                 provenance[field_name] = f"generated:{cache_key}"
@@ -1010,7 +1121,11 @@ def _calibration_from_payload(
     raw_response: Mapping[str, Any],
 ) -> GeneratedPopulationCalibration:
     return GeneratedPopulationCalibration(
-        cohorts=[dict(item) for item in payload.get("cohorts", []) if isinstance(item, Mapping)],
+        cohorts=[
+            dict(item)
+            for item in payload.get("cohorts", [])
+            if isinstance(item, Mapping)
+        ],
         parameter_priors={
             str(name): {
                 str(key): float(value)

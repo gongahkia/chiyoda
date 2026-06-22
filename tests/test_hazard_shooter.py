@@ -22,7 +22,14 @@ def _scenario(*, info_mode: str, adjacent: bool = False) -> dict:
         },
         "population": {
             "total": 1,
-            "cohorts": [{"name": "public", "count": 1, "familiarity": 0.0, "base_rationality": 1.0}],
+            "cohorts": [
+                {
+                    "name": "public",
+                    "count": 1,
+                    "familiarity": 0.0,
+                    "base_rationality": 1.0,
+                }
+            ],
         },
         "hostile_agents": [
             {
@@ -55,19 +62,25 @@ def test_run_hide_fight_intention_branches():
 
     run_sim = manager.build_simulation(_scenario(info_mode="perfect"))
     run_sim._ensure_bootstrapped()
-    run_agent = next(agent for agent in run_sim.agents if not getattr(agent, "is_hostile", False))
+    run_agent = next(
+        agent for agent in run_sim.agents if not getattr(agent, "is_hostile", False)
+    )
     run_agent.update_intention(run_sim)
     assert run_agent.intention == INTENTION_RUN
 
     hide_sim = manager.build_simulation(_scenario(info_mode="none"))
     hide_sim._ensure_bootstrapped()
-    hide_agent = next(agent for agent in hide_sim.agents if not getattr(agent, "is_hostile", False))
+    hide_agent = next(
+        agent for agent in hide_sim.agents if not getattr(agent, "is_hostile", False)
+    )
     hide_agent.update_intention(hide_sim)
     assert hide_agent.intention == INTENTION_HIDE
 
     fight_sim = manager.build_simulation(_scenario(info_mode="none", adjacent=True))
     fight_sim._ensure_bootstrapped()
-    fight_agent = next(agent for agent in fight_sim.agents if not getattr(agent, "is_hostile", False))
+    fight_agent = next(
+        agent for agent in fight_sim.agents if not getattr(agent, "is_hostile", False)
+    )
     fight_agent.update_intention(fight_sim)
     assert fight_agent.intention == INTENTION_FIGHT
 
@@ -77,6 +90,8 @@ def test_transit_shooter_scenario_records_active_shooter_metrics():
     sim.run()
     metrics = SimulationAnalytics().calculate_performance_metrics(sim)
 
-    assert len([agent for agent in sim.agents if getattr(agent, "is_hostile", False)]) == 1
+    assert (
+        len([agent for agent in sim.agents if getattr(agent, "is_hostile", False)]) == 1
+    )
     assert metrics["active_shooter_event_count"] >= 1
     assert metrics["exposure_to_los"] > 0.0

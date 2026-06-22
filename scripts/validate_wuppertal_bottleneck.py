@@ -65,10 +65,18 @@ def main() -> int:
     out_dir.mkdir(parents=True, exist_ok=True)
 
     simulated = load_trajectory_table(args.simulated)
-    reference = load_petrack_trajectory(args.reference, frame_rate_hz=args.frame_rate_hz)
+    reference = load_petrack_trajectory(
+        args.reference, frame_rate_hz=args.frame_rate_hz
+    )
 
-    simulated_line = ((args.simulated_line[0], args.simulated_line[1]), (args.simulated_line[2], args.simulated_line[3]))
-    reference_line = ((args.reference_line[0], args.reference_line[1]), (args.reference_line[2], args.reference_line[3]))
+    simulated_line = (
+        (args.simulated_line[0], args.simulated_line[1]),
+        (args.simulated_line[2], args.simulated_line[3]),
+    )
+    reference_line = (
+        (args.reference_line[0], args.reference_line[1]),
+        (args.reference_line[2], args.reference_line[3]),
+    )
     simulated_summary = summarize_bottleneck_flow(
         simulated,
         source="chiyoda",

@@ -10,7 +10,9 @@ import pandas as pd
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
-    parser.add_argument("study_dir", help="Study output directory, e.g. out/llm_openai_pilot")
+    parser.add_argument(
+        "study_dir", help="Study output directory, e.g. out/llm_openai_pilot"
+    )
     return parser.parse_args()
 
 
@@ -56,8 +58,14 @@ def _generation_summary(llm: pd.DataFrame) -> pd.DataFrame:
     rows = []
     for keys, group in llm.groupby(group_cols, dropna=False):
         variant_name, provider, model = keys
-        cache_counts = group.get("cache_status", pd.Series(dtype=str)).fillna("").value_counts()
-        validation_counts = group.get("validation_status", pd.Series(dtype=str)).fillna("").value_counts()
+        cache_counts = (
+            group.get("cache_status", pd.Series(dtype=str)).fillna("").value_counts()
+        )
+        validation_counts = (
+            group.get("validation_status", pd.Series(dtype=str))
+            .fillna("")
+            .value_counts()
+        )
         rows.append(
             {
                 "variant_name": variant_name,
@@ -70,12 +78,20 @@ def _generation_summary(llm: pd.DataFrame) -> pd.DataFrame:
                 "cache_disabled": int(cache_counts.get("disabled", 0)),
                 "accepted": int(validation_counts.get("accepted", 0)),
                 "rejected": int(validation_counts.get("rejected", 0)),
-                "unique_cache_keys": int(group["cache_key"].replace("", pd.NA).dropna().nunique()),
+                "unique_cache_keys": int(
+                    group["cache_key"].replace("", pd.NA).dropna().nunique()
+                ),
                 "fallback_events": _fallback_count(group),
-                "mean_generated_confidence": _mean_column(group, "generated_confidence"),
-                "recommendation_diversity": _token_diversity(group, "generated_recommended_exits"),
+                "mean_generated_confidence": _mean_column(
+                    group, "generated_confidence"
+                ),
+                "recommendation_diversity": _token_diversity(
+                    group, "generated_recommended_exits"
+                ),
                 "avoidance_diversity": _token_diversity(group, "generated_avoid_exits"),
-                "raw_congested_recommendations": _reason_count(group, "congested_recommendation"),
+                "raw_congested_recommendations": _reason_count(
+                    group, "congested_recommendation"
+                ),
                 "mean_entropy_delta": float(group["entropy_delta"].mean()),
                 "mean_accuracy_delta": float(group["accuracy_delta"].mean()),
             }
@@ -112,7 +128,9 @@ def _validation_reasons(llm: pd.DataFrame) -> pd.DataFrame:
 
 
 def _policy_comparison(summary: pd.DataFrame) -> pd.DataFrame:
-    run_rows = summary[summary["record_type"].isin(["variant_aggregate", "aggregate"])].copy()
+    run_rows = summary[
+        summary["record_type"].isin(["variant_aggregate", "aggregate"])
+    ].copy()
     if "agents_evacuated" not in run_rows.columns and "evacuated" in run_rows.columns:
         run_rows["agents_evacuated"] = run_rows["evacuated"]
     columns = [

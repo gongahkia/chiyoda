@@ -90,7 +90,9 @@ class LLMDecisionRecord:
                 current_intent=str(req["current_intent"]),
                 objective=str(req["objective"]),
                 known_exits=[tuple(item) for item in req.get("known_exits", [])],
-                congested_exits=[tuple(item) for item in req.get("congested_exits", [])],
+                congested_exits=[
+                    tuple(item) for item in req.get("congested_exits", [])
+                ],
                 hazards=[
                     HazardSnapshot(
                         position=tuple(item["position"]),
@@ -107,7 +109,11 @@ class LLMDecisionRecord:
             ),
             decision=GeneratedAgentDecision(
                 intent=str(dec.get("intent", INTENTION_EVACUATE)),
-                target_exit=None if dec.get("target_exit") is None else tuple(dec["target_exit"]),
+                target_exit=(
+                    None
+                    if dec.get("target_exit") is None
+                    else tuple(dec["target_exit"])
+                ),
                 trust_delta=float(dec.get("trust_delta", 0.0) or 0.0),
                 avoid_congested=bool(dec.get("avoid_congested", True)),
                 rationale=str(dec.get("rationale", "")),
@@ -176,26 +182,36 @@ class AgentDecisionConfig:
             enabled=bool(data.get("enabled", False)),
             provider=str(data.get("provider", "template")),
             model=str(data.get("model", "template")),
-            cache_path=None if data.get("cache_path") is None else str(data["cache_path"]),
+            cache_path=(
+                None if data.get("cache_path") is None else str(data["cache_path"])
+            ),
             cache_mode=str(data.get("cache_mode", "cache_first")),
             store_cache=bool(data.get("store_cache", True)),
             start_step=int(data.get("start_step", 0)),
             end_step=None if data.get("end_step") is None else int(data["end_step"]),
             interval_steps=max(1, int(data.get("interval_steps", 20))),
-            agent_budget_per_interval=max(1, int(data.get("agent_budget_per_interval", 4))),
+            agent_budget_per_interval=max(
+                1, int(data.get("agent_budget_per_interval", 4))
+            ),
             objective=str(data.get("objective", "bounded_agent_decision")),
             prompt_style=str(data.get("prompt_style", "bounded")),
             validator_profile=str(data.get("validator_profile", "standard")),
             max_trust_delta=float(data.get("max_trust_delta", 0.2)),
-            max_calls_per_run=None
-            if data.get("max_calls_per_run") is None
-            else int(data["max_calls_per_run"]),
-            max_estimated_tokens_per_run=None
-            if data.get("max_estimated_tokens_per_run") is None
-            else int(data["max_estimated_tokens_per_run"]),
-            max_estimated_usd_per_run=None
-            if data.get("max_estimated_usd_per_run") is None
-            else float(data["max_estimated_usd_per_run"]),
+            max_calls_per_run=(
+                None
+                if data.get("max_calls_per_run") is None
+                else int(data["max_calls_per_run"])
+            ),
+            max_estimated_tokens_per_run=(
+                None
+                if data.get("max_estimated_tokens_per_run") is None
+                else int(data["max_estimated_tokens_per_run"])
+            ),
+            max_estimated_usd_per_run=(
+                None
+                if data.get("max_estimated_usd_per_run") is None
+                else float(data["max_estimated_usd_per_run"])
+            ),
             input_usd_per_mtok=float(data.get("input_usd_per_mtok", 0.0)),
             output_usd_per_mtok=float(data.get("output_usd_per_mtok", 0.0)),
         )
@@ -206,7 +222,9 @@ class LLMDecisionCache:
         self.path = Path(path)
 
     def key_for(self, request: LLMDecisionRequest) -> str:
-        payload = json.dumps(_to_jsonable(request), sort_keys=True, separators=(",", ":"))
+        payload = json.dumps(
+            _to_jsonable(request), sort_keys=True, separators=(",", ":")
+        )
         return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
     def load(self, key: str) -> Optional[LLMDecisionRecord]:
@@ -226,7 +244,9 @@ class LLMDecisionGenerator:
     provider = "base"
     model = "base"
 
-    def generate(self, request: LLMDecisionRequest, cache_key: str) -> GeneratedAgentDecision:
+    def generate(
+        self, request: LLMDecisionRequest, cache_key: str
+    ) -> GeneratedAgentDecision:
         raise NotImplementedError
 
 
@@ -234,8 +254,14 @@ class TemplateDecisionGenerator(LLMDecisionGenerator):
     provider = "deterministic"
     model = "template"
 
-    def generate(self, request: LLMDecisionRequest, cache_key: str) -> GeneratedAgentDecision:
-        exits = [exit_ for exit_ in request.known_exits if exit_ not in request.congested_exits]
+    def generate(
+        self, request: LLMDecisionRequest, cache_key: str
+    ) -> GeneratedAgentDecision:
+        exits = [
+            exit_
+            for exit_ in request.known_exits
+            if exit_ not in request.congested_exits
+        ]
         if request.hazard_load > 0.05 and exits:
             return GeneratedAgentDecision(
                 intent=INTENTION_EVACUATE,
@@ -280,7 +306,9 @@ class ReplayDecisionGenerator(LLMDecisionGenerator):
     def __init__(self, cache: LLMDecisionCache) -> None:
         self.cache = cache
 
-    def generate(self, request: LLMDecisionRequest, cache_key: str) -> GeneratedAgentDecision:
+    def generate(
+        self, request: LLMDecisionRequest, cache_key: str
+    ) -> GeneratedAgentDecision:
         record = self.cache.load(cache_key)
         if record is None:
             return GeneratedAgentDecision(
@@ -309,7 +337,9 @@ class OpenAIDecisionGenerator(LLMDecisionGenerator):
         self.timeout_s = float(timeout_s)
         self.endpoint = endpoint
 
-    def generate(self, request: LLMDecisionRequest, cache_key: str) -> GeneratedAgentDecision:
+    def generate(
+        self, request: LLMDecisionRequest, cache_key: str
+    ) -> GeneratedAgentDecision:
         if not self.api_key:
             return GeneratedAgentDecision(
                 intent=request.current_intent,
@@ -356,7 +386,10 @@ class OpenAIDecisionGenerator(LLMDecisionGenerator):
             abstain=bool(parsed.get("abstain", False)),
             provider=self.provider,
             model=self.model,
-            raw_response={"id": response_payload.get("id"), "usage": response_payload.get("usage")},
+            raw_response={
+                "id": response_payload.get("id"),
+                "usage": response_payload.get("usage"),
+            },
         )
 
     def _error_decision(
@@ -396,7 +429,9 @@ class AnthropicDecisionGenerator(LLMDecisionGenerator):
         self.endpoint = endpoint
         self.api_version = api_version
 
-    def generate(self, request: LLMDecisionRequest, cache_key: str) -> GeneratedAgentDecision:
+    def generate(
+        self, request: LLMDecisionRequest, cache_key: str
+    ) -> GeneratedAgentDecision:
         if not self.api_key:
             return GeneratedAgentDecision(
                 intent=request.current_intent,
@@ -448,7 +483,10 @@ class AnthropicDecisionGenerator(LLMDecisionGenerator):
             abstain=bool(parsed.get("abstain", False)),
             provider=self.provider,
             model=self.model,
-            raw_response={"id": response_payload.get("id"), "usage": response_payload.get("usage")},
+            raw_response={
+                "id": response_payload.get("id"),
+                "usage": response_payload.get("usage"),
+            },
         )
 
     def _error_decision(
@@ -492,13 +530,25 @@ class AgentDecisionPolicy:
             self.generator = ReplayDecisionGenerator(self.cache)
         elif provider == "openai":
             if self.cache is None:
-                raise ValueError("llm_decisions openai provider requires cache_path for replayability")
-            model = config.model if config.model and config.model != "template" else load_openai_model()
+                raise ValueError(
+                    "llm_decisions openai provider requires cache_path for replayability"
+                )
+            model = (
+                config.model
+                if config.model and config.model != "template"
+                else load_openai_model()
+            )
             self.generator = OpenAIDecisionGenerator(model=model)
         elif provider == "anthropic":
             if self.cache is None:
-                raise ValueError("llm_decisions anthropic provider requires cache_path for replayability")
-            model = config.model if config.model and config.model != "template" else load_anthropic_model()
+                raise ValueError(
+                    "llm_decisions anthropic provider requires cache_path for replayability"
+                )
+            model = (
+                config.model
+                if config.model and config.model != "template"
+                else load_anthropic_model()
+            )
             self.generator = AnthropicDecisionGenerator(model=model)
         else:
             raise ValueError(f"Unsupported llm_decisions provider: {config.provider}")
@@ -516,7 +566,9 @@ class AgentDecisionPolicy:
     def execute(self, simulation) -> list[LLMDecisionEvent]:
         if not self.should_fire(simulation):
             return []
-        candidates = self._select_agents(simulation)[: self.config.agent_budget_per_interval]
+        candidates = self._select_agents(simulation)[
+            : self.config.agent_budget_per_interval
+        ]
         return [self._decide(simulation, agent) for agent in candidates]
 
     def _select_agents(self, simulation) -> list:
@@ -529,7 +581,11 @@ class AgentDecisionPolicy:
                 if hasattr(agent, "beliefs")
                 else 0.0
             )
-            pressure = entropy + float(getattr(agent, "local_density", 0.0)) + float(getattr(agent, "current_hazard_load", 0.0))
+            pressure = (
+                entropy
+                + float(getattr(agent, "local_density", 0.0))
+                + float(getattr(agent, "current_hazard_load", 0.0))
+            )
             rows.append((pressure, agent))
         rows.sort(key=lambda item: item[0], reverse=True)
         return [agent for _, agent in rows]
@@ -540,7 +596,10 @@ class AgentDecisionPolicy:
         cache_status = "disabled"
         audit = _empty_decision_budget_audit()
         cached = self.cache.load(key) if self.cache is not None else None
-        if cached is not None and self.config.cache_mode in {"cache_first", "replay_only"}:
+        if cached is not None and self.config.cache_mode in {
+            "cache_first",
+            "replay_only",
+        }:
             decision = cached.decision
             validation = cached.validation
             cache_status = "hit"
@@ -558,7 +617,9 @@ class AgentDecisionPolicy:
             validation = validate_agent_decision(
                 decision,
                 request=request,
-                min_confidence=validator_settings(self.config.validator_profile).min_confidence,
+                min_confidence=validator_settings(
+                    self.config.validator_profile
+                ).min_confidence,
                 max_trust_delta=self.config.max_trust_delta,
             )
             if not audit.get("allowed", True):
@@ -710,7 +771,9 @@ def _append_decision_audit(
     )
 
 
-def create_agent_decision_policy(payload: Optional[dict[str, Any]]) -> Optional[AgentDecisionPolicy]:
+def create_agent_decision_policy(
+    payload: Optional[dict[str, Any]],
+) -> Optional[AgentDecisionPolicy]:
     config = AgentDecisionConfig.from_mapping(payload)
     if not config.enabled:
         return None
@@ -746,7 +809,9 @@ def validate_agent_decision(
     return ValidationResult(accepted=not reasons, reasons=reasons)
 
 
-def _build_decision_request(simulation, agent, config: AgentDecisionConfig) -> LLMDecisionRequest:
+def _build_decision_request(
+    simulation, agent, config: AgentDecisionConfig
+) -> LLMDecisionRequest:
     known_exits = (
         [tuple(exit_) for exit_ in agent.beliefs.known_exits()]
         if hasattr(agent, "beliefs")
@@ -787,9 +852,13 @@ def _apply_agent_decision(agent, decision: GeneratedAgentDecision) -> None:
         agent.current_path = []
         agent.path_index = 0
     if decision.trust_delta:
-        value = float(getattr(agent, "base_rationality", 0.8)) + float(decision.trust_delta)
+        value = float(getattr(agent, "base_rationality", 0.8)) + float(
+            decision.trust_delta
+        )
         agent.base_rationality = max(0.0, min(1.0, value))
-        agent.rationality = agent.base_rationality * getattr(agent.physiology, "rationality_factor", 1.0)
+        agent.rationality = agent.base_rationality * getattr(
+            agent.physiology, "rationality_factor", 1.0
+        )
 
 
 def _congested_exits(simulation) -> list[Cell]:
@@ -827,7 +896,11 @@ def _parse_optional_cell(value: Any) -> Optional[Cell]:
             value = [value.get("floor"), value.get("x"), value.get("y")]
         else:
             value = [value.get("x"), value.get("y")]
-    if isinstance(value, (list, tuple)) and len(value) >= 3 and isinstance(value[0], str):
+    if (
+        isinstance(value, (list, tuple))
+        and len(value) >= 3
+        and isinstance(value[0], str)
+    ):
         try:
             return (str(value[0]), int(value[1]), int(value[2]))
         except (TypeError, ValueError):

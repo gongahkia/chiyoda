@@ -43,7 +43,9 @@ def main() -> int:
     try:
         import pedpy  # noqa: F401
     except ImportError:
-        print("PedPy is not installed; install it separately to run density/speed analyses.")
+        print(
+            "PedPy is not installed; install it separately to run density/speed analyses."
+        )
     else:
         print("PedPy is installed; load the CSV into a PedPy TrajectoryData workflow.")
     return 0

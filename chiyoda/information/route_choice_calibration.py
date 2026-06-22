@@ -13,7 +13,9 @@ import numpy as np
 import pandas as pd
 
 
-TASK_ID_RE = re.compile(r"^(?:\d+_)?L-([WNE])([SML])([01])_R-([WNE])([SML])([01])(?:_.+)?$")
+TASK_ID_RE = re.compile(
+    r"^(?:\d+_)?L-([WNE])([SML])([01])_R-([WNE])([SML])([01])(?:_.+)?$"
+)
 FEATURE_NAMES = (
     "right_width_advantage_m",
     "right_shortness_advantage_m",
@@ -72,14 +74,18 @@ class RouteChoiceFit:
         }
 
 
-def load_figshare_route_choice_records(archive_path: str | Path) -> list[RouteChoiceObservation]:
+def load_figshare_route_choice_records(
+    archive_path: str | Path,
+) -> list[RouteChoiceObservation]:
     archive = Path(archive_path)
     with zipfile.ZipFile(archive) as zf:
         responses = pd.read_csv(zf.open("SciData_export/responses.csv"), dtype=str)
         confidence = pd.read_csv(zf.open("SciData_export/confidence.csv"), dtype=str)
 
     confidence_map = _confidence_map(confidence)
-    responses["task_count_numeric"] = pd.to_numeric(responses["taskCount"], errors="coerce")
+    responses["task_count_numeric"] = pd.to_numeric(
+        responses["taskCount"], errors="coerce"
+    )
     responses["time_remaining_ms"] = responses["time"].map(_parse_float)
     responses = responses[
         responses["AOI"].isin(("corridor_left", "corridor_right"))
@@ -116,8 +122,10 @@ def load_figshare_route_choice_records(archive_path: str | Path) -> list[RouteCh
                 right_length_m=parsed["right_length_m"],
                 left_stairs=parsed["left_stairs"],
                 right_stairs=parsed["right_stairs"],
-                right_width_advantage_m=parsed["right_width_m"] - parsed["left_width_m"],
-                right_shortness_advantage_m=parsed["left_length_m"] - parsed["right_length_m"],
+                right_width_advantage_m=parsed["right_width_m"]
+                - parsed["left_width_m"],
+                right_shortness_advantage_m=parsed["left_length_m"]
+                - parsed["right_length_m"],
                 right_stairs_advantage=parsed["right_stairs"] - parsed["left_stairs"],
                 previous_choice_right=previous_feature,
                 trial_progress=min(1.0, max(0.0, task_count / max_task_count)),
@@ -172,7 +180,9 @@ def fit_route_choice_priors(
     baseline_probability = np.full_like(y_test, train_probability, dtype=float)
     train_probability_model = _predict_probability(x_train, weights)
     coefficients = {"intercept": float(weights[0])}
-    coefficients.update({name: float(value) for name, value in zip(FEATURE_NAMES, weights[1:])})
+    coefficients.update(
+        {name: float(value) for name, value in zip(FEATURE_NAMES, weights[1:])}
+    )
     fit = RouteChoiceFit(
         source={
             "dataset": "Predictors of evacuation behavior: dataset on respondents' route choice and web interaction",
@@ -197,7 +207,8 @@ def fit_route_choice_priors(
             "train_log_loss": _log_loss(y_train, train_probability_model),
             "test_log_loss": _log_loss(y_test, test_probability),
             "test_baseline_log_loss": _log_loss(y_test, baseline_probability),
-            "test_log_loss_improvement": _log_loss(y_test, baseline_probability) - _log_loss(y_test, test_probability),
+            "test_log_loss_improvement": _log_loss(y_test, baseline_probability)
+            - _log_loss(y_test, test_probability),
             "test_accuracy": _accuracy(y_test, test_probability),
             "test_baseline_accuracy": _accuracy(y_test, baseline_probability),
         },
@@ -214,7 +225,9 @@ def fit_route_choice_priors(
     return fit
 
 
-def write_normalized_records(observations: Iterable[RouteChoiceObservation], output_path: str | Path) -> None:
+def write_normalized_records(
+    observations: Iterable[RouteChoiceObservation], output_path: str | Path
+) -> None:
     records = [asdict(record) for record in observations]
     output = Path(output_path)
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -234,10 +247,14 @@ def _confidence_map(frame: pd.DataFrame) -> dict[tuple[str, str, int], float]:
     frame = frame.copy()
     frame["task_count_numeric"] = pd.to_numeric(frame["taskCount"], errors="coerce")
     frame["confidence_value"] = pd.to_numeric(frame["confidence"], errors="coerce")
-    frame = frame[frame["task_count_numeric"].notna() & frame["confidence_value"].notna()]
+    frame = frame[
+        frame["task_count_numeric"].notna() & frame["confidence_value"].notna()
+    ]
     result: dict[tuple[str, str, int], float] = {}
     for row in frame.itertuples(index=False):
-        result[(str(row.userId), str(row.taskId), int(float(row.task_count_numeric)))] = float(row.confidence_value)
+        result[
+            (str(row.userId), str(row.taskId), int(float(row.task_count_numeric)))
+        ] = float(row.confidence_value)
     return result
 
 
@@ -262,7 +279,9 @@ def _parse_task_id(task_id: str) -> dict[str, Any] | None:
     match = TASK_ID_RE.match(task_id)
     if match is None:
         return None
-    left_width, left_length, left_stairs, right_width, right_length, right_stairs = match.groups()
+    left_width, left_length, left_stairs, right_width, right_length, right_stairs = (
+        match.groups()
+    )
     return {
         "left_width_m": WIDTH_M[left_width],
         "right_width_m": WIDTH_M[right_width],
@@ -273,7 +292,9 @@ def _parse_task_id(task_id: str) -> dict[str, Any] | None:
     }
 
 
-def _feature_matrix(records: list[RouteChoiceObservation]) -> tuple[np.ndarray, np.ndarray]:
+def _feature_matrix(
+    records: list[RouteChoiceObservation],
+) -> tuple[np.ndarray, np.ndarray]:
     x = np.array(
         [
             [
@@ -331,10 +352,18 @@ def _accuracy(y: np.ndarray, probabilities: np.ndarray) -> float:
     return float(np.mean((probabilities >= 0.5) == y))
 
 
-def _derive_priors(records: list[RouteChoiceObservation], weights: np.ndarray) -> dict[str, float]:
-    confidence_values = [record.confidence for record in records if record.confidence is not None]
-    confidence_prior = (float(np.mean(confidence_values)) / 5.0) if confidence_values else 0.5
-    decision_times = np.array([record.decision_time_ms for record in records], dtype=float)
+def _derive_priors(
+    records: list[RouteChoiceObservation], weights: np.ndarray
+) -> dict[str, float]:
+    confidence_values = [
+        record.confidence for record in records if record.confidence is not None
+    ]
+    confidence_prior = (
+        (float(np.mean(confidence_values)) / 5.0) if confidence_values else 0.5
+    )
+    decision_times = np.array(
+        [record.decision_time_ms for record in records], dtype=float
+    )
     speed_prior = 1.0 - float(np.median(decision_times) / COUNTDOWN_MS)
     familiarity = _clamp(0.65 * confidence_prior + 0.35 * speed_prior)
     geometry_strength = float(np.linalg.norm(weights[1:4]) / math.sqrt(3.0))

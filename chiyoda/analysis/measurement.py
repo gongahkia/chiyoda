@@ -10,6 +10,7 @@ References:
     Steffen, B. & Seyfried, A. "Methods for measuring pedestrian density,
     flow, speed and direction with minimal scatter." arXiv:0911.2165 (2010).
 """
+
 from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Sequence, Tuple
@@ -21,13 +22,14 @@ Point = Tuple[float, float]
 @dataclass
 class MeasurementRecord:
     """Single timestep record from a measurement line."""
+
     step: int
     time_s: float
-    flow: float          # agents/s crossing the line this step
-    density: float       # agents/m² in measurement region
-    speed: float         # mean speed of agents in measurement region (m/s)
-    n_crossing: int      # agents crossing this step
-    n_in_region: int     # agents inside measurement region
+    flow: float  # agents/s crossing the line this step
+    density: float  # agents/m² in measurement region
+    speed: float  # mean speed of agents in measurement region (m/s)
+    n_crossing: int  # agents crossing this step
+    n_in_region: int  # agents inside measurement region
 
 
 @dataclass
@@ -45,6 +47,7 @@ class MeasurementLine:
         depth: half-width of the measurement region (cells on each side)
         cell_size: spatial scale for area calculation
     """
+
     name: str
     p1: Point
     p2: Point
@@ -59,13 +62,15 @@ class MeasurementLine:
         direction = p2 - p1
         length = float(np.linalg.norm(direction))
         if length < 1e-8:
-            raise ValueError(f"MeasurementLine '{self.name}': p1 and p2 must be distinct")
+            raise ValueError(
+                f"MeasurementLine '{self.name}': p1 and p2 must be distinct"
+            )
         self._line_vec = direction / length
         self._normal = np.array([-self._line_vec[1], self._line_vec[0]])
         self._origin = p1
         self._length = length
         # measurement region: rectangle centered on line, extending `depth` on each side
-        self._region_area = self._length * (2 * self.depth) * (self.cell_size ** 2)
+        self._region_area = self._length * (2 * self.depth) * (self.cell_size**2)
 
     @property
     def records(self) -> List[MeasurementRecord]:
@@ -110,7 +115,7 @@ class MeasurementLine:
 
             # crossing detection
             prev_side = self._prev_sides.get(agent.id)
-            if prev_side is not None and prev_side * side < 0: # sign change
+            if prev_side is not None and prev_side * side < 0:  # sign change
                 # verify the crossing happened near the segment (not way off to the side)
                 prev_pos = previous_positions.get(agent.id)
                 if prev_pos is not None:
@@ -124,16 +129,20 @@ class MeasurementLine:
             # region membership
             if self._in_region(pos):
                 n_in_region += 1
-                in_region_speeds.append(float(getattr(agent, 'current_speed', 0.0)))
+                in_region_speeds.append(float(getattr(agent, "current_speed", 0.0)))
 
         flow = n_crossing / dt if dt > 0 else 0.0
         density = n_in_region / self._region_area if self._region_area > 0 else 0.0
         mean_speed = float(np.mean(in_region_speeds)) if in_region_speeds else 0.0
 
         rec = MeasurementRecord(
-            step=step, time_s=time_s,
-            flow=flow, density=density, speed=mean_speed,
-            n_crossing=n_crossing, n_in_region=n_in_region,
+            step=step,
+            time_s=time_s,
+            flow=flow,
+            density=density,
+            speed=mean_speed,
+            n_crossing=n_crossing,
+            n_in_region=n_in_region,
         )
         self._records.append(rec)
         return rec
@@ -145,15 +154,22 @@ class MeasurementLine:
     def to_dataframe(self):
         """Export records as pandas DataFrame."""
         import pandas as pd
-        return pd.DataFrame([
-            {
-                "line_name": self.name,
-                "step": r.step, "time_s": r.time_s,
-                "flow": r.flow, "density": r.density, "speed": r.speed,
-                "n_crossing": r.n_crossing, "n_in_region": r.n_in_region,
-            }
-            for r in self._records
-        ])
+
+        return pd.DataFrame(
+            [
+                {
+                    "line_name": self.name,
+                    "step": r.step,
+                    "time_s": r.time_s,
+                    "flow": r.flow,
+                    "density": r.density,
+                    "speed": r.speed,
+                    "n_crossing": r.n_crossing,
+                    "n_in_region": r.n_in_region,
+                }
+                for r in self._records
+            ]
+        )
 
     def speed_density_pairs(self, min_agents: int = 3) -> Tuple[np.ndarray, np.ndarray]:
         """

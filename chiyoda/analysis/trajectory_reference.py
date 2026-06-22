@@ -120,7 +120,9 @@ def external_tool_trajectory_frame(
             "agent_id": pd.to_numeric(ordered["agent_id"], errors="raise").astype(int),
             "frame": (
                 pd.to_numeric(ordered["time_s"], errors="raise") * float(frame_rate_hz)
-            ).round().astype(int),
+            )
+            .round()
+            .astype(int),
             "time_s": pd.to_numeric(ordered["time_s"], errors="raise"),
             "x": pd.to_numeric(ordered["x"], errors="raise"),
             "y": pd.to_numeric(ordered["y"], errors="raise"),

@@ -18,7 +18,9 @@ class SpatialIndex:
         self._agents = [a for a in agents if not getattr(a, "has_evacuated", False)]
         self._density_penalty_cache.clear()
         coords = [a.pos for a in self._agents]
-        self._positions = np.array(coords, dtype=float) if coords else np.zeros((0, 3), dtype=float)
+        self._positions = (
+            np.array(coords, dtype=float) if coords else np.zeros((0, 3), dtype=float)
+        )
         if len(self._positions) > 0:
             self.tree = cKDTree(self._positions)
         else:
@@ -74,7 +76,9 @@ class SpatialIndex:
             if len(pos_tuple) >= 3 and isinstance(pos_tuple[0], str):
                 pos = np.array([cell[1] + 0.5, cell[2] + 0.5, 0.0], dtype=float)
             elif len(pos_tuple) >= 3:
-                pos = np.array([cell[1] + 0.5, cell[2] + 0.5, float(pos_tuple[2])], dtype=float)
+                pos = np.array(
+                    [cell[1] + 0.5, cell[2] + 0.5, float(pos_tuple[2])], dtype=float
+                )
             else:
                 pos = np.array([cell[1] + 0.5, cell[2] + 0.5, 0.0], dtype=float)
             value = min(2.0, self.local_density(pos, radius=1.0) * 2.0)

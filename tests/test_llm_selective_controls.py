@@ -5,8 +5,14 @@ import json
 import pytest
 import yaml
 
-from chiyoda.information.llm import AnthropicMessagesGenerator, LLMMessageRequest, HazardSnapshot
-from chiyoda.scenarios.generated_calibration import apply_generated_population_calibration
+from chiyoda.information.llm import (
+    AnthropicMessagesGenerator,
+    LLMMessageRequest,
+    HazardSnapshot,
+)
+from chiyoda.scenarios.generated_calibration import (
+    apply_generated_population_calibration,
+)
 from chiyoda.scenarios.manager import ScenarioManager
 from chiyoda.studies.runner import run_study
 from chiyoda.studies.schema import ExportConfig, StudyConfig, StudyVariant
@@ -20,7 +26,11 @@ def _request() -> LLMMessageRequest:
         selected_reason="test",
         objective="bounded",
         exits=[(3, 1), (1, 1)],
-        hazards=[HazardSnapshot(position=(2.0, 2.0, 0.0), kind="GAS", radius=1.0, severity=0.5)],
+        hazards=[
+            HazardSnapshot(
+                position=(2.0, 2.0, 0.0), kind="GAS", radius=1.0, severity=0.5
+            )
+        ],
         congested_exits=[(1, 1)],
         recipients_estimate=2,
         mean_local_density=0.1,
@@ -97,7 +107,9 @@ def test_anthropic_message_generator_parses_mocked_response(monkeypatch):
 
     monkeypatch.setattr("chiyoda.information.llm.urlrequest.urlopen", fake_urlopen)
 
-    message = AnthropicMessagesGenerator(model="claude-test", api_key="test-key").generate(
+    message = AnthropicMessagesGenerator(
+        model="claude-test", api_key="test-key"
+    ).generate(
         _request(),
         "cache-key",
     )
@@ -196,4 +208,6 @@ def test_study_bundle_surfaces_llm_call_audit(tmp_path):
     bundle = run_study(config)
 
     assert not bundle.llm_calls.empty
-    assert {"surface", "provider", "cache_key", "cache_status"}.issubset(bundle.llm_calls.columns)
+    assert {"surface", "provider", "cache_key", "cache_status"}.issubset(
+        bundle.llm_calls.columns
+    )

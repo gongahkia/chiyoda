@@ -3,7 +3,11 @@ from __future__ import annotations
 import pytest
 
 from chiyoda.scenarios.manager import ScenarioManager
-from chiyoda.studies.runner import _materialize_variants, _prepare_scenario, load_study_config
+from chiyoda.studies.runner import (
+    _materialize_variants,
+    _prepare_scenario,
+    load_study_config,
+)
 
 
 def _layout(text: str) -> dict:
@@ -134,11 +138,27 @@ def test_population_calibration_example_study_documents_exposed_knobs():
         scenario = _prepare_scenario(manager, config.scenario_file, variant, seed=42)
         assert set(scenario["behavior"]) == behavior_keys
         assert scenario["interventions"]["policy"] == "none"
-        assert sum(cohort["count"] for cohort in scenario["population"]["cohorts"]) == 120
+        assert (
+            sum(cohort["count"] for cohort in scenario["population"]["cohorts"]) == 120
+        )
         for cohort in scenario["population"]["cohorts"]:
             assert cohort_keys.issubset(cohort)
 
         sim = manager.build_simulation(scenario)
-        assert len([agent for agent in sim.agents if not getattr(agent, "is_responder", False)]) == 120
-        assert len([agent for agent in sim.agents if getattr(agent, "is_responder", False)]) == 3
+        assert (
+            len(
+                [
+                    agent
+                    for agent in sim.agents
+                    if not getattr(agent, "is_responder", False)
+                ]
+            )
+            == 120
+        )
+        assert (
+            len(
+                [agent for agent in sim.agents if getattr(agent, "is_responder", False)]
+            )
+            == 3
+        )
         assert sim.behavior_model is not None

@@ -6,6 +6,7 @@ free-form operational advice. This module therefore focuses on deterministic
 replay, structured outputs, and validation hooks. Live API clients can be added
 behind the same interface later without changing replayed runs.
 """
+
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
@@ -123,7 +124,9 @@ class LLMGenerationRecord:
                     )
                     for item in request_payload["hazards"]
                 ],
-                congested_exits=[tuple(item) for item in request_payload["congested_exits"]],
+                congested_exits=[
+                    tuple(item) for item in request_payload["congested_exits"]
+                ],
                 recipients_estimate=int(request_payload["recipients_estimate"]),
                 mean_local_density=float(request_payload["mean_local_density"]),
                 mean_hazard_load=float(request_payload["mean_hazard_load"]),
@@ -131,13 +134,25 @@ class LLMGenerationRecord:
             message=GeneratedEvacuationMessage(
                 message_type=str(message_payload.get("message_type", "route_guidance")),
                 text=str(message_payload.get("text", "")),
-                recommended_exits=[tuple(item) for item in message_payload.get("recommended_exits", [])],
-                avoid_exits=[tuple(item) for item in message_payload.get("avoid_exits", [])],
-                hazard_positions=[tuple(item) for item in message_payload.get("hazard_positions", [])],
-                radius=None if message_payload.get("radius") is None else float(message_payload["radius"]),
-                credibility=None
-                if message_payload.get("credibility") is None
-                else float(message_payload["credibility"]),
+                recommended_exits=[
+                    tuple(item) for item in message_payload.get("recommended_exits", [])
+                ],
+                avoid_exits=[
+                    tuple(item) for item in message_payload.get("avoid_exits", [])
+                ],
+                hazard_positions=[
+                    tuple(item) for item in message_payload.get("hazard_positions", [])
+                ],
+                radius=(
+                    None
+                    if message_payload.get("radius") is None
+                    else float(message_payload["radius"])
+                ),
+                credibility=(
+                    None
+                    if message_payload.get("credibility") is None
+                    else float(message_payload["credibility"])
+                ),
                 confidence=float(message_payload.get("confidence", 0.0)),
                 abstain=bool(message_payload.get("abstain", False)),
                 provider=str(message_payload.get("provider", "deterministic")),
@@ -222,7 +237,9 @@ class LLMMessageCache:
         self.path = Path(path)
 
     def key_for(self, request: LLMMessageRequest) -> str:
-        payload = json.dumps(_to_jsonable(request), sort_keys=True, separators=(",", ":"))
+        payload = json.dumps(
+            _to_jsonable(request), sort_keys=True, separators=(",", ":")
+        )
         return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
     def load(self, key: str) -> Optional[LLMGenerationRecord]:
@@ -234,14 +251,18 @@ class LLMMessageCache:
     def store(self, record: LLMGenerationRecord) -> None:
         self.path.mkdir(parents=True, exist_ok=True)
         record_path = self.path / f"{record.cache_key}.json"
-        record_path.write_text(json.dumps(record.to_json_dict(), indent=2, sort_keys=True))
+        record_path.write_text(
+            json.dumps(record.to_json_dict(), indent=2, sort_keys=True)
+        )
 
 
 class LLMMessageGenerator:
     provider = "base"
     model = "base"
 
-    def generate(self, request: LLMMessageRequest, cache_key: str) -> GeneratedEvacuationMessage:
+    def generate(
+        self, request: LLMMessageRequest, cache_key: str
+    ) -> GeneratedEvacuationMessage:
         raise NotImplementedError
 
 
@@ -252,7 +273,9 @@ class ReplayOnlyGenerator(LLMMessageGenerator):
     def __init__(self, cache: LLMMessageCache) -> None:
         self.cache = cache
 
-    def generate(self, request: LLMMessageRequest, cache_key: str) -> GeneratedEvacuationMessage:
+    def generate(
+        self, request: LLMMessageRequest, cache_key: str
+    ) -> GeneratedEvacuationMessage:
         record = self.cache.load(cache_key)
         if record is None:
             return GeneratedEvacuationMessage(
@@ -270,8 +293,12 @@ class TemplateLLMGenerator(LLMMessageGenerator):
     provider = "deterministic"
     model = "template"
 
-    def generate(self, request: LLMMessageRequest, cache_key: str) -> GeneratedEvacuationMessage:
-        recommended = [exit_ for exit_ in request.exits if exit_ not in request.congested_exits]
+    def generate(
+        self, request: LLMMessageRequest, cache_key: str
+    ) -> GeneratedEvacuationMessage:
+        recommended = [
+            exit_ for exit_ in request.exits if exit_ not in request.congested_exits
+        ]
         if not recommended:
             recommended = list(request.exits)
         hazard_positions = [hazard.position for hazard in request.hazards]
@@ -305,7 +332,9 @@ class OpenAIResponsesGenerator(LLMMessageGenerator):
         self.timeout_s = float(timeout_s)
         self.endpoint = endpoint
 
-    def generate(self, request: LLMMessageRequest, cache_key: str) -> GeneratedEvacuationMessage:
+    def generate(
+        self, request: LLMMessageRequest, cache_key: str
+    ) -> GeneratedEvacuationMessage:
         if not self.api_key:
             return GeneratedEvacuationMessage(
                 text="OpenAI API key is not configured.",
@@ -360,7 +389,10 @@ class OpenAIResponsesGenerator(LLMMessageGenerator):
             abstain=bool(parsed.get("abstain", False)),
             provider=self.provider,
             model=self.model,
-            raw_response={"id": response_payload.get("id"), "usage": response_payload.get("usage")},
+            raw_response={
+                "id": response_payload.get("id"),
+                "usage": response_payload.get("usage"),
+            },
         )
 
     def _error_message(self, error: str) -> GeneratedEvacuationMessage:
@@ -391,7 +423,9 @@ class AnthropicMessagesGenerator(LLMMessageGenerator):
         self.endpoint = endpoint
         self.api_version = api_version
 
-    def generate(self, request: LLMMessageRequest, cache_key: str) -> GeneratedEvacuationMessage:
+    def generate(
+        self, request: LLMMessageRequest, cache_key: str
+    ) -> GeneratedEvacuationMessage:
         if not self.api_key:
             return GeneratedEvacuationMessage(
                 text="Anthropic API key is not configured.",
@@ -450,7 +484,10 @@ class AnthropicMessagesGenerator(LLMMessageGenerator):
             abstain=bool(parsed.get("abstain", False)),
             provider=self.provider,
             model=self.model,
-            raw_response={"id": response_payload.get("id"), "usage": response_payload.get("usage")},
+            raw_response={
+                "id": response_payload.get("id"),
+                "usage": response_payload.get("usage"),
+            },
         )
 
     def _error_message(self, error: str) -> GeneratedEvacuationMessage:
@@ -500,18 +537,31 @@ def validate_generated_message(
         if not _near_any(hazard_pos, known_hazard_positions, tolerance=3.0):
             reasons.append(f"invented_hazard:{tuple(hazard_pos)}")
 
-    if message.radius is not None and (message.radius <= 0.0 or message.radius > max_radius):
+    if message.radius is not None and (
+        message.radius <= 0.0 or message.radius > max_radius
+    ):
         reasons.append(f"unsafe_radius:{message.radius}")
-    if message.credibility is not None and not 0.0 <= message.credibility <= base_credibility:
+    if (
+        message.credibility is not None
+        and not 0.0 <= message.credibility <= base_credibility
+    ):
         reasons.append(f"unsafe_credibility:{message.credibility}")
 
     if not message.recommended_exits and not message.abstain:
         reasons.append("no_recommended_exit")
     if not message.text.strip() and not message.abstain:
         reasons.append("empty_guidance")
-    if settings.reject_vague_guidance and _is_vague_guidance(message.text) and not message.abstain:
+    if (
+        settings.reject_vague_guidance
+        and _is_vague_guidance(message.text)
+        and not message.abstain
+    ):
         reasons.append("vague_guidance")
-    if settings.reject_low_confidence and message.confidence < settings.min_confidence and not message.abstain:
+    if (
+        settings.reject_low_confidence
+        and message.confidence < settings.min_confidence
+        and not message.abstain
+    ):
         reasons.append(f"low_confidence:{message.confidence:.2f}")
 
     return ValidationResult(accepted=not reasons, reasons=reasons)
@@ -597,7 +647,12 @@ def _prompt_payload(request: LLMMessageRequest) -> Dict[str, Any]:
             "mean_local_density": payload["mean_local_density"],
             "mean_hazard_load": payload["mean_hazard_load"],
         }
-    if request.prompt_style in {"anti_convergence", "hazard_avoidance", "urgency", "responder_coordination"}:
+    if request.prompt_style in {
+        "anti_convergence",
+        "hazard_avoidance",
+        "urgency",
+        "responder_coordination",
+    }:
         return {
             "prompt_style": request.prompt_style,
             "policy": payload["policy"],
@@ -673,9 +728,12 @@ def _load_env_file_value(env_path: Path | str, names: Sequence[str]) -> Optional
     return None
 
 
-def build_llm_request(simulation, target, objective: str, policy: str) -> LLMMessageRequest:
+def build_llm_request(
+    simulation, target, objective: str, policy: str
+) -> LLMMessageRequest:
     active = [
-        agent for agent in simulation._active_agents()
+        agent
+        for agent in simulation._active_agents()
         if _distance((float(agent.pos[0]), float(agent.pos[1])), target.point)
         <= float(getattr(target, "radius_hint", float("inf")))
     ]
@@ -697,8 +755,12 @@ def build_llm_request(simulation, target, objective: str, policy: str) -> LLMMes
         ],
         congested_exits=[],
         recipients_estimate=len(active),
-        mean_local_density=_mean([float(getattr(agent, "local_density", 0.0)) for agent in active]),
-        mean_hazard_load=_mean([float(getattr(agent, "current_hazard_load", 0.0)) for agent in active]),
+        mean_local_density=_mean(
+            [float(getattr(agent, "local_density", 0.0)) for agent in active]
+        ),
+        mean_hazard_load=_mean(
+            [float(getattr(agent, "current_hazard_load", 0.0)) for agent in active]
+        ),
     )
 
 
@@ -748,10 +810,9 @@ def estimate_llm_cost(
     input_usd_per_mtok: float = 0.0,
     output_usd_per_mtok: float = 0.0,
 ) -> float:
-    return (
-        (float(input_tokens) / 1_000_000.0) * float(input_usd_per_mtok)
-        + (float(output_tokens) / 1_000_000.0) * float(output_usd_per_mtok)
-    )
+    return (float(input_tokens) / 1_000_000.0) * float(input_usd_per_mtok) + (
+        float(output_tokens) / 1_000_000.0
+    ) * float(output_usd_per_mtok)
 
 
 def raw_usage_tokens(raw_response: Dict[str, Any]) -> Dict[str, int]:
@@ -800,7 +861,11 @@ def _parse_cells(value: Any) -> List[Cell]:
                 item = [item.get("floor"), item.get("x"), item.get("y")]
             else:
                 item = [item.get("x"), item.get("y")]
-        if isinstance(item, (list, tuple)) and len(item) >= 3 and isinstance(item[0], str):
+        if (
+            isinstance(item, (list, tuple))
+            and len(item) >= 3
+            and isinstance(item[0], str)
+        ):
             try:
                 cells.append((str(item[0]), int(item[1]), int(item[2])))
             except (TypeError, ValueError):
@@ -843,8 +908,19 @@ def _is_vague_guidance(text: str) -> bool:
     }
     if normalized in vague_messages:
         return True
-    directional_terms = ("exit", "avoid", "left", "right", "north", "south", "east", "west")
-    return len(normalized.split()) < 6 and not any(term in normalized for term in directional_terms)
+    directional_terms = (
+        "exit",
+        "avoid",
+        "left",
+        "right",
+        "north",
+        "south",
+        "east",
+        "west",
+    )
+    return len(normalized.split()) < 6 and not any(
+        term in normalized for term in directional_terms
+    )
 
 
 def _near_any(point: Point, candidates: Sequence[Point], tolerance: float) -> bool:

@@ -148,8 +148,14 @@ def compare_variants_for_claim(
     for metric in metrics:
         if metric not in base.columns or metric not in candidate.columns:
             continue
-        base_values = pd.to_numeric(base[metric], errors="coerce").dropna().to_numpy(dtype=float)
-        test_values = pd.to_numeric(candidate[metric], errors="coerce").dropna().to_numpy(dtype=float)
+        base_values = (
+            pd.to_numeric(base[metric], errors="coerce").dropna().to_numpy(dtype=float)
+        )
+        test_values = (
+            pd.to_numeric(candidate[metric], errors="coerce")
+            .dropna()
+            .to_numpy(dtype=float)
+        )
         if len(base_values) == 0 or len(test_values) == 0:
             continue
         mw_stat, mw_p = mann_whitney_u(test_values, base_values)
@@ -175,7 +181,9 @@ def compare_variants_for_claim(
                 "test_ci_high": test_ci[1],
                 "delta": delta,
                 "better_direction": "lower" if metric in LOWER_IS_BETTER else "higher",
-                "supports_test": delta < 0.0 if metric in LOWER_IS_BETTER else delta > 0.0,
+                "supports_test": (
+                    delta < 0.0 if metric in LOWER_IS_BETTER else delta > 0.0
+                ),
                 "mann_whitney_u": mw_stat,
                 "mann_whitney_p": mw_p,
                 "wilcoxon_stat": wilcoxon_stat,

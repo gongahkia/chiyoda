@@ -69,16 +69,23 @@ class ObstacleSpec:
             )
 
         if shape in {"circle", "disk"}:
-            center = _normalize_point(config.get("center", (config.get("x"), config.get("y"))))
+            center = _normalize_point(
+                config.get("center", (config.get("x"), config.get("y")))
+            )
             radius = float(config.get("radius", 0.0))
             return cls(shape="circle", fill=fill, center=center, radius=radius)
 
         if shape == "point":
-            center = _normalize_point(config.get("point", config.get("center", config.get("coordinates"))))
+            center = _normalize_point(
+                config.get("point", config.get("center", config.get("coordinates")))
+            )
             return cls(shape="point", fill=fill, center=center)
 
         if shape in {"polygon", "poly"}:
-            rings = tuple(tuple(_normalize_point(point) for point in ring) for ring in _polygon_rings(config))
+            rings = tuple(
+                tuple(_normalize_point(point) for point in ring)
+                for ring in _polygon_rings(config)
+            )
             if not rings or len(rings[0]) < 3:
                 raise ValueError("Polygon obstacles require at least three points")
             return cls(
@@ -89,7 +96,9 @@ class ObstacleSpec:
             )
 
         if shape in {"line", "polyline"}:
-            points = tuple(_normalize_point(point) for point in config.get("points", []))
+            points = tuple(
+                _normalize_point(point) for point in config.get("points", [])
+            )
             if len(points) < 2:
                 raise ValueError("Line obstacles require at least two points")
             return cls(
@@ -113,15 +122,17 @@ class ObstacleSpec:
             return set()
 
         if self.shape == "cells":
-            return {
-                (x, y)
-                for x, y in self.cells
-                if 0 <= x < width and 0 <= y < height
-            }
+            return {(x, y) for x, y in self.cells if 0 <= x < width and 0 <= y < height}
 
         if self.shape == "point":
             return {
-                _point_to_cell(self.center, origin=origin, cell_size=cell_size, width=width, height=height)
+                _point_to_cell(
+                    self.center,
+                    origin=origin,
+                    cell_size=cell_size,
+                    width=width,
+                    height=height,
+                )
             }
 
         if self.shape == "rectangle":
@@ -159,7 +170,8 @@ class ObstacleSpec:
                     origin=origin,
                     cell_size=cell_size,
                 )
-                if ((center_x - self.center[0]) ** 2 + (center_y - self.center[1]) ** 2) <= radius_sq
+                if ((center_x - self.center[0]) ** 2 + (center_y - self.center[1]) ** 2)
+                <= radius_sq
             }
 
         if self.shape == "polygon":
@@ -180,7 +192,9 @@ class ObstacleSpec:
                     cell_size=cell_size,
                 )
                 if _point_in_ring((center_x, center_y), self.points)
-                and not any(_point_in_ring((center_x, center_y), hole) for hole in self.holes)
+                and not any(
+                    _point_in_ring((center_x, center_y), hole) for hole in self.holes
+                )
             }
 
         if self.shape == "polyline":
@@ -202,7 +216,8 @@ class ObstacleSpec:
                     cell_size=cell_size,
                 )
                 if any(
-                    _point_segment_distance((center_x, center_y), start, end) <= half_thickness
+                    _point_segment_distance((center_x, center_y), start, end)
+                    <= half_thickness
                     for start, end in zip(self.points[:-1], self.points[1:])
                 )
             }
@@ -224,7 +239,9 @@ def apply_obstacles_to_grid(
     updated = np.array(grid, copy=True)
     height, width = updated.shape
     for obstacle in obstacles:
-        for x, y in obstacle.rasterize(width, height, origin=origin, cell_size=cell_size):
+        for x, y in obstacle.rasterize(
+            width, height, origin=origin, cell_size=cell_size
+        ):
             updated[y, x] = obstacle.fill
     return updated
 
@@ -244,15 +261,21 @@ def rasterize_geojson_layout(
     if not features:
         raise ValueError("GeoJSON layout must contain at least one feature")
 
-    min_x, min_y, max_x, max_y = bounds if bounds is not None else _feature_bounds(features)
+    min_x, min_y, max_x, max_y = (
+        bounds if bounds is not None else _feature_bounds(features)
+    )
     origin = (min_x - (padding * cell_size), min_y - (padding * cell_size))
     width = max(1, int(math.ceil((max_x - min_x) / cell_size)) + (padding * 2) + 1)
     height = max(1, int(math.ceil((max_y - min_y) / cell_size)) + (padding * 2) + 1)
 
-    roles = [_feature_role(feature, role_property=role_property) for feature in features]
+    roles = [
+        _feature_role(feature, role_property=role_property) for feature in features
+    ]
     fill = default_token
     if fill is None:
-        fill = WALL_TOKEN if any(role in WALKABLE_ROLES for role in roles) else EMPTY_TOKEN
+        fill = (
+            WALL_TOKEN if any(role in WALKABLE_ROLES for role in roles) else EMPTY_TOKEN
+        )
 
     grid = np.full((height, width), fill, dtype="<U1")
     if add_border_walls and height >= 2 and width >= 2:
@@ -265,7 +288,9 @@ def rasterize_geojson_layout(
         role = _feature_role(feature, role_property=role_property)
         token = _role_token(role)
         for obstacle in _feature_obstacles(feature, fill=token):
-            for x, y in obstacle.rasterize(width, height, origin=origin, cell_size=cell_size):
+            for x, y in obstacle.rasterize(
+                width, height, origin=origin, cell_size=cell_size
+            ):
                 grid[y, x] = token
 
     return grid, origin, cell_size
@@ -299,7 +324,11 @@ def rasterize_dxf_layout(
 
     fill = default_token
     if fill is None:
-        fill = WALL_TOKEN if any(role in WALKABLE_ROLES for role in resolved_roles) else EMPTY_TOKEN
+        fill = (
+            WALL_TOKEN
+            if any(role in WALKABLE_ROLES for role in resolved_roles)
+            else EMPTY_TOKEN
+        )
 
     grid = np.full((height, width), fill, dtype="<U1")
     if add_border_walls and height >= 2 and width >= 2:
@@ -316,7 +345,9 @@ def rasterize_dxf_layout(
             line_thickness=line_thickness,
             fill_closed=(role in WALKABLE_ROLES or role in OBSTACLE_ROLES),
         ):
-            for x, y in obstacle.rasterize(width, height, origin=origin, cell_size=cell_size):
+            for x, y in obstacle.rasterize(
+                width, height, origin=origin, cell_size=cell_size
+            ):
                 grid[y, x] = token
 
     return grid, origin, cell_size
@@ -646,7 +677,9 @@ def _dxf_entity_obstacles(
     return []
 
 
-def _dxf_entity_bounds(entities: Sequence[Mapping[str, Any]]) -> tuple[float, float, float, float]:
+def _dxf_entity_bounds(
+    entities: Sequence[Mapping[str, Any]],
+) -> tuple[float, float, float, float]:
     xs: list[float] = []
     ys: list[float] = []
     for entity in entities:
@@ -672,11 +705,21 @@ def _dxf_entity_bounds(entities: Sequence[Mapping[str, Any]]) -> tuple[float, fl
 def _geojson_features(payload: Mapping[str, Any]) -> list[Mapping[str, Any]]:
     payload_type = str(payload.get("type", "")).lower()
     if payload_type == "featurecollection":
-        return [feature for feature in payload.get("features", []) if isinstance(feature, Mapping)]
+        return [
+            feature
+            for feature in payload.get("features", [])
+            if isinstance(feature, Mapping)
+        ]
     if payload_type == "feature":
         return [payload]
     if "geometry" in payload:
-        return [{"type": "Feature", "geometry": payload["geometry"], "properties": payload.get("properties", {})}]
+        return [
+            {
+                "type": "Feature",
+                "geometry": payload["geometry"],
+                "properties": payload.get("properties", {}),
+            }
+        ]
     raise ValueError("Unsupported GeoJSON payload")
 
 
@@ -779,7 +822,10 @@ def _feature_obstacles(feature: Mapping[str, Any], *, fill: str) -> list[Obstacl
     thickness = float(properties.get("thickness", 1.0))
 
     if geometry_type == "polygon":
-        rings = tuple(tuple(_normalize_point(point) for point in ring) for ring in coordinates or [])
+        rings = tuple(
+            tuple(_normalize_point(point) for point in ring)
+            for ring in coordinates or []
+        )
         if not rings:
             return []
         return [
@@ -794,7 +840,9 @@ def _feature_obstacles(feature: Mapping[str, Any], *, fill: str) -> list[Obstacl
     if geometry_type == "multipolygon":
         specs: list[ObstacleSpec] = []
         for polygon in coordinates or []:
-            rings = tuple(tuple(_normalize_point(point) for point in ring) for ring in polygon)
+            rings = tuple(
+                tuple(_normalize_point(point) for point in ring) for ring in polygon
+            )
             if not rings:
                 continue
             specs.append(
@@ -830,7 +878,9 @@ def _feature_obstacles(feature: Mapping[str, Any], *, fill: str) -> list[Obstacl
         ]
 
     if geometry_type == "point":
-        return [ObstacleSpec(shape="point", fill=fill, center=_normalize_point(coordinates))]
+        return [
+            ObstacleSpec(shape="point", fill=fill, center=_normalize_point(coordinates))
+        ]
 
     if geometry_type == "multipoint":
         return [
@@ -841,7 +891,9 @@ def _feature_obstacles(feature: Mapping[str, Any], *, fill: str) -> list[Obstacl
     raise ValueError(f"Unsupported GeoJSON geometry type: {geometry.get('type')}")
 
 
-def _feature_bounds(features: Sequence[Mapping[str, Any]]) -> tuple[float, float, float, float]:
+def _feature_bounds(
+    features: Sequence[Mapping[str, Any]],
+) -> tuple[float, float, float, float]:
     xs: list[float] = []
     ys: list[float] = []
     for feature in features:
@@ -859,7 +911,11 @@ def _iter_geometry_points(geometry: Mapping[str, Any]) -> Iterable[Point]:
         return
 
     def recurse(value: Any) -> Iterable[Point]:
-        if isinstance(value, Sequence) and len(value) >= 2 and all(isinstance(v, (int, float)) for v in value[:2]):
+        if (
+            isinstance(value, Sequence)
+            and len(value) >= 2
+            and all(isinstance(v, (int, float)) for v in value[:2])
+        ):
             yield _normalize_point(value)
             return
         if isinstance(value, Sequence):
@@ -883,7 +939,12 @@ def _rectangle_bounds(config: Mapping[str, Any]) -> tuple[float, float, float, f
         if len(bounds) != 4:
             raise ValueError("Rectangle bounds must contain four values")
         min_x, min_y, max_x, max_y = (float(value) for value in bounds)
-        return min(min_x, max_x), min(min_y, max_y), max(min_x, max_x), max(min_y, max_y)
+        return (
+            min(min_x, max_x),
+            min(min_y, max_y),
+            max(min_x, max_x),
+            max(min_y, max_y),
+        )
 
     if all(key in config for key in ("x", "y", "width", "height")):
         x = float(config["x"])
@@ -963,7 +1024,9 @@ def _point_in_ring(point: Point, ring: Sequence[Point]) -> bool:
     return inside
 
 
-def _point_on_segment(point: Point, start: Point, end: Point, *, eps: float = 1e-9) -> bool:
+def _point_on_segment(
+    point: Point, start: Point, end: Point, *, eps: float = 1e-9
+) -> bool:
     px, py = point
     ax, ay = start
     bx, by = end

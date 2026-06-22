@@ -8,16 +8,17 @@ Proper SFM implementation with:
 - counter-flow friction (opposing desired directions)
 - panic force amplification
 """
+
 from __future__ import annotations
 import numpy as np
 
 # SFM parameters (Helbing & Molnar 1995, calibrated)
-TAU = 0.5           # relaxation time (s)
-A_AGENT = 2.1       # agent repulsion strength
-B_AGENT = 0.3       # agent repulsion range
-A_WALL = 5.0        # wall repulsion strength
-B_WALL = 0.2        # wall repulsion range
-COUNTER_FLOW_K = 1.5 # friction coefficient for opposing flow
+TAU = 0.5  # relaxation time (s)
+A_AGENT = 2.1  # agent repulsion strength
+B_AGENT = 0.3  # agent repulsion range
+A_WALL = 5.0  # wall repulsion strength
+B_WALL = 0.2  # wall repulsion range
+COUNTER_FLOW_K = 1.5  # friction coefficient for opposing flow
 
 
 def social_force_step(
@@ -44,20 +45,29 @@ def social_force_step(
     for i, n_pos in enumerate(neighbors):
         delta = current_pos - n_pos
         dist = np.linalg.norm(delta) + 1e-6
-        if dist < 3.0: # only consider nearby agents
+        if dist < 3.0:  # only consider nearby agents
             n_hat = delta / dist
             f_repel = A_AGENT * np.exp((0.6 - dist) / B_AGENT) * n_hat
             f_agents += f_repel
 
             # counter-flow friction: if neighbor moving in opposite direction
-            if counter_flow and neighbor_velocities is not None and i < len(neighbor_velocities):
+            if (
+                counter_flow
+                and neighbor_velocities is not None
+                and i < len(neighbor_velocities)
+            ):
                 n_vel = neighbor_velocities[i]
                 dot = np.dot(desired_velocity, n_vel)
-                if dot < 0 and np.linalg.norm(n_vel) > 0.1: # opposing flow
+                if dot < 0 and np.linalg.norm(n_vel) > 0.1:  # opposing flow
                     tangent = np.zeros(dim)
                     tangent[0] = -n_hat[1]
                     tangent[1] = n_hat[0]
-                    f_friction = COUNTER_FLOW_K * abs(dot) * tangent * np.sign(np.dot(tangent, desired_velocity))
+                    f_friction = (
+                        COUNTER_FLOW_K
+                        * abs(dot)
+                        * tangent
+                        * np.sign(np.dot(tangent, desired_velocity))
+                    )
                     f_agents += f_friction
 
     # wall repulsion (simplified — uses wall positions if provided)
@@ -102,7 +112,7 @@ def adjusted_step(
     Provides the same interface as v1 for existing code that calls adjusted_step.
     """
     desired_velocity = desired_step / dt if dt > 1e-9 else desired_step
-    current_velocity = desired_velocity * 0.8 # approximate current velocity
+    current_velocity = desired_velocity * 0.8  # approximate current velocity
 
     displacement = social_force_step(
         current_pos=current_pos,

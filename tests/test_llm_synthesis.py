@@ -5,7 +5,10 @@ from pathlib import Path
 import pandas as pd
 
 from scripts.compare_llm_claims import compare_variants_for_claim
-from scripts.synthesize_llm_results import build_claim_highlights, build_policy_synthesis
+from scripts.synthesize_llm_results import (
+    build_claim_highlights,
+    build_policy_synthesis,
+)
 
 
 def _write_policy_csv(root: Path, rows: list[dict[str, object]]) -> None:
@@ -41,8 +44,18 @@ def test_build_policy_synthesis_normalizes_study_rows(tmp_path):
     synthesis = build_policy_synthesis({"prompt_objective": study_dir})
 
     assert set(synthesis["study"]) == {"prompt_objective"}
-    assert synthesis.loc[synthesis["variant_name"] == "llm_openai_safety", "llm_provider"].iloc[0] == "openai"
-    assert synthesis.loc[synthesis["variant_name"] == "static_beacon", "variant_family"].iloc[0] == "deterministic"
+    assert (
+        synthesis.loc[
+            synthesis["variant_name"] == "llm_openai_safety", "llm_provider"
+        ].iloc[0]
+        == "openai"
+    )
+    assert (
+        synthesis.loc[
+            synthesis["variant_name"] == "static_beacon", "variant_family"
+        ].iloc[0]
+        == "deterministic"
+    )
 
 
 def test_build_claim_highlights_compares_expected_variants(tmp_path):

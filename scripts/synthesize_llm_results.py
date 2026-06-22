@@ -45,10 +45,7 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> int:
     args = parse_args()
-    study_dirs = {
-        name: Path(getattr(args, name))
-        for name in DEFAULT_STUDIES
-    }
+    study_dirs = {name: Path(getattr(args, name)) for name in DEFAULT_STUDIES}
     out_dir = Path(args.out)
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -76,7 +73,9 @@ def build_policy_synthesis(study_dirs: dict[str, Path]) -> pd.DataFrame:
         frame["replay_pair"] = frame["variant_name"].map(_replay_pair)
         frames.append(frame)
     if not frames:
-        return pd.DataFrame(columns=["study", "variant_name", "variant_family", *CORE_METRICS])
+        return pd.DataFrame(
+            columns=["study", "variant_name", "variant_family", *CORE_METRICS]
+        )
     combined = pd.concat(frames, ignore_index=True, sort=False)
     ordered = [
         "study",
@@ -87,7 +86,9 @@ def build_policy_synthesis(study_dirs: dict[str, Path]) -> pd.DataFrame:
         *[metric for metric in CORE_METRICS if metric in combined.columns],
     ]
     extra = [column for column in combined.columns if column not in ordered]
-    return combined[ordered + extra].sort_values(["study", "variant_family", "variant_name"])
+    return combined[ordered + extra].sort_values(
+        ["study", "variant_family", "variant_name"]
+    )
 
 
 def build_claim_highlights(synthesis: pd.DataFrame) -> pd.DataFrame:
@@ -173,7 +174,9 @@ def _append_pair_highlight(
 
 
 def _one_row(synthesis: pd.DataFrame, study: str, variant: str) -> pd.Series | None:
-    rows = synthesis[(synthesis["study"] == study) & (synthesis["variant_name"] == variant)]
+    rows = synthesis[
+        (synthesis["study"] == study) & (synthesis["variant_name"] == variant)
+    ]
     if rows.empty:
         return None
     return rows.iloc[0]
@@ -186,7 +189,12 @@ def _variant_family(variant: str) -> str:
         return "llm_openai"
     if variant.startswith("llm_template") or variant.startswith("llm_target"):
         return "llm_template"
-    if variant in {"static_beacon", "global_broadcast", "entropy_targeted", "bottleneck_avoidance"}:
+    if variant in {
+        "static_beacon",
+        "global_broadcast",
+        "entropy_targeted",
+        "bottleneck_avoidance",
+    }:
         return "deterministic"
     return "other"
 

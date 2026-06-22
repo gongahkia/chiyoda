@@ -17,7 +17,10 @@ def _station_geojson() -> dict:
             {
                 "type": "Feature",
                 "properties": {"role": "walkable", "level": "0"},
-                "geometry": {"type": "Polygon", "coordinates": [[[0, 0], [4, 0], [4, 4], [0, 4], [0, 0]]]},
+                "geometry": {
+                    "type": "Polygon",
+                    "coordinates": [[[0, 0], [4, 0], [4, 4], [0, 4], [0, 0]]],
+                },
             },
             {
                 "type": "Feature",
@@ -27,7 +30,10 @@ def _station_geojson() -> dict:
             {
                 "type": "Feature",
                 "properties": {"role": "walkable", "level": "1"},
-                "geometry": {"type": "Polygon", "coordinates": [[[0, 0], [4, 0], [4, 4], [0, 4], [0, 0]]]},
+                "geometry": {
+                    "type": "Polygon",
+                    "coordinates": [[[0, 0], [4, 0], [4, 4], [0, 4], [0, 0]]],
+                },
             },
             {
                 "type": "Feature",
@@ -73,7 +79,9 @@ def test_convert_layout_cli_writes_strict_scenario(tmp_path):
     output = tmp_path / "station.yaml"
     source.write_text(json.dumps(_station_geojson()))
 
-    result = CliRunner().invoke(cli, ["convert-layout", str(source), str(output), "--name", "converted"])
+    result = CliRunner().invoke(
+        cli, ["convert-layout", str(source), str(output), "--name", "converted"]
+    )
 
     assert result.exit_code == 0
     text = output.read_text()

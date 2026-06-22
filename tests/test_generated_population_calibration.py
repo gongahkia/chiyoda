@@ -15,7 +15,11 @@ from chiyoda.scenarios.generated_calibration import (
     validate_generated_population_calibration,
 )
 from chiyoda.scenarios.manager import ScenarioManager
-from chiyoda.studies.runner import _materialize_variants, _prepare_scenario, load_study_config
+from chiyoda.studies.runner import (
+    _materialize_variants,
+    _prepare_scenario,
+    load_study_config,
+)
 
 
 def _layout(text: str) -> dict:
@@ -58,11 +62,15 @@ def test_population_calibration_cache_round_trips_record(tmp_path):
 
     assert loaded is not None
     assert loaded.cache_key == key
-    assert loaded.calibration.parameter_priors["regulars"]["base_rationality"] == pytest.approx(0.8)
+    assert loaded.calibration.parameter_priors["regulars"][
+        "base_rationality"
+    ] == pytest.approx(0.8)
     assert loaded.validation.accepted
 
 
-def test_generated_calibration_fills_missing_fields_without_overwriting_existing(tmp_path):
+def test_generated_calibration_fills_missing_fields_without_overwriting_existing(
+    tmp_path,
+):
     scenario = {
         "name": "generated_prior_smoke",
         "layout": _layout("XXXXX\nX@.EX\nXXXXX\n"),
@@ -92,7 +100,9 @@ def test_generated_calibration_fills_missing_fields_without_overwriting_existing
     assert cohort["base_rationality"] == pytest.approx(0.8)
     assert cohort["parameter_provenance"]["base_rationality"].startswith("generated:")
     assert audit["validation_status"] == "accepted"
-    assert any(item.endswith("regulars.base_speed:existing_value") for item in audit["skipped"])
+    assert any(
+        item.endswith("regulars.base_speed:existing_value") for item in audit["skipped"]
+    )
     cache_record = PopulationCalibrationCache(tmp_path).load(audit["cache_key"])
     assert cache_record is not None
     assert any(
@@ -129,9 +139,16 @@ def test_replay_generated_calibration_uses_existing_cache(tmp_path):
 
     replayed = apply_generated_population_calibration(replay)
 
-    assert populated["population"]["cohorts"][0]["base_rationality"] == pytest.approx(0.6)
-    assert replayed["population"]["cohorts"][0]["base_rationality"] == pytest.approx(0.6)
-    assert replayed["metadata"]["generated_population_calibration_audit"]["cache_status"] == "hit"
+    assert populated["population"]["cohorts"][0]["base_rationality"] == pytest.approx(
+        0.6
+    )
+    assert replayed["population"]["cohorts"][0]["base_rationality"] == pytest.approx(
+        0.6
+    )
+    assert (
+        replayed["metadata"]["generated_population_calibration_audit"]["cache_status"]
+        == "hit"
+    )
 
 
 def test_generated_calibration_rejects_disallowed_target():
@@ -177,9 +194,9 @@ def test_generated_cohort_mix_only_materializes_when_no_authored_cohorts(tmp_pat
     updated = apply_generated_population_calibration(scenario)
 
     assert sum(cohort["count"] for cohort in updated["population"]["cohorts"]) == 4
-    assert {cohort["calibration_status"] for cohort in updated["population"]["cohorts"]} == {
-        "generated_heuristic_prior"
-    }
+    assert {
+        cohort["calibration_status"] for cohort in updated["population"]["cohorts"]
+    } == {"generated_heuristic_prior"}
 
 
 def test_scenario_manager_applies_generated_population_before_building_agents(tmp_path):
@@ -221,12 +238,20 @@ def test_generated_population_calibration_study_pairs_template_and_replay():
 
     assert template["generated_population_calibration"]["provider"] == "template"
     assert replay["generated_population_calibration"]["provider"] == "replay"
-    assert template["generated_population_calibration"]["cache_path"] == replay["generated_population_calibration"]["cache_path"]
-    assert cohort_mix["generated_population_calibration"]["allowed_targets"][0] == "cohort_mix"
+    assert (
+        template["generated_population_calibration"]["cache_path"]
+        == replay["generated_population_calibration"]["cache_path"]
+    )
+    assert (
+        cohort_mix["generated_population_calibration"]["allowed_targets"][0]
+        == "cohort_mix"
+    )
     assert cohort_mix["population"]["cohorts"] == []
 
 
-def test_openai_population_calibration_uses_configured_default_model(tmp_path, monkeypatch):
+def test_openai_population_calibration_uses_configured_default_model(
+    tmp_path, monkeypatch
+):
     monkeypatch.delenv("OPENAI_MODEL", raising=False)
     env_file = tmp_path / ".env"
     env_file.write_text("OPENAI_MODEL='gpt-calibration-model'\n")

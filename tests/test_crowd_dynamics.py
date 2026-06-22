@@ -4,6 +4,7 @@ Test suite for ITED crowd dynamics framework.
 Tests information layer, cognitive agents, multi-hazard physics,
 social force model, and full simulation integration.
 """
+
 from __future__ import annotations
 import numpy as np
 import pytest
@@ -20,7 +21,12 @@ from chiyoda.navigation.social_force import adjusted_step, social_force_step
 from chiyoda.information.field import InformationField, BeliefVector
 from chiyoda.information.interventions import create_intervention_policy
 from chiyoda.information.propagation import GossipModel, GossipConfig
-from chiyoda.information.entropy import agent_entropy, global_entropy, belief_accuracy, information_efficiency
+from chiyoda.information.entropy import (
+    agent_entropy,
+    global_entropy,
+    belief_accuracy,
+    information_efficiency,
+)
 
 
 def _agent_pos(layout: Layout, cell) -> np.ndarray:
@@ -28,6 +34,7 @@ def _agent_pos(layout: Layout, cell) -> np.ndarray:
 
 
 # -- Information Layer Tests --
+
 
 class TestBeliefVector:
     def test_empty_beliefs(self):
@@ -39,6 +46,7 @@ class TestBeliefVector:
     def test_known_exits(self):
         b = BeliefVector()
         from chiyoda.information.field import ExitBelief
+
         b.exit_beliefs[(10, 5)] = ExitBelief(position=(10, 5), exists_prob=0.9)
         b.exit_beliefs[(20, 15)] = ExitBelief(position=(20, 15), exists_prob=0.3)
         assert b.known_exits() == [(10, 5)]
@@ -63,7 +71,10 @@ class TestInformationField:
         field = InformationField(30, 20, decay_rate=0.5)
         b = BeliefVector()
         from chiyoda.information.field import ExitBelief
-        b.exit_beliefs[(5, 0)] = ExitBelief(position=(5, 0), exists_prob=1.0, freshness=0.0)
+
+        b.exit_beliefs[(5, 0)] = ExitBelief(
+            position=(5, 0), exists_prob=1.0, freshness=0.0
+        )
         field.decay_beliefs(b, dt=1.0)
         assert b.exit_beliefs[(5, 0)].freshness > 0.0
 
@@ -72,6 +83,7 @@ class TestEntropy:
     def test_perfect_knowledge_zero_entropy(self):
         b = BeliefVector()
         from chiyoda.information.field import ExitBelief
+
         b.exit_beliefs[(5, 0)] = ExitBelief(position=(5, 0), exists_prob=1.0)
         b.exit_beliefs[(25, 19)] = ExitBelief(position=(25, 19), exists_prob=1.0)
         h = agent_entropy(b, total_exits=2)
@@ -94,7 +106,10 @@ class TestGossipModel:
         gossip = GossipModel(GossipConfig(gossip_radius=3.0, base_transfer_prob=1.0))
         sender = BeliefVector()
         from chiyoda.information.field import ExitBelief
-        sender.exit_beliefs[(5, 0)] = ExitBelief(position=(5, 0), exists_prob=0.95, source_credibility=0.9)
+
+        sender.exit_beliefs[(5, 0)] = ExitBelief(
+            position=(5, 0), exists_prob=0.95, source_credibility=0.9
+        )
         receiver = BeliefVector()
         result = gossip.exchange(sender, receiver, 0.9, 0.8, "CALM", 1.0)
         # may or may not transfer depending on RNG — just test it doesn't crash
@@ -115,11 +130,17 @@ class TestInformationInterventions:
             Commuter(id=i, pos=_agent_pos(layout, cell), familiarity=0.0)
             for i, cell in enumerate(layout.people_positions())
         ]
-        config = SimulationConfig(max_steps=3, dt=0.1, random_seed=42, information_mode="none")
+        config = SimulationConfig(
+            max_steps=3, dt=0.1, random_seed=42, information_mode="none"
+        )
         sim = Simulation(layout=layout, agents=agents, exits=exits, config=config)
         spatial = SpatialIndex()
         sim.attach_spatial_index(spatial)
-        nav = SmartNavigator(layout, density_fn=spatial.density_penalty_fn(), hazard_fn=sim.hazard_penalty_at_cell)
+        nav = SmartNavigator(
+            layout,
+            density_fn=spatial.density_penalty_fn(),
+            hazard_fn=sim.hazard_penalty_at_cell,
+        )
         sim.attach_navigation(nav)
         sim.attach_behavior_model(BehaviorModel())
         policy_config = {
@@ -146,7 +167,10 @@ class TestInformationInterventions:
         sim.run()
         assert len(sim.intervention_events) > 0
         assert sim.intervention_events[0].selected_reason == "highest_agent_entropy"
-        assert sim.intervention_events[0].entropy_after <= sim.intervention_events[0].entropy_before
+        assert (
+            sim.intervention_events[0].entropy_after
+            <= sim.intervention_events[0].entropy_before
+        )
 
     def test_llm_guidance_records_generation_telemetry(self, tmp_path):
         sim = self._make_intervention_sim(
@@ -206,13 +230,16 @@ class TestInformationInterventions:
 
     def test_llm_guidance_replay_requires_cache_path(self):
         with pytest.raises(ValueError):
-            create_intervention_policy({
-                "policy": "llm_guidance",
-                "llm_provider": "replay",
-            })
+            create_intervention_policy(
+                {
+                    "policy": "llm_guidance",
+                    "llm_provider": "replay",
+                }
+            )
 
 
 # -- Agent Tests --
+
 
 class TestCognitiveAgent:
     def test_physiology(self):
@@ -229,16 +256,19 @@ class TestCognitiveAgent:
 
     def test_responder(self):
         r = FirstResponder(
-            id=99, pos=np.array([30.0, 10.0]),
-            mission_target=(10.0, 10.0), ppe_factor=0.1,
+            id=99,
+            pos=np.array([30.0, 10.0]),
+            mission_target=(10.0, 10.0),
+            ppe_factor=0.1,
         )
         assert r.credibility == 1.0
         assert r.is_responder
         r.update_physiology(hazard_load=1.0, dt=1.0)
-        assert r.physiology.impairment_level < 0.1 # PPE protects
+        assert r.physiology.impairment_level < 0.1  # PPE protects
 
 
 # -- Social Force Tests --
+
 
 class TestSocialForce:
     def test_adjusted_step_basic(self):
@@ -258,6 +288,7 @@ class TestSocialForce:
 
 # -- Integration Test --
 
+
 class TestSimulationIntegration:
     def _make_simple_sim(self, info_mode="asymmetric"):
         layout = Layout.from_text(
@@ -274,11 +305,17 @@ class TestSimulationIntegration:
             Commuter(id=i, pos=_agent_pos(layout, cell), familiarity=0.5)
             for i, cell in enumerate(layout.people_positions())
         ]
-        config = SimulationConfig(max_steps=50, dt=0.1, random_seed=42, information_mode=info_mode)
+        config = SimulationConfig(
+            max_steps=50, dt=0.1, random_seed=42, information_mode=info_mode
+        )
         sim = Simulation(layout=layout, agents=agents, exits=exits, config=config)
         spatial = SpatialIndex()
         sim.attach_spatial_index(spatial)
-        nav = SmartNavigator(layout, density_fn=spatial.density_penalty_fn(), hazard_fn=sim.hazard_penalty_at_cell)
+        nav = SmartNavigator(
+            layout,
+            density_fn=spatial.density_penalty_fn(),
+            hazard_fn=sim.hazard_penalty_at_cell,
+        )
         sim.attach_navigation(nav)
         sim.attach_behavior_model(BehaviorModel())
         return sim
@@ -303,21 +340,17 @@ class TestSimulationIntegration:
         sim = self._make_simple_sim()
         sim.run()
         step = sim.step_history[-1]
-        assert hasattr(step, 'global_entropy')
+        assert hasattr(step, "global_entropy")
         if step.agents:
             a = step.agents[0]
-            assert hasattr(a, 'entropy')
-            assert hasattr(a, 'belief_accuracy')
-            assert hasattr(a, 'impairment')
-            assert hasattr(a, 'decision_mode')
+            assert hasattr(a, "entropy")
+            assert hasattr(a, "belief_accuracy")
+            assert hasattr(a, "impairment")
+            assert hasattr(a, "decision_mode")
 
     def test_hazard_causes_incapacitation(self):
         layout = Layout.from_text(
-            "XXXXXXXXXX\n"
-            "X..@@@@..X\n"
-            "X........X\n"
-            "X........EX\n"
-            "XXXXXXXXXX\n"
+            "XXXXXXXXXX\n" "X..@@@@..X\n" "X........X\n" "X........EX\n" "XXXXXXXXXX\n"
         )
         exits = [Exit(pos=p) for p in layout.exit_positions()]
         agents = [
@@ -326,10 +359,16 @@ class TestSimulationIntegration:
         ]
         hazards = [Hazard(pos=(4.0, 1.5), kind="GAS", radius=5.0, severity=0.9)]
         config = SimulationConfig(max_steps=200, dt=0.1, random_seed=42)
-        sim = Simulation(layout=layout, agents=agents, exits=exits, hazards=hazards, config=config)
+        sim = Simulation(
+            layout=layout, agents=agents, exits=exits, hazards=hazards, config=config
+        )
         spatial = SpatialIndex()
         sim.attach_spatial_index(spatial)
-        nav = SmartNavigator(layout, density_fn=spatial.density_penalty_fn(), hazard_fn=sim.hazard_penalty_at_cell)
+        nav = SmartNavigator(
+            layout,
+            density_fn=spatial.density_penalty_fn(),
+            hazard_fn=sim.hazard_penalty_at_cell,
+        )
         sim.attach_navigation(nav)
         sim.attach_behavior_model(BehaviorModel())
         sim.run()

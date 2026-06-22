@@ -6,7 +6,9 @@ from pathlib import Path
 from typing import Any
 
 from chiyoda.environment.layout import PERSON, RESPONDER_ENTRY, WALL, Layout
-from chiyoda.scenarios.generated_calibration import apply_generated_population_calibration
+from chiyoda.scenarios.generated_calibration import (
+    apply_generated_population_calibration,
+)
 from chiyoda.scenarios.manager import ScenarioManager
 
 
@@ -57,10 +59,11 @@ class ScenarioValidationResult:
             "exits": [list(cell) for cell in self.exits],
             "starts": self.starts,
             "reachable_cells": [list(cell) for cell in self.reachable_cells],
-            "unreachable_walkable_cells": [list(cell) for cell in self.unreachable_walkable_cells],
+            "unreachable_walkable_cells": [
+                list(cell) for cell in self.unreachable_walkable_cells
+            ],
             "paths": {
-                key: [list(cell) for cell in path]
-                for key, path in self.paths.items()
+                key: [list(cell) for cell in path] for key, path in self.paths.items()
             },
             "issues": [issue.to_dict() for issue in self.issues],
         }
@@ -79,7 +82,9 @@ def validate_scenario_config(
 ) -> ScenarioValidationResult:
     manager = manager or ScenarioManager()
     sc = apply_generated_population_calibration(scenario)
-    layout = manager._build_layout(sc)  # validates the same resolved layout used by runs
+    layout = manager._build_layout(
+        sc
+    )  # validates the same resolved layout used by runs
     exits = layout.exit_positions()
     walkable = _walkable_cells(layout)
     reachable, parent = _reachable_from_exits(layout, exits)
@@ -87,9 +92,15 @@ def validate_scenario_config(
     issues: list[ScenarioValidationIssue] = []
 
     if not walkable:
-        issues.append(ScenarioValidationIssue("error", "no_walkable_cells", "layout has no walkable cells"))
+        issues.append(
+            ScenarioValidationIssue(
+                "error", "no_walkable_cells", "layout has no walkable cells"
+            )
+        )
     if not exits:
-        issues.append(ScenarioValidationIssue("error", "no_exits", "layout has no exit cells"))
+        issues.append(
+            ScenarioValidationIssue("error", "no_exits", "layout has no exit cells")
+        )
 
     for start in starts:
         cell = tuple(start["cell"])
@@ -149,7 +160,9 @@ def validate_scenario_config(
                 "population has no explicit spawn cells; run will use layout @ cells or random walkable cells",
             )
         )
-    responder_count = sum(int(cfg.get("count", 1) or 0) for cfg in sc.get("responders", []) or [])
+    responder_count = sum(
+        int(cfg.get("count", 1) or 0) for cfg in sc.get("responders", []) or []
+    )
     has_responder_starts = any(start["kind"] == "responder" for start in starts)
     if responder_count > 0 and not has_responder_starts:
         issues.append(
@@ -192,7 +205,9 @@ def _walkable_cells(layout: Layout) -> set[Cell]:
     return set(layout.all_walkable_cells())
 
 
-def _reachable_from_exits(layout: Layout, exits: list[Cell]) -> tuple[set[Cell], dict[Cell, Cell | None]]:
+def _reachable_from_exits(
+    layout: Layout, exits: list[Cell]
+) -> tuple[set[Cell], dict[Cell, Cell | None]]:
     reached: set[Cell] = set()
     parent: dict[Cell, Cell | None] = {}
     queue: deque[Cell] = deque()
@@ -216,41 +231,49 @@ def _reachable_from_exits(layout: Layout, exits: list[Cell]) -> tuple[set[Cell],
 def _scenario_starts(scenario: dict[str, Any], layout: Layout) -> list[dict[str, Any]]:
     starts: list[dict[str, Any]] = []
     for cell in _token_cells(layout, PERSON):
-        starts.append({
-            "kind": "spawn",
-            "label": "layout spawn",
-            "source": "layout.@",
-            "cell": list(cell),
-        })
+        starts.append(
+            {
+                "kind": "spawn",
+                "label": "layout spawn",
+                "source": "layout.@",
+                "cell": list(cell),
+            }
+        )
     population = scenario.get("population", {}) or {}
     for cohort in population.get("cohorts", []) or []:
         name = str(cohort.get("name", "cohort"))
         for cell in cohort.get("spawn_cells", []) or []:
             parsed = _parse_cell(cell, layout)
             if parsed is not None:
-                starts.append({
-                    "kind": "spawn",
-                    "label": f"cohort {name} spawn",
-                    "source": f"population.cohorts.{name}.spawn_cells",
-                    "cell": list(parsed),
-                })
+                starts.append(
+                    {
+                        "kind": "spawn",
+                        "label": f"cohort {name} spawn",
+                        "source": f"population.cohorts.{name}.spawn_cells",
+                        "cell": list(parsed),
+                    }
+                )
     for cell in _token_cells(layout, RESPONDER_ENTRY):
-        starts.append({
-            "kind": "responder",
-            "label": "layout responder entry",
-            "source": "layout.R",
-            "cell": list(cell),
-        })
+        starts.append(
+            {
+                "kind": "responder",
+                "label": "layout responder entry",
+                "source": "layout.R",
+                "cell": list(cell),
+            }
+        )
     for index, cfg in enumerate(scenario.get("responders", []) or []):
         for cell in cfg.get("spawn_cells", []) or []:
             parsed = _parse_cell(cell, layout)
             if parsed is not None:
-                starts.append({
-                    "kind": "responder",
-                    "label": f"responder group {index + 1} spawn",
-                    "source": f"responders.{index}.spawn_cells",
-                    "cell": list(parsed),
-                })
+                starts.append(
+                    {
+                        "kind": "responder",
+                        "label": f"responder group {index + 1} spawn",
+                        "source": f"responders.{index}.spawn_cells",
+                        "cell": list(parsed),
+                    }
+                )
     return starts
 
 
@@ -270,7 +293,11 @@ def _parse_cell(value: Any, layout: Layout) -> Cell | None:
 def _in_bounds(layout: Layout, cell: Cell) -> bool:
     floor_id, x, y = layout.cell(cell)
     floor = layout.floors.get(floor_id)
-    return floor is not None and 0 <= x < floor.grid.shape[1] and 0 <= y < floor.grid.shape[0]
+    return (
+        floor is not None
+        and 0 <= x < floor.grid.shape[1]
+        and 0 <= y < floor.grid.shape[0]
+    )
 
 
 def _neighbors(layout: Layout, cell: Cell) -> list[Cell]:

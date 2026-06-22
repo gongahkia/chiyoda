@@ -1,7 +1,11 @@
 from __future__ import annotations
 
 from chiyoda.scenarios.manager import ScenarioManager
-from chiyoda.studies.runner import _materialize_variants, _prepare_scenario, load_study_config
+from chiyoda.studies.runner import (
+    _materialize_variants,
+    _prepare_scenario,
+    load_study_config,
+)
 
 
 def test_regime_robustness_matrix_shape_and_exports():
@@ -43,7 +47,9 @@ def test_regime_robustness_variants_build_scenarios():
     for variant in variants:
         scenario = _prepare_scenario(manager, config.scenario_file, variant, seed=42)
         assert scenario["simulation"]["random_seed"] == 42
-        assert sum(cohort["count"] for cohort in scenario["population"]["cohorts"]) == 120
+        assert (
+            sum(cohort["count"] for cohort in scenario["population"]["cohorts"]) == 120
+        )
         assert len(scenario["hazards"]) == 1
         assert scenario["interventions"]["policy"] in {
             "none",
@@ -88,7 +94,10 @@ def test_openai_llm_pilot_has_cache_populate_and_replay_variants():
     assert openai["interventions"]["llm_cache_mode"] == "cache_first"
     assert replay["interventions"]["llm_provider"] == "replay"
     assert replay["interventions"]["llm_cache_mode"] == "replay_only"
-    assert openai["interventions"]["llm_cache_path"] == replay["interventions"]["llm_cache_path"]
+    assert (
+        openai["interventions"]["llm_cache_path"]
+        == replay["interventions"]["llm_cache_path"]
+    )
 
 
 def test_llm_medium_study_has_prompt_and_validator_ablations():
@@ -167,7 +176,9 @@ def test_llm_regime_robustness_matrix_shape_and_replay_pairing():
         hazards.add(parts[0].replace("hazard_", ""))
         familiarity.add(parts[1].replace("familiarity_", ""))
         scenario = _prepare_scenario(manager, config.scenario_file, variant, seed=42)
-        assert sum(cohort["count"] for cohort in scenario["population"]["cohorts"]) == 120
+        assert (
+            sum(cohort["count"] for cohort in scenario["population"]["cohorts"]) == 120
+        )
         assert len(scenario["hazards"]) == 1
         interventions = scenario["interventions"]
         assert interventions["policy"] == "llm_guidance"

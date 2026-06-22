@@ -79,7 +79,11 @@ def test_validation_reasons_counts_accepted_and_rejected_reasons():
 
     reasons = _validation_reasons(llm)
 
-    assert set(reasons["reason"]) == {"accepted", "invented_exit:(9, 9)", "vague_guidance"}
+    assert set(reasons["reason"]) == {
+        "accepted",
+        "invented_exit:(9, 9)",
+        "vague_guidance",
+    }
 
 
 def test_policy_comparison_keeps_core_metrics():

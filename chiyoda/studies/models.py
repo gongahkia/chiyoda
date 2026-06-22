@@ -132,8 +132,13 @@ TABLE_COLUMNS: dict[str, list[str]] = {
         "mean_density",
     ],
     "dwell_samples": [
-        "study_name", "scenario_name", "variant_name", "seed", "run_id",
-        "zone_id", "dwell_s",
+        "study_name",
+        "scenario_name",
+        "variant_name",
+        "seed",
+        "run_id",
+        "zone_id",
+        "dwell_s",
     ],
     "exits": [
         "study_name",
@@ -164,42 +169,125 @@ TABLE_COLUMNS: dict[str, list[str]] = {
         "severity",
     ],
     "measurements": [
-        "study_name", "scenario_name", "variant_name", "seed", "run_id",
-        "line_name", "step", "time_s", "flow", "density", "speed",
-        "n_crossing", "n_in_region",
+        "study_name",
+        "scenario_name",
+        "variant_name",
+        "seed",
+        "run_id",
+        "line_name",
+        "step",
+        "time_s",
+        "flow",
+        "density",
+        "speed",
+        "n_crossing",
+        "n_in_region",
     ],
     "gossip": [
-        "study_name", "scenario_name", "variant_name", "seed", "run_id",
-        "step", "time_s", "sender_id", "receiver_id", "distance",
+        "study_name",
+        "scenario_name",
+        "variant_name",
+        "seed",
+        "run_id",
+        "step",
+        "time_s",
+        "sender_id",
+        "receiver_id",
+        "distance",
     ],
     "interventions": [
-        "study_name", "scenario_name", "variant_name", "seed", "run_id",
-        "step", "time_s", "policy", "message_type", "target_x", "target_y",
-        "radius", "recipients", "entropy_before", "entropy_after",
-        "entropy_delta", "accuracy_before", "accuracy_after", "accuracy_delta",
-        "mean_local_density", "mean_hazard_load", "peak_queue_length",
-        "selected_reason", "target_score", "objective", "generated_text",
-        "generation_provider", "generation_model", "validation_status",
-        "validation_reasons", "cache_key", "cache_status",
-        "generated_recommended_exits", "generated_avoid_exits",
-        "generated_confidence", "used_fallback",
+        "study_name",
+        "scenario_name",
+        "variant_name",
+        "seed",
+        "run_id",
+        "step",
+        "time_s",
+        "policy",
+        "message_type",
+        "target_x",
+        "target_y",
+        "radius",
+        "recipients",
+        "entropy_before",
+        "entropy_after",
+        "entropy_delta",
+        "accuracy_before",
+        "accuracy_after",
+        "accuracy_delta",
+        "mean_local_density",
+        "mean_hazard_load",
+        "peak_queue_length",
+        "selected_reason",
+        "target_score",
+        "objective",
+        "generated_text",
+        "generation_provider",
+        "generation_model",
+        "validation_status",
+        "validation_reasons",
+        "cache_key",
+        "cache_status",
+        "generated_recommended_exits",
+        "generated_avoid_exits",
+        "generated_confidence",
+        "used_fallback",
     ],
     "llm_decisions": [
-        "study_name", "scenario_name", "variant_name", "seed", "run_id",
-        "step", "time_s", "agent_id", "provider", "model", "cache_key",
-        "cache_status", "validation_status", "validation_reasons",
-        "selected_intent", "target_exit_floor", "target_exit_x",
-        "target_exit_y", "trust_delta", "avoid_congested", "confidence",
-        "rationale", "used_fallback", "objective",
+        "study_name",
+        "scenario_name",
+        "variant_name",
+        "seed",
+        "run_id",
+        "step",
+        "time_s",
+        "agent_id",
+        "provider",
+        "model",
+        "cache_key",
+        "cache_status",
+        "validation_status",
+        "validation_reasons",
+        "selected_intent",
+        "target_exit_floor",
+        "target_exit_x",
+        "target_exit_y",
+        "trust_delta",
+        "avoid_congested",
+        "confidence",
+        "rationale",
+        "used_fallback",
+        "objective",
     ],
     "llm_calls": [
-        "study_name", "scenario_name", "variant_name", "seed", "run_id",
-        "step", "time_s", "surface", "policy", "agent_id", "provider",
-        "model", "cache_key", "cache_status", "validation_status",
-        "validation_reasons", "used_fallback", "objective", "prompt_style",
-        "target_x", "target_y", "estimated_input_tokens",
-        "estimated_output_tokens", "estimated_total_tokens", "estimated_usd",
-        "budget_reason", "raw_input_tokens", "raw_output_tokens",
+        "study_name",
+        "scenario_name",
+        "variant_name",
+        "seed",
+        "run_id",
+        "step",
+        "time_s",
+        "surface",
+        "policy",
+        "agent_id",
+        "provider",
+        "model",
+        "cache_key",
+        "cache_status",
+        "validation_status",
+        "validation_reasons",
+        "used_fallback",
+        "objective",
+        "prompt_style",
+        "target_x",
+        "target_y",
+        "estimated_input_tokens",
+        "estimated_output_tokens",
+        "estimated_total_tokens",
+        "estimated_usd",
+        "budget_reason",
+        "raw_input_tokens",
+        "raw_output_tokens",
         "raw_total_tokens",
     ],
 }
@@ -209,7 +297,9 @@ def _empty_frame() -> pd.DataFrame:
     return pd.DataFrame()
 
 
-def _write_table(frame: pd.DataFrame, directory: Path, name: str, table_format: str) -> None:
+def _write_table(
+    frame: pd.DataFrame, directory: Path, name: str, table_format: str
+) -> None:
     target = directory / f"{name}.{table_format}"
     frame = _with_known_columns(name, frame)
     if table_format == "parquet":
@@ -260,9 +350,17 @@ class StudyBundle:
 
     def __post_init__(self) -> None:
         for table_name in self.tables():
-            setattr(self, table_name, _with_known_columns(table_name, getattr(self, table_name)))
+            setattr(
+                self,
+                table_name,
+                _with_known_columns(table_name, getattr(self, table_name)),
+            )
 
-    def export(self, output_dir: str | Path, table_formats: tuple[str, ...] = ("parquet", "csv")) -> Path:
+    def export(
+        self,
+        output_dir: str | Path,
+        table_formats: tuple[str, ...] = ("parquet", "csv"),
+    ) -> Path:
         out = Path(output_dir)
         tables_dir = out / "tables"
         out.mkdir(parents=True, exist_ok=True)
@@ -327,7 +425,11 @@ class ComparisonResult:
     timeseries: pd.DataFrame
     metrics: pd.DataFrame
 
-    def export(self, output_dir: str | Path, table_formats: tuple[str, ...] = ("parquet", "csv")) -> Path:
+    def export(
+        self,
+        output_dir: str | Path,
+        table_formats: tuple[str, ...] = ("parquet", "csv"),
+    ) -> Path:
         out = Path(output_dir)
         tables_dir = out / "tables"
         out.mkdir(parents=True, exist_ok=True)

@@ -12,7 +12,9 @@ from scripts.audit_llm_cache_usage import (
 )
 
 
-def _write_record(path: Path, *, accepted: bool, input_tokens: int, output_tokens: int) -> None:
+def _write_record(
+    path: Path, *, accepted: bool, input_tokens: int, output_tokens: int
+) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = {
         "cache_key": path.stem,
@@ -37,8 +39,18 @@ def _write_record(path: Path, *, accepted: bool, input_tokens: int, output_token
 
 def test_cache_audit_summarizes_usage_and_validation(tmp_path):
     cache_root = tmp_path / "llm_cache"
-    _write_record(cache_root / "study_a" / "a.json", accepted=True, input_tokens=100, output_tokens=20)
-    _write_record(cache_root / "study_a" / "b.json", accepted=False, input_tokens=200, output_tokens=30)
+    _write_record(
+        cache_root / "study_a" / "a.json",
+        accepted=True,
+        input_tokens=100,
+        output_tokens=20,
+    )
+    _write_record(
+        cache_root / "study_a" / "b.json",
+        accepted=False,
+        input_tokens=200,
+        output_tokens=30,
+    )
 
     records = collect_cache_records(cache_root)
     summary = summarize_cache_records(

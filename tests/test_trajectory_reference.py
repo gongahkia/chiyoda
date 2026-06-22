@@ -89,7 +89,9 @@ def test_compare_trajectory_reference_groups_simulation_variants():
 
 
 def test_ci_trajectory_fixture_loads_and_summarizes():
-    frame = load_trajectory_table("tests/fixtures/trajectories/ci_corridor_reference.csv")
+    frame = load_trajectory_table(
+        "tests/fixtures/trajectories/ci_corridor_reference.csv"
+    )
 
     summary = summarize_trajectory_frame(frame)
 

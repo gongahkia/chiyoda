@@ -14,6 +14,7 @@ Canonical parameters:
     ρ_max  = 5.4  ped/m² (jam density)
     γ      = 1.913       (shape parameter)
 """
+
 from __future__ import annotations
 from dataclasses import dataclass
 from typing import Optional, Tuple
@@ -21,14 +22,17 @@ import numpy as np
 
 
 # canonical Weidmann parameters
-V0_WEIDMANN = 1.34       # free-flow speed (m/s)
-RHO_MAX_WEIDMANN = 5.4   # jam density (ped/m²)
-GAMMA_WEIDMANN = 1.913   # shape parameter
+V0_WEIDMANN = 1.34  # free-flow speed (m/s)
+RHO_MAX_WEIDMANN = 5.4  # jam density (ped/m²)
+GAMMA_WEIDMANN = 1.913  # shape parameter
 
 
-def weidmann_speed(density: np.ndarray, v0: float = V0_WEIDMANN,
-                   rho_max: float = RHO_MAX_WEIDMANN,
-                   gamma: float = GAMMA_WEIDMANN) -> np.ndarray:
+def weidmann_speed(
+    density: np.ndarray,
+    v0: float = V0_WEIDMANN,
+    rho_max: float = RHO_MAX_WEIDMANN,
+    gamma: float = GAMMA_WEIDMANN,
+) -> np.ndarray:
     """
     Weidmann speed-density relationship.
 
@@ -41,13 +45,14 @@ def weidmann_speed(density: np.ndarray, v0: float = V0_WEIDMANN,
     valid = (rho > 0.01) & (rho < rho_max)
     inv_rho = 1.0 / rho[valid] - 1.0 / rho_max
     result[valid] = v0 * (1.0 - np.exp(-gamma * inv_rho))
-    result[rho <= 0.01] = v0 # free flow at near-zero density
+    result[rho <= 0.01] = v0  # free flow at near-zero density
     return result
 
 
 @dataclass
 class FDFitResult:
     """Result of fitting empirical data to Weidmann form."""
+
     v0_fit: float
     gamma_fit: float
     rho_max_fit: float
@@ -62,6 +67,7 @@ class FDFitResult:
 @dataclass
 class FDValidationResult:
     """Result of validating simulation data against Weidmann curve."""
+
     passed: bool
     rmse: float
     max_deviation: float
@@ -94,11 +100,14 @@ def fit_fundamental_diagram(
     if len(rho) < 5:
         fitted = weidmann_speed(rho)
         return FDFitResult(
-            v0_fit=initial_v0, gamma_fit=initial_gamma,
+            v0_fit=initial_v0,
+            gamma_fit=initial_gamma,
             rho_max_fit=initial_rho_max,
-            r_squared=0.0, rmse=float(np.sqrt(np.mean((v - fitted) ** 2))) if len(v) > 0 else 0.0,
+            r_squared=0.0,
+            rmse=float(np.sqrt(np.mean((v - fitted) ** 2))) if len(v) > 0 else 0.0,
             n_points=len(rho),
-            densities=rho, speeds=v,
+            densities=rho,
+            speeds=v,
             fitted_speeds=fitted,
         )
 
@@ -114,7 +123,7 @@ def fit_fundamental_diagram(
             residuals,
             x0=[initial_v0, initial_gamma, initial_rho_max],
             bounds=([0.5, 0.1, 2.0], [3.0, 10.0, 10.0]),
-            method='trf',
+            method="trf",
         )
         v0_fit, gamma_fit, rho_max_fit = result.x
     except (ImportError, Exception):
@@ -127,9 +136,15 @@ def fit_fundamental_diagram(
     rmse = float(np.sqrt(np.mean((v - fitted) ** 2)))
 
     return FDFitResult(
-        v0_fit=v0_fit, gamma_fit=gamma_fit, rho_max_fit=rho_max_fit,
-        r_squared=r_sq, rmse=rmse, n_points=len(rho),
-        densities=rho, speeds=v, fitted_speeds=fitted,
+        v0_fit=v0_fit,
+        gamma_fit=gamma_fit,
+        rho_max_fit=rho_max_fit,
+        r_squared=r_sq,
+        rmse=rmse,
+        n_points=len(rho),
+        densities=rho,
+        speeds=v,
+        fitted_speeds=fitted,
     )
 
 
@@ -155,7 +170,11 @@ def validate_against_weidmann(
     max_dev = float(np.max(deviations)) if len(deviations) > 0 else 0.0
 
     # RMSE against canonical Weidmann (not the fit)
-    rmse_vs_canonical = float(np.sqrt(np.mean((fit.speeds - theoretical) ** 2))) if len(fit.speeds) > 0 else 0.0
+    rmse_vs_canonical = (
+        float(np.sqrt(np.mean((fit.speeds - theoretical) ** 2)))
+        if len(fit.speeds) > 0
+        else 0.0
+    )
 
     passed = rmse_vs_canonical < rmse_threshold
     msg = (
@@ -165,8 +184,12 @@ def validate_against_weidmann(
     )
 
     return FDValidationResult(
-        passed=passed, rmse=rmse_vs_canonical,
-        max_deviation=max_dev, r_squared=fit.r_squared,
-        n_points=fit.n_points, fit=fit,
-        rmse_threshold=rmse_threshold, message=msg,
+        passed=passed,
+        rmse=rmse_vs_canonical,
+        max_deviation=max_dev,
+        r_squared=fit.r_squared,
+        n_points=fit.n_points,
+        fit=fit,
+        rmse_threshold=rmse_threshold,
+        message=msg,
     )

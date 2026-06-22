@@ -25,7 +25,9 @@ def strict_layout_from_geojson(
     add_border_walls: bool = True,
 ) -> dict[str, Any]:
     payload = _load_geojson(source)
-    features = [feature for feature in payload.get("features", []) if isinstance(feature, dict)]
+    features = [
+        feature for feature in payload.get("features", []) if isinstance(feature, dict)
+    ]
     if not features:
         raise ValueError("GeoJSON source must contain features")
 
@@ -39,12 +41,17 @@ def strict_layout_from_geojson(
 
     for floor_id in floor_ids:
         floor_features = [
-            feature for feature in features
+            feature
+            for feature in features
             if floor_id in _feature_levels(feature.get("properties", {}) or {})
             and not _connector_type(feature.get("properties", {}) or {})
         ]
         if not floor_features:
-            floor_features = [_point_feature((bounds[0], bounds[1]), {"role": "walkable", "level": floor_id})]
+            floor_features = [
+                _point_feature(
+                    (bounds[0], bounds[1]), {"role": "walkable", "level": floor_id}
+                )
+            ]
         grid, origin, resolved_cell_size = rasterize_geojson_layout(
             {"type": "FeatureCollection", "features": floor_features},
             cell_size=cell_size,
@@ -53,13 +60,18 @@ def strict_layout_from_geojson(
             add_border_walls=add_border_walls,
             bounds=bounds,
         )
-        rows = [["." if token not in {"X", "E", "@"} else str(token) for token in row] for row in grid.tolist()]
+        rows = [
+            ["." if token not in {"X", "E", "@"} else str(token) for token in row]
+            for row in grid.tolist()
+        ]
         floor_grids[floor_id] = rows
-        floors.append({
-            "id": floor_id,
-            "z": z_by_floor[floor_id],
-            "text": "\n".join("".join(row) for row in rows),
-        })
+        floors.append(
+            {
+                "id": floor_id,
+                "z": z_by_floor[floor_id],
+                "text": "\n".join("".join(row) for row in rows),
+            }
+        )
 
     connectors = []
     for feature in features:
@@ -81,12 +93,24 @@ def strict_layout_from_geojson(
         _mark_walkable(floor_grids[from_floor], source_cell)
         _mark_walkable(floor_grids[to_floor], target_cell)
         connector = {
-            "id": str(properties.get("id", properties.get("pathway_id", properties.get("osm_id", f"{connector_type}_{len(connectors)+1}")))),
+            "id": str(
+                properties.get(
+                    "id",
+                    properties.get(
+                        "pathway_id",
+                        properties.get(
+                            "osm_id", f"{connector_type}_{len(connectors)+1}"
+                        ),
+                    ),
+                )
+            ),
             "type": connector_type,
             "from": {"floor": from_floor, "x": source_cell[0], "y": source_cell[1]},
             "to": {"floor": to_floor, "x": target_cell[0], "y": target_cell[1]},
             "bidirectional": str(properties.get("is_bidirectional", "1")) != "0",
-            "width": float(properties.get("width", properties.get("min_width", 1.0)) or 1.0),
+            "width": float(
+                properties.get("width", properties.get("min_width", 1.0)) or 1.0
+            ),
         }
         if connector_type == "elevator":
             if properties.get("capacity") is not None:
@@ -103,7 +127,9 @@ def strict_layout_from_geojson(
 
     return {
         "cell_size": resolved_cell_size,
-        "origin": [float(origin[0]), float(origin[1])] if origin is not None else [0.0, 0.0],
+        "origin": (
+            [float(origin[0]), float(origin[1])] if origin is not None else [0.0, 0.0]
+        ),
         "floors": floors,
         "connectors": connectors,
     }
@@ -119,7 +145,9 @@ def strict_scenario_from_geojson(
     return {
         "scenario": {
             "name": name,
-            "layout": strict_layout_from_geojson(source, cell_size=cell_size, padding=padding),
+            "layout": strict_layout_from_geojson(
+                source, cell_size=cell_size, padding=padding
+            ),
             "population": {"total": 0},
             "simulation": {"max_steps": 1, "random_seed": 42},
         }
@@ -141,14 +169,22 @@ def _floor_ids(features: list[dict[str, Any]]) -> list[str]:
 
 
 def _feature_levels(properties: Mapping[str, Any]) -> list[str]:
-    raw = properties.get("level", properties.get("level_id", properties.get("floor", "0")))
+    raw = properties.get(
+        "level", properties.get("level_id", properties.get("floor", "0"))
+    )
     return _parse_levels(raw)
 
 
 def _connector_levels(properties: Mapping[str, Any]) -> list[str]:
-    if properties.get("from_level") is not None and properties.get("to_level") is not None:
+    if (
+        properties.get("from_level") is not None
+        and properties.get("to_level") is not None
+    ):
         return [str(properties["from_level"]), str(properties["to_level"])]
-    if properties.get("from_floor") is not None and properties.get("to_floor") is not None:
+    if (
+        properties.get("from_floor") is not None
+        and properties.get("to_floor") is not None
+    ):
         return [str(properties["from_floor"]), str(properties["to_floor"])]
     return _parse_levels(properties.get("level", properties.get("level_id", "")))
 
@@ -159,7 +195,9 @@ def _parse_levels(raw: Any) -> list[str]:
         return []
     if ";" in text:
         return [part.strip() for part in text.split(";") if part.strip()]
-    if "-" in text and all(part.strip().lstrip("-").isdigit() for part in text.split("-", 1)):
+    if "-" in text and all(
+        part.strip().lstrip("-").isdigit() for part in text.split("-", 1)
+    ):
         start, end = [int(part) for part in text.split("-", 1)]
         step = 1 if end >= start else -1
         return [str(value) for value in range(start, end + step, step)]
@@ -203,7 +241,9 @@ def _connector_type(properties: Mapping[str, Any]) -> str | None:
     return None
 
 
-def _line_endpoints(geometry: Mapping[str, Any]) -> tuple[tuple[float, float], tuple[float, float]] | None:
+def _line_endpoints(
+    geometry: Mapping[str, Any],
+) -> tuple[tuple[float, float], tuple[float, float]] | None:
     if geometry.get("type") == "LineString":
         coords = geometry.get("coordinates", [])
         if len(coords) >= 2:
@@ -218,7 +258,9 @@ def _point(value: Any) -> tuple[float, float]:
     return (float(value[0]), float(value[1]))
 
 
-def _point_to_cell(point: tuple[float, float], origin: tuple[float, float], cell_size: float) -> tuple[int, int]:
+def _point_to_cell(
+    point: tuple[float, float], origin: tuple[float, float], cell_size: float
+) -> tuple[int, int]:
     return (
         int(math.floor((point[0] - origin[0]) / cell_size)),
         int(math.floor((point[1] - origin[1]) / cell_size)),
@@ -241,7 +283,9 @@ def _bounds(features: list[dict[str, Any]]) -> tuple[float, float, float, float]
     return min(xs), min(ys), max(xs), max(ys)
 
 
-def _collect_coords(geometry: Mapping[str, Any], xs: list[float], ys: list[float]) -> None:
+def _collect_coords(
+    geometry: Mapping[str, Any], xs: list[float], ys: list[float]
+) -> None:
     coords = geometry.get("coordinates")
     if coords is None:
         return
@@ -258,7 +302,9 @@ def _collect_coords(geometry: Mapping[str, Any], xs: list[float], ys: list[float
                 _collect_coords({"coordinates": item}, xs, ys)
 
 
-def _point_feature(point: tuple[float, float], properties: dict[str, Any]) -> dict[str, Any]:
+def _point_feature(
+    point: tuple[float, float], properties: dict[str, Any]
+) -> dict[str, Any]:
     return {
         "type": "Feature",
         "properties": properties,

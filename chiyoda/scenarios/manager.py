@@ -1,6 +1,7 @@
 """
 Scenario manager — wires up ITED information layer, responders, and multi-hazard system.
 """
+
 from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
@@ -23,15 +24,37 @@ from chiyoda.information.interventions import create_intervention_policy
 from chiyoda.information.warfare import create_hostile_channels
 from chiyoda.navigation.pathfinding import SmartNavigator
 from chiyoda.navigation.spatial_index import SpatialIndex
-from chiyoda.scenarios.generated_calibration import apply_generated_population_calibration
+from chiyoda.scenarios.generated_calibration import (
+    apply_generated_population_calibration,
+)
 
 
 MOBILITY_CLASS_DEFAULTS = {
-    "standard": {"speed_multiplier": 1.0, "vision_multiplier": 1.0, "breathing_height_m": 1.5},
-    "wheelchair": {"speed_multiplier": 0.55, "vision_multiplier": 1.0, "breathing_height_m": 1.1},
-    "walker": {"speed_multiplier": 0.7, "vision_multiplier": 0.95, "breathing_height_m": 1.35},
-    "visual-impairment": {"speed_multiplier": 0.85, "vision_multiplier": 0.45, "breathing_height_m": 1.5},
-    "visual_impairment": {"speed_multiplier": 0.85, "vision_multiplier": 0.45, "breathing_height_m": 1.5},
+    "standard": {
+        "speed_multiplier": 1.0,
+        "vision_multiplier": 1.0,
+        "breathing_height_m": 1.5,
+    },
+    "wheelchair": {
+        "speed_multiplier": 0.55,
+        "vision_multiplier": 1.0,
+        "breathing_height_m": 1.1,
+    },
+    "walker": {
+        "speed_multiplier": 0.7,
+        "vision_multiplier": 0.95,
+        "breathing_height_m": 1.35,
+    },
+    "visual-impairment": {
+        "speed_multiplier": 0.85,
+        "vision_multiplier": 0.45,
+        "breathing_height_m": 1.5,
+    },
+    "visual_impairment": {
+        "speed_multiplier": 0.85,
+        "vision_multiplier": 0.45,
+        "breathing_height_m": 1.5,
+    },
 }
 
 
@@ -57,7 +80,9 @@ class ScenarioManager:
                 scenario["metadata"]["station_provenance"] = provenance
         return scenario
 
-    def load_scenario(self, scenario_file: str, *, overrides=None, random_seed=None) -> Simulation:
+    def load_scenario(
+        self, scenario_file: str, *, overrides=None, random_seed=None
+    ) -> Simulation:
         scenario = self.load_config(scenario_file)
         if overrides:
             scenario = self._deep_merge(scenario, overrides)
@@ -83,9 +108,13 @@ class ScenarioManager:
         agents = self._build_agents(layout, sc.get("population", {}) or {})
 
         # build responders if specified
-        responders = self._build_responders(layout, sc.get("responders", []) or [], len(agents))
+        responders = self._build_responders(
+            layout, sc.get("responders", []) or [], len(agents)
+        )
         agents.extend(responders)
-        hostiles = self._build_hostile_agents(layout, sc.get("hostile_agents", []) or [], len(agents))
+        hostiles = self._build_hostile_agents(
+            layout, sc.get("hostile_agents", []) or [], len(agents)
+        )
         agents.extend(hostiles)
 
         # ITED config
@@ -94,45 +123,72 @@ class ScenarioManager:
             max_steps=int(simulation_cfg.get("max_steps", 500)),
             dt=float(simulation_cfg.get("dt", 0.1)),
             random_seed=random_seed,
-            hazard_avoidance_weight=float(simulation_cfg.get("hazard_avoidance_weight", 1.25)),
-            acceleration_backend=str(simulation_cfg.get("acceleration_backend", "auto")),
-            density_slowdown_scale=float(simulation_cfg.get("density_slowdown_scale", 1.0)),
-            min_crowd_speed_factor=float(simulation_cfg.get("min_crowd_speed_factor", 0.25)),
+            hazard_avoidance_weight=float(
+                simulation_cfg.get("hazard_avoidance_weight", 1.25)
+            ),
+            acceleration_backend=str(
+                simulation_cfg.get("acceleration_backend", "auto")
+            ),
+            density_slowdown_scale=float(
+                simulation_cfg.get("density_slowdown_scale", 1.0)
+            ),
+            min_crowd_speed_factor=float(
+                simulation_cfg.get("min_crowd_speed_factor", 0.25)
+            ),
             information_mode=str(info_cfg.get("mode", "asymmetric")),
             info_decay_rate=float(info_cfg.get("decay_rate", 0.01)),
             observation_radius=float(info_cfg.get("observation_radius", 5.0)),
             gossip_radius=float(info_cfg.get("gossip_radius", 2.0)),
             beacon_radius=float(info_cfg.get("beacon_radius", 8.0)),
         )
-        sim = Simulation(layout=layout, agents=agents, exits=exits, hazards=hazards, config=sim_cfg)
-        population_audit = (sc.get("metadata", {}) or {}).get("generated_population_calibration_audit")
+        sim = Simulation(
+            layout=layout, agents=agents, exits=exits, hazards=hazards, config=sim_cfg
+        )
+        population_audit = (sc.get("metadata", {}) or {}).get(
+            "generated_population_calibration_audit"
+        )
         if population_audit:
-            sim.llm_call_audit.append({
-                "step": None,
-                "time_s": 0.0,
-                "surface": "population_calibration",
-                "policy": "generated_population_calibration",
-                "agent_id": None,
-                "provider": population_audit.get("provider"),
-                "model": population_audit.get("model"),
-                "cache_key": population_audit.get("cache_key"),
-                "cache_status": population_audit.get("cache_status"),
-                "validation_status": population_audit.get("validation_status"),
-                "validation_reasons": ";".join(population_audit.get("validation_reasons", [])),
-                "used_fallback": population_audit.get("validation_status") != "accepted",
-                "objective": (sc.get("generated_population_calibration", {}) or {}).get("objective", ""),
-                "prompt_style": (sc.get("generated_population_calibration", {}) or {}).get("prompt_style", ""),
-                "target_x": None,
-                "target_y": None,
-                "estimated_input_tokens": population_audit.get("estimated_input_tokens", 0),
-                "estimated_output_tokens": population_audit.get("estimated_output_tokens", 0),
-                "estimated_total_tokens": population_audit.get("estimated_total_tokens", 0),
-                "estimated_usd": population_audit.get("estimated_usd", 0.0),
-                "budget_reason": population_audit.get("budget_reason", ""),
-                "raw_input_tokens": population_audit.get("raw_input_tokens", 0),
-                "raw_output_tokens": population_audit.get("raw_output_tokens", 0),
-                "raw_total_tokens": population_audit.get("raw_total_tokens", 0),
-            })
+            sim.llm_call_audit.append(
+                {
+                    "step": None,
+                    "time_s": 0.0,
+                    "surface": "population_calibration",
+                    "policy": "generated_population_calibration",
+                    "agent_id": None,
+                    "provider": population_audit.get("provider"),
+                    "model": population_audit.get("model"),
+                    "cache_key": population_audit.get("cache_key"),
+                    "cache_status": population_audit.get("cache_status"),
+                    "validation_status": population_audit.get("validation_status"),
+                    "validation_reasons": ";".join(
+                        population_audit.get("validation_reasons", [])
+                    ),
+                    "used_fallback": population_audit.get("validation_status")
+                    != "accepted",
+                    "objective": (
+                        sc.get("generated_population_calibration", {}) or {}
+                    ).get("objective", ""),
+                    "prompt_style": (
+                        sc.get("generated_population_calibration", {}) or {}
+                    ).get("prompt_style", ""),
+                    "target_x": None,
+                    "target_y": None,
+                    "estimated_input_tokens": population_audit.get(
+                        "estimated_input_tokens", 0
+                    ),
+                    "estimated_output_tokens": population_audit.get(
+                        "estimated_output_tokens", 0
+                    ),
+                    "estimated_total_tokens": population_audit.get(
+                        "estimated_total_tokens", 0
+                    ),
+                    "estimated_usd": population_audit.get("estimated_usd", 0.0),
+                    "budget_reason": population_audit.get("budget_reason", ""),
+                    "raw_input_tokens": population_audit.get("raw_input_tokens", 0),
+                    "raw_output_tokens": population_audit.get("raw_output_tokens", 0),
+                    "raw_total_tokens": population_audit.get("raw_total_tokens", 0),
+                }
+            )
         sim.attach_wui_egress(self._build_wui_egress(sc, layout))
         sim.destination_profiles = self._build_destination_profiles(sc, layout)
 
@@ -151,7 +207,9 @@ class ScenarioManager:
             density_panic_weight=float(behavior_cfg.get("density_panic_weight", 0.2)),
             neighbor_panic_weight=float(behavior_cfg.get("neighbor_panic_weight", 0.1)),
             hazard_panic_weight=float(behavior_cfg.get("hazard_panic_weight", 0.15)),
-            entropy_anxiety_weight=float(behavior_cfg.get("entropy_anxiety_weight", 0.25)),
+            entropy_anxiety_weight=float(
+                behavior_cfg.get("entropy_anxiety_weight", 0.25)
+            ),
             freeze_probability=float(behavior_cfg.get("freeze_probability", 0.02)),
             calm_recovery_rate=float(behavior_cfg.get("calm_recovery_rate", 0.005)),
             helping_threshold=float(behavior_cfg.get("helping_threshold", 0.7)),
@@ -169,7 +227,9 @@ class ScenarioManager:
     def _build_layout(self, scenario: Dict[str, Any]) -> Layout:
         layout_cfg = scenario.get("layout", {}) or {}
         if "floors" not in layout_cfg:
-            raise ValueError("Strict 3D scenarios must define layout.floors and may not use layout.text/file/grid/geojson/cad")
+            raise ValueError(
+                "Strict 3D scenarios must define layout.floors and may not use layout.text/file/grid/geojson/cad"
+            )
         return Layout.from_floors(
             layout_cfg["floors"],
             connectors=layout_cfg.get("connectors", []) or [],
@@ -177,7 +237,9 @@ class ScenarioManager:
             origin=tuple(layout_cfg.get("origin", (0.0, 0.0))),
         )
 
-    def _build_geojson_layout(self, geojson_cfg: Any, source_file: Optional[str]) -> Layout:
+    def _build_geojson_layout(
+        self, geojson_cfg: Any, source_file: Optional[str]
+    ) -> Layout:
         if isinstance(geojson_cfg, str):
             geojson_cfg = {"file": geojson_cfg}
         if not isinstance(geojson_cfg, dict):
@@ -188,7 +250,8 @@ class ScenarioManager:
                 raise ValueError("layout.geojson requires either file or data")
             source = self._resolve_relative_path(str(geojson_cfg["file"]), source_file)
         return Layout.from_geojson(
-            source, cell_size=float(geojson_cfg.get("cell_size", 1.0)),
+            source,
+            cell_size=float(geojson_cfg.get("cell_size", 1.0)),
             padding=int(geojson_cfg.get("padding", 1)),
             role_property=str(geojson_cfg.get("role_property", "role")),
             default_token=geojson_cfg.get("default_token"),
@@ -209,7 +272,8 @@ class ScenarioManager:
         if cad_format != "dxf":
             raise ValueError("Only DXF CAD ingestion is currently supported")
         return Layout.from_cad(
-            source, cell_size=float(cad_cfg.get("cell_size", 1.0)),
+            source,
+            cell_size=float(cad_cfg.get("cell_size", 1.0)),
             padding=int(cad_cfg.get("padding", 1)),
             role_layers=cad_cfg.get("role_layers"),
             default_role=str(cad_cfg.get("default_role", "obstacle")),
@@ -236,47 +300,88 @@ class ScenarioManager:
                     str(field_cfg["file"]),
                     source_file,
                 )
-                hazards.append(ImportedHazardField.from_file(
-                    path,
-                    kind=str(hc.get("type", field_cfg.get("kind", "GAS"))),
-                ))
+                hazards.append(
+                    ImportedHazardField.from_file(
+                        path,
+                        kind=str(hc.get("type", field_cfg.get("kind", "GAS"))),
+                    )
+                )
                 continue
             wind = hc.get("wind_vector", [0.0, 0.0])
             flow = hc.get("flow_vector", hc.get("flow", [0.0, 0.0]))
-            hazards.append(Hazard(
-                pos=tuple(float(value) for value in hc.get("location", [0, 0, 0])),
-                kind=hc.get("type", "GAS"),
-                radius=float(hc.get("radius", 0.0)),
-                severity=float(hc.get("severity", 0.5)),
-                spread_rate=float(hc.get("spread_rate", 0.0)),
-                wind_vector=(float(wind[0]), float(wind[1])),
-                diffusion_rate=float(hc.get("diffusion_rate", 0.1)),
-                visibility_reduction=float(hc.get("visibility_reduction", 0.0)),
-                range_m=float(hc.get("range", hc.get("range_m", 8.0))),
-                accuracy=float(hc.get("accuracy", 0.35)),
-                height_aware=bool(hc.get("height_aware", False)),
-                layer_base_m=None if hc.get("layer_base_m") is None else float(hc["layer_base_m"]),
-                layer_top_m=None if hc.get("layer_top_m") is None else float(hc["layer_top_m"]),
-                vertical_decay_m=float(hc.get("vertical_decay_m", 1.0)),
-                gas_density=float(hc.get("gas_density", 1.0)),
-                ember_spotting_rate=float(hc.get("ember_spotting_rate", 0.0)),
-                ember_ignition_radius=float(hc.get("ember_ignition_radius", 0.0)),
-                ember_decay_rate=float(hc.get("ember_decay_rate", 0.15)),
-                flow_vector=(float(flow[0]), float(flow[1])),
-                inundation_depth_m=float(hc.get("inundation_depth_m", hc.get("initial_depth_m", 0.0))),
-                inundation_rise_rate_mps=float(hc.get("inundation_rise_rate_mps", hc.get("rise_rate_mps", 0.0))),
-                inundation_decay_rate=float(hc.get("inundation_decay_rate", hc.get("recession_rate", 0.0))),
-                flood_depth_threshold_m=float(hc.get("flood_depth_threshold_m", hc.get("depth_threshold_m", 0.6))),
-                max_depth_m=float(hc.get("max_depth_m", 2.0)),
-                aftershock_schedule=tuple(int(value) for value in hc.get("aftershock_schedule", hc.get("aftershock_steps", [])) or []),
-                aftershock_decay_rate=float(hc.get("aftershock_decay_rate", 0.12)),
-                aftershock_damage_increment=float(hc.get("aftershock_damage_increment", hc.get("terrain_damage_increment", 0.35))),
-                damage_radius=float(hc.get("damage_radius", hc.get("terrain_damage_radius", 0.0))),
-                re_evacuation_radius=float(hc.get("re_evacuation_radius", hc.get("reevacuation_radius", 0.0))),
-            ))
+            hazards.append(
+                Hazard(
+                    pos=tuple(float(value) for value in hc.get("location", [0, 0, 0])),
+                    kind=hc.get("type", "GAS"),
+                    radius=float(hc.get("radius", 0.0)),
+                    severity=float(hc.get("severity", 0.5)),
+                    spread_rate=float(hc.get("spread_rate", 0.0)),
+                    wind_vector=(float(wind[0]), float(wind[1])),
+                    diffusion_rate=float(hc.get("diffusion_rate", 0.1)),
+                    visibility_reduction=float(hc.get("visibility_reduction", 0.0)),
+                    range_m=float(hc.get("range", hc.get("range_m", 8.0))),
+                    accuracy=float(hc.get("accuracy", 0.35)),
+                    height_aware=bool(hc.get("height_aware", False)),
+                    layer_base_m=(
+                        None
+                        if hc.get("layer_base_m") is None
+                        else float(hc["layer_base_m"])
+                    ),
+                    layer_top_m=(
+                        None
+                        if hc.get("layer_top_m") is None
+                        else float(hc["layer_top_m"])
+                    ),
+                    vertical_decay_m=float(hc.get("vertical_decay_m", 1.0)),
+                    gas_density=float(hc.get("gas_density", 1.0)),
+                    ember_spotting_rate=float(hc.get("ember_spotting_rate", 0.0)),
+                    ember_ignition_radius=float(hc.get("ember_ignition_radius", 0.0)),
+                    ember_decay_rate=float(hc.get("ember_decay_rate", 0.15)),
+                    flow_vector=(float(flow[0]), float(flow[1])),
+                    inundation_depth_m=float(
+                        hc.get("inundation_depth_m", hc.get("initial_depth_m", 0.0))
+                    ),
+                    inundation_rise_rate_mps=float(
+                        hc.get("inundation_rise_rate_mps", hc.get("rise_rate_mps", 0.0))
+                    ),
+                    inundation_decay_rate=float(
+                        hc.get("inundation_decay_rate", hc.get("recession_rate", 0.0))
+                    ),
+                    flood_depth_threshold_m=float(
+                        hc.get(
+                            "flood_depth_threshold_m", hc.get("depth_threshold_m", 0.6)
+                        )
+                    ),
+                    max_depth_m=float(hc.get("max_depth_m", 2.0)),
+                    aftershock_schedule=tuple(
+                        int(value)
+                        for value in hc.get(
+                            "aftershock_schedule", hc.get("aftershock_steps", [])
+                        )
+                        or []
+                    ),
+                    aftershock_decay_rate=float(hc.get("aftershock_decay_rate", 0.12)),
+                    aftershock_damage_increment=float(
+                        hc.get(
+                            "aftershock_damage_increment",
+                            hc.get("terrain_damage_increment", 0.35),
+                        )
+                    ),
+                    damage_radius=float(
+                        hc.get("damage_radius", hc.get("terrain_damage_radius", 0.0))
+                    ),
+                    re_evacuation_radius=float(
+                        hc.get(
+                            "re_evacuation_radius", hc.get("reevacuation_radius", 0.0)
+                        )
+                    ),
+                )
+            )
         return hazards
 
-    def _build_hostile_agents(self, layout: Layout, hostile_cfg: List[Dict[str, Any]], agent_offset: int) -> List[HostileAgent]:
+    def _build_hostile_agents(
+        self, layout: Layout, hostile_cfg: List[Dict[str, Any]], agent_offset: int
+    ) -> List[HostileAgent]:
         hostiles: List[HostileAgent] = []
         for i, hc in enumerate(hostile_cfg):
             count = int(hc.get("count", 1))
@@ -287,19 +392,23 @@ class ScenarioManager:
                     cell = self._parse_cell(spawn_cells[j % len(spawn_cells)], layout)
                 else:
                     cell = layout.random_walkable_position()
-                hostiles.append(HostileAgent(
-                    id=agent_offset + len(hostiles),
-                    pos=layout.world_position(cell),
-                    floor_id=cell[0],
-                    base_speed=base_speed,
-                    release_step=int(hc.get("release_step", 0)),
-                    cohort_name=str(hc.get("name", f"hostile_{i+1}")),
-                    range_m=float(hc.get("range", hc.get("range_m", 8.0))),
-                    accuracy=float(hc.get("accuracy", 0.35)),
-                ))
+                hostiles.append(
+                    HostileAgent(
+                        id=agent_offset + len(hostiles),
+                        pos=layout.world_position(cell),
+                        floor_id=cell[0],
+                        base_speed=base_speed,
+                        release_step=int(hc.get("release_step", 0)),
+                        cohort_name=str(hc.get("name", f"hostile_{i+1}")),
+                        range_m=float(hc.get("range", hc.get("range_m", 8.0))),
+                        accuracy=float(hc.get("accuracy", 0.35)),
+                    )
+                )
         return hostiles
 
-    def _build_responders(self, layout: Layout, responders_cfg: List[Dict[str, Any]], agent_offset: int) -> List[FirstResponder]:
+    def _build_responders(
+        self, layout: Layout, responders_cfg: List[Dict[str, Any]], agent_offset: int
+    ) -> List[FirstResponder]:
         responders: List[FirstResponder] = []
         # find responder entry points from layout
         entry_points = layout.responder_positions()
@@ -340,7 +449,9 @@ class ScenarioManager:
                 responders.append(r)
         return responders
 
-    def _build_agents(self, layout: Layout, population_cfg: Dict[str, Any]) -> List[Commuter]:
+    def _build_agents(
+        self, layout: Layout, population_cfg: Dict[str, Any]
+    ) -> List[Commuter]:
         layout_positions = [
             layout.world_position(cell) for cell in layout.people_positions()
         ]
@@ -349,21 +460,33 @@ class ScenarioManager:
 
         if not cohorts_cfg:
             default_total = total or len(layout_positions) or 100
-            cohorts_cfg = [{
-                "name": "baseline", "count": default_total,
-                "personality": "NORMAL", "calmness": 0.8,
-                "base_speed_multiplier": 1.0, "release_step": 0,
-                "group_size": 1, "familiarity": 0.5,
-            }]
+            cohorts_cfg = [
+                {
+                    "name": "baseline",
+                    "count": default_total,
+                    "personality": "NORMAL",
+                    "calmness": 0.8,
+                    "base_speed_multiplier": 1.0,
+                    "release_step": 0,
+                    "group_size": 1,
+                    "familiarity": 0.5,
+                }
+            ]
 
         cohort_total = sum(int(c.get("count", 0)) for c in cohorts_cfg)
         if total and cohort_total < total:
-            cohorts_cfg.append({
-                "name": "supplemental", "count": total - cohort_total,
-                "personality": "NORMAL", "calmness": 0.8,
-                "base_speed_multiplier": 1.0, "release_step": 0,
-                "group_size": 1, "familiarity": 0.5,
-            })
+            cohorts_cfg.append(
+                {
+                    "name": "supplemental",
+                    "count": total - cohort_total,
+                    "personality": "NORMAL",
+                    "calmness": 0.8,
+                    "base_speed_multiplier": 1.0,
+                    "release_step": 0,
+                    "group_size": 1,
+                    "familiarity": 0.5,
+                }
+            )
 
         required = sum(int(c.get("count", 0)) for c in cohorts_cfg)
         positions = list(layout_positions)
@@ -381,19 +504,35 @@ class ScenarioManager:
             count = int(cohort_cfg.get("count", 0))
             personality = str(cohort_cfg.get("personality", "NORMAL"))
             calmness = float(cohort_cfg.get("calmness", 0.8))
-            base_speed = float(cohort_cfg.get("base_speed", cohort_cfg.get("base_speed_mps", 1.34)))
+            base_speed = float(
+                cohort_cfg.get("base_speed", cohort_cfg.get("base_speed_mps", 1.34))
+            )
             base_speed *= float(cohort_cfg.get("base_speed_multiplier", 1.0))
             release_step = int(cohort_cfg.get("release_step", 0))
             group_size = max(1, int(cohort_cfg.get("group_size", 1)))
             spawn_cells = list(cohort_cfg.get("spawn_cells", []) or [])
             familiarity = float(cohort_cfg.get("familiarity", 0.5))
             mobility_class = str(cohort_cfg.get("mobility_class", "standard"))
-            mobility = MOBILITY_CLASS_DEFAULTS.get(mobility_class, MOBILITY_CLASS_DEFAULTS["standard"])
-            base_speed *= float(cohort_cfg.get("mobility_speed_multiplier", mobility["speed_multiplier"]))
+            mobility = MOBILITY_CLASS_DEFAULTS.get(
+                mobility_class, MOBILITY_CLASS_DEFAULTS["standard"]
+            )
+            base_speed *= float(
+                cohort_cfg.get(
+                    "mobility_speed_multiplier", mobility["speed_multiplier"]
+                )
+            )
             base_vision_radius = float(cohort_cfg.get("base_vision_radius", 5.0))
-            base_vision_radius *= float(cohort_cfg.get("mobility_vision_multiplier", mobility["vision_multiplier"]))
-            separation_threshold = float(cohort_cfg.get("separation_anxiety_threshold", 1.5))
-            breathing_height = float(cohort_cfg.get("breathing_height_m", mobility["breathing_height_m"]))
+            base_vision_radius *= float(
+                cohort_cfg.get(
+                    "mobility_vision_multiplier", mobility["vision_multiplier"]
+                )
+            )
+            separation_threshold = float(
+                cohort_cfg.get("separation_anxiety_threshold", 1.5)
+            )
+            breathing_height = float(
+                cohort_cfg.get("breathing_height_m", mobility["breathing_height_m"])
+            )
             homophily_profile = dict(cohort_cfg.get("homophily_profile", {}) or {})
             homophily_weight = float(cohort_cfg.get("homophily_weight", 0.0))
             exit_affinity = float(cohort_cfg.get("exit_affinity", 0.5))
@@ -402,20 +541,29 @@ class ScenarioManager:
             members: List[Commuter] = []
             for _ in range(count):
                 if spawn_cells:
-                    cell = self._parse_cell(spawn_cells[len(members) % len(spawn_cells)], layout)
+                    cell = self._parse_cell(
+                        spawn_cells[len(members) % len(spawn_cells)], layout
+                    )
                     position = layout.world_position(cell)
                 else:
                     position = np.array(positions[pos_idx], copy=True)
                     pos_idx += 1
                     cell = layout.cell(position)
                 agent = Commuter(
-                    id=len(agents), pos=position,
+                    id=len(agents),
+                    pos=position,
                     floor_id=cell[0],
                     base_speed=base_speed,
-                    personality=personality, calmness=calmness,
-                    release_step=release_step, cohort_name=cohort_name,
+                    personality=personality,
+                    calmness=calmness,
+                    release_step=release_step,
+                    cohort_name=cohort_name,
                     familiarity=familiarity,
-                    family_id=None if cohort_cfg.get("family_id") is None else str(cohort_cfg["family_id"]),
+                    family_id=(
+                        None
+                        if cohort_cfg.get("family_id") is None
+                        else str(cohort_cfg["family_id"])
+                    ),
                     role_in_group=str(cohort_cfg.get("role_in_group", "solo")),
                     separation_anxiety_threshold=separation_threshold,
                     mobility_class=mobility_class,
@@ -433,13 +581,15 @@ class ScenarioManager:
 
             if group_size > 1:
                 for start in range(0, len(members), group_size):
-                    grp = members[start:start+group_size]
+                    grp = members[start : start + group_size]
                     if len(grp) <= 1:
                         break
                     leader = grp[0]
                     group_counter += 1
                     leader.group_id = group_counter
-                    leader.family_id = leader.family_id or f"{cohort_name}_{group_counter}"
+                    leader.family_id = (
+                        leader.family_id or f"{cohort_name}_{group_counter}"
+                    )
                     if leader.role_in_group == "solo":
                         leader.role_in_group = "leader"
                     for follower in grp[1:]:
@@ -451,10 +601,12 @@ class ScenarioManager:
 
             cohort_agents[cohort_name] = members
             if cohort_cfg.get("assist_to_cohort"):
-                helper_specs.append({
-                    "helper_cohort": cohort_name,
-                    "dependent_cohort": str(cohort_cfg["assist_to_cohort"]),
-                })
+                helper_specs.append(
+                    {
+                        "helper_cohort": cohort_name,
+                        "dependent_cohort": str(cohort_cfg["assist_to_cohort"]),
+                    }
+                )
 
         for hs in helper_specs:
             helpers = cohort_agents.get(hs["helper_cohort"], [])
@@ -473,8 +625,13 @@ class ScenarioManager:
 
         return agents
 
-    def _build_destination_profiles(self, scenario: Dict[str, Any], layout: Layout) -> Dict[tuple, Dict[str, Any]]:
-        raw_profiles = scenario.get("destination_profiles", scenario.get("exit_profiles", [])) or []
+    def _build_destination_profiles(
+        self, scenario: Dict[str, Any], layout: Layout
+    ) -> Dict[tuple, Dict[str, Any]]:
+        raw_profiles = (
+            scenario.get("destination_profiles", scenario.get("exit_profiles", []))
+            or []
+        )
         profiles: Dict[tuple, Dict[str, Any]] = {}
         for raw in raw_profiles:
             if not isinstance(raw, dict):
@@ -483,23 +640,35 @@ class ScenarioManager:
             if cell_raw is None:
                 continue
             cell = self._parse_cell(cell_raw, layout)
-            profiles[cell] = dict(raw.get("profile", raw.get("homophily_profile", {})) or {})
+            profiles[cell] = dict(
+                raw.get("profile", raw.get("homophily_profile", {})) or {}
+            )
         return profiles
 
-    def _build_wui_egress(self, scenario: Dict[str, Any], layout: Layout) -> List[Dict[str, Any]]:
+    def _build_wui_egress(
+        self, scenario: Dict[str, Any], layout: Layout
+    ) -> List[Dict[str, Any]]:
         cfg = scenario.get("wui_egress", {}) or {}
         segments = []
         for raw in cfg.get("road_segments", []) or []:
-            cells = [self._parse_cell(cell, layout) for cell in raw.get("cells", []) or []]
+            cells = [
+                self._parse_cell(cell, layout) for cell in raw.get("cells", []) or []
+            ]
             if not cells:
                 continue
-            segments.append({
-                "id": str(raw.get("id", f"road_{len(segments) + 1}")),
-                "cells": cells,
-                "mode_switch": str(raw.get("mode_switch", "vehicle")),
-                "speed_multiplier": float(raw.get("speed_multiplier", raw.get("vehicle_speed_multiplier", 3.0))),
-                "capacity": int(raw.get("capacity", 999999)),
-            })
+            segments.append(
+                {
+                    "id": str(raw.get("id", f"road_{len(segments) + 1}")),
+                    "cells": cells,
+                    "mode_switch": str(raw.get("mode_switch", "vehicle")),
+                    "speed_multiplier": float(
+                        raw.get(
+                            "speed_multiplier", raw.get("vehicle_speed_multiplier", 3.0)
+                        )
+                    ),
+                    "capacity": int(raw.get("capacity", 999999)),
+                }
+            )
         return segments
 
     def _apply_agent_calibration(self, agent, config: Dict[str, Any]) -> None:
@@ -514,10 +683,16 @@ class ScenarioManager:
             agent.base_vision_radius = float(config["base_vision_radius"])
             agent.vision_radius = agent.effective_vision_radius()
 
-    def _deep_merge(self, base: Dict[str, Any], overrides: Dict[str, Any]) -> Dict[str, Any]:
+    def _deep_merge(
+        self, base: Dict[str, Any], overrides: Dict[str, Any]
+    ) -> Dict[str, Any]:
         merged = dict(base)
         for key, value in overrides.items():
-            if key in merged and isinstance(merged[key], dict) and isinstance(value, dict):
+            if (
+                key in merged
+                and isinstance(merged[key], dict)
+                and isinstance(value, dict)
+            ):
                 merged[key] = self._deep_merge(merged[key], value)
             else:
                 merged[key] = value
@@ -544,8 +719,16 @@ class ScenarioManager:
             {
                 "id": connector.id,
                 "type": connector.type,
-                "from": {"floor": connector.from_cell[0], "x": connector.from_cell[1], "y": connector.from_cell[2]},
-                "to": {"floor": connector.to_cell[0], "x": connector.to_cell[1], "y": connector.to_cell[2]},
+                "from": {
+                    "floor": connector.from_cell[0],
+                    "x": connector.from_cell[1],
+                    "y": connector.from_cell[2],
+                },
+                "to": {
+                    "floor": connector.to_cell[0],
+                    "x": connector.to_cell[1],
+                    "y": connector.to_cell[2],
+                },
                 "bidirectional": connector.bidirectional,
                 "width": connector.width,
                 "speed_multiplier": connector.speed_multiplier,
@@ -566,7 +749,11 @@ class ScenarioManager:
         for raw in cells:
             floor_id, x, y = layout.cell(raw)
             floor = layout.floors.get(floor_id)
-            if floor is not None and 0 <= y < floor.grid.shape[0] and 0 <= x < floor.grid.shape[1]:
+            if (
+                floor is not None
+                and 0 <= y < floor.grid.shape[0]
+                and 0 <= x < floor.grid.shape[1]
+            ):
                 floor.grid[y, x] = fill
         updated = dict(scenario)
         layout_cfg = dict(scenario.get("layout", {}))

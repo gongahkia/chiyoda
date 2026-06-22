@@ -1,6 +1,7 @@
 """
 Belief-weighted pathfinding for strict multi-floor ITED layouts.
 """
+
 from __future__ import annotations
 
 from typing import Optional
@@ -65,7 +66,9 @@ class SmartNavigator:
             penalty += self.hazard_fn(v)
         return base + penalty
 
-    def _belief_weight(self, u: Cell, v: Cell, attr: dict, hazard_beliefs: list) -> float:
+    def _belief_weight(
+        self, u: Cell, v: Cell, attr: dict, hazard_beliefs: list
+    ) -> float:
         hazard_sig = self._hazard_signature(hazard_beliefs)
         cache_key = (v, hazard_sig)
         cached = self._weight_cache.get(cache_key)
@@ -121,7 +124,12 @@ class SmartNavigator:
                     self.graph,
                     start_cell,
                     goal,
-                    heuristic=lambda a, b: float(np.linalg.norm(self.layout.world_position(a) - self.layout.world_position(b))),
+                    heuristic=lambda a, b: float(
+                        np.linalg.norm(
+                            self.layout.world_position(a)
+                            - self.layout.world_position(b)
+                        )
+                    ),
                     weight=weight_fn,
                 )
                 length = 0.0
@@ -141,7 +149,10 @@ class SmartNavigator:
             return ()
         return tuple(
             (
-                tuple(round(float(value), 2) for value in _belief_position_3d(belief.position)),
+                tuple(
+                    round(float(value), 2)
+                    for value in _belief_position_3d(belief.position)
+                ),
                 round(float(belief.severity_est), 3),
                 round(float(belief.radius_est), 3),
             )
