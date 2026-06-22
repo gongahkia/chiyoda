@@ -1,0 +1,59 @@
+study:
+  name: "LLM Red-Team Sweep"
+  description: "LLM provider drives hostile_channels claim generation under a strict budget guard. Cache replay keeps the run deterministic in CI; live provider use requires CHIYODA_LLM_LIVE=1."
+  scenario_file: "station_sarin.yaml"
+  repetitions: 1
+  seeds: [42, 137]
+  export:
+    profile: "report"
+    formats: ["png"]
+    table_formats: ["parquet", "csv"]
+    include_figures: false
+  variants:
+    - name: "no_hostile_baseline"
+      description: "No hostile channel — establishes the baseline metrics."
+      scenario_overrides:
+        hostile_channels: []
+
+    - name: "llm_red_team_template"
+      description: "Template provider generates decoy-exit claims; cache replay path."
+      scenario_overrides:
+        hostile_channels:
+          - id: "llm_red_team_decoy"
+            channel_type: "gossip"
+            objective: "decoy-exit"
+            budget: 4
+            start_step: 30
+            interval_steps: 25
+            plausibility: 0.7
+            radius: 8.0
+            source_id: "llm_attacker"
+            target_persona:
+              cohort: "tourist"
+            llm_provider: "template"
+            llm_model: "template"
+            llm_cache_path: "out/llm_cache/red_team_template"
+            llm_store_cache: true
+
+    - name: "llm_red_team_persona_split"
+      description: "Two hostile channels with disjoint personas; verifies persona routing under budget guard."
+      scenario_overrides:
+        hostile_channels:
+          - id: "decoy_tourist"
+            channel_type: "gossip"
+            objective: "decoy-exit"
+            budget: 2
+            start_step: 30
+            interval_steps: 25
+            plausibility: 0.7
+            target_persona:
+              cohort: "tourist"
+          - id: "panic_commuter"
+            channel_type: "gossip"
+            objective: "panic-induce"
+            budget: 2
+            start_step: 40
+            interval_steps: 25
+            plausibility: 0.65
+            target_persona:
+              cohort: "commuter"
