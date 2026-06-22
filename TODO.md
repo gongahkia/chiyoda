@@ -1,2 +1,1 @@
-(A) 2026-06-21 Add `CLAUDE.md` to `.gitignore` (line after `.env`) and `rm` the local symlink at repo root so the committed project CLAUDE.md is authoritative; verify `git ls-files | grep CLAUDE.md` returns the tracked file only +Style @config release:v3.1
 (A) 2026-06-21 Commit the working-tree deletion of `TODO.md` *as the replacement step* of this file: new TODO.md content lives here; `git add TODO.md` after editing finishes the housekeeping +Repro @config release:v3.1
