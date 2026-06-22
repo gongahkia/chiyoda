@@ -211,6 +211,30 @@ def benchmark_score(metrics: dict[str, Any]) -> float:
     return float(100.0 * (0.35 * egress + 0.30 * exposure + 0.20 * equity + 0.15 * hci))
 
 
+def composite_v1_causal(
+    intervention_metrics: dict[str, Any],
+    no_intervention_metrics: dict[str, Any],
+) -> dict[str, float]:
+    """Opt-in counterfactual companion to ``benchmark_score``.
+
+    Returns the raw composite scores for both arms plus
+    ``delta_vs_no_intervention``. The delta uses simple matched-pair
+    differencing (mirroring the ``ate`` estimator in
+    ``chiyoda.studies.causal``); positive deltas indicate the
+    intervention arm improves the composite score.
+
+    Callers may pass aggregated dictionaries across seeds; the function
+    is a pure transform and does not refit any model.
+    """
+    treated = benchmark_score(intervention_metrics)
+    baseline = benchmark_score(no_intervention_metrics)
+    return {
+        "composite_v1_treated": treated,
+        "composite_v1_no_intervention": baseline,
+        "delta_vs_no_intervention": treated - baseline,
+    }
+
+
 def generate_reference_trajectories(
     *,
     suite: str = "v1",

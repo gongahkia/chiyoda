@@ -60,3 +60,36 @@ def test_benchmark_spec_artifacts_exist():
 def test_unknown_suite_raises():
     with pytest.raises(ValueError):
         _spec_for_suite("v999")
+
+
+def test_composite_v1_causal_delta_is_positive_for_better_intervention():
+    from chiyoda.studies.benchmark import composite_v1_causal
+
+    treated = {
+        "mean_travel_time_s": 5.0,
+        "p95_hazard_exposure": 0.2,
+        "equity_time_gap_s": 1.0,
+        "harmful_convergence_index_induced": 0.1,
+    }
+    baseline = {
+        "mean_travel_time_s": 30.0,
+        "p95_hazard_exposure": 2.0,
+        "equity_time_gap_s": 8.0,
+        "harmful_convergence_index_induced": 1.5,
+    }
+    result = composite_v1_causal(treated, baseline)
+    assert result["composite_v1_treated"] > result["composite_v1_no_intervention"]
+    assert result["delta_vs_no_intervention"] > 0.0
+
+
+def test_composite_v1_causal_delta_is_zero_when_arms_match():
+    from chiyoda.studies.benchmark import composite_v1_causal
+
+    metrics = {
+        "mean_travel_time_s": 10.0,
+        "p95_hazard_exposure": 0.5,
+        "equity_time_gap_s": 2.0,
+        "harmful_convergence_index_induced": 0.5,
+    }
+    result = composite_v1_causal(metrics, metrics)
+    assert result["delta_vs_no_intervention"] == 0.0
