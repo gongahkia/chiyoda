@@ -68,29 +68,66 @@ class BenchmarkSpec:
         }
 
 
+_BENCHMARK_METRICS_V1 = [
+    "mean_travel_time_s",
+    "p95_hazard_exposure",
+    "equity_time_gap_s",
+    "harmful_convergence_index_induced",
+    "benchmark_score",
+]
+
+_BENCHMARK_ALLOWED_KNOBS_V1 = [
+    "interventions",
+    "information",
+    "behavior",
+    "hostile_channels",
+]
+
+
 def benchmark_spec_v1() -> BenchmarkSpec:
     return BenchmarkSpec(
         suite="v1",
-        metrics=[
-            "mean_travel_time_s",
-            "p95_hazard_exposure",
-            "equity_time_gap_s",
-            "harmful_convergence_index_induced",
-            "benchmark_score",
-        ],
+        metrics=list(_BENCHMARK_METRICS_V1),
         seeds=[42, 137],
         scoring_rule="composite_v1",
-        allowed_knobs=[
-            "interventions",
-            "information",
-            "behavior",
-            "hostile_channels",
-        ],
+        allowed_knobs=list(_BENCHMARK_ALLOWED_KNOBS_V1),
         scenarios=[
             BenchmarkScenario("transit_cbrn", "scenarios/benchmark/transit_cbrn.yaml"),
             BenchmarkScenario("transit_shooter", "scenarios/transit_shooter.yaml"),
             BenchmarkScenario(
                 "transit_mixed", "scenarios/benchmark/transit_mixed.yaml"
+            ),
+        ],
+    )
+
+
+def benchmark_spec_v2() -> BenchmarkSpec:
+    # v2 stresses wildland-urban interface egress in addition to active-shooter
+    return BenchmarkSpec(
+        suite="v2",
+        metrics=list(_BENCHMARK_METRICS_V1),
+        seeds=[42, 137],
+        scoring_rule="composite_v1",
+        allowed_knobs=list(_BENCHMARK_ALLOWED_KNOBS_V1),
+        scenarios=[
+            BenchmarkScenario("wildfire_wui", "scenarios/benchmark/wildfire_wui.yaml"),
+            BenchmarkScenario("transit_shooter", "scenarios/transit_shooter.yaml"),
+        ],
+    )
+
+
+def benchmark_spec_v3() -> BenchmarkSpec:
+    # v3 covers urban flood and earthquake-aftershock re-evacuation
+    return BenchmarkSpec(
+        suite="v3",
+        metrics=list(_BENCHMARK_METRICS_V1),
+        seeds=[42, 137],
+        scoring_rule="composite_v1",
+        allowed_knobs=list(_BENCHMARK_ALLOWED_KNOBS_V1),
+        scenarios=[
+            BenchmarkScenario("flood_urban", "scenarios/benchmark/flood_urban.yaml"),
+            BenchmarkScenario(
+                "quake_aftershock", "scenarios/benchmark/quake_aftershock.yaml"
             ),
         ],
     )
@@ -142,7 +179,7 @@ def submit_policy(
             )
 
     frame = pd.DataFrame(rows)
-    leaderboard = _leaderboard(frame, policy_hash)
+    leaderboard = _leaderboard(frame, policy_hash, suite=spec.suite)
     out = Path(output_dir)
     out.mkdir(parents=True, exist_ok=True)
     frame.to_csv(out / "benchmark_runs.csv", index=False)
@@ -221,15 +258,16 @@ def reproducibility_manifest(spec: BenchmarkSpec, policy_hash: str) -> Dict[str,
 
 
 def write_spec_artifacts() -> None:
-    spec = benchmark_spec_v1()
     root = Path("docs/benchmark")
     root.mkdir(parents=True, exist_ok=True)
-    (root / "benchmark_spec_v1.json").write_text(
-        json.dumps(spec.to_dict(), indent=2) + "\n"
-    )
     (root / "benchmark_spec_v1.schema.json").write_text(
         json.dumps(BenchmarkSpec.json_schema(), indent=2) + "\n"
     )
+    for suite, builder in _SUITE_BUILDERS.items():
+        spec = builder()
+        (root / f"benchmark_spec_{suite}.json").write_text(
+            json.dumps(spec.to_dict(), indent=2) + "\n"
+        )
 
 
 def write_leaderboard_site(leaderboard: Dict[str, Any], output_file: Path) -> Path:
@@ -247,10 +285,12 @@ def write_leaderboard_site(leaderboard: Dict[str, Any], output_file: Path) -> Pa
     return output_file
 
 
-def _leaderboard(frame: pd.DataFrame, policy_hash: str) -> Dict[str, Any]:
+def _leaderboard(
+    frame: pd.DataFrame, policy_hash: str, *, suite: str = "v1"
+) -> Dict[str, Any]:
     mean_score = float(frame["benchmark_score"].mean()) if not frame.empty else 0.0
     return {
-        "suite": "v1",
+        "suite": suite,
         "entries": [
             {
                 "policy_hash": policy_hash,
@@ -283,10 +323,20 @@ def _apply_policy(
     return merged
 
 
+_SUITE_BUILDERS = {
+    "v1": benchmark_spec_v1,
+    "v2": benchmark_spec_v2,
+    "v3": benchmark_spec_v3,
+}
+
+
 def _spec_for_suite(suite: str) -> BenchmarkSpec:
-    if suite != "v1":
-        raise ValueError("Only benchmark suite v1 is available")
-    return benchmark_spec_v1()
+    builder = _SUITE_BUILDERS.get(suite)
+    if builder is None:
+        raise ValueError(
+            f"Unknown benchmark suite: {suite!r}; available: {sorted(_SUITE_BUILDERS)}"
+        )
+    return builder()
 
 
 def _hash_json(value: Any) -> str:

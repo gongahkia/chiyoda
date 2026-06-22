@@ -1,0 +1,31 @@
+{
+  "suite": "v3",
+  "metrics": [
+    "mean_travel_time_s",
+    "p95_hazard_exposure",
+    "equity_time_gap_s",
+    "harmful_convergence_index_induced",
+    "benchmark_score"
+  ],
+  "seeds": [
+    42,
+    137
+  ],
+  "scoring_rule": "composite_v1",
+  "allowed_knobs": [
+    "interventions",
+    "information",
+    "behavior",
+    "hostile_channels"
+  ],
+  "scenarios": [
+    {
+      "name": "flood_urban",
+      "scenario_file": "scenarios/benchmark/flood_urban.yaml"
+    },
+    {
+      "name": "quake_aftershock",
+      "scenario_file": "scenarios/benchmark/quake_aftershock.yaml"
+    }
+  ]
+}
