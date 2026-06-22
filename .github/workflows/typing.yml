@@ -1,0 +1,21 @@
+name: typing baseline
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  mypy-baseline:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: install deps
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt mypy==2.1.0
+      - name: mypy no-regression baseline
+        run: python scripts/check_mypy_baseline.py

@@ -13,7 +13,7 @@ Run from repo root with `.venv` activated:
 
 | Date | mypy version | Files checked | Errors |
 |:--|:--|:--|:--|
-| 2026-06-22 | 2.1.0 | 60 | 389 |
+| 2026-06-22 | 2.1.0 | 63 | 426 |
 
 The baseline is intentionally non-zero. The runtime predates strict typing
 and we are not adopting strict typing project-wide in one commit. New
