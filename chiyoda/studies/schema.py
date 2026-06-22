@@ -139,6 +139,7 @@ class StudyConfig(BaseModel):
     seeds: list[int] = Field(default_factory=list)
     treatment_assignments: dict[int, str] = Field(default_factory=dict)
     repetitions: int = 1
+    jobs: int = 1
     variants: list[StudyVariant] = Field(default_factory=list)
     sweep: list[SweepParameter] = Field(default_factory=list)
     adversarial: AdversarialStudyConfig | None = None
@@ -148,4 +149,6 @@ class StudyConfig(BaseModel):
     def validate_execution(self) -> StudyConfig:
         if self.repetitions < 1:
             raise ValueError("repetitions must be at least 1")
+        if self.jobs < 1:
+            raise ValueError("jobs must be at least 1")
         return self

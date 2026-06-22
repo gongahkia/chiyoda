@@ -160,9 +160,12 @@ def run(scenario_file, out_dir, figure_formats, table_formats, profile, debug):
     help="Table format(s) to export",
 )
 @click.option("--profile", default=None, help="Export profile")
-def sweep(study_file, out_dir, figure_formats, table_formats, profile):
+@click.option("--jobs", default=None, type=int, help="Parallel seed jobs")
+def sweep(study_file, out_dir, figure_formats, table_formats, profile, jobs):
     """Run a study definition with repeated seeds, variants, and sweeps."""
     config = load_study_config(study_file)
+    if jobs is not None:
+        config = config.model_copy(update={"jobs": jobs})
     bundle = run_study(config)
     _export_bundle(
         bundle, out_dir, tuple(figure_formats), tuple(table_formats), profile

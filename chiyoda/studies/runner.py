@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from concurrent.futures import ProcessPoolExecutor
 from copy import deepcopy
 from datetime import UTC, datetime
 from itertools import product
@@ -37,7 +38,6 @@ def run_study(study: str | Path | StudyConfig) -> StudyBundle:
     from chiyoda._logging import log_event
 
     config = _coerce_study_input(study)
-    manager = ScenarioManager()
     variants = _materialize_variants(config)
     log_event(
         None,
@@ -69,7 +69,6 @@ def run_study(study: str | Path | StudyConfig) -> StudyBundle:
     first_exit_labels: dict[str, str] = {}
     first_scenario_metadata: dict[str, Any] = {}
     scenario_name = None
-    analytics = SimulationAnalytics()
 
     run_index = 0
     for variant in variants:
@@ -81,6 +80,7 @@ def run_study(study: str | Path | StudyConfig) -> StudyBundle:
             variant_name=variant.name,
             seed_count=len(seeds),
         )
+        tasks = []
         for seed in seeds:
             run_id = f"{variant.name}__seed_{seed}__run_{run_index + 1}"
             log_event(
@@ -91,42 +91,28 @@ def run_study(study: str | Path | StudyConfig) -> StudyBundle:
                 seed=int(seed),
                 run_id=run_id,
             )
-            prepared = _prepare_scenario(manager, config.scenario_file, variant, seed)
-            simulation = manager.build_simulation(prepared)
-            simulation.run()
-
-            scenario_name = prepared.get("name", Path(config.scenario_file).stem)
-            if first_layout_text is None:
-                first_layout_text = manager.serialize_layout(simulation.layout)
-                first_layout_floors = manager.serialize_layout_floors(simulation.layout)
-                first_layout_connectors = manager.serialize_layout_connectors(
-                    simulation.layout
-                )
-                first_bottlenecks = [
-                    {
-                        "zone_id": zone.zone_id,
-                        "cells": [list(cell) for cell in zone.cells],
-                        "orientation": zone.orientation,
-                        "centroid": list(zone.centroid),
-                    }
-                    for zone in simulation.bottleneck_zones
-                ]
-                first_exit_labels = {
-                    f"{cell[0]},{cell[1]},{cell[2]}": label
-                    for cell, label in simulation.exit_labels.items()
+            tasks.append(
+                {
+                    "scenario_file": config.scenario_file,
+                    "variant": variant.model_dump(),
+                    "seed": int(seed),
+                    "run_id": run_id,
+                    "study_name": config.name,
                 }
-                first_scenario_metadata = dict(prepared.get("metadata", {}) or {})
-
-            run_index += 1
-            tables = _collect_run_tables(
-                simulation=simulation,
-                analytics=analytics,
-                study_name=config.name,
-                scenario_name=scenario_name,
-                variant_name=variant.name,
-                seed=seed,
-                run_id=run_id,
             )
+            run_index += 1
+
+        for result in _execute_study_tasks(tasks, jobs=int(config.jobs)):
+            tables = result["tables"]
+            manifest = result["manifest"]
+            scenario_name = result["scenario_name"]
+            if first_layout_text is None:
+                first_layout_text = result["layout_text"]
+                first_layout_floors = result["layout_floors"]
+                first_layout_connectors = result["layout_connectors"]
+                first_bottlenecks = result["bottleneck_zones"]
+                first_exit_labels = result["exit_labels"]
+                first_scenario_metadata = result["scenario_metadata"]
             summary_frames.append(tables["summary"])
             steps_frames.append(tables["steps"])
             cells_frames.append(tables["cells"])
@@ -141,29 +127,19 @@ def run_study(study: str | Path | StudyConfig) -> StudyBundle:
             intervention_frames.append(tables["interventions"])
             llm_decision_frames.append(tables["llm_decisions"])
             llm_call_frames.append(tables["llm_calls"])
-            runs_manifest.append(
-                {
-                    "run_id": run_id,
-                    "variant_name": variant.name,
-                    "seed": seed,
-                    "treatment_assignment": config.treatment_assignments.get(
-                        seed, variant.name
-                    ),
-                    "acceleration_backend": simulation.acceleration.name,
-                    "requested_acceleration_backend": simulation.acceleration.requested_backend,
-                    "agents_total": len(simulation.agents),
-                    "agents_evacuated": len(simulation.completed_agents),
-                }
+            manifest["treatment_assignment"] = config.treatment_assignments.get(
+                int(manifest["seed"]), manifest["variant_name"]
             )
+            runs_manifest.append(manifest)
             log_event(
                 None,
                 "study.seed_run.end",
                 study_name=config.name,
-                variant_name=variant.name,
-                seed=int(seed),
-                run_id=run_id,
-                steps=int(simulation.current_step),
-                agents_evacuated=len(simulation.completed_agents),
+                variant_name=manifest["variant_name"],
+                seed=int(manifest["seed"]),
+                run_id=manifest["run_id"],
+                steps=int(result["steps"]),
+                agents_evacuated=int(manifest["agents_evacuated"]),
             )
         log_event(
             None,
@@ -382,6 +358,72 @@ def _resolve_seeds(config: StudyConfig, variant: StudyVariant) -> list[int]:
     if config.seeds:
         return list(config.seeds)
     return [42 + index for index in range(config.repetitions)]
+
+
+def _execute_study_tasks(
+    tasks: Sequence[dict[str, Any]],
+    *,
+    jobs: int,
+) -> list[dict[str, Any]]:
+    if jobs <= 1 or len(tasks) <= 1:
+        return [_execute_study_task(task) for task in tasks]
+    with ProcessPoolExecutor(max_workers=jobs) as executor:
+        return list(executor.map(_execute_study_task, tasks))
+
+
+def _execute_study_task(task: dict[str, Any]) -> dict[str, Any]:
+    manager = ScenarioManager()
+    analytics = SimulationAnalytics()
+    variant = StudyVariant.model_validate(task["variant"])
+    seed = int(task["seed"])
+    run_id = str(task["run_id"])
+    study_name = str(task["study_name"])
+    scenario_file = str(task["scenario_file"])
+    prepared = _prepare_scenario(manager, scenario_file, variant, seed)
+    simulation = manager.build_simulation(prepared)
+    simulation.run()
+    scenario_name = prepared.get("name", Path(scenario_file).stem)
+    tables = _collect_run_tables(
+        simulation=simulation,
+        analytics=analytics,
+        study_name=study_name,
+        scenario_name=scenario_name,
+        variant_name=variant.name,
+        seed=seed,
+        run_id=run_id,
+    )
+    exit_labels = {
+        f"{cell[0]},{cell[1]},{cell[2]}": label
+        for cell, label in simulation.exit_labels.items()
+    }
+    return {
+        "tables": tables,
+        "scenario_name": scenario_name,
+        "steps": int(simulation.current_step),
+        "layout_text": manager.serialize_layout(simulation.layout),
+        "layout_floors": manager.serialize_layout_floors(simulation.layout),
+        "layout_connectors": manager.serialize_layout_connectors(simulation.layout),
+        "bottleneck_zones": [
+            {
+                "zone_id": zone.zone_id,
+                "cells": [list(cell) for cell in zone.cells],
+                "orientation": zone.orientation,
+                "centroid": list(zone.centroid),
+            }
+            for zone in simulation.bottleneck_zones
+        ],
+        "exit_labels": exit_labels,
+        "scenario_metadata": dict(prepared.get("metadata", {}) or {}),
+        "manifest": {
+            "run_id": run_id,
+            "variant_name": variant.name,
+            "seed": seed,
+            "acceleration_backend": simulation.acceleration.name,
+            "requested_acceleration_backend": simulation.acceleration.requested_backend,
+            "agents_total": len(simulation.agents),
+            "agents_evacuated": len(simulation.completed_agents),
+        },
+    }
 
 
 def _prepare_scenario(
