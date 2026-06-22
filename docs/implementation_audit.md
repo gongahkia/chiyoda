@@ -66,6 +66,48 @@ Connector support is intentionally simple:
 - Browser authoring can paint any runtime floor and preserves existing
   connectors on export.
 
+## Extended Hazard Runtime
+
+The `Hazard` dataclass in `chiyoda/environment/hazards.py` covers ten kinds
+(`HAZARD_PROFILES` keys: GAS, SMOKE, FIRE, WILDFIRE, EMBER, FLOOD, EARTHQUAKE,
+AFTERSHOCK, CRUSH, SHOOTER). Each shares the spread/advect/diffuse loop in
+`Hazard.step()` but specializes per-kind:
+
+- **WILDFIRE / EMBER (`hazards.py:135-144`)** advect at 15% of wind-vector
+  speed while growing radius linearly with `spread_rate + 0.05 * wind_speed`.
+  `_step_ember_field` samples a Poisson-thinned spotting distribution out to
+  `ember_ignition_radius` and writes ember cell intensities into
+  `self.ember_field`. `_ember_intensity_at` adds the ember contribution to the
+  main hazard intensity so ember fall on a cell makes that cell harmful even
+  outside the parent radius. Ember intensity decays by `ember_decay_rate` each
+  step and zero-clamps below 0.01.
+- **FLOOD (`hazards.py:145-161`)** uses `flow_vector` if set, else
+  `wind_vector`. The hazard radius grows with `spread_rate + diffusion_rate +
+  0.03 * flow_speed`. `inundation_depth_m` rises monotonically toward
+  `max_depth_m` at `inundation_rise_rate_mps`, and `_step_inundation_field`
+  writes per-cell depth to `self.inundation_field`. Depth-aware intensity is
+  fused into `intensity_at` so deeper cells are more hazardous regardless of
+  Euclidean distance to the seed.
+- **EARTHQUAKE / AFTERSHOCK (`hazards.py:162-164`, `397-446`)** decay
+  `shock_intensity` by `aftershock_decay_rate * dt` and consume the integer
+  step schedule in `aftershock_schedule`. Each pulse calls
+  `simulation.apply_terrain_damage(center, radius, damage)` to permanently
+  damage walkable cells, then `simulation.trigger_re_evacuation_wave(center,
+  re_evacuation_radius)` to nudge agents inside the wave radius to refresh
+  their evacuation intent. Each pulse appends an event row to
+  `simulation.aftershock_events` for telemetry.
+- **SHOOTER (`hazards.py:70-75`, `177`)** uses a fixed effective radius
+  `range_m` (default 8 m) rather than the spreading `radius`. Profile
+  `speed_decay` is low but `rationality_decay` is high, so impact is mostly on
+  cognition and route choice; agents in cone-of-fire pay accuracy-weighted
+  exposure. `intensity_at` substitutes `range_m` for `radius` only when
+  `kind.upper() == "SHOOTER"`.
+
+These hazards expose the same `intensity_at(point)`, `to_dict()`, and
+`from_dict()` surfaces as the stylized GAS/SMOKE/FIRE/CRUSH set, so study
+exports, telemetry, viewer overlays, and assertion checks treat them
+uniformly.
+
 ## High-Impact Gaps
 
 - Scenario authoring still exports a minimal runnable YAML, not a source-
