@@ -74,7 +74,23 @@ def run_study(study: str | Path | StudyConfig) -> StudyBundle:
     run_index = 0
     for variant in variants:
         seeds = _resolve_seeds(config, variant)
+        log_event(
+            None,
+            "study.variant.start",
+            study_name=config.name,
+            variant_name=variant.name,
+            seed_count=len(seeds),
+        )
         for seed in seeds:
+            run_id = f"{variant.name}__seed_{seed}__run_{run_index + 1}"
+            log_event(
+                None,
+                "study.seed_run.start",
+                study_name=config.name,
+                variant_name=variant.name,
+                seed=int(seed),
+                run_id=run_id,
+            )
             prepared = _prepare_scenario(manager, config.scenario_file, variant, seed)
             simulation = manager.build_simulation(prepared)
             simulation.run()
@@ -101,7 +117,6 @@ def run_study(study: str | Path | StudyConfig) -> StudyBundle:
                 }
                 first_scenario_metadata = dict(prepared.get("metadata", {}) or {})
 
-            run_id = f"{variant.name}__seed_{seed}__run_{run_index + 1}"
             run_index += 1
             tables = _collect_run_tables(
                 simulation=simulation,
@@ -140,6 +155,23 @@ def run_study(study: str | Path | StudyConfig) -> StudyBundle:
                     "agents_evacuated": len(simulation.completed_agents),
                 }
             )
+            log_event(
+                None,
+                "study.seed_run.end",
+                study_name=config.name,
+                variant_name=variant.name,
+                seed=int(seed),
+                run_id=run_id,
+                steps=int(simulation.current_step),
+                agents_evacuated=len(simulation.completed_agents),
+            )
+        log_event(
+            None,
+            "study.variant.end",
+            study_name=config.name,
+            variant_name=variant.name,
+            seed_count=len(seeds),
+        )
 
     summary = _concat(summary_frames)
     summary = pd.concat([summary, _aggregate_summary(summary)], ignore_index=True)
@@ -186,6 +218,14 @@ def run_study(study: str | Path | StudyConfig) -> StudyBundle:
         "runs": runs_manifest,
         "representative_run_id": runs_manifest[0]["run_id"] if runs_manifest else None,
     }
+
+    log_event(
+        None,
+        "study.run.complete",
+        study_name=config.name,
+        run_count=len(runs_manifest),
+        variant_count=len(variants),
+    )
 
     return StudyBundle(
         metadata=metadata,

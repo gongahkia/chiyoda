@@ -805,8 +805,19 @@ class Simulation:
             self._bootstrap_telemetry()
 
     def step(self) -> None:
+        from chiyoda._logging import log_event
+
         self._ensure_bootstrapped()
         dt = self.config.dt
+        step_start = int(self.current_step)
+        log_event(
+            None,
+            "simulation.step.start",
+            step=step_start,
+            time_s=float(self.time_s),
+            active_agents=len(self._active_agents()),
+            completed_agents=len(self.completed_agents),
+        )
 
         # evolve hazards
         for hz in self.hazards:
@@ -920,6 +931,17 @@ class Simulation:
             )
         self._capture_step_telemetry(
             exit_flow_step=exit_flow_step, bottleneck_metrics=bn_metrics
+        )
+        log_event(
+            None,
+            "simulation.step.end",
+            step=int(self.current_step),
+            time_s=float(self.time_s),
+            active_agents=len(self._active_agents()),
+            completed_agents=len(self.completed_agents),
+            risk_events=len(self.risk_events),
+            intervention_events=len(self.intervention_events),
+            hostile_channel_events=len(self.hostile_channel_events),
         )
 
     def _process_connector_queues(self) -> None:
