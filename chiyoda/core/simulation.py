@@ -1137,7 +1137,15 @@ class Simulation:
         )
 
     def run(self, visualize: bool = False, visualizer=None) -> None:
+        from chiyoda._logging import log_event
+
         self._ensure_bootstrapped()
+        log_event(
+            None,
+            "simulation.run.start",
+            max_steps=self.config.max_steps,
+            agent_count=len(self.agents),
+        )
         for _ in range(self.config.max_steps):
             if all(
                 a.has_evacuated
@@ -1149,6 +1157,14 @@ class Simulation:
             self.step()
             if visualize and visualizer is not None:
                 visualizer.on_step(self)
+        log_event(
+            None,
+            "simulation.run.end",
+            steps=int(getattr(self, "current_step", 0)),
+            evacuated=int(
+                sum(1 for a in self.agents if getattr(a, "has_evacuated", False))
+            ),
+        )
 
     def live_state(self) -> dict[str, Any]:
         self._ensure_bootstrapped()

@@ -34,9 +34,17 @@ def load_study_config(path: str | Path) -> StudyConfig:
 
 
 def run_study(study: str | Path | StudyConfig) -> StudyBundle:
+    from chiyoda._logging import log_event
+
     config = _coerce_study_input(study)
     manager = ScenarioManager()
     variants = _materialize_variants(config)
+    log_event(
+        None,
+        "study.run.start",
+        scenario_file=str(getattr(config, "scenario_file", "")),
+        variant_count=len(variants),
+    )
 
     summary_frames: list[pd.DataFrame] = []
     steps_frames: list[pd.DataFrame] = []
