@@ -9,15 +9,15 @@ behind the same interface later without changing replayed runs.
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, field
 import hashlib
 import json
 import os
+from collections.abc import Sequence
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
+from typing import Any
 from urllib import request as urlrequest
 from urllib.error import HTTPError, URLError
-from typing import Any, Dict, List, Optional, Sequence, Tuple
-
 
 Cell = tuple
 Point = tuple
@@ -54,22 +54,22 @@ class LLMMessageRequest:
 class GeneratedEvacuationMessage:
     message_type: str = "route_guidance"
     text: str = ""
-    recommended_exits: List[Cell] = field(default_factory=list)
-    avoid_exits: List[Cell] = field(default_factory=list)
-    hazard_positions: List[Point] = field(default_factory=list)
-    radius: Optional[float] = None
-    credibility: Optional[float] = None
+    recommended_exits: list[Cell] = field(default_factory=list)
+    avoid_exits: list[Cell] = field(default_factory=list)
+    hazard_positions: list[Point] = field(default_factory=list)
+    radius: float | None = None
+    credibility: float | None = None
     confidence: float = 0.0
     abstain: bool = False
     provider: str = "deterministic"
     model: str = "template"
-    raw_response: Dict[str, Any] = field(default_factory=dict)
+    raw_response: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
 class ValidationResult:
     accepted: bool
-    reasons: List[str] = field(default_factory=list)
+    reasons: list[str] = field(default_factory=list)
 
     @property
     def status(self) -> str:
@@ -92,7 +92,7 @@ class LLMGenerationRecord:
     message: GeneratedEvacuationMessage
     validation: ValidationResult
 
-    def to_json_dict(self) -> Dict[str, Any]:
+    def to_json_dict(self) -> dict[str, Any]:
         return {
             "cache_key": self.cache_key,
             "request": _to_jsonable(self.request),
@@ -101,7 +101,7 @@ class LLMGenerationRecord:
         }
 
     @classmethod
-    def from_json_dict(cls, payload: Dict[str, Any]) -> "LLMGenerationRecord":
+    def from_json_dict(cls, payload: dict[str, Any]) -> LLMGenerationRecord:
         request_payload = payload["request"]
         message_payload = payload["message"]
         validation_payload = payload["validation"]
@@ -178,9 +178,9 @@ class LLMBudgetCheck:
 
 @dataclass
 class LLMBudgetGuard:
-    max_calls: Optional[int] = None
-    max_estimated_tokens: Optional[int] = None
-    max_estimated_usd: Optional[float] = None
+    max_calls: int | None = None
+    max_estimated_tokens: int | None = None
+    max_estimated_usd: float | None = None
     input_usd_per_mtok: float = 0.0
     output_usd_per_mtok: float = 0.0
     calls_used: int = 0
@@ -242,7 +242,7 @@ class LLMMessageCache:
         )
         return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
-    def load(self, key: str) -> Optional[LLMGenerationRecord]:
+    def load(self, key: str) -> LLMGenerationRecord | None:
         record_path = self.path / f"{key}.json"
         if not record_path.exists():
             return None
@@ -321,9 +321,9 @@ class OpenAIResponsesGenerator(LLMMessageGenerator):
 
     def __init__(
         self,
-        model: Optional[str] = None,
+        model: str | None = None,
         *,
-        api_key: Optional[str] = None,
+        api_key: str | None = None,
         timeout_s: float = 30.0,
         endpoint: str = "https://api.openai.com/v1/responses",
     ) -> None:
@@ -410,9 +410,9 @@ class AnthropicMessagesGenerator(LLMMessageGenerator):
 
     def __init__(
         self,
-        model: Optional[str] = None,
+        model: str | None = None,
         *,
-        api_key: Optional[str] = None,
+        api_key: str | None = None,
         timeout_s: float = 30.0,
         endpoint: str = "https://api.anthropic.com/v1/messages",
         api_version: str = DEFAULT_ANTHROPIC_VERSION,
@@ -509,10 +509,10 @@ def validate_generated_message(
     max_radius: float,
     base_credibility: float,
     congested_exits: Sequence[Cell] = (),
-    settings: Optional[ValidatorSettings] = None,
+    settings: ValidatorSettings | None = None,
 ) -> ValidationResult:
     settings = settings or ValidatorSettings()
-    reasons: List[str] = []
+    reasons: list[str] = []
     known_exit_set = {tuple(exit_) for exit_ in known_exits}
     recommended_set = {tuple(exit_) for exit_ in message.recommended_exits}
     avoid_set = {tuple(exit_) for exit_ in message.avoid_exits}
@@ -627,7 +627,7 @@ def build_prompt_instructions(prompt_style: str) -> str:
     return f"{base} {variants.get(prompt_style, variants['safety'])}"
 
 
-def _prompt_payload(request: LLMMessageRequest) -> Dict[str, Any]:
+def _prompt_payload(request: LLMMessageRequest) -> dict[str, Any]:
     payload = _to_jsonable(request)
     if request.prompt_style == "minimal":
         return {
@@ -671,7 +671,7 @@ def _prompt_payload(request: LLMMessageRequest) -> Dict[str, Any]:
     return payload
 
 
-def load_openai_api_key(env_path: Path | str = ".env") -> Optional[str]:
+def load_openai_api_key(env_path: Path | str = ".env") -> str | None:
     names = ("OPENAI_API_KEY", "OPENAI-API-KEY", "OPEN-AI-API-KEY")
     for name in names:
         value = os.environ.get(name)
@@ -692,7 +692,7 @@ def load_openai_model(
     return _load_env_file_value(env_path, ("OPENAI_MODEL",)) or default
 
 
-def load_anthropic_api_key(env_path: Path | str = ".env") -> Optional[str]:
+def load_anthropic_api_key(env_path: Path | str = ".env") -> str | None:
     names = ("ANTHROPIC_API_KEY", "ANTHROPIC-API-KEY")
     for name in names:
         value = os.environ.get(name)
@@ -711,7 +711,7 @@ def load_anthropic_model(
     return _load_env_file_value(env_path, ("ANTHROPIC_MODEL",)) or default
 
 
-def _load_env_file_value(env_path: Path | str, names: Sequence[str]) -> Optional[str]:
+def _load_env_file_value(env_path: Path | str, names: Sequence[str]) -> str | None:
     path = Path(env_path)
     if not path.exists():
         return None
@@ -776,10 +776,10 @@ def _to_jsonable(value: Any) -> Any:
     return value
 
 
-def _extract_response_text(payload: Dict[str, Any]) -> str:
+def _extract_response_text(payload: dict[str, Any]) -> str:
     if isinstance(payload.get("output_text"), str):
         return payload["output_text"]
-    chunks: List[str] = []
+    chunks: list[str] = []
     for item in payload.get("output", []):
         for content in item.get("content", []):
             if isinstance(content.get("text"), str):
@@ -787,8 +787,8 @@ def _extract_response_text(payload: Dict[str, Any]) -> str:
     return "\n".join(chunks)
 
 
-def _extract_anthropic_text(payload: Dict[str, Any]) -> str:
-    chunks: List[str] = []
+def _extract_anthropic_text(payload: dict[str, Any]) -> str:
+    chunks: list[str] = []
     for item in payload.get("content", []):
         if isinstance(item.get("text"), str):
             chunks.append(item["text"])
@@ -815,7 +815,7 @@ def estimate_llm_cost(
     ) * float(output_usd_per_mtok)
 
 
-def raw_usage_tokens(raw_response: Dict[str, Any]) -> Dict[str, int]:
+def raw_usage_tokens(raw_response: dict[str, Any]) -> dict[str, int]:
     usage = raw_response.get("usage") if isinstance(raw_response, dict) else {}
     usage = usage if isinstance(usage, dict) else {}
     input_tokens = int(
@@ -838,7 +838,7 @@ def raw_usage_tokens(raw_response: Dict[str, Any]) -> Dict[str, int]:
     }
 
 
-def _parse_json_object(text: str) -> Optional[Dict[str, Any]]:
+def _parse_json_object(text: str) -> dict[str, Any] | None:
     stripped = text.strip()
     if stripped.startswith("```"):
         stripped = stripped.strip("`")
@@ -851,8 +851,8 @@ def _parse_json_object(text: str) -> Optional[Dict[str, Any]]:
     return payload if isinstance(payload, dict) else None
 
 
-def _parse_cells(value: Any) -> List[Cell]:
-    cells: List[Cell] = []
+def _parse_cells(value: Any) -> list[Cell]:
+    cells: list[Cell] = []
     if not isinstance(value, list):
         return cells
     for item in value:
@@ -879,8 +879,8 @@ def _parse_cells(value: Any) -> List[Cell]:
     return cells
 
 
-def _parse_points(value: Any) -> List[Point]:
-    points: List[Point] = []
+def _parse_points(value: Any) -> list[Point]:
+    points: list[Point] = []
     if not isinstance(value, list):
         return points
     for item in value:

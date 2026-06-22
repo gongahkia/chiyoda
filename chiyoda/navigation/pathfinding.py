@@ -4,8 +4,6 @@ Belief-weighted pathfinding for strict multi-floor ITED layouts.
 
 from __future__ import annotations
 
-from typing import Optional
-
 import networkx as nx
 import numpy as np
 
@@ -20,7 +18,7 @@ class SmartNavigator:
         self.graph = self._build_graph(layout)
         self.density_fn = density_fn
         self.hazard_fn = hazard_fn
-        self._path_cache: dict[tuple, Optional[list[Cell]]] = {}
+        self._path_cache: dict[tuple, list[Cell] | None] = {}
         self._weight_cache: dict[tuple, float] = {}
 
     def clear_cache(self) -> None:
@@ -96,8 +94,8 @@ class SmartNavigator:
         self,
         start,
         goals,
-        hazard_beliefs: Optional[list] = None,
-    ) -> Optional[list[Cell]]:
+        hazard_beliefs: list | None = None,
+    ) -> list[Cell] | None:
         start_cell = self.layout.cell(start)
         goal_cells = [self.layout.cell(goal) for goal in goals]
         cache_key = (
@@ -133,7 +131,7 @@ class SmartNavigator:
                     weight=weight_fn,
                 )
                 length = 0.0
-                for u, v in zip(path[:-1], path[1:]):
+                for u, v in zip(path[:-1], path[1:], strict=False):
                     attr = self.graph[u][v]
                     length += weight_fn(u, v, attr)
                 if length < best_len:
@@ -144,7 +142,7 @@ class SmartNavigator:
         self._path_cache[cache_key] = list(best) if best is not None else None
         return best
 
-    def _hazard_signature(self, hazard_beliefs: Optional[list]) -> tuple:
+    def _hazard_signature(self, hazard_beliefs: list | None) -> tuple:
         if hazard_beliefs is None:
             return ()
         return tuple(

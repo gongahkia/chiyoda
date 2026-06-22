@@ -13,7 +13,7 @@ writing (agents update beliefs from direct observation or gossip).
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 import numpy as np
 
@@ -46,19 +46,19 @@ class HazardBelief:
 class BeliefVector:
     """Complete belief state for one agent."""
 
-    exit_beliefs: Dict[tuple, ExitBelief] = field(default_factory=dict)
-    hazard_beliefs: List[HazardBelief] = field(default_factory=list)
+    exit_beliefs: dict[tuple, ExitBelief] = field(default_factory=dict)
+    hazard_beliefs: list[HazardBelief] = field(default_factory=list)
     general_danger_level: float = 0.0  # perceived overall danger [0,1]
     information_age_s: float = 0.0  # time since last info update
     last_update_step: int = 0
 
-    def known_exits(self) -> List[tuple]:
+    def known_exits(self) -> list[tuple]:
         """Return exits the agent believes exist (p > 0.5)."""
         return [
             pos for pos, belief in self.exit_beliefs.items() if belief.exists_prob > 0.5
         ]
 
-    def best_exit(self) -> Optional[tuple]:
+    def best_exit(self) -> tuple | None:
         """Return exit with highest probability and lowest congestion."""
         candidates = [
             (pos, b) for pos, b in self.exit_beliefs.items() if b.exists_prob > 0.5
@@ -73,7 +73,7 @@ class BeliefVector:
         )
         return candidates[0][0]
 
-    def perceived_hazard_at(self, pos: Tuple[float, ...]) -> float:
+    def perceived_hazard_at(self, pos: tuple[float, ...]) -> float:
         """Estimated hazard intensity at a position based on beliefs."""
         intensity = 0.0
         for hb in self.hazard_beliefs:
@@ -110,15 +110,15 @@ class InformationField:
         self.beacon_radius = beacon_radius
         self.gossip_radius = gossip_radius
 
-        self.ground_truth_exits: List[tuple] = []  # actual exit positions
-        self.beacons: List[tuple] = []  # signage/PA positions
-        self.beacon_exit_info: Dict[tuple, List[tuple]] = {}  # what each beacon knows
-        self.exit_world_positions: Dict[tuple, tuple] = {}
+        self.ground_truth_exits: list[tuple] = []  # actual exit positions
+        self.beacons: list[tuple] = []  # signage/PA positions
+        self.beacon_exit_info: dict[tuple, list[tuple]] = {}  # what each beacon knows
+        self.exit_world_positions: dict[tuple, tuple] = {}
 
     def set_ground_truth(
         self,
-        exits: List[tuple],
-        beacons: Optional[List[tuple]] = None,
+        exits: list[tuple],
+        beacons: list[tuple] | None = None,
     ) -> None:
         """Initialize field with actual environment state."""
         self.ground_truth_exits = list(exits)
@@ -129,10 +129,10 @@ class InformationField:
 
     def create_agent_beliefs(
         self,
-        agent_pos: Tuple[float, ...],
+        agent_pos: tuple[float, ...],
         familiarity: float = 0.0,
         *,
-        known_exits: Optional[List[tuple]] = None,
+        known_exits: list[tuple] | None = None,
     ) -> BeliefVector:
         """
         Create initial belief vector for an agent.
@@ -166,9 +166,9 @@ class InformationField:
     def observe(
         self,
         agent_beliefs: BeliefVector,
-        agent_pos: Tuple[float, ...],
+        agent_pos: tuple[float, ...],
         vision_radius: float,
-        exits: List[tuple],
+        exits: list[tuple],
         hazards: list,
         current_step: int,
     ) -> None:
@@ -223,7 +223,7 @@ class InformationField:
     def beacon_broadcast(
         self,
         agent_beliefs: BeliefVector,
-        agent_pos: Tuple[float, ...],
+        agent_pos: tuple[float, ...],
     ) -> None:
         """Agent receives info from nearby beacons (signage/PA)."""
         for beacon_pos in self.beacons:

@@ -5,13 +5,13 @@ import json
 import math
 import re
 import zipfile
+from collections.abc import Iterable
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
 import numpy as np
 import pandas as pd
-
 
 TASK_ID_RE = re.compile(
     r"^(?:\d+_)?L-([WNE])([SML])([01])_R-([WNE])([SML])([01])(?:_.+)?$"
@@ -181,7 +181,10 @@ def fit_route_choice_priors(
     train_probability_model = _predict_probability(x_train, weights)
     coefficients = {"intercept": float(weights[0])}
     coefficients.update(
-        {name: float(value) for name, value in zip(FEATURE_NAMES, weights[1:])}
+        {
+            name: float(value)
+            for name, value in zip(FEATURE_NAMES, weights[1:], strict=False)
+        }
     )
     fit = RouteChoiceFit(
         source={
@@ -200,8 +203,14 @@ def fit_route_choice_priors(
         feature_names=FEATURE_NAMES,
         coefficients=coefficients,
         standardization={
-            "mean": {name: float(value) for name, value in zip(FEATURE_NAMES, means)},
-            "scale": {name: float(value) for name, value in zip(FEATURE_NAMES, scales)},
+            "mean": {
+                name: float(value)
+                for name, value in zip(FEATURE_NAMES, means, strict=False)
+            },
+            "scale": {
+                name: float(value)
+                for name, value in zip(FEATURE_NAMES, scales, strict=False)
+            },
         },
         metrics={
             "train_log_loss": _log_loss(y_train, train_probability_model),

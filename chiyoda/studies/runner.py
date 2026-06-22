@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 from copy import deepcopy
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from itertools import product
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Sequence
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -17,7 +18,6 @@ from chiyoda.studies.schema import (
     InterventionConfig,
     StudyConfig,
     StudyVariant,
-    SweepParameter,
 )
 
 
@@ -38,28 +38,28 @@ def run_study(study: str | Path | StudyConfig) -> StudyBundle:
     manager = ScenarioManager()
     variants = _materialize_variants(config)
 
-    summary_frames: List[pd.DataFrame] = []
-    steps_frames: List[pd.DataFrame] = []
-    cells_frames: List[pd.DataFrame] = []
-    agent_steps_frames: List[pd.DataFrame] = []
-    agents_frames: List[pd.DataFrame] = []
-    bottlenecks_frames: List[pd.DataFrame] = []
-    dwell_frames: List[pd.DataFrame] = []
-    exits_frames: List[pd.DataFrame] = []
-    hazards_frames: List[pd.DataFrame] = []
-    measurements_frames: List[pd.DataFrame] = []
-    gossip_frames: List[pd.DataFrame] = []
-    intervention_frames: List[pd.DataFrame] = []
-    llm_decision_frames: List[pd.DataFrame] = []
-    llm_call_frames: List[pd.DataFrame] = []
-    runs_manifest: List[Dict[str, Any]] = []
+    summary_frames: list[pd.DataFrame] = []
+    steps_frames: list[pd.DataFrame] = []
+    cells_frames: list[pd.DataFrame] = []
+    agent_steps_frames: list[pd.DataFrame] = []
+    agents_frames: list[pd.DataFrame] = []
+    bottlenecks_frames: list[pd.DataFrame] = []
+    dwell_frames: list[pd.DataFrame] = []
+    exits_frames: list[pd.DataFrame] = []
+    hazards_frames: list[pd.DataFrame] = []
+    measurements_frames: list[pd.DataFrame] = []
+    gossip_frames: list[pd.DataFrame] = []
+    intervention_frames: list[pd.DataFrame] = []
+    llm_decision_frames: list[pd.DataFrame] = []
+    llm_call_frames: list[pd.DataFrame] = []
+    runs_manifest: list[dict[str, Any]] = []
 
     first_layout_text = None
-    first_layout_floors: List[Dict[str, Any]] = []
-    first_layout_connectors: List[Dict[str, Any]] = []
-    first_bottlenecks: List[Dict[str, Any]] = []
-    first_exit_labels: Dict[str, str] = {}
-    first_scenario_metadata: Dict[str, Any] = {}
+    first_layout_floors: list[dict[str, Any]] = []
+    first_layout_connectors: list[dict[str, Any]] = []
+    first_bottlenecks: list[dict[str, Any]] = []
+    first_exit_labels: dict[str, str] = {}
+    first_scenario_metadata: dict[str, Any] = {}
     scenario_name = None
     analytics = SimulationAnalytics()
 
@@ -141,7 +141,7 @@ def run_study(study: str | Path | StudyConfig) -> StudyBundle:
         "description": config.description,
         "scenario_file": config.scenario_file,
         "scenario_name": scenario_name or Path(config.scenario_file).stem,
-        "created_at_utc": datetime.now(timezone.utc).isoformat(),
+        "created_at_utc": datetime.now(UTC).isoformat(),
         "export_config": config.export.model_dump(),
         "acceleration_backend": (
             runs_manifest[0]["acceleration_backend"] if runs_manifest else "python"
@@ -220,7 +220,7 @@ def compare_studies(
         and column not in {"run_count", "seed"}
     ]
 
-    metrics_rows: List[Dict[str, Any]] = []
+    metrics_rows: list[dict[str, Any]] = []
     for metric in numeric_cols:
         baseline_value = float(baseline_summary[metric])
         variant_value = float(variant_summary[metric])
@@ -255,7 +255,7 @@ def compare_studies(
     metadata = {
         "baseline_study_name": baseline_bundle.metadata.get("study_name"),
         "variant_study_name": variant_bundle.metadata.get("study_name"),
-        "created_at_utc": datetime.now(timezone.utc).isoformat(),
+        "created_at_utc": datetime.now(UTC).isoformat(),
     }
 
     return ComparisonResult(
@@ -285,14 +285,14 @@ def _coerce_study_input(study: str | Path | StudyConfig) -> StudyConfig:
     )
 
 
-def _materialize_variants(config: StudyConfig) -> List[StudyVariant]:
+def _materialize_variants(config: StudyConfig) -> list[StudyVariant]:
     variants = list(config.variants)
 
     if config.sweep:
         for combo in product(*[parameter.values for parameter in config.sweep]):
-            scenario_overrides: Dict[str, Any] = {}
-            labels: List[str] = []
-            for parameter, value in zip(config.sweep, combo):
+            scenario_overrides: dict[str, Any] = {}
+            labels: list[str] = []
+            for parameter, value in zip(config.sweep, combo, strict=False):
                 _set_nested_value(scenario_overrides, parameter.path, value)
                 token = parameter.label or parameter.path.split(".")[-1]
                 labels.append(f"{token}_{value}")
@@ -308,7 +308,7 @@ def _materialize_variants(config: StudyConfig) -> List[StudyVariant]:
         idx = config.adversarial.hostile_channel_index
         for budget in config.adversarial.attacker_budget:
             for policy in config.adversarial.defender_policy:
-                scenario_overrides: Dict[str, Any] = {}
+                scenario_overrides: dict[str, Any] = {}
                 _set_nested_value(
                     scenario_overrides, f"hostile_channels.{idx}.budget", int(budget)
                 )
@@ -328,7 +328,7 @@ def _materialize_variants(config: StudyConfig) -> List[StudyVariant]:
     return variants
 
 
-def _resolve_seeds(config: StudyConfig, variant: StudyVariant) -> List[int]:
+def _resolve_seeds(config: StudyConfig, variant: StudyVariant) -> list[int]:
     if variant.seeds:
         return list(variant.seeds)
     if config.seeds:
@@ -341,7 +341,7 @@ def _prepare_scenario(
     scenario_file: str,
     variant: StudyVariant,
     seed: int,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     scenario = deepcopy(manager.load_config(scenario_file))
     if variant.scenario_overrides:
         scenario = manager._deep_merge(scenario, deepcopy(variant.scenario_overrides))
@@ -354,9 +354,9 @@ def _prepare_scenario(
 
 def _apply_intervention(
     manager: ScenarioManager,
-    scenario: Dict[str, Any],
+    scenario: dict[str, Any],
     intervention: InterventionConfig,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     updated = deepcopy(scenario)
 
     if intervention.type in {"corridor_narrowing", "block_cells"}:
@@ -407,8 +407,8 @@ def _apply_intervention(
 
 
 def _ensure_population_cohorts(
-    manager: ScenarioManager, scenario: Dict[str, Any]
-) -> Dict[str, Any]:
+    manager: ScenarioManager, scenario: dict[str, Any]
+) -> dict[str, Any]:
     updated = deepcopy(scenario)
     population = updated.setdefault("population", {})
     if population.get("cohorts"):
@@ -431,7 +431,7 @@ def _ensure_population_cohorts(
     return updated
 
 
-def _set_nested_value(target: Dict[str, Any], path: str, value: Any) -> None:
+def _set_nested_value(target: dict[str, Any], path: str, value: Any) -> None:
     parts = path.split(".")
     cursor: Any = target
     for index, part in enumerate(parts):
@@ -468,20 +468,20 @@ def _collect_run_tables(
     variant_name: str,
     seed: int,
     run_id: str,
-) -> Dict[str, pd.DataFrame]:
-    steps_rows: List[Dict[str, Any]] = []
-    cells_rows: List[Dict[str, Any]] = []
-    agent_step_rows: List[Dict[str, Any]] = []
-    exit_rows: List[Dict[str, Any]] = []
-    bottleneck_rows: List[Dict[str, Any]] = []
-    hazard_rows: List[Dict[str, Any]] = []
-    agent_rows: List[Dict[str, Any]] = []
-    dwell_rows: List[Dict[str, Any]] = []
-    measurement_rows: List[Dict[str, Any]] = []
-    gossip_rows: List[Dict[str, Any]] = []
-    intervention_rows: List[Dict[str, Any]] = []
-    llm_decision_rows: List[Dict[str, Any]] = []
-    llm_call_rows: List[Dict[str, Any]] = []
+) -> dict[str, pd.DataFrame]:
+    steps_rows: list[dict[str, Any]] = []
+    cells_rows: list[dict[str, Any]] = []
+    agent_step_rows: list[dict[str, Any]] = []
+    exit_rows: list[dict[str, Any]] = []
+    bottleneck_rows: list[dict[str, Any]] = []
+    hazard_rows: list[dict[str, Any]] = []
+    agent_rows: list[dict[str, Any]] = []
+    dwell_rows: list[dict[str, Any]] = []
+    measurement_rows: list[dict[str, Any]] = []
+    gossip_rows: list[dict[str, Any]] = []
+    intervention_rows: list[dict[str, Any]] = []
+    llm_decision_rows: list[dict[str, Any]] = []
+    llm_call_rows: list[dict[str, Any]] = []
 
     for step in simulation.step_history:
         steps_rows.append(
@@ -884,7 +884,7 @@ def _aggregate_summary(summary: pd.DataFrame) -> pd.DataFrame:
         if pd.api.types.is_numeric_dtype(run_rows[column]) and column not in {"seed"}
     ]
 
-    aggregate_rows: List[Dict[str, Any]] = []
+    aggregate_rows: list[dict[str, Any]] = []
     for variant_name, group in run_rows.groupby("variant_name", sort=False):
         row = {
             "study_name": group["study_name"].iloc[0],

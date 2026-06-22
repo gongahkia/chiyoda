@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from typing import List
 import numpy as np
 from scipy.spatial import cKDTree
 
@@ -11,10 +10,10 @@ class SpatialIndex:
     def __init__(self) -> None:
         self.tree: cKDTree | None = None
         self._positions: np.ndarray | None = None
-        self._agents: List[object] = []
+        self._agents: list[object] = []
         self._density_penalty_cache: dict[tuple, float] = {}
 
-    def update(self, agents: List[object]) -> None:
+    def update(self, agents: list[object]) -> None:
         self._agents = [a for a in agents if not getattr(a, "has_evacuated", False)]
         self._density_penalty_cache.clear()
         coords = [a.pos for a in self._agents]
@@ -26,7 +25,7 @@ class SpatialIndex:
         else:
             self.tree = None
 
-    def find_neighbors(self, pos: np.ndarray, radius: float) -> List[int]:
+    def find_neighbors(self, pos: np.ndarray, radius: float) -> list[int]:
         if self.tree is None or self._positions is None or len(self._positions) == 0:
             return []
         idxs = self.tree.query_ball_point(pos, r=radius)
@@ -49,7 +48,7 @@ class SpatialIndex:
         mask = np.linalg.norm(points - pos, axis=1) > 1e-6
         return points[mask]
 
-    def neighbor_agents(self, pos: np.ndarray, radius: float = 1.0) -> List[object]:
+    def neighbor_agents(self, pos: np.ndarray, radius: float = 1.0) -> list[object]:
         if self.tree is None or self._positions is None or len(self._positions) == 0:
             return []
         idxs = self.find_neighbors(pos, radius=radius)

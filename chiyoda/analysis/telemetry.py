@@ -6,8 +6,11 @@ impairment, and decision mode fields.
 """
 
 from __future__ import annotations
+
+from collections.abc import Iterable
 from dataclasses import dataclass, field
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Any
+
 import numpy as np
 
 Cell = tuple
@@ -16,9 +19,9 @@ Cell = tuple
 @dataclass(frozen=True)
 class BottleneckZone:
     zone_id: str
-    cells: Tuple[Cell, ...]
+    cells: tuple[Cell, ...]
     orientation: str
-    centroid: Tuple[float, ...]
+    centroid: tuple[float, ...]
 
 
 @dataclass
@@ -35,22 +38,22 @@ class BottleneckStepTelemetry:
 @dataclass
 class AgentStepTelemetry:
     agent_id: int
-    position: Tuple[float, ...]
+    position: tuple[float, ...]
     cell: Cell
     state: str
     speed: float
     local_density: float
-    target_exit: Optional[Cell]
+    target_exit: Cell | None
     cohort_name: str
-    group_id: Optional[int]
-    leader_id: Optional[int]
-    family_id: Optional[str]
+    group_id: int | None
+    leader_id: int | None
+    family_id: str | None
     role_in_group: str
     mobility_class: str
     evacuation_mode: str
     hazard_exposure: float
     hazard_load: float
-    trail: Tuple[Tuple[float, ...], ...] = field(default_factory=tuple)
+    trail: tuple[tuple[float, ...], ...] = field(default_factory=tuple)
     # ITED fields
     entropy: float = 0.0
     belief_accuracy: float = 1.0
@@ -66,12 +69,12 @@ class StepTelemetry:
     density_grid: np.ndarray
     speed_grid: np.ndarray
     path_usage_grid: np.ndarray
-    floor_grids: Dict[str, Dict[str, np.ndarray]]
-    agents: List[AgentStepTelemetry]
-    exit_flow_cumulative: Dict[str, int]
-    exit_flow_step: Dict[str, int]
-    bottlenecks: Dict[str, BottleneckStepTelemetry]
-    hazards: List[Dict[str, Any]]
+    floor_grids: dict[str, dict[str, np.ndarray]]
+    agents: list[AgentStepTelemetry]
+    exit_flow_cumulative: dict[str, int]
+    exit_flow_step: dict[str, int]
+    bottlenecks: dict[str, BottleneckStepTelemetry]
+    hazards: list[dict[str, Any]]
     evacuated_total: int
     remaining: int
     pending_release: int
@@ -79,15 +82,15 @@ class StepTelemetry:
     mean_density: float
     # ITED fields
     global_entropy: float = 0.0
-    connector_flow: Dict[str, float] = field(default_factory=dict)
-    connector_capacity: Dict[str, int] = field(default_factory=dict)
-    connector_queue_length: Dict[str, int] = field(default_factory=dict)
-    connector_capacity_used: Dict[str, int] = field(default_factory=dict)
+    connector_flow: dict[str, float] = field(default_factory=dict)
+    connector_capacity: dict[str, int] = field(default_factory=dict)
+    connector_queue_length: dict[str, int] = field(default_factory=dict)
+    connector_capacity_used: dict[str, int] = field(default_factory=dict)
 
 
-def _walkable_neighbors(layout, cell: Cell) -> List[Cell]:
+def _walkable_neighbors(layout, cell: Cell) -> list[Cell]:
     floor_id, x, y = layout.cell(cell)
-    neighbors: List[Cell] = []
+    neighbors: list[Cell] = []
     for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
         nx, ny = x + dx, y + dy
         candidate = (floor_id, nx, ny)
@@ -108,7 +111,7 @@ def _local_openness(layout, cell: Cell) -> int:
     return openness
 
 
-def _corridor_orientation(neighbors: List[Cell], cell: Cell) -> Optional[str]:
+def _corridor_orientation(neighbors: list[Cell], cell: Cell) -> str | None:
     floor_id, x, y = cell
     if len(neighbors) == 1:
         _, nx, ny = neighbors[0]
@@ -124,8 +127,8 @@ def _corridor_orientation(neighbors: List[Cell], cell: Cell) -> Optional[str]:
     return None
 
 
-def detect_bottleneck_zones(layout) -> List[BottleneckZone]:
-    candidates: List[Tuple[Cell, str]] = []
+def detect_bottleneck_zones(layout) -> list[BottleneckZone]:
+    candidates: list[tuple[Cell, str]] = []
     exit_cells = set(layout.exit_positions())
     for floor_id, floor in layout.floors.items():
         for y in range(floor.grid.shape[0]):
@@ -144,11 +147,11 @@ def detect_bottleneck_zones(layout) -> List[BottleneckZone]:
         return []
     orientation_by_cell = {cell: o for cell, o in candidates}
     remaining = {cell for cell, _ in candidates}
-    zones: List[BottleneckZone] = []
+    zones: list[BottleneckZone] = []
     while remaining:
         start = min(remaining)
         stack = [start]
-        group: List[Cell] = []
+        group: list[Cell] = []
         orientation = orientation_by_cell[start]
         remaining.remove(start)
         while stack:
@@ -178,8 +181,8 @@ def detect_bottleneck_zones(layout) -> List[BottleneckZone]:
     return zones
 
 
-def zone_lookup(zones: Iterable[BottleneckZone]) -> Dict[Cell, str]:
-    lookup: Dict[Cell, str] = {}
+def zone_lookup(zones: Iterable[BottleneckZone]) -> dict[Cell, str]:
+    lookup: dict[Cell, str] = {}
     for zone in zones:
         for cell in zone.cells:
             lookup[cell] = zone.zone_id

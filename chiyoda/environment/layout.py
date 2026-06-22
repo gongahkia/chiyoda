@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Any, Iterable, List, Mapping, Tuple
+from collections.abc import Iterable, Mapping
+from dataclasses import dataclass
+from typing import Any
 
 import numpy as np
-
 
 WALL = "X"
 PERSON = "@"
@@ -14,7 +14,7 @@ BEACON = "S"  # signage / PA system
 VENTILATION = "V"  # ventilation source (affects hazard advection)
 RESPONDER_ENTRY = "R"  # first responder entry point
 
-Cell = Tuple[str, int, int]
+Cell = tuple[str, int, int]
 
 
 @dataclass(frozen=True)
@@ -51,7 +51,7 @@ class Layout:
         self,
         grid: np.ndarray | None = None,
         *,
-        origin: Tuple[float, float] = (0.0, 0.0),
+        origin: tuple[float, float] = (0.0, 0.0),
         cell_size: float = 1.0,
         floors: Mapping[str, Floor | Mapping[str, Any] | np.ndarray] | None = None,
         connectors: Iterable[Connector | Mapping[str, Any]] | None = None,
@@ -104,7 +104,7 @@ class Layout:
         floor_id: str = "0",
         z: float = 0.0,
         cell_height_m: float | None = None,
-    ) -> "Layout":
+    ) -> Layout:
         lines = [list(line.rstrip("\n")) for line in text.splitlines() if line.strip()]
         if not lines:
             raise ValueError("Layout text must contain at least one non-empty row")
@@ -126,8 +126,8 @@ class Layout:
         )
 
     @classmethod
-    def from_file(cls, path: str, *, floor_id: str = "0", z: float = 0.0) -> "Layout":
-        with open(path, "r") as handle:
+    def from_file(cls, path: str, *, floor_id: str = "0", z: float = 0.0) -> Layout:
+        with open(path) as handle:
             return cls.from_text(handle.read(), floor_id=floor_id, z=z)
 
     @classmethod
@@ -137,8 +137,8 @@ class Layout:
         *,
         connectors: Iterable[Mapping[str, Any]] | None = None,
         cell_size: float = 1.0,
-        origin: Tuple[float, float] = (0.0, 0.0),
-    ) -> "Layout":
+        origin: tuple[float, float] = (0.0, 0.0),
+    ) -> Layout:
         parsed: dict[str, Floor] = {}
         for floor in floors:
             floor_id = str(floor.get("id", floor.get("level", "")))
@@ -175,7 +175,7 @@ class Layout:
         role_property: str = "role",
         default_token: str | None = None,
         add_border_walls: bool = False,
-    ) -> "Layout":
+    ) -> Layout:
         from chiyoda.environment.obstacles import rasterize_geojson_layout
 
         grid, origin, resolved_cell_size = rasterize_geojson_layout(
@@ -200,7 +200,7 @@ class Layout:
         default_token: str | None = None,
         add_border_walls: bool = False,
         line_thickness: float = 1.0,
-    ) -> "Layout":
+    ) -> Layout:
         from chiyoda.environment.obstacles import rasterize_dxf_layout
 
         grid, origin, resolved_cell_size = rasterize_dxf_layout(
@@ -303,33 +303,35 @@ class Layout:
             return False
         return floor.grid[y, x] == EXIT
 
-    def positions_for_token(self, token: str) -> List[Cell]:
+    def positions_for_token(self, token: str) -> list[Cell]:
         cells: list[Cell] = []
         for floor_id, floor in self.floors.items():
             ys, xs = np.where(floor.grid == token)
             cells.extend(
-                (floor_id, int(x), int(y)) for x, y in zip(xs.tolist(), ys.tolist())
+                (floor_id, int(x), int(y))
+                for x, y in zip(xs.tolist(), ys.tolist(), strict=False)
             )
         return cells
 
-    def people_positions(self) -> List[Cell]:
+    def people_positions(self) -> list[Cell]:
         return self.positions_for_token(PERSON)
 
-    def responder_positions(self) -> List[Cell]:
+    def responder_positions(self) -> list[Cell]:
         return self.positions_for_token(RESPONDER_ENTRY)
 
-    def exit_positions(self) -> List[Cell]:
+    def exit_positions(self) -> list[Cell]:
         return self.positions_for_token(EXIT)
 
-    def beacon_positions(self) -> List[Cell]:
+    def beacon_positions(self) -> list[Cell]:
         return self.positions_for_token(BEACON)
 
-    def all_walkable_cells(self) -> List[Cell]:
+    def all_walkable_cells(self) -> list[Cell]:
         cells: list[Cell] = []
         for floor_id, floor in self.floors.items():
             ys, xs = np.where(floor.grid != WALL)
             cells.extend(
-                (floor_id, int(x), int(y)) for x, y in zip(xs.tolist(), ys.tolist())
+                (floor_id, int(x), int(y))
+                for x, y in zip(xs.tolist(), ys.tolist(), strict=False)
             )
         return cells
 
@@ -362,7 +364,7 @@ class Layout:
                 edges.append((connector.to_cell, connector.from_cell, connector))
         return edges
 
-    def clone(self) -> "Layout":
+    def clone(self) -> Layout:
         return Layout(
             floors={
                 key: Floor(

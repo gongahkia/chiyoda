@@ -2,13 +2,12 @@ from __future__ import annotations
 
 import json
 
-import pytest
 import yaml
 
 from chiyoda.information.llm import (
     AnthropicMessagesGenerator,
-    LLMMessageRequest,
     HazardSnapshot,
+    LLMMessageRequest,
 )
 from chiyoda.scenarios.generated_calibration import (
     apply_generated_population_calibration,

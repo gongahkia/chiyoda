@@ -11,7 +11,7 @@ import argparse
 import json
 import shutil
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pandas as pd
@@ -269,7 +269,7 @@ def main() -> int:
         "description": config.description,
         "scenario_file": config.scenario_file,
         "scenario_name": scenario_name or Path(config.scenario_file).stem,
-        "created_at_utc": datetime.now(timezone.utc).isoformat(),
+        "created_at_utc": datetime.now(UTC).isoformat(),
         "export_config": config.export.model_dump(),
         "acceleration_backend": (
             runs_manifest[0]["acceleration_backend"] if runs_manifest else "python"

@@ -10,6 +10,7 @@ Proper SFM implementation with:
 """
 
 from __future__ import annotations
+
 import numpy as np
 
 # SFM parameters (Helbing & Molnar 1995, calibrated)

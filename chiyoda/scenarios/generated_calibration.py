@@ -1,11 +1,12 @@
 from __future__ import annotations
 
-from copy import deepcopy
-from dataclasses import asdict, dataclass, field
 import hashlib
 import json
+from collections.abc import Mapping, Sequence
+from copy import deepcopy
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
+from typing import Any
 from urllib import request as urlrequest
 from urllib.error import HTTPError, URLError
 
@@ -20,7 +21,6 @@ from chiyoda.information.llm import (
     load_openai_model,
     raw_usage_tokens,
 )
-
 
 ALLOWED_TARGETS = {"cohort_mix", "parameter_priors", "scenario_metadata"}
 DEFAULT_ALLOWED_TARGETS = ("parameter_priors", "scenario_metadata")
@@ -58,25 +58,25 @@ class PopulationCalibrationConfig:
     enabled: bool = False
     provider: str = "template"
     model: str = "template"
-    cache_path: Optional[str] = None
+    cache_path: str | None = None
     cache_mode: str = "cache_first"
     store_cache: bool = True
-    allowed_targets: Tuple[str, ...] = DEFAULT_ALLOWED_TARGETS
+    allowed_targets: tuple[str, ...] = DEFAULT_ALLOWED_TARGETS
     objective: str = "document_population_assumptions"
     prompt_style: str = "conservative"
     overwrite_policy: str = OVERWRITE_POLICY
     min_confidence: float = 0.2
-    persona_conditions: Tuple[str, ...] = ()
-    max_calls_per_run: Optional[int] = None
-    max_estimated_tokens_per_run: Optional[int] = None
-    max_estimated_usd_per_run: Optional[float] = None
+    persona_conditions: tuple[str, ...] = ()
+    max_calls_per_run: int | None = None
+    max_estimated_tokens_per_run: int | None = None
+    max_estimated_usd_per_run: float | None = None
     input_usd_per_mtok: float = 0.0
     output_usd_per_mtok: float = 0.0
 
     @classmethod
     def from_mapping(
-        cls, payload: Optional[Mapping[str, Any]]
-    ) -> "PopulationCalibrationConfig":
+        cls, payload: Mapping[str, Any] | None
+    ) -> PopulationCalibrationConfig:
         data = dict(payload or {})
         allowed = tuple(
             str(item) for item in data.get("allowed_targets", DEFAULT_ALLOWED_TARGETS)
@@ -133,32 +133,32 @@ class PopulationCalibrationRequest:
     scenario_name: str
     objective: str
     prompt_style: str
-    allowed_targets: Tuple[str, ...]
-    population_total: Optional[int]
-    existing_cohorts: Tuple[Dict[str, Any], ...]
+    allowed_targets: tuple[str, ...]
+    population_total: int | None
+    existing_cohorts: tuple[dict[str, Any], ...]
     hazard_count: int
     responder_count: int
-    metadata_keys: Tuple[str, ...] = ()
-    persona_conditions: Tuple[str, ...] = ()
+    metadata_keys: tuple[str, ...] = ()
+    persona_conditions: tuple[str, ...] = ()
 
 
 @dataclass
 class GeneratedPopulationCalibration:
-    cohorts: List[Dict[str, Any]] = field(default_factory=list)
-    parameter_priors: Dict[str, Dict[str, float]] = field(default_factory=dict)
-    scenario_metadata: Dict[str, Any] = field(default_factory=dict)
-    notes: List[str] = field(default_factory=list)
+    cohorts: list[dict[str, Any]] = field(default_factory=list)
+    parameter_priors: dict[str, dict[str, float]] = field(default_factory=dict)
+    scenario_metadata: dict[str, Any] = field(default_factory=dict)
+    notes: list[str] = field(default_factory=list)
     confidence: float = 0.0
     abstain: bool = False
     provider: str = "deterministic"
     model: str = "template"
-    raw_response: Dict[str, Any] = field(default_factory=dict)
+    raw_response: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
 class PopulationCalibrationValidation:
     accepted: bool
-    reasons: List[str] = field(default_factory=list)
+    reasons: list[str] = field(default_factory=list)
 
     @property
     def status(self) -> str:
@@ -171,9 +171,9 @@ class PopulationCalibrationRecord:
     request: PopulationCalibrationRequest
     calibration: GeneratedPopulationCalibration
     validation: PopulationCalibrationValidation
-    application: Dict[str, Any] = field(default_factory=dict)
+    application: dict[str, Any] = field(default_factory=dict)
 
-    def to_json_dict(self) -> Dict[str, Any]:
+    def to_json_dict(self) -> dict[str, Any]:
         return {
             "cache_key": self.cache_key,
             "request": _to_jsonable(self.request),
@@ -183,9 +183,7 @@ class PopulationCalibrationRecord:
         }
 
     @classmethod
-    def from_json_dict(
-        cls, payload: Mapping[str, Any]
-    ) -> "PopulationCalibrationRecord":
+    def from_json_dict(cls, payload: Mapping[str, Any]) -> PopulationCalibrationRecord:
         request_payload = payload["request"]
         calibration_payload = payload["calibration"]
         validation_payload = payload["validation"]
@@ -252,7 +250,7 @@ class PopulationCalibrationCache:
         )
         return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
-    def load(self, key: str) -> Optional[PopulationCalibrationRecord]:
+    def load(self, key: str) -> PopulationCalibrationRecord | None:
         record_path = self.path / f"{key}.json"
         if not record_path.exists():
             return None
@@ -388,9 +386,9 @@ class OpenAIPopulationCalibrationGenerator(PopulationCalibrationGenerator):
 
     def __init__(
         self,
-        model: Optional[str] = None,
+        model: str | None = None,
         *,
-        api_key: Optional[str] = None,
+        api_key: str | None = None,
         timeout_s: float = 30.0,
         endpoint: str = "https://api.openai.com/v1/responses",
     ) -> None:
@@ -469,9 +467,9 @@ class AnthropicPopulationCalibrationGenerator(PopulationCalibrationGenerator):
 
     def __init__(
         self,
-        model: Optional[str] = None,
+        model: str | None = None,
         *,
-        api_key: Optional[str] = None,
+        api_key: str | None = None,
         timeout_s: float = 30.0,
         endpoint: str = "https://api.anthropic.com/v1/messages",
         api_version: str = "2023-06-01",
@@ -553,7 +551,7 @@ class AnthropicPopulationCalibrationGenerator(PopulationCalibrationGenerator):
 
 def apply_generated_population_calibration(
     scenario: Mapping[str, Any],
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     updated = deepcopy(dict(scenario))
     config = PopulationCalibrationConfig.from_mapping(
         updated.get("generated_population_calibration")
@@ -691,7 +689,7 @@ def validate_generated_population_calibration(
     request: PopulationCalibrationRequest,
     config: PopulationCalibrationConfig,
 ) -> PopulationCalibrationValidation:
-    reasons: List[str] = []
+    reasons: list[str] = []
     allowed = set(request.allowed_targets)
     existing_names = {str(cohort.get("name")) for cohort in request.existing_cohorts}
 
@@ -758,16 +756,16 @@ def validate_generated_population_calibration(
 
 def _generate_calibration(
     generator: PopulationCalibrationGenerator,
-    cache: Optional[PopulationCalibrationCache],
+    cache: PopulationCalibrationCache | None,
     config: PopulationCalibrationConfig,
     request: PopulationCalibrationRequest,
     cache_key: str,
     budget_guard: LLMBudgetGuard,
-) -> Tuple[
+) -> tuple[
     GeneratedPopulationCalibration,
-    Optional[PopulationCalibrationValidation],
+    PopulationCalibrationValidation | None,
     str,
-    Dict[str, Any],
+    dict[str, Any],
 ]:
     if cache is None:
         audit = _population_budget_check(config, request, budget_guard)
@@ -807,7 +805,7 @@ def _population_budget_check(
     config: PopulationCalibrationConfig,
     request: PopulationCalibrationRequest,
     budget_guard: LLMBudgetGuard,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     input_tokens = estimate_llm_tokens(
         {
             "instructions": _population_calibration_instructions(),
@@ -831,7 +829,7 @@ def _population_budget_check(
 def _cached_population_audit(
     config: PopulationCalibrationConfig,
     calibration: GeneratedPopulationCalibration,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     usage = raw_usage_tokens(calibration.raw_response)
     return {
         "allowed": True,
@@ -848,7 +846,7 @@ def _cached_population_audit(
     }
 
 
-def _empty_budget_audit() -> Dict[str, Any]:
+def _empty_budget_audit() -> dict[str, Any]:
     return {
         "allowed": True,
         "budget_reason": "",
@@ -878,17 +876,17 @@ def _budget_exceeded_calibration(
 
 
 def _apply_calibration_payload(
-    scenario: Dict[str, Any],
+    scenario: dict[str, Any],
     calibration: GeneratedPopulationCalibration,
     validation: PopulationCalibrationValidation,
     cache_key: str,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     if not validation.accepted:
         return {"applied_targets": [], "skipped": []}
 
     population = scenario.setdefault("population", {})
-    applied: List[str] = []
-    skipped: List[str] = []
+    applied: list[str] = []
+    skipped: list[str] = []
 
     if calibration.cohorts:
         existing_cohorts = list(population.get("cohorts", []) or [])
@@ -947,7 +945,7 @@ def _apply_calibration_payload(
 
 
 def _attach_calibration_audit(
-    scenario: Dict[str, Any],
+    scenario: dict[str, Any],
     *,
     config: PopulationCalibrationConfig,
     calibration: GeneratedPopulationCalibration,
@@ -982,8 +980,8 @@ def _attach_calibration_audit(
     }
 
 
-def _cohort_request_summary(cohort: Mapping[str, Any]) -> Dict[str, Any]:
-    summary: Dict[str, Any] = {
+def _cohort_request_summary(cohort: Mapping[str, Any]) -> dict[str, Any]:
+    summary: dict[str, Any] = {
         "name": str(cohort.get("name", "")),
         "count": cohort.get("count"),
     }
@@ -1006,7 +1004,7 @@ def _persona_conditioned_cohorts(
     persona_conditions: Sequence[str],
     *,
     total: int,
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     personas = [str(item) for item in persona_conditions if str(item).strip()]
     if not personas:
         return []
@@ -1019,7 +1017,7 @@ def _persona_conditioned_cohorts(
     return cohorts
 
 
-def _cohort_from_persona(persona: str, *, count: int) -> Dict[str, Any]:
+def _cohort_from_persona(persona: str, *, count: int) -> dict[str, Any]:
     normalized = "_".join(persona.lower().replace("-", "_").split())
     tokens = set(normalized.split("_"))
     visitor_like = bool(tokens & {"visitor", "tourist", "guest", "unfamiliar"})
@@ -1064,7 +1062,7 @@ def _cohort_from_persona(persona: str, *, count: int) -> Dict[str, Any]:
     return cohort
 
 
-def _template_priors(cohort: Mapping[str, Any]) -> Dict[str, float]:
+def _template_priors(cohort: Mapping[str, Any]) -> dict[str, float]:
     name = str(cohort.get("name", "")).lower()
     visitor_like = any(token in name for token in ("visitor", "tourist", "unfamiliar"))
     if visitor_like:
@@ -1085,7 +1083,7 @@ def _template_priors(cohort: Mapping[str, Any]) -> Dict[str, float]:
 
 
 def _validate_parameter_value(
-    reasons: List[str],
+    reasons: list[str],
     prefix: str,
     field_name: str,
     value: Any,
@@ -1160,7 +1158,7 @@ def _to_jsonable(value: Any) -> Any:
 def _extract_response_text(payload: Mapping[str, Any]) -> str:
     if isinstance(payload.get("output_text"), str):
         return str(payload["output_text"])
-    chunks: List[str] = []
+    chunks: list[str] = []
     for item in payload.get("output", []):
         for content in item.get("content", []):
             if isinstance(content.get("text"), str):
@@ -1168,7 +1166,7 @@ def _extract_response_text(payload: Mapping[str, Any]) -> str:
     return "\n".join(chunks)
 
 
-def _parse_json_object(text: str) -> Optional[Dict[str, Any]]:
+def _parse_json_object(text: str) -> dict[str, Any] | None:
     stripped = text.strip()
     if stripped.startswith("```"):
         stripped = stripped.strip("`")

@@ -1,11 +1,10 @@
 from __future__ import annotations
 
+from collections.abc import Iterable, Sequence
 from pathlib import Path
-from typing import Iterable, Sequence
 
 import numpy as np
 import pandas as pd
-
 
 REQUIRED_TRAJECTORY_COLUMNS = {"agent_id", "time_s", "x", "y"}
 
@@ -85,7 +84,9 @@ def compare_trajectory_reference(
     for group_key, group in groups:
         if present_groups and not isinstance(group_key, tuple):
             group_key = (group_key,)
-        group_values = dict(zip(present_groups, group_key if present_groups else ()))
+        group_values = dict(
+            zip(present_groups, group_key if present_groups else (), strict=False)
+        )
         simulated_summary = summarize_trajectory_frame(group)
         for metric, reference_value in reference_summary.items():
             simulated_value = simulated_summary[metric]

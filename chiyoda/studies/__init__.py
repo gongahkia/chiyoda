@@ -1,3 +1,5 @@
+from .benchmark import BenchmarkSpec, benchmark_score, benchmark_spec_v1, submit_policy
+from .causal import CounterfactualEstimator, compare_bundles
 from .models import ComparisonResult, StudyBundle
 from .runner import compare_studies, load_study_config, run_study
 from .schema import (
@@ -7,8 +9,6 @@ from .schema import (
     StudyVariant,
     SweepParameter,
 )
-from .causal import CounterfactualEstimator, compare_bundles
-from .benchmark import BenchmarkSpec, benchmark_spec_v1, benchmark_score, submit_policy
 
 __all__ = [
     "ComparisonResult",

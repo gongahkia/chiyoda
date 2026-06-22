@@ -1,0 +1,32 @@
+[tool.black]
+line-length = 88
+target-version = ["py312"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+ignore = [
+    "E501",  # line length handled by black
+    "B008",  # function call in default arg used widely for click defaults
+    "UP038", # isinstance tuple is fine for now
+    "B028",  # warnings stacklevel not load-bearing here
+    "E741",  # single-char loop vars in math kernels
+    "E402",  # post-sys.path-tweak imports in scripts
+    "E712",  # pandas Series == True idiom
+    "B007",  # tuple unpack in for-loop is fine
+    "UP007", # leave Union typing alone for now
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["B011", "F401", "F841", "B007", "E712"]
+"chiyoda/agents/__init__.py" = ["F401"]
+"chiyoda/**/__init__.py" = ["F401"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+warn_unused_ignores = true
+ignore_missing_imports = true

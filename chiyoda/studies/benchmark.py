@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, field
-from datetime import datetime, timezone
-from hashlib import sha256
 import json
+from collections.abc import Iterable
+from dataclasses import asdict, dataclass, field
+from datetime import UTC, datetime
+from hashlib import sha256
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any
 
 import pandas as pd
 import yaml
@@ -26,17 +27,17 @@ class BenchmarkScenario:
 @dataclass(frozen=True)
 class BenchmarkSpec:
     suite: str
-    metrics: List[str]
-    seeds: List[int]
+    metrics: list[str]
+    seeds: list[int]
     scoring_rule: str
-    allowed_knobs: List[str]
-    scenarios: List[BenchmarkScenario] = field(default_factory=list)
+    allowed_knobs: list[str]
+    scenarios: list[BenchmarkScenario] = field(default_factory=list)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
     @staticmethod
-    def json_schema() -> Dict[str, Any]:
+    def json_schema() -> dict[str, Any]:
         return {
             "type": "object",
             "required": [
@@ -133,7 +134,7 @@ def benchmark_spec_v3() -> BenchmarkSpec:
     )
 
 
-def load_policy(path: Optional[str]) -> Dict[str, Any]:
+def load_policy(path: str | None) -> dict[str, Any]:
     if path is None:
         return {}
     source = Path(path)
@@ -146,10 +147,10 @@ def load_policy(path: Optional[str]) -> Dict[str, Any]:
 
 def submit_policy(
     *,
-    policy_path: Optional[str],
+    policy_path: str | None,
     suite: str = "v1",
     output_dir: str | Path = "out/benchmark_submission",
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     spec = _spec_for_suite(suite)
     policy = load_policy(policy_path)
     policy_hash = _hash_json(policy)
@@ -194,7 +195,7 @@ def submit_policy(
     return {"leaderboard": leaderboard, "manifest": manifest, "output_dir": str(out)}
 
 
-def benchmark_score(metrics: Dict[str, Any]) -> float:
+def benchmark_score(metrics: dict[str, Any]) -> float:
     egress = 1.0 / (1.0 + float(metrics.get("mean_travel_time_s", 0.0)))
     exposure = 1.0 / (1.0 + float(metrics.get("p95_hazard_exposure", 0.0)))
     equity = 1.0 / (1.0 + float(metrics.get("equity_time_gap_s", 0.0)))
@@ -245,10 +246,10 @@ def generate_reference_trajectories(
     return output
 
 
-def reproducibility_manifest(spec: BenchmarkSpec, policy_hash: str) -> Dict[str, Any]:
+def reproducibility_manifest(spec: BenchmarkSpec, policy_hash: str) -> dict[str, Any]:
     return {
         "suite": spec.suite,
-        "created_at_utc": datetime.now(timezone.utc).isoformat(),
+        "created_at_utc": datetime.now(UTC).isoformat(),
         "config_hash": _hash_json(spec.to_dict()),
         "policy_hash": policy_hash,
         "seed_set": list(spec.seeds),
@@ -270,7 +271,7 @@ def write_spec_artifacts() -> None:
         )
 
 
-def write_leaderboard_site(leaderboard: Dict[str, Any], output_file: Path) -> Path:
+def write_leaderboard_site(leaderboard: dict[str, Any], output_file: Path) -> Path:
     output_file.parent.mkdir(parents=True, exist_ok=True)
     rows = "\n".join(
         f"<tr><td>{item['policy_hash']}</td><td>{item['mean_score']:.3f}</td><td>{item['run_count']}</td></tr>"
@@ -287,7 +288,7 @@ def write_leaderboard_site(leaderboard: Dict[str, Any], output_file: Path) -> Pa
 
 def _leaderboard(
     frame: pd.DataFrame, policy_hash: str, *, suite: str = "v1"
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     mean_score = float(frame["benchmark_score"].mean()) if not frame.empty else 0.0
     return {
         "suite": suite,
@@ -309,8 +310,8 @@ def _equity_time_gap(simulation) -> float:
 
 
 def _apply_policy(
-    config: Dict[str, Any], policy: Dict[str, Any], allowed_knobs: Iterable[str]
-) -> Dict[str, Any]:
+    config: dict[str, Any], policy: dict[str, Any], allowed_knobs: Iterable[str]
+) -> dict[str, Any]:
     if not policy:
         return config
     overrides = policy.get("scenario_overrides", policy)

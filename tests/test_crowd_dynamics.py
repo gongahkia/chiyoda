@@ -6,27 +6,27 @@ social force model, and full simulation integration.
 """
 
 from __future__ import annotations
+
 import numpy as np
 import pytest
-from chiyoda.environment.layout import Layout
-from chiyoda.environment.exits import Exit
-from chiyoda.environment.hazards import Hazard
+
+from chiyoda.agents.behaviors import BehaviorModel
 from chiyoda.agents.commuter import Commuter
 from chiyoda.agents.responder import FirstResponder
-from chiyoda.agents.behaviors import BehaviorModel
 from chiyoda.core.simulation import Simulation, SimulationConfig
-from chiyoda.navigation.pathfinding import SmartNavigator
-from chiyoda.navigation.spatial_index import SpatialIndex
-from chiyoda.navigation.social_force import adjusted_step, social_force_step
-from chiyoda.information.field import InformationField, BeliefVector
-from chiyoda.information.interventions import create_intervention_policy
-from chiyoda.information.propagation import GossipModel, GossipConfig
+from chiyoda.environment.exits import Exit
+from chiyoda.environment.hazards import Hazard
+from chiyoda.environment.layout import Layout
 from chiyoda.information.entropy import (
     agent_entropy,
     global_entropy,
-    belief_accuracy,
-    information_efficiency,
 )
+from chiyoda.information.field import BeliefVector, InformationField
+from chiyoda.information.interventions import create_intervention_policy
+from chiyoda.information.propagation import GossipConfig, GossipModel
+from chiyoda.navigation.pathfinding import SmartNavigator
+from chiyoda.navigation.social_force import adjusted_step
+from chiyoda.navigation.spatial_index import SpatialIndex
 
 
 def _agent_pos(layout: Layout, cell) -> np.ndarray:

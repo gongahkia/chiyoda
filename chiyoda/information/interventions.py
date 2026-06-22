@@ -9,9 +9,10 @@ study-grade telemetry for information-safety analysis.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any
 
 import numpy as np
 
@@ -39,7 +40,6 @@ from chiyoda.information.llm import (
     validator_settings,
 )
 
-
 Cell = tuple
 Point = tuple
 
@@ -48,7 +48,7 @@ Point = tuple
 class InformationInterventionConfig:
     policy: str = "none"
     start_step: int = 0
-    end_step: Optional[int] = None
+    end_step: int | None = None
     interval_steps: int = 20
     budget_per_interval: int = 1
     message_radius: float = 8.0
@@ -58,23 +58,23 @@ class InformationInterventionConfig:
     enabled: bool = True
     llm_provider: str = "template"
     llm_model: str = "template"
-    llm_cache_path: Optional[str] = None
+    llm_cache_path: str | None = None
     llm_cache_mode: str = "cache_first"
     llm_store_cache: bool = True
-    llm_max_radius: Optional[float] = None
+    llm_max_radius: float | None = None
     llm_prompt_style: str = "safety"
     llm_validator_profile: str = "standard"
     llm_target_policy: str = "entropy_targeted"
-    llm_max_calls_per_run: Optional[int] = None
-    llm_max_estimated_tokens_per_run: Optional[int] = None
-    llm_max_estimated_usd_per_run: Optional[float] = None
+    llm_max_calls_per_run: int | None = None
+    llm_max_estimated_tokens_per_run: int | None = None
+    llm_max_estimated_usd_per_run: float | None = None
     llm_input_usd_per_mtok: float = 0.0
     llm_output_usd_per_mtok: float = 0.0
 
     @classmethod
     def from_mapping(
-        cls, payload: Optional[Dict[str, Any]]
-    ) -> "InformationInterventionConfig":
+        cls, payload: dict[str, Any] | None
+    ) -> InformationInterventionConfig:
         data = dict(payload or {})
         return cls(
             policy=str(data.get("policy", "none")),
@@ -131,8 +131,8 @@ class InterventionTarget:
     point: Point
     reason: str
     score: float = 0.0
-    source_agent_id: Optional[int] = None
-    zone_id: Optional[str] = None
+    source_agent_id: int | None = None
+    zone_id: str | None = None
 
 
 @dataclass
@@ -207,7 +207,7 @@ class InterventionPolicy:
             return False
         return (simulation.current_step - cfg.start_step) % cfg.interval_steps == 0
 
-    def select_targets(self, simulation) -> List[InterventionTarget]:
+    def select_targets(self, simulation) -> list[InterventionTarget]:
         return []
 
     def build_message(
@@ -223,17 +223,17 @@ class InterventionPolicy:
             congested_exits=congested,
         )
 
-    def execute(self, simulation) -> List[InterventionEvent]:
+    def execute(self, simulation) -> list[InterventionEvent]:
         if not self.should_fire(simulation):
             return []
         targets = self.select_targets(simulation)[: self.config.budget_per_interval]
-        events: List[InterventionEvent] = []
+        events: list[InterventionEvent] = []
         for target in targets:
             message = self.build_message(simulation, target)
             events.append(_apply_message(simulation, self, target, message))
         return events
 
-    def _congested_exits(self, simulation) -> List[Cell]:
+    def _congested_exits(self, simulation) -> list[Cell]:
         totals = getattr(simulation, "exit_flow_cumulative", {})
         if not totals:
             return []
@@ -251,8 +251,8 @@ class InterventionPolicy:
 class StaticBroadcastPolicy(InterventionPolicy):
     name = "static_broadcast"
 
-    def select_targets(self, simulation) -> List[InterventionTarget]:
-        points: List[Point] = []
+    def select_targets(self, simulation) -> list[InterventionTarget]:
+        points: list[Point] = []
         if getattr(simulation.info_field, "beacons", None):
             points = list(simulation.info_field.beacons)
         if not points:
@@ -266,7 +266,7 @@ class StaticBroadcastPolicy(InterventionPolicy):
 class GlobalBroadcastPolicy(InterventionPolicy):
     name = "global_broadcast"
 
-    def select_targets(self, simulation) -> List[InterventionTarget]:
+    def select_targets(self, simulation) -> list[InterventionTarget]:
         return [
             InterventionTarget(
                 point=(simulation.layout.width / 2.0, simulation.layout.height / 2.0),
@@ -286,7 +286,7 @@ class GlobalBroadcastPolicy(InterventionPolicy):
 class WildfireLongRangeBroadcastPolicy(GlobalBroadcastPolicy):
     name = "wildfire_long_range_broadcast"
 
-    def select_targets(self, simulation) -> List[InterventionTarget]:
+    def select_targets(self, simulation) -> list[InterventionTarget]:
         hazards = [
             hazard
             for hazard in simulation.hazards
@@ -327,7 +327,7 @@ class WildfireLongRangeBroadcastPolicy(GlobalBroadcastPolicy):
 class ResponderRelayPolicy(InterventionPolicy):
     name = "responder_relay"
 
-    def select_targets(self, simulation) -> List[InterventionTarget]:
+    def select_targets(self, simulation) -> list[InterventionTarget]:
         responders = [
             agent
             for agent in simulation._active_agents()
@@ -347,7 +347,7 @@ class ResponderRelayPolicy(InterventionPolicy):
 class EntropyTargetedPolicy(InterventionPolicy):
     name = "entropy_targeted"
 
-    def select_targets(self, simulation) -> List[InterventionTarget]:
+    def select_targets(self, simulation) -> list[InterventionTarget]:
         rows = []
         total_exits = len(simulation.exits)
         total_hazards = len(simulation.hazards)
@@ -371,7 +371,7 @@ class EntropyTargetedPolicy(InterventionPolicy):
 class DensityAwarePolicy(InterventionPolicy):
     name = "density_aware"
 
-    def select_targets(self, simulation) -> List[InterventionTarget]:
+    def select_targets(self, simulation) -> list[InterventionTarget]:
         rows = [
             (float(getattr(agent, "local_density", 0.0)), agent)
             for agent in simulation._active_agents()
@@ -392,7 +392,7 @@ class DensityAwarePolicy(InterventionPolicy):
 class ExposureAwarePolicy(InterventionPolicy):
     name = "exposure_aware"
 
-    def select_targets(self, simulation) -> List[InterventionTarget]:
+    def select_targets(self, simulation) -> list[InterventionTarget]:
         rows = [
             (
                 float(getattr(agent, "current_hazard_load", 0.0))
@@ -417,7 +417,7 @@ class ExposureAwarePolicy(InterventionPolicy):
 class BottleneckAvoidancePolicy(InterventionPolicy):
     name = "bottleneck_avoidance"
 
-    def select_targets(self, simulation) -> List[InterventionTarget]:
+    def select_targets(self, simulation) -> list[InterventionTarget]:
         if not simulation.step_history:
             return []
         latest = simulation.step_history[-1]
@@ -486,7 +486,7 @@ class LLMGuidancePolicy(EntropyTargetedPolicy):
                 "Unsupported llm_provider. Use 'template', 'replay', 'local_replay', 'openai', or 'anthropic'."
             )
 
-    def select_targets(self, simulation) -> List[InterventionTarget]:
+    def select_targets(self, simulation) -> list[InterventionTarget]:
         selector_name = self.config.llm_target_policy
         if selector_name in {"entropy", "entropy_targeted"}:
             targets = EntropyTargetedPolicy.select_targets(self, simulation)
@@ -612,8 +612,8 @@ class LLMGuidancePolicy(EntropyTargetedPolicy):
         self,
         request: LLMMessageRequest,
         cache_key: str,
-    ) -> Tuple[
-        GeneratedEvacuationMessage, Optional[ValidationResult], str, Dict[str, Any]
+    ) -> tuple[
+        GeneratedEvacuationMessage, ValidationResult | None, str, dict[str, Any]
     ]:
         if self.cache is None:
             check = self._budget_check(request)
@@ -653,7 +653,7 @@ class LLMGuidancePolicy(EntropyTargetedPolicy):
         self.budget_guard.record(check["check"])
         return self.generator.generate(request, cache_key), None, "miss", check
 
-    def _budget_check(self, request: LLMMessageRequest) -> Dict[str, Any]:
+    def _budget_check(self, request: LLMMessageRequest) -> dict[str, Any]:
         input_tokens = estimate_llm_tokens(
             {
                 "instructions": build_prompt_instructions(request.prompt_style),
@@ -673,7 +673,7 @@ class LLMGuidancePolicy(EntropyTargetedPolicy):
             "check": check,
         }
 
-    def _cached_audit(self, message: GeneratedEvacuationMessage) -> Dict[str, Any]:
+    def _cached_audit(self, message: GeneratedEvacuationMessage) -> dict[str, Any]:
         usage = raw_usage_tokens(message.raw_response)
         return {
             "allowed": True,
@@ -690,7 +690,7 @@ class LLMGuidancePolicy(EntropyTargetedPolicy):
         }
 
     def _budget_exceeded_message(
-        self, audit: Dict[str, Any]
+        self, audit: dict[str, Any]
     ) -> GeneratedEvacuationMessage:
         return GeneratedEvacuationMessage(
             text="LLM budget guard blocked generation.",
@@ -770,7 +770,7 @@ class LLMResponderCoordinationPolicy(LLMGuidancePolicy):
             config.llm_prompt_style = "responder_coordination"
         super().__init__(config)
 
-    def select_targets(self, simulation) -> List[InterventionTarget]:
+    def select_targets(self, simulation) -> list[InterventionTarget]:
         responders = [
             agent
             for agent in simulation._active_agents()
@@ -835,8 +835,8 @@ POLICIES = {
 
 
 def create_intervention_policy(
-    payload: Optional[Dict[str, Any]],
-) -> Optional[InterventionPolicy]:
+    payload: dict[str, Any] | None,
+) -> InterventionPolicy | None:
     config = InformationInterventionConfig.from_mapping(payload)
     if not config.enabled or config.policy == "none":
         return None
@@ -1045,7 +1045,7 @@ def _append_llm_audit(
     cache_key: str,
     cache_status: str,
     used_fallback: bool,
-    audit: Dict[str, Any],
+    audit: dict[str, Any],
     target: InterventionTarget,
 ) -> None:
     rows = getattr(simulation, "llm_call_audit", None)
@@ -1082,7 +1082,7 @@ def _append_llm_audit(
     )
 
 
-def _to_prompt_request_payload(request: LLMMessageRequest) -> Dict[str, Any]:
+def _to_prompt_request_payload(request: LLMMessageRequest) -> dict[str, Any]:
     return {
         "policy": request.policy,
         "step": request.step,
@@ -1099,7 +1099,7 @@ def _to_prompt_request_payload(request: LLMMessageRequest) -> Dict[str, Any]:
     }
 
 
-def _empty_budget_audit() -> Dict[str, Any]:
+def _empty_budget_audit() -> dict[str, Any]:
     return {
         "allowed": True,
         "budget_reason": "",

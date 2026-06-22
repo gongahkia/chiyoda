@@ -9,10 +9,6 @@ from __future__ import annotations
 
 import random
 from dataclasses import dataclass
-from typing import Optional
-
-import numpy as np
-
 
 STATES = {
     "CALM": {"speed_mult": 1.0, "rationality": 1.0},
@@ -42,7 +38,7 @@ class BehaviorConfig:
 class BehaviorModel:
     """Multi-factor behavior updater with entropy-driven state transitions."""
 
-    def __init__(self, config: Optional[BehaviorConfig] = None) -> None:
+    def __init__(self, config: BehaviorConfig | None = None) -> None:
         self.config = config or BehaviorConfig()
 
     def update_agent(self, agent, simulation) -> None:

@@ -7,11 +7,22 @@ import click
 
 from chiyoda.analysis.metrics import SimulationAnalytics
 from chiyoda.analysis.reports import export_figures
-from chiyoda.analysis.viewer import export_viewer
 from chiyoda.analysis.trajectory_reference import (
     compare_trajectory_reference,
     load_trajectory_table,
 )
+from chiyoda.analysis.viewer import export_viewer
+from chiyoda.information.route_choice_calibration import (
+    fit_route_choice_priors,
+    load_figshare_route_choice_records,
+    write_normalized_records,
+    write_route_choice_fit,
+)
+from chiyoda.information.warfare import AttackerObjective
+from chiyoda.scenarios.assertions import evaluate_scenario_assertions
+from chiyoda.scenarios.manager import ScenarioManager
+from chiyoda.scenarios.standards import strict_scenario_from_geojson
+from chiyoda.scenarios.validation import validate_scenario_file
 from chiyoda.studies import (
     StudyBundle,
     compare_bundles,
@@ -19,17 +30,6 @@ from chiyoda.studies import (
     load_study_config,
     run_study,
     submit_policy,
-)
-from chiyoda.scenarios.assertions import evaluate_scenario_assertions
-from chiyoda.scenarios.manager import ScenarioManager
-from chiyoda.scenarios.standards import strict_scenario_from_geojson
-from chiyoda.scenarios.validation import validate_scenario_file
-from chiyoda.information.warfare import AttackerObjective
-from chiyoda.information.route_choice_calibration import (
-    fit_route_choice_priors,
-    load_figshare_route_choice_records,
-    write_normalized_records,
-    write_route_choice_fit,
 )
 
 

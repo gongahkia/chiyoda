@@ -4,13 +4,15 @@ fundamental diagram extraction, and CBRN-specific measures.
 """
 
 from __future__ import annotations
+
 import json
-from typing import Any, Dict, List, Tuple
+from typing import Any
+
 import numpy as np
 
 
 class SimulationAnalytics:
-    def calculate_performance_metrics(self, simulation) -> Dict[str, Any]:
+    def calculate_performance_metrics(self, simulation) -> dict[str, Any]:
         history = simulation.step_history
         travel_times = simulation.travel_times_s
         exit_usage = history[-1].exit_flow_cumulative if history else {}
@@ -249,7 +251,7 @@ class SimulationAnalytics:
 
 
 def _left_behind_index(agents) -> float:
-    grouped: Dict[str, list] = {}
+    grouped: dict[str, list] = {}
     for agent in agents:
         grouped.setdefault(str(getattr(agent, "cohort_name", "baseline")), []).append(
             agent
@@ -263,8 +265,8 @@ def _left_behind_index(agents) -> float:
     return float(max(rates) - min(rates)) if len(rates) >= 2 else 0.0
 
 
-def _mean_exposure_by(agents, attr: str) -> Dict[str, float]:
-    grouped: Dict[str, list[float]] = {}
+def _mean_exposure_by(agents, attr: str) -> dict[str, float]:
+    grouped: dict[str, list[float]] = {}
     for agent in agents:
         key = str(getattr(agent, attr, "unknown"))
         grouped.setdefault(key, []).append(

@@ -3,14 +3,14 @@ from __future__ import annotations
 
 import argparse
 import cProfile
-from copy import deepcopy
 import io
 import json
-from pathlib import Path
 import pstats
 import sys
 import time
 import tracemalloc
+from copy import deepcopy
+from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 

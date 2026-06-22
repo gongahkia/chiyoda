@@ -8,16 +8,16 @@ Provides tools for evaluating simulation results with academic rigor:
 """
 
 from __future__ import annotations
+
 import numpy as np
 import pandas as pd
-from typing import Dict, List, Tuple, Any
 
 from chiyoda.studies.models import StudyBundle
 
 
 def bootstrap_ci(
     data: np.ndarray, num_samples: int = 1000, ci: float = 0.95
-) -> Tuple[float, float]:
+) -> tuple[float, float]:
     """
     Calculate bootstrap confidence interval for the mean.
 
@@ -68,7 +68,7 @@ def cohens_d(group1: np.ndarray, group2: np.ndarray) -> float:
     return float((np.mean(group1) - np.mean(group2)) / pooled_std)
 
 
-def mann_whitney_u(group1: np.ndarray, group2: np.ndarray) -> Tuple[float, float]:
+def mann_whitney_u(group1: np.ndarray, group2: np.ndarray) -> tuple[float, float]:
     """
     Perform Mann-Whitney U test (non-parametric).
 
@@ -89,7 +89,7 @@ def compare_variants(
     bundle: StudyBundle,
     baseline_variant: str,
     test_variant: str,
-    metrics: List[str] = None,
+    metrics: list[str] = None,
 ) -> pd.DataFrame:
     """
     Rigorous statistical comparison between two variants in a StudyBundle.

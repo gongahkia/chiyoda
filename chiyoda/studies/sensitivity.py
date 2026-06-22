@@ -7,14 +7,16 @@ for each value × N seeds, and collects output metrics. Computes elasticity
 """
 
 from __future__ import annotations
-from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
+
 import copy
-import numpy as np
+from collections.abc import Callable
+from dataclasses import dataclass
+from typing import Any
+
 import pandas as pd
 
-from chiyoda.scenarios.manager import ScenarioManager
 from chiyoda.analysis.metrics import SimulationAnalytics
+from chiyoda.scenarios.manager import ScenarioManager
 
 
 @dataclass
@@ -22,12 +24,12 @@ class SensitivityResult:
     """Result of a single-parameter sweep."""
 
     parameter_path: str
-    parameter_values: List[Any]
-    seeds: List[int]
+    parameter_values: list[Any]
+    seeds: list[int]
     metrics: pd.DataFrame  # columns: param_value, seed, metric_name, metric_value
     summary: pd.DataFrame  # columns: param_value, metric_name, mean, std, min, max
 
-    def elasticity(self, metric_name: str) -> List[float]:
+    def elasticity(self, metric_name: str) -> list[float]:
         """
         Compute local elasticity (Δmetric/Δparam) at each interval.
 
@@ -50,7 +52,7 @@ class SensitivityResult:
                 elasticities.append(0.0)
         return elasticities
 
-    def is_monotonic(self, metric_name: str) -> Optional[bool]:
+    def is_monotonic(self, metric_name: str) -> bool | None:
         """
         Check if the metric response is monotonic across the parameter range.
 
@@ -85,9 +87,9 @@ class SensitivitySweep:
         self,
         scenario_file: str,
         parameter_path: str,
-        values: List[Any],
-        seeds: List[int] = None,
-        metric_names: List[str] = None,
+        values: list[Any],
+        seeds: list[int] = None,
+        metric_names: list[str] = None,
     ) -> None:
         self.scenario_file = scenario_file
         self.parameter_path = parameter_path
@@ -107,7 +109,7 @@ class SensitivitySweep:
         self._mgr = ScenarioManager()
         self._analytics = SimulationAnalytics()
 
-    def _set_nested(self, d: Dict, path: str, value: Any) -> Dict:
+    def _set_nested(self, d: dict, path: str, value: Any) -> dict:
         """Set a nested dict value by dotted path. Returns modified copy."""
         result = copy.deepcopy(d)
         keys = path.split(".")
@@ -121,7 +123,7 @@ class SensitivitySweep:
 
     def run(self, progress_callback: Callable[[str], None] = None) -> SensitivityResult:
         """Execute the sweep and return results."""
-        all_rows: List[Dict[str, Any]] = []
+        all_rows: list[dict[str, Any]] = []
 
         for val in self.values:
             for seed in self.seeds:
@@ -169,11 +171,11 @@ class SensitivitySweep:
 
 def run_multi_sweep(
     scenario_file: str,
-    sweeps: Dict[str, List[Any]],
-    seeds: List[int] = None,
-    metric_names: List[str] = None,
+    sweeps: dict[str, list[Any]],
+    seeds: list[int] = None,
+    metric_names: list[str] = None,
     progress_callback: Callable[[str], None] = None,
-) -> Dict[str, SensitivityResult]:
+) -> dict[str, SensitivityResult]:
     """
     Run multiple one-at-a-time sweeps.
 

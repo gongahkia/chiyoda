@@ -3,14 +3,13 @@
 from __future__ import annotations
 
 import argparse
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Sequence
 
 import numpy as np
 import pandas as pd
 
 from chiyoda.analysis.statistics import bootstrap_ci, cohens_d, mann_whitney_u
-
 
 DEFAULT_STUDIES = {
     "prompt_objective": "out/llm_prompt_objective_ablation",

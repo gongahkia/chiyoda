@@ -9,9 +9,11 @@ Detects macro-level phenomena arising from micro-level agent interactions:
 """
 
 from __future__ import annotations
+
+from typing import Any
+
 import numpy as np
 import pandas as pd
-from typing import Dict, Any
 
 from chiyoda.studies.models import StudyBundle
 
@@ -20,7 +22,7 @@ def _representative_run_id(bundle: StudyBundle) -> str:
     return str(bundle.metadata.get("representative_run_id", "baseline"))
 
 
-def detect_faster_is_slower(bundle: StudyBundle) -> Dict[str, Any]:
+def detect_faster_is_slower(bundle: StudyBundle) -> dict[str, Any]:
     """
     Detect Faster-Is-Slower effect at bottlenecks.
 
@@ -74,7 +76,7 @@ def detect_faster_is_slower(bundle: StudyBundle) -> Dict[str, Any]:
     }
 
 
-def detect_herding(bundle: StudyBundle) -> Dict[str, Any]:
+def detect_herding(bundle: StudyBundle) -> dict[str, Any]:
     """
     Detect Herding-Induced Bottleneck Amplification.
 
@@ -109,7 +111,7 @@ def detect_herding(bundle: StudyBundle) -> Dict[str, Any]:
     }
 
 
-def detect_information_cascade(bundle: StudyBundle) -> Dict[str, Any]:
+def detect_information_cascade(bundle: StudyBundle) -> dict[str, Any]:
     """
     Detect Information Cascades.
 
@@ -151,7 +153,7 @@ def detect_information_cascade(bundle: StudyBundle) -> Dict[str, Any]:
     }
 
 
-def detect_lane_formation(bundle: StudyBundle) -> Dict[str, Any]:
+def detect_lane_formation(bundle: StudyBundle) -> dict[str, Any]:
     """
     Detect Counter-Flow Lane Formation.
 
@@ -192,7 +194,7 @@ def detect_lane_formation(bundle: StudyBundle) -> Dict[str, Any]:
     }
 
 
-def run_all_emergence_detectors(bundle: StudyBundle) -> Dict[str, Dict[str, Any]]:
+def run_all_emergence_detectors(bundle: StudyBundle) -> dict[str, dict[str, Any]]:
     """Run all emergent behavior detectors on a StudyBundle."""
     return {
         "faster_is_slower": detect_faster_is_slower(bundle),

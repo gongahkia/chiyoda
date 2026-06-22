@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Dict, Iterable, List, Optional, Sequence
+from typing import Any
 from uuid import uuid4
 
 import numpy as np
@@ -52,12 +53,12 @@ class ProvenanceRecord:
     step: int
     channel_type: str
     objective: str
-    claimed_exit: Optional[tuple] = None
-    claimed_hazard: Optional[tuple] = None
-    observed_outcome: Optional[bool] = None
-    credibility_after: Optional[float] = None
+    claimed_exit: tuple | None = None
+    claimed_hazard: tuple | None = None
+    observed_outcome: bool | None = None
+    credibility_after: float | None = None
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "record_id": self.record_id,
             "source_id": self.source_id,
@@ -79,8 +80,8 @@ class ProvenanceRecord:
 @dataclass
 class BeliefRevisionModel:
     config: BeliefRevisionConfig = field(default_factory=BeliefRevisionConfig)
-    sources: Dict[str, SourceCredibilityState] = field(default_factory=dict)
-    provenance: List[ProvenanceRecord] = field(default_factory=list)
+    sources: dict[str, SourceCredibilityState] = field(default_factory=dict)
+    provenance: list[ProvenanceRecord] = field(default_factory=list)
 
     def source_credibility(self, source_id: str) -> float:
         state = self._state(source_id)
@@ -100,8 +101,8 @@ class BeliefRevisionModel:
         step: int,
         channel_type: str,
         objective: str,
-        claimed_exit: Optional[Sequence[Any]] = None,
-        claimed_hazard: Optional[Sequence[Any]] = None,
+        claimed_exit: Sequence[Any] | None = None,
+        claimed_hazard: Sequence[Any] | None = None,
     ) -> ProvenanceRecord:
         record = ProvenanceRecord(
             record_id=str(uuid4()),
@@ -122,7 +123,7 @@ class BeliefRevisionModel:
         supported: bool,
         *,
         step: int = 0,
-        weight: Optional[float] = None,
+        weight: float | None = None,
     ) -> float:
         state = self._state(source_id)
         cfg = self.config
@@ -176,14 +177,14 @@ class HostileChannelConfig:
     interval_steps: int = 1
     plausibility: float = 0.65
     radius: float = 6.0
-    target_cohort: Optional[str] = None
+    target_cohort: str | None = None
     source_id: str = "attacker"
-    claimed_exit: Optional[tuple] = None
-    claimed_hazard: Optional[tuple] = None
+    claimed_exit: tuple | None = None
+    claimed_hazard: tuple | None = None
     enabled: bool = True
 
     @classmethod
-    def from_mapping(cls, payload: Dict[str, Any]) -> "HostileChannelConfig":
+    def from_mapping(cls, payload: dict[str, Any]) -> HostileChannelConfig:
         objective = AttackerObjective(
             str(payload.get("objective", AttackerObjective.DECOY_EXIT.value))
         )
@@ -220,8 +221,8 @@ class HostileChannelEvent:
     source_id: str
     recipients: int
     credibility: float
-    claimed_exit: Optional[tuple] = None
-    claimed_hazard: Optional[tuple] = None
+    claimed_exit: tuple | None = None
+    claimed_hazard: tuple | None = None
 
 
 class HostileChannel:
@@ -237,7 +238,7 @@ class HostileChannel:
             return False
         return (simulation.current_step - cfg.start_step) % cfg.interval_steps == 0
 
-    def execute(self, simulation) -> Optional[HostileChannelEvent]:
+    def execute(self, simulation) -> HostileChannelEvent | None:
         if not self.should_fire(simulation):
             return None
         recipients = self._select_recipients(simulation)
@@ -306,7 +307,7 @@ class HostileChannel:
             claimed_hazard=claim.get("hazard"),
         )
 
-    def _select_recipients(self, simulation) -> List[Any]:
+    def _select_recipients(self, simulation) -> list[Any]:
         active = [
             agent
             for agent in simulation._active_agents()
@@ -332,7 +333,7 @@ class HostileChannel:
             return active
         return active
 
-    def _build_claim(self, simulation) -> Dict[str, Optional[tuple]]:
+    def _build_claim(self, simulation) -> dict[str, tuple | None]:
         if self.config.objective in {
             AttackerObjective.DECOY_EXIT,
             AttackerObjective.RESPONDER_SPOOF,
@@ -360,8 +361,8 @@ class HostileChannel:
 
 
 def create_hostile_channels(
-    payload: Optional[Sequence[Dict[str, Any]]],
-) -> List[HostileChannel]:
+    payload: Sequence[dict[str, Any]] | None,
+) -> list[HostileChannel]:
     return [
         HostileChannel(HostileChannelConfig.from_mapping(item))
         for item in (payload or [])
@@ -412,7 +413,7 @@ def _default_false_hazard(simulation) -> tuple:
     )
 
 
-def _tuple_or_none(value: Optional[Sequence[Any]]) -> Optional[tuple]:
+def _tuple_or_none(value: Sequence[Any] | None) -> tuple | None:
     if value is None:
         return None
     if isinstance(value, dict):

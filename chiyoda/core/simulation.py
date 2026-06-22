@@ -9,11 +9,15 @@ propagating stimuli with heterogeneous information access.
 """
 
 from __future__ import annotations
-from dataclasses import dataclass
+
 import random
-from typing import Any, Dict, List, Optional, Tuple
+from dataclasses import dataclass
+from typing import Any
+
 import numpy as np
+
 from chiyoda.acceleration import create_acceleration_backend
+from chiyoda.analysis.measurement import MeasurementLine
 from chiyoda.analysis.telemetry import (
     AgentStepTelemetry,
     BottleneckStepTelemetry,
@@ -22,11 +26,10 @@ from chiyoda.analysis.telemetry import (
     zone_distance,
     zone_lookup,
 )
+from chiyoda.information.entropy import agent_entropy, belief_accuracy, global_entropy
 from chiyoda.information.field import InformationField
-from chiyoda.information.propagation import GossipModel, GossipConfig
-from chiyoda.information.entropy import agent_entropy, global_entropy, belief_accuracy
+from chiyoda.information.propagation import GossipConfig, GossipModel
 from chiyoda.information.warfare import evaluate_pending_provenance
-from chiyoda.analysis.measurement import MeasurementLine
 from chiyoda.navigation.connectors import ConnectorQueue, ConnectorQueueEvent
 from chiyoda.navigation.line_of_sight import line_of_sight
 
@@ -35,7 +38,7 @@ from chiyoda.navigation.line_of_sight import line_of_sight
 class SimulationConfig:
     max_steps: int = 500
     dt: float = 0.1
-    random_seed: Optional[int] = 42
+    random_seed: int | None = 42
     hazard_avoidance_weight: float = 1.25
     acceleration_backend: str = "auto"
     density_slowdown_scale: float = 1.0
@@ -61,10 +64,10 @@ class Simulation:
     def __init__(
         self,
         layout,
-        agents: List,
-        exits: List,
-        hazards: Optional[List] = None,
-        config: Optional[SimulationConfig] = None,
+        agents: list,
+        exits: list,
+        hazards: list | None = None,
+        config: SimulationConfig | None = None,
     ) -> None:
         self.layout = layout
         self.agents = agents
@@ -96,12 +99,12 @@ class Simulation:
 
         self.current_step: int = 0
         self.time_s: float = 0.0
-        self.completed_agents: List = []
-        self.evacuated_at_step: List[int] = []
-        self.density_history: List[float] = []
-        self.risk_events: List[Dict[str, Any]] = []
-        self.step_history: List[StepTelemetry] = []
-        self.travel_times_s: List[float] = []
+        self.completed_agents: list = []
+        self.evacuated_at_step: list[int] = []
+        self.density_history: list[float] = []
+        self.risk_events: list[dict[str, Any]] = []
+        self.step_history: list[StepTelemetry] = []
+        self.travel_times_s: list[float] = []
 
         self.exit_labels = {
             tuple(
@@ -125,7 +128,7 @@ class Simulation:
             zone.zone_id: [] for zone in self.bottleneck_zones
         }
         self.agent_zone_membership = {agent.id: None for agent in self.agents}
-        self.agent_zone_entry_step: Dict[Tuple[int, str], int] = {}
+        self.agent_zone_entry_step: dict[tuple[int, str], int] = {}
 
         self.agent_traces = {
             agent.id: [tuple(float(value) for value in agent.pos)]
@@ -138,13 +141,13 @@ class Simulation:
         self.navigator = None
         self.spatial_index = None
         self.behavior_model = None
-        self.measurement_lines: List[MeasurementLine] = []
-        self._prev_positions: Dict[int, np.ndarray] = {}
+        self.measurement_lines: list[MeasurementLine] = []
+        self._prev_positions: dict[int, np.ndarray] = {}
         self.intervention_policy = None
-        self.intervention_events: List[Any] = []
+        self.intervention_events: list[Any] = []
         self.agent_decision_policy = None
-        self.agent_decision_events: List[Any] = []
-        self.llm_call_audit: List[Dict[str, Any]] = []
+        self.agent_decision_events: list[Any] = []
+        self.llm_call_audit: list[dict[str, Any]] = []
         self.connector_queues = {
             connector.id: ConnectorQueue.from_connector(connector)
             for connector in self.layout.connectors
@@ -152,13 +155,13 @@ class Simulation:
         self.connector_usage_cumulative = {
             connector.id: 0 for connector in self.layout.connectors
         }
-        self.connector_events: List[Dict[str, Any]] = []
-        self.impossible_floor_jumps: List[Dict[str, Any]] = []
-        self.wui_egress_segments: List[Dict[str, Any]] = []
-        self.road_segment_cells: Dict[Tuple[str, int, int], Dict[str, Any]] = {}
-        self.mode_switch_events: List[Dict[str, Any]] = []
-        self.terrain_damage_cells: Dict[Tuple[str, int, int], float] = {}
-        self.aftershock_events: List[Dict[str, Any]] = []
+        self.connector_events: list[dict[str, Any]] = []
+        self.impossible_floor_jumps: list[dict[str, Any]] = []
+        self.wui_egress_segments: list[dict[str, Any]] = []
+        self.road_segment_cells: dict[tuple[str, int, int], dict[str, Any]] = {}
+        self.mode_switch_events: list[dict[str, Any]] = []
+        self.terrain_damage_cells: dict[tuple[str, int, int], float] = {}
+        self.aftershock_events: list[dict[str, Any]] = []
 
         # ITED: information layer
         self.info_field = InformationField(
@@ -172,13 +175,13 @@ class Simulation:
         self.gossip_model = GossipModel(
             GossipConfig(gossip_radius=self.config.gossip_radius)
         )
-        self.entropy_history: List[float] = []
-        self.accuracy_history: List[float] = []
-        self.gossip_events: List[Dict[str, Any]] = []
-        self.hostile_channels: List[Any] = []
-        self.hostile_channel_events: List[Any] = []
-        self.hostile_agent_events: List[Dict[str, Any]] = []
-        self.destination_profiles: Dict[tuple, Dict[str, Any]] = {}
+        self.entropy_history: list[float] = []
+        self.accuracy_history: list[float] = []
+        self.gossip_events: list[dict[str, Any]] = []
+        self.hostile_channels: list[Any] = []
+        self.hostile_channel_events: list[Any] = []
+        self.hostile_agent_events: list[dict[str, Any]] = []
+        self.destination_profiles: dict[tuple, dict[str, Any]] = {}
 
     def attach_navigation(self, navigator) -> None:
         self.navigator = navigator
@@ -189,7 +192,7 @@ class Simulation:
     def attach_behavior_model(self, behavior_model) -> None:
         self.behavior_model = behavior_model
 
-    def attach_measurement_lines(self, lines: List[MeasurementLine]) -> None:
+    def attach_measurement_lines(self, lines: list[MeasurementLine]) -> None:
         self.measurement_lines = list(lines)
 
     def attach_intervention_policy(self, policy) -> None:
@@ -198,10 +201,10 @@ class Simulation:
     def attach_agent_decision_policy(self, policy) -> None:
         self.agent_decision_policy = policy
 
-    def attach_hostile_channels(self, channels: List[Any]) -> None:
+    def attach_hostile_channels(self, channels: list[Any]) -> None:
         self.hostile_channels = list(channels)
 
-    def attach_wui_egress(self, segments: List[Dict[str, Any]]) -> None:
+    def attach_wui_egress(self, segments: list[dict[str, Any]]) -> None:
         self.wui_egress_segments = list(segments)
         self.road_segment_cells = {}
         for segment in self.wui_egress_segments:
@@ -248,13 +251,13 @@ class Simulation:
             )
         return self.layout.cell(value)
 
-    def _released_agents(self) -> List:
+    def _released_agents(self) -> list:
         return [a for a in self.agents if a.is_released(self)]
 
-    def _active_agents(self) -> List:
+    def _active_agents(self) -> list:
         return [a for a in self.agents if a.is_released(self) and not a.has_evacuated]
 
-    def _pending_agents(self) -> List:
+    def _pending_agents(self) -> list:
         return [
             a for a in self.agents if not a.has_evacuated and not a.is_released(self)
         ]
@@ -309,7 +312,7 @@ class Simulation:
                 vis *= hazard.visibility_at(pos)
         return vis
 
-    def shooter_pressure_for(self, agent) -> Optional[Dict[str, Any]]:
+    def shooter_pressure_for(self, agent) -> dict[str, Any] | None:
         hostiles = [
             hostile
             for hostile in self._active_agents()
@@ -331,7 +334,7 @@ class Simulation:
             return None
         return min(visible, key=lambda item: item["distance"])
 
-    def hazard_penalty_at_cell(self, cell: Tuple[int, int]) -> float:
+    def hazard_penalty_at_cell(self, cell: tuple[int, int]) -> float:
         if any(
             self._hazard_requires_direct_sampling(hazard) for hazard in self.hazards
         ):
@@ -544,7 +547,7 @@ class Simulation:
                             }
                         )
 
-    def _empty_bottleneck_metrics(self) -> Dict[str, BottleneckStepTelemetry]:
+    def _empty_bottleneck_metrics(self) -> dict[str, BottleneckStepTelemetry]:
         return {
             zone.zone_id: BottleneckStepTelemetry() for zone in self.bottleneck_zones
         }
@@ -735,11 +738,11 @@ class Simulation:
             )
         )
 
-    def _update_bottleneck_metrics(self) -> Dict[str, BottleneckStepTelemetry]:
+    def _update_bottleneck_metrics(self) -> dict[str, BottleneckStepTelemetry]:
         metrics = self._empty_bottleneck_metrics()
         active = self._active_agents()
         active_ids = {a.id for a in active}
-        current_membership: Dict[int, Optional[str]] = {}
+        current_membership: dict[int, str | None] = {}
         for agent in self.agents:
             zone_id = None
             if agent.id in active_ids:
@@ -1047,7 +1050,7 @@ class Simulation:
 
     def apply_terrain_damage(
         self, center, radius: float, severity: float, *, source: str
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         origin = _point3(center)
         radius = max(float(radius), 1e-6)
         severity = max(0.0, float(severity))
@@ -1106,7 +1109,7 @@ class Simulation:
             or kind in {"WILDFIRE", "EMBER", "FLOOD", "EARTHQUAKE", "AFTERSHOCK"}
         )
 
-    def _connector_telemetry(self) -> Dict[str, Dict[str, float | int]]:
+    def _connector_telemetry(self) -> dict[str, dict[str, float | int]]:
         return {
             connector_id: queue.telemetry()
             for connector_id, queue in self.connector_queues.items()
@@ -1147,7 +1150,7 @@ class Simulation:
             if visualize and visualizer is not None:
                 visualizer.on_step(self)
 
-    def live_state(self) -> Dict[str, Any]:
+    def live_state(self) -> dict[str, Any]:
         self._ensure_bootstrapped()
         latest = self.step_history[-1]
         positions = (

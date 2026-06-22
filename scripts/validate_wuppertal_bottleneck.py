@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import argparse
 import json
-from pathlib import Path
 import sys
+from pathlib import Path
 
 import pandas as pd
 
@@ -19,7 +19,6 @@ from chiyoda.analysis.external_validation import (  # noqa: E402
     summarize_bottleneck_flow,
 )
 from chiyoda.analysis.trajectory_reference import load_trajectory_table  # noqa: E402
-
 
 DEFAULT_REFERENCE = ROOT / "data/external/wuppertal_bottleneck_2018/040_c_56_h-.txt"
 DEFAULT_METADATA = ROOT / "data/external/wuppertal_bottleneck_2018/metadata.json"

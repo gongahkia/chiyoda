@@ -4,11 +4,13 @@ and physiological impact tables for ITED CBRN scenarios.
 """
 
 from __future__ import annotations
-from dataclasses import dataclass, field
+
 import csv
 import json
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
+
 import numpy as np
 
 # physiological effect profiles: (speed_factor, rationality_factor, vision_factor)
@@ -78,37 +80,37 @@ HAZARD_PROFILES = {
 
 @dataclass
 class Hazard:
-    pos: Tuple[float, ...]
+    pos: tuple[float, ...]
     kind: str
     radius: float = 0.0
     severity: float = 0.5
     spread_rate: float = 0.0
-    wind_vector: Tuple[float, float] = (0.0, 0.0)  # advection direction
+    wind_vector: tuple[float, float] = (0.0, 0.0)  # advection direction
     diffusion_rate: float = 0.1  # isotropic diffusion coefficient
     visibility_reduction: float = 0.0  # how much this hazard reduces visibility [0,1]
     range_m: float = 8.0
     accuracy: float = 0.35
     height_aware: bool = False
-    layer_base_m: Optional[float] = None
-    layer_top_m: Optional[float] = None
+    layer_base_m: float | None = None
+    layer_top_m: float | None = None
     vertical_decay_m: float = 1.0
     gas_density: float = 1.0
     ember_spotting_rate: float = 0.0
     ember_ignition_radius: float = 0.0
     ember_decay_rate: float = 0.15
     ember_cell_size: float = 1.0
-    ember_origin: Tuple[float, float] = (0.0, 0.0)
-    ember_field: Dict[Tuple[int, int], float] = field(default_factory=dict)
-    flow_vector: Tuple[float, float] = (0.0, 0.0)
+    ember_origin: tuple[float, float] = (0.0, 0.0)
+    ember_field: dict[tuple[int, int], float] = field(default_factory=dict)
+    flow_vector: tuple[float, float] = (0.0, 0.0)
     inundation_depth_m: float = 0.0
     inundation_rise_rate_mps: float = 0.0
     inundation_decay_rate: float = 0.0
     flood_depth_threshold_m: float = 0.6
     max_depth_m: float = 2.0
     inundation_cell_size: float = 1.0
-    inundation_origin: Tuple[float, float] = (0.0, 0.0)
-    inundation_field: Dict[Tuple[int, int], float] = field(default_factory=dict)
-    aftershock_schedule: Tuple[int, ...] = field(default_factory=tuple)
+    inundation_origin: tuple[float, float] = (0.0, 0.0)
+    inundation_field: dict[tuple[int, int], float] = field(default_factory=dict)
+    aftershock_schedule: tuple[int, ...] = field(default_factory=tuple)
     aftershock_decay_rate: float = 0.12
     aftershock_damage_increment: float = 0.35
     damage_radius: float = 0.0
@@ -227,10 +229,10 @@ class Hazard:
     def affects(self, point: np.ndarray) -> bool:
         return np.linalg.norm(_point3(point) - _point3(self.pos)) <= self.radius
 
-    def profile(self) -> Dict[str, float]:
+    def profile(self) -> dict[str, float]:
         return HAZARD_PROFILES.get(self.kind.upper(), HAZARD_PROFILES["GAS"])
 
-    def snapshot(self) -> Dict[str, Any]:
+    def snapshot(self) -> dict[str, Any]:
         return {
             "pos": self.pos,
             "kind": self.kind,
@@ -464,20 +466,20 @@ class ImportedHazardField:
 
     kind: str
     intensity_grid: np.ndarray
-    origin: Tuple[float, float] = (0.0, 0.0)
+    origin: tuple[float, float] = (0.0, 0.0)
     cell_size: float = 1.0
-    visibility_grid: Optional[np.ndarray] = None
-    source: Dict[str, Any] = field(default_factory=dict)
+    visibility_grid: np.ndarray | None = None
+    source: dict[str, Any] = field(default_factory=dict)
     base_z: float = 0.0
     height_aware: bool = False
-    layer_base_m: Optional[float] = None
-    layer_top_m: Optional[float] = None
+    layer_base_m: float | None = None
+    layer_top_m: float | None = None
     vertical_decay_m: float = 1.0
     gas_density: float = 1.0
     active: bool = True
 
     @property
-    def pos(self) -> Tuple[float, float]:
+    def pos(self) -> tuple[float, float]:
         height, width = self.intensity_grid.shape
         return (
             self.origin[0] + (width * self.cell_size / 2.0),
@@ -496,7 +498,7 @@ class ImportedHazardField:
         return float(np.nanmax(self.intensity_grid))
 
     @classmethod
-    def from_file(cls, path: str | Path, *, kind: str = "GAS") -> "ImportedHazardField":
+    def from_file(cls, path: str | Path, *, kind: str = "GAS") -> ImportedHazardField:
         source = Path(path)
         suffix = source.suffix.lower()
         if suffix == ".json":
@@ -506,7 +508,7 @@ class ImportedHazardField:
         raise ValueError(f"Unsupported hazard field format: {source}")
 
     @classmethod
-    def from_json(cls, path: str | Path, *, kind: str = "GAS") -> "ImportedHazardField":
+    def from_json(cls, path: str | Path, *, kind: str = "GAS") -> ImportedHazardField:
         source = Path(path)
         payload = json.loads(source.read_text())
         intensity = _numeric_grid(
@@ -536,7 +538,7 @@ class ImportedHazardField:
         )
 
     @classmethod
-    def from_csv(cls, path: str | Path, *, kind: str = "GAS") -> "ImportedHazardField":
+    def from_csv(cls, path: str | Path, *, kind: str = "GAS") -> ImportedHazardField:
         source = Path(path)
         with source.open(newline="") as handle:
             rows = list(csv.DictReader(handle))
@@ -601,10 +603,10 @@ class ImportedHazardField:
     def affects(self, point: np.ndarray) -> bool:
         return self.intensity_at(point) > 0.0
 
-    def profile(self) -> Dict[str, float]:
+    def profile(self) -> dict[str, float]:
         return HAZARD_PROFILES.get(self.kind.upper(), HAZARD_PROFILES["GAS"])
 
-    def snapshot(self) -> Dict[str, Any]:
+    def snapshot(self) -> dict[str, Any]:
         return {
             "pos": self.pos,
             "kind": self.kind,
@@ -622,7 +624,7 @@ class ImportedHazardField:
             "gas_density": self.gas_density,
         }
 
-    def _cell_for_point(self, point: np.ndarray) -> Optional[Tuple[int, int]]:
+    def _cell_for_point(self, point: np.ndarray) -> tuple[int, int] | None:
         x = int(np.floor((float(point[0]) - self.origin[0]) / self.cell_size))
         y = int(np.floor((float(point[1]) - self.origin[1]) / self.cell_size))
         height, width = self.intensity_grid.shape
@@ -650,7 +652,7 @@ def _point3(value: Any) -> np.ndarray:
     return np.array([float(value[0]), float(value[1]), 0.0], dtype=float)
 
 
-def _optional_float(value: Any) -> Optional[float]:
+def _optional_float(value: Any) -> float | None:
     if value is None:
         return None
     return float(value)

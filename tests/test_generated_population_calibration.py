@@ -10,7 +10,6 @@ from chiyoda.scenarios.generated_calibration import (
     PopulationCalibrationRecord,
     PopulationCalibrationRequest,
     PopulationCalibrationValidation,
-    TemplatePopulationCalibrationGenerator,
     apply_generated_population_calibration,
     validate_generated_population_calibration,
 )

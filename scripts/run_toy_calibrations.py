@@ -3,15 +3,14 @@ from __future__ import annotations
 
 import argparse
 import json
-from pathlib import Path
 import sys
+from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from chiyoda.scenarios.assertions import evaluate_scenario_assertions
 from chiyoda.scenarios.manager import ScenarioManager
 from chiyoda.scenarios.validation import validate_scenario_config
-
 
 DEFAULT_SCENARIOS = [
     "scenarios/validation_corridor.yaml",

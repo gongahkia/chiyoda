@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Optional
 
 import numpy as np
 
@@ -15,7 +14,7 @@ from chiyoda.navigation.line_of_sight import line_of_sight
 class HostileAgent(CognitiveAgent):
     range_m: float = 8.0
     accuracy: float = 0.35
-    target_agent_id: Optional[int] = None
+    target_agent_id: int | None = None
     is_hostile: bool = True
 
     def update_intention(self, simulation) -> None:

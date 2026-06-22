@@ -1,22 +1,21 @@
 from __future__ import annotations
 
-from typing import Any, Dict, List, Literal, Optional, Tuple, Union
+from typing import Any, Literal, Union
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-
-Cell = Union[Tuple[int, int], Tuple[str, int, int], Dict[str, Any]]
+Cell = Union[tuple[int, int], tuple[str, int, int], dict[str, Any]]
 
 
 class ExportConfig(BaseModel):
     profile: str = "report"
-    formats: List[str] = Field(default_factory=lambda: ["png", "svg"])
-    table_formats: List[str] = Field(default_factory=lambda: ["parquet", "csv"])
+    formats: list[str] = Field(default_factory=lambda: ["png", "svg"])
+    table_formats: list[str] = Field(default_factory=lambda: ["parquet", "csv"])
     include_figures: bool = True
 
     @field_validator("formats")
     @classmethod
-    def validate_formats(cls, values: List[str]) -> List[str]:
+    def validate_formats(cls, values: list[str]) -> list[str]:
         allowed = {"png", "svg", "pdf"}
         normalized = [value.lower() for value in values]
         invalid = [value for value in normalized if value not in allowed]
@@ -26,7 +25,7 @@ class ExportConfig(BaseModel):
 
     @field_validator("table_formats")
     @classmethod
-    def validate_table_formats(cls, values: List[str]) -> List[str]:
+    def validate_table_formats(cls, values: list[str]) -> list[str]:
         allowed = {"parquet", "csv"}
         normalized = [value.lower() for value in values]
         invalid = [value for value in normalized if value not in allowed]
@@ -35,7 +34,7 @@ class ExportConfig(BaseModel):
         return normalized
 
     @model_validator(mode="after")
-    def validate_export_targets(self) -> "ExportConfig":
+    def validate_export_targets(self) -> ExportConfig:
         if not self.table_formats:
             raise ValueError("At least one table format is required")
         if self.include_figures and not self.formats:
@@ -55,20 +54,20 @@ class InterventionConfig(BaseModel):
         "staggered_release",
         "demand_surge",
     ]
-    name: Optional[str] = None
-    cells: List[Cell] = Field(default_factory=list)
-    exits: List[Cell] = Field(default_factory=list)
-    cohort: Optional[str] = None
-    release_step: Optional[int] = None
-    count: Optional[int] = None
+    name: str | None = None
+    cells: list[Cell] = Field(default_factory=list)
+    exits: list[Cell] = Field(default_factory=list)
+    cohort: str | None = None
+    release_step: int | None = None
+    count: int | None = None
     personality: str = "NORMAL"
     calmness: float = 0.8
     base_speed_multiplier: float = 1.0
     group_size: int = 1
-    spawn_cells: List[Cell] = Field(default_factory=list)
+    spawn_cells: list[Cell] = Field(default_factory=list)
 
     @model_validator(mode="after")
-    def validate_shape(self) -> "InterventionConfig":
+    def validate_shape(self) -> InterventionConfig:
         if (
             self.type
             in {
@@ -93,12 +92,12 @@ class InterventionConfig(BaseModel):
 
 class SweepParameter(BaseModel):
     path: str
-    values: List[Any]
-    label: Optional[str] = None
+    values: list[Any]
+    label: str | None = None
 
     @field_validator("values")
     @classmethod
-    def validate_values(cls, values: List[Any]) -> List[Any]:
+    def validate_values(cls, values: list[Any]) -> list[Any]:
         if not values:
             raise ValueError("Sweep values must not be empty")
         return values
@@ -106,20 +105,20 @@ class SweepParameter(BaseModel):
 
 class StudyVariant(BaseModel):
     name: str
-    description: Optional[str] = None
-    interventions: List[InterventionConfig] = Field(default_factory=list)
-    scenario_overrides: Dict[str, Any] = Field(default_factory=dict)
-    seeds: Optional[List[int]] = None
+    description: str | None = None
+    interventions: list[InterventionConfig] = Field(default_factory=list)
+    scenario_overrides: dict[str, Any] = Field(default_factory=dict)
+    seeds: list[int] | None = None
 
 
 class AdversarialStudyConfig(BaseModel):
-    attacker_budget: List[int] = Field(default_factory=list)
-    defender_policy: List[str] = Field(default_factory=list)
+    attacker_budget: list[int] = Field(default_factory=list)
+    defender_policy: list[str] = Field(default_factory=list)
     pairing: Literal["stackelberg", "grid"] = "stackelberg"
     hostile_channel_index: int = 0
 
     @model_validator(mode="after")
-    def validate_pairing(self) -> "AdversarialStudyConfig":
+    def validate_pairing(self) -> AdversarialStudyConfig:
         if self.attacker_budget and not self.defender_policy:
             raise ValueError(
                 "adversarial.defender_policy is required when attacker_budget is set"
@@ -136,17 +135,17 @@ class AdversarialStudyConfig(BaseModel):
 class StudyConfig(BaseModel):
     name: str
     scenario_file: str
-    description: Optional[str] = None
-    seeds: List[int] = Field(default_factory=list)
-    treatment_assignments: Dict[int, str] = Field(default_factory=dict)
+    description: str | None = None
+    seeds: list[int] = Field(default_factory=list)
+    treatment_assignments: dict[int, str] = Field(default_factory=dict)
     repetitions: int = 1
-    variants: List[StudyVariant] = Field(default_factory=list)
-    sweep: List[SweepParameter] = Field(default_factory=list)
-    adversarial: Optional[AdversarialStudyConfig] = None
+    variants: list[StudyVariant] = Field(default_factory=list)
+    sweep: list[SweepParameter] = Field(default_factory=list)
+    adversarial: AdversarialStudyConfig | None = None
     export: ExportConfig = Field(default_factory=ExportConfig)
 
     @model_validator(mode="after")
-    def validate_execution(self) -> "StudyConfig":
+    def validate_execution(self) -> StudyConfig:
         if self.repetitions < 1:
             raise ValueError("repetitions must be at least 1")
         return self

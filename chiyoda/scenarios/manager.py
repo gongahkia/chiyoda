@@ -3,22 +3,24 @@ Scenario manager — wires up ITED information layer, responders, and multi-haza
 """
 
 from __future__ import annotations
+
+import random
 from dataclasses import dataclass
 from pathlib import Path
-import random
-from typing import Any, Dict, List, Optional
+from typing import Any
+
 import numpy as np
 import yaml
-from chiyoda.environment.layout import EMPTY, EXIT, Layout, WALL, RESPONDER_ENTRY
-from chiyoda.environment.obstacles import apply_obstacles_to_grid, obstacles_from_config
-from chiyoda.environment.exits import Exit
-from chiyoda.environment.hazards import Hazard, ImportedHazardField
-from chiyoda.environment.station_provenance import load_station_provenance
-from chiyoda.core.simulation import Simulation, SimulationConfig
+
+from chiyoda.agents.behaviors import BehaviorConfig, BehaviorModel
 from chiyoda.agents.commuter import Commuter
 from chiyoda.agents.hostile import HostileAgent
 from chiyoda.agents.responder import FirstResponder
-from chiyoda.agents.behaviors import BehaviorModel, BehaviorConfig
+from chiyoda.core.simulation import Simulation, SimulationConfig
+from chiyoda.environment.exits import Exit
+from chiyoda.environment.hazards import Hazard, ImportedHazardField
+from chiyoda.environment.layout import EMPTY, EXIT, WALL, Layout
+from chiyoda.environment.station_provenance import load_station_provenance
 from chiyoda.information.decisions import create_agent_decision_policy
 from chiyoda.information.interventions import create_intervention_policy
 from chiyoda.information.warfare import create_hostile_channels
@@ -27,7 +29,6 @@ from chiyoda.navigation.spatial_index import SpatialIndex
 from chiyoda.scenarios.generated_calibration import (
     apply_generated_population_calibration,
 )
-
 
 MOBILITY_CLASS_DEFAULTS = {
     "standard": {
@@ -66,7 +67,7 @@ class Scenario:
 
 
 class ScenarioManager:
-    def load_config(self, scenario_file: str) -> Dict[str, Any]:
+    def load_config(self, scenario_file: str) -> dict[str, Any]:
         path = Path(scenario_file).resolve()
         with path.open("r") as handle:
             cfg = yaml.safe_load(handle)
@@ -91,7 +92,7 @@ class ScenarioManager:
             scenario["simulation"]["random_seed"] = random_seed
         return self.build_simulation(scenario)
 
-    def build_simulation(self, scenario: Dict[str, Any]) -> Simulation:
+    def build_simulation(self, scenario: dict[str, Any]) -> Simulation:
         sc = apply_generated_population_calibration(scenario)
         simulation_cfg = sc.get("simulation", {})
         random_seed = simulation_cfg.get("random_seed", 42)
@@ -224,7 +225,7 @@ class ScenarioManager:
         sim.attach_hostile_channels(create_hostile_channels(sc.get("hostile_channels")))
         return sim
 
-    def _build_layout(self, scenario: Dict[str, Any]) -> Layout:
+    def _build_layout(self, scenario: dict[str, Any]) -> Layout:
         layout_cfg = scenario.get("layout", {}) or {}
         if "floors" not in layout_cfg:
             raise ValueError(
@@ -238,7 +239,7 @@ class ScenarioManager:
         )
 
     def _build_geojson_layout(
-        self, geojson_cfg: Any, source_file: Optional[str]
+        self, geojson_cfg: Any, source_file: str | None
     ) -> Layout:
         if isinstance(geojson_cfg, str):
             geojson_cfg = {"file": geojson_cfg}
@@ -258,7 +259,7 @@ class ScenarioManager:
             add_border_walls=bool(geojson_cfg.get("add_border_walls", False)),
         )
 
-    def _build_cad_layout(self, cad_cfg: Any, source_file: Optional[str]) -> Layout:
+    def _build_cad_layout(self, cad_cfg: Any, source_file: str | None) -> Layout:
         if isinstance(cad_cfg, str):
             cad_cfg = {"file": cad_cfg}
         if not isinstance(cad_cfg, dict):
@@ -284,11 +285,11 @@ class ScenarioManager:
 
     def _build_hazards(
         self,
-        hazards_cfg: List[Dict[str, Any]],
+        hazards_cfg: list[dict[str, Any]],
         *,
-        source_file: Optional[str] = None,
-    ) -> List[Hazard]:
-        hazards: List[Hazard] = []
+        source_file: str | None = None,
+    ) -> list[Hazard]:
+        hazards: list[Hazard] = []
         for hc in hazards_cfg:
             if "field" in hc:
                 field_cfg = hc["field"]
@@ -380,9 +381,9 @@ class ScenarioManager:
         return hazards
 
     def _build_hostile_agents(
-        self, layout: Layout, hostile_cfg: List[Dict[str, Any]], agent_offset: int
-    ) -> List[HostileAgent]:
-        hostiles: List[HostileAgent] = []
+        self, layout: Layout, hostile_cfg: list[dict[str, Any]], agent_offset: int
+    ) -> list[HostileAgent]:
+        hostiles: list[HostileAgent] = []
         for i, hc in enumerate(hostile_cfg):
             count = int(hc.get("count", 1))
             spawn_cells = list(hc.get("spawn_cells", []) or [])
@@ -407,9 +408,9 @@ class ScenarioManager:
         return hostiles
 
     def _build_responders(
-        self, layout: Layout, responders_cfg: List[Dict[str, Any]], agent_offset: int
-    ) -> List[FirstResponder]:
-        responders: List[FirstResponder] = []
+        self, layout: Layout, responders_cfg: list[dict[str, Any]], agent_offset: int
+    ) -> list[FirstResponder]:
+        responders: list[FirstResponder] = []
         # find responder entry points from layout
         entry_points = layout.responder_positions()
         for floor_id, x, y in entry_points:
@@ -450,8 +451,8 @@ class ScenarioManager:
         return responders
 
     def _build_agents(
-        self, layout: Layout, population_cfg: Dict[str, Any]
-    ) -> List[Commuter]:
+        self, layout: Layout, population_cfg: dict[str, Any]
+    ) -> list[Commuter]:
         layout_positions = [
             layout.world_position(cell) for cell in layout.people_positions()
         ]
@@ -493,11 +494,11 @@ class ScenarioManager:
         while len(positions) < required:
             positions.append(layout.world_position(layout.random_walkable_position()))
 
-        agents: List[Commuter] = []
+        agents: list[Commuter] = []
         pos_idx = 0
         group_counter = 0
-        cohort_agents: Dict[str, List[Commuter]] = {}
-        helper_specs: List[Dict[str, Any]] = []
+        cohort_agents: dict[str, list[Commuter]] = {}
+        helper_specs: list[dict[str, Any]] = []
 
         for cohort_cfg in cohorts_cfg:
             cohort_name = str(cohort_cfg.get("name", f"cohort_{len(cohort_agents)+1}"))
@@ -538,7 +539,7 @@ class ScenarioManager:
             exit_affinity = float(cohort_cfg.get("exit_affinity", 0.5))
             herding = float(cohort_cfg.get("herding", 0.5))
 
-            members: List[Commuter] = []
+            members: list[Commuter] = []
             for _ in range(count):
                 if spawn_cells:
                     cell = self._parse_cell(
@@ -611,7 +612,7 @@ class ScenarioManager:
         for hs in helper_specs:
             helpers = cohort_agents.get(hs["helper_cohort"], [])
             dependents = cohort_agents.get(hs["dependent_cohort"], [])
-            for helper, dependent in zip(helpers, dependents):
+            for helper, dependent in zip(helpers, dependents, strict=False):
                 group_counter += 1
                 helper.group_id = group_counter
                 helper.assisted_agent_id = dependent.id
@@ -626,13 +627,13 @@ class ScenarioManager:
         return agents
 
     def _build_destination_profiles(
-        self, scenario: Dict[str, Any], layout: Layout
-    ) -> Dict[tuple, Dict[str, Any]]:
+        self, scenario: dict[str, Any], layout: Layout
+    ) -> dict[tuple, dict[str, Any]]:
         raw_profiles = (
             scenario.get("destination_profiles", scenario.get("exit_profiles", []))
             or []
         )
-        profiles: Dict[tuple, Dict[str, Any]] = {}
+        profiles: dict[tuple, dict[str, Any]] = {}
         for raw in raw_profiles:
             if not isinstance(raw, dict):
                 continue
@@ -646,8 +647,8 @@ class ScenarioManager:
         return profiles
 
     def _build_wui_egress(
-        self, scenario: Dict[str, Any], layout: Layout
-    ) -> List[Dict[str, Any]]:
+        self, scenario: dict[str, Any], layout: Layout
+    ) -> list[dict[str, Any]]:
         cfg = scenario.get("wui_egress", {}) or {}
         segments = []
         for raw in cfg.get("road_segments", []) or []:
@@ -671,7 +672,7 @@ class ScenarioManager:
             )
         return segments
 
-    def _apply_agent_calibration(self, agent, config: Dict[str, Any]) -> None:
+    def _apply_agent_calibration(self, agent, config: dict[str, Any]) -> None:
         if "base_rationality" in config:
             agent.base_rationality = float(config["base_rationality"])
             agent.rationality = float(config["base_rationality"])
@@ -684,8 +685,8 @@ class ScenarioManager:
             agent.vision_radius = agent.effective_vision_radius()
 
     def _deep_merge(
-        self, base: Dict[str, Any], overrides: Dict[str, Any]
-    ) -> Dict[str, Any]:
+        self, base: dict[str, Any], overrides: dict[str, Any]
+    ) -> dict[str, Any]:
         merged = dict(base)
         for key, value in overrides.items():
             if (
@@ -701,10 +702,10 @@ class ScenarioManager:
     def serialize_layout(self, layout: Layout) -> str:
         return "\n".join("".join(str(c) for c in row) for row in layout.grid)
 
-    def serialize_layout_floors(self, layout: Layout) -> List[Dict[str, Any]]:
-        floors: List[Dict[str, Any]] = []
+    def serialize_layout_floors(self, layout: Layout) -> list[dict[str, Any]]:
+        floors: list[dict[str, Any]] = []
         for floor_id, floor in layout.floors.items():
-            item: Dict[str, Any] = {
+            item: dict[str, Any] = {
                 "id": floor_id,
                 "z": layout.floor_z(floor_id),
                 "text": "\n".join("".join(str(c) for c in row) for row in floor.grid),
@@ -714,7 +715,7 @@ class ScenarioManager:
             floors.append(item)
         return floors
 
-    def serialize_layout_connectors(self, layout: Layout) -> List[Dict[str, Any]]:
+    def serialize_layout_connectors(self, layout: Layout) -> list[dict[str, Any]]:
         return [
             {
                 "id": connector.id,
@@ -744,7 +745,7 @@ class ScenarioManager:
             for connector in layout.connectors
         ]
 
-    def apply_layout_cells(self, scenario, *, cells, fill) -> Dict[str, Any]:
+    def apply_layout_cells(self, scenario, *, cells, fill) -> dict[str, Any]:
         layout = self._build_layout(scenario)
         for raw in cells:
             floor_id, x, y = layout.cell(raw)
@@ -772,7 +773,7 @@ class ScenarioManager:
             return layout.cell((str(raw[0]), int(raw[1]), int(raw[2])))
         return layout.cell(raw)
 
-    def _resolve_relative_path(self, raw_path: str, source_file: Optional[str]) -> str:
+    def _resolve_relative_path(self, raw_path: str, source_file: str | None) -> str:
         path = Path(raw_path)
         if path.is_absolute():
             return str(path)

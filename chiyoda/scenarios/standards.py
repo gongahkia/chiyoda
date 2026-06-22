@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import json
 import math
+from collections.abc import Mapping
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any
 
 from chiyoda.environment.obstacles import rasterize_geojson_layout
-
 
 GTFS_CONNECTOR_MODES = {
     "2": "stairs",
@@ -198,7 +198,7 @@ def _parse_levels(raw: Any) -> list[str]:
     if "-" in text and all(
         part.strip().lstrip("-").isdigit() for part in text.split("-", 1)
     ):
-        start, end = [int(part) for part in text.split("-", 1)]
+        start, end = (int(part) for part in text.split("-", 1))
         step = 1 if end >= start else -1
         return [str(value) for value in range(start, end + step, step)]
     return [text]

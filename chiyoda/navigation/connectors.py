@@ -8,10 +8,11 @@ https://nvlpubs.nist.gov/nistpubs/TechnicalNotes/NIST.TN.1839.pdf
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from heapq import heappop, heappush
 from itertools import count
-from typing import Any, Dict, Iterable, Optional
+from typing import Any
 
 import numpy as np
 
@@ -43,20 +44,20 @@ class ConnectorQueue:
     flow_rate: float
     capacity: int
     queue_mode: str = "fifo"
-    panic_jam_density: Optional[float] = None
+    panic_jam_density: float | None = None
     jam_flow_multiplier: float = 0.35
     service_credit: float = 1.0
     _sequence: Iterable[int] = field(default_factory=count)
     _waiting: list[tuple[float, int, int, tuple, tuple]] = field(default_factory=list)
     _waiting_ids: set[int] = field(default_factory=set)
-    _active: Dict[int, ConnectorTransfer] = field(default_factory=dict)
+    _active: dict[int, ConnectorTransfer] = field(default_factory=dict)
     cumulative_started: int = 0
     cumulative_finished: int = 0
     flow_step: int = 0
     last_effective_flow_rate: float = 0.0
 
     @classmethod
-    def from_connector(cls, connector: Any) -> "ConnectorQueue":
+    def from_connector(cls, connector: Any) -> ConnectorQueue:
         width = max(float(getattr(connector, "width", 1.0)), 0.1)
         flow_rate = getattr(connector, "flow_rate", None)
         if flow_rate is None:
@@ -136,7 +137,7 @@ class ConnectorQueue:
     def has_agent(self, agent_id: int) -> bool:
         return int(agent_id) in self._waiting_ids or int(agent_id) in self._active
 
-    def active_transfer(self, agent_id: int) -> Optional[ConnectorTransfer]:
+    def active_transfer(self, agent_id: int) -> ConnectorTransfer | None:
         return self._active.get(int(agent_id))
 
     def waiting_count(self) -> int:

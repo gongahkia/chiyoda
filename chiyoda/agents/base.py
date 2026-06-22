@@ -9,14 +9,13 @@ makes bounded-rational decisions under uncertainty.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, List, Optional, Tuple
+from typing import Any
 
 import numpy as np
 
 from chiyoda.information.field import BeliefVector
 from chiyoda.information.warfare import BeliefRevisionModel
 from chiyoda.navigation.social_force import adjusted_step
-
 
 # BDI intention labels
 INTENTION_EVACUATE = "EVACUATE"  # following a known path to a believed exit
@@ -73,19 +72,19 @@ class CognitiveAgent:
     has_evacuated: bool = False
     release_step: int = 0
     cohort_name: str = "baseline"
-    group_id: Optional[int] = None
-    leader_id: Optional[int] = None
-    assisted_agent_id: Optional[int] = None
-    family_id: Optional[str] = None
+    group_id: int | None = None
+    leader_id: int | None = None
+    assisted_agent_id: int | None = None
+    family_id: str | None = None
     role_in_group: str = "solo"
     separation_anxiety_threshold: float = 1.5
     mobility_class: str = "standard"
     breathing_height_m: float = 1.5
 
     # navigation
-    current_path: List[tuple] = field(default_factory=list)
+    current_path: list[tuple] = field(default_factory=list)
     path_index: int = 0
-    target_exit: Optional[tuple] = None
+    target_exit: tuple | None = None
 
     # behavioral state
     state: str = "CALM"
@@ -95,7 +94,7 @@ class CognitiveAgent:
     local_density: float = 0.0
     travel_time_s: float = 0.0
     last_navigation_step: int = -9999
-    evacuated_via: Optional[str] = None
+    evacuated_via: str | None = None
 
     # ITED: information
     beliefs: BeliefVector = field(default_factory=BeliefVector)
@@ -112,9 +111,7 @@ class CognitiveAgent:
     intention: str = INTENTION_EVACUATE
     rationality: float = 1.0  # effective rationality (base * physiology)
     base_rationality: float = 0.8
-    explore_direction: Optional[np.ndarray] = (
-        None  # random walk direction when exploring
-    )
+    explore_direction: np.ndarray | None = None  # random walk direction when exploring
     explore_steps_remaining: int = 0
 
     # ITED: physiology
@@ -212,7 +209,7 @@ class CognitiveAgent:
             # rational but no known exits → explore
             self.intention = INTENTION_EXPLORE
 
-    def _best_exit(self, simulation, known_exits: List[tuple]) -> Optional[tuple]:
+    def _best_exit(self, simulation, known_exits: list[tuple]) -> tuple | None:
         destination_profiles = getattr(simulation, "destination_profiles", {})
         same_family_targets = {}
         if self.family_id:

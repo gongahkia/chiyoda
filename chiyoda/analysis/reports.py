@@ -1,20 +1,20 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Iterable, Sequence
 
 import matplotlib
 
 matplotlib.use("Agg")
 
 import matplotlib.pyplot as plt
-from matplotlib.patches import Circle, Rectangle
 import numpy as np
 import pandas as pd
 import seaborn as sns
+from matplotlib.patches import Circle, Rectangle
 
-from chiyoda.analysis.metrics import SimulationAnalytics
 from chiyoda.analysis.fundamental_diagram import weidmann_speed
+from chiyoda.analysis.metrics import SimulationAnalytics
 from chiyoda.studies.models import ComparisonResult, StudyBundle
 from chiyoda.studies.runner import _collect_run_tables
 
@@ -141,7 +141,7 @@ def _figure_layout_and_keyframes(bundle: StudyBundle) -> plt.Figure:
     _draw_layout(axes[0], bundle)
     axes[0].set_title("Layout, exits, hazards, and bottleneck zones")
 
-    for axis, step in zip(axes[1:], keyframe_steps):
+    for axis, step in zip(axes[1:], keyframe_steps, strict=False):
         _draw_layout(axis, bundle, faint=True)
         frame = agent_steps[agent_steps["step"] == step]
         if not frame.empty:
@@ -533,7 +533,7 @@ def _draw_layout(axis, bundle: StudyBundle, faint: bool = False) -> None:
                 continue
             x, y = int(raw_x), int(raw_y)
         else:
-            x, y = [int(part) for part in parts]
+            x, y = (int(part) for part in parts)
         axis.scatter(x + 0.5, y + 0.5, marker="*", s=120, c="#2a9d8f")
         axis.text(x + 0.65, y + 0.55, label.split()[1], fontsize=8, color="#2a9d8f")
 
@@ -633,7 +633,7 @@ def _figure_entropy_heatmap_series(bundle: StudyBundle) -> plt.Figure:
 
     fig, axes = plt.subplots(1, 3, figsize=(18, 5), constrained_layout=True)
 
-    for axis, step in zip(axes, keyframe_steps):
+    for axis, step in zip(axes, keyframe_steps, strict=False):
         _draw_layout(axis, bundle, faint=True)
         frame = agent_steps[agent_steps["step"] == step]
         if not frame.empty and "entropy" in frame.columns:

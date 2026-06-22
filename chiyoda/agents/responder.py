@@ -4,17 +4,18 @@ and mission-oriented pathfinding toward hazard source.
 """
 
 from __future__ import annotations
-from dataclasses import dataclass, field
-from typing import Optional, Tuple
+
+from dataclasses import dataclass
+
 import numpy as np
-from chiyoda.agents.base import CognitiveAgent, INTENTION_RESPOND, INTENTION_FREEZE
-from chiyoda.information.field import BeliefVector
+
+from chiyoda.agents.base import INTENTION_FREEZE, INTENTION_RESPOND, CognitiveAgent
 from chiyoda.navigation.social_force import adjusted_step
 
 
 @dataclass
 class FirstResponder(CognitiveAgent):
-    mission_target: Optional[Tuple[float, ...]] = None
+    mission_target: tuple[float, ...] | None = None
     ppe_factor: float = 0.1  # 90% PPE protection
     broadcast_radius: float = 5.0
     is_responder: bool = True

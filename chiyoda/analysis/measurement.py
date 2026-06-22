@@ -12,11 +12,14 @@ References:
 """
 
 from __future__ import annotations
+
+from collections.abc import Sequence
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any
+
 import numpy as np
 
-Point = Tuple[float, float]
+Point = tuple[float, float]
 
 
 @dataclass
@@ -53,8 +56,8 @@ class MeasurementLine:
     p2: Point
     depth: float = 2.0
     cell_size: float = 1.0
-    _records: List[MeasurementRecord] = field(default_factory=list, repr=False)
-    _prev_sides: Dict[int, float] = field(default_factory=dict, repr=False)
+    _records: list[MeasurementRecord] = field(default_factory=list, repr=False)
+    _prev_sides: dict[int, float] = field(default_factory=dict, repr=False)
 
     def __post_init__(self):
         p1 = np.array(self.p1, dtype=float)
@@ -73,7 +76,7 @@ class MeasurementLine:
         self._region_area = self._length * (2 * self.depth) * (self.cell_size**2)
 
     @property
-    def records(self) -> List[MeasurementRecord]:
+    def records(self) -> list[MeasurementRecord]:
         return list(self._records)
 
     def _signed_distance(self, pos: np.ndarray) -> float:
@@ -93,7 +96,7 @@ class MeasurementLine:
         time_s: float,
         dt: float,
         agents: Sequence[Any],
-        previous_positions: Dict[int, np.ndarray],
+        previous_positions: dict[int, np.ndarray],
     ) -> MeasurementRecord:
         """
         Record measurements for one simulation step.
@@ -106,7 +109,7 @@ class MeasurementLine:
             previous_positions: {agent_id: previous_pos_array}
         """
         n_crossing = 0
-        in_region_speeds: List[float] = []
+        in_region_speeds: list[float] = []
         n_in_region = 0
 
         for agent in agents:
@@ -171,7 +174,7 @@ class MeasurementLine:
             ]
         )
 
-    def speed_density_pairs(self, min_agents: int = 3) -> Tuple[np.ndarray, np.ndarray]:
+    def speed_density_pairs(self, min_agents: int = 3) -> tuple[np.ndarray, np.ndarray]:
         """
         Extract (density, speed) pairs for fundamental diagram construction.
         Filters out steps with fewer than min_agents in region.

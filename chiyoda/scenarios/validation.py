@@ -5,12 +5,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from chiyoda.environment.layout import PERSON, RESPONDER_ENTRY, WALL, Layout
+from chiyoda.environment.layout import PERSON, RESPONDER_ENTRY, Layout
 from chiyoda.scenarios.generated_calibration import (
     apply_generated_population_calibration,
 )
 from chiyoda.scenarios.manager import ScenarioManager
-
 
 Cell = tuple
 

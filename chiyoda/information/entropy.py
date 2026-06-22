@@ -7,8 +7,6 @@ uncertainty and measure information dissemination effectiveness.
 
 from __future__ import annotations
 
-from typing import List, Tuple
-
 import numpy as np
 
 from chiyoda.information.field import BeliefVector
@@ -68,7 +66,7 @@ def agent_entropy(
 
 
 def global_entropy(
-    all_beliefs: List[BeliefVector],
+    all_beliefs: list[BeliefVector],
     total_exits: int,
     total_hazards: int = 0,
 ) -> float:
@@ -80,7 +78,7 @@ def global_entropy(
 
 
 def entropy_variance(
-    all_beliefs: List[BeliefVector],
+    all_beliefs: list[BeliefVector],
     total_exits: int,
     total_hazards: int = 0,
 ) -> float:
@@ -93,7 +91,7 @@ def entropy_variance(
 
 def belief_accuracy(
     beliefs: BeliefVector,
-    true_exits: List[Tuple[int, int]],
+    true_exits: list[tuple[int, int]],
     true_hazards: list,
 ) -> float:
     """
@@ -141,8 +139,8 @@ def belief_accuracy(
 
 
 def information_efficiency(
-    initial_beliefs: List[BeliefVector],
-    final_beliefs: List[BeliefVector],
+    initial_beliefs: list[BeliefVector],
+    final_beliefs: list[BeliefVector],
     total_exits: int,
     total_hazards: int = 0,
 ) -> float:

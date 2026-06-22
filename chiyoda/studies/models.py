@@ -1,13 +1,11 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 import json
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict
 
 import pandas as pd
 from pandas.errors import EmptyDataError
-
 
 TABLE_COLUMNS: dict[str, list[str]] = {
     "summary": [
@@ -332,7 +330,7 @@ def _with_known_columns(name: str, frame: pd.DataFrame) -> pd.DataFrame:
 
 @dataclass
 class StudyBundle:
-    metadata: Dict[str, object]
+    metadata: dict[str, object]
     summary: pd.DataFrame
     steps: pd.DataFrame
     cells: pd.DataFrame
@@ -376,7 +374,7 @@ class StudyBundle:
                 _write_table(frame, tables_dir, table_name, table_format)
         return out
 
-    def tables(self) -> Dict[str, pd.DataFrame]:
+    def tables(self) -> dict[str, pd.DataFrame]:
         return {
             "summary": self.summary,
             "steps": self.steps,
@@ -395,7 +393,7 @@ class StudyBundle:
         }
 
     @classmethod
-    def load(cls, output_dir: str | Path) -> "StudyBundle":
+    def load(cls, output_dir: str | Path) -> StudyBundle:
         root = Path(output_dir)
         tables_dir = root / "tables"
         metadata = json.loads((root / "metadata.json").read_text())
@@ -420,7 +418,7 @@ class StudyBundle:
 
 @dataclass
 class ComparisonResult:
-    metadata: Dict[str, object]
+    metadata: dict[str, object]
     summary: pd.DataFrame
     timeseries: pd.DataFrame
     metrics: pd.DataFrame
@@ -444,7 +442,7 @@ class ComparisonResult:
                 _write_table(frame, tables_dir, table_name, table_format)
         return out
 
-    def tables(self) -> Dict[str, pd.DataFrame]:
+    def tables(self) -> dict[str, pd.DataFrame]:
         return {
             "summary": self.summary,
             "timeseries": self.timeseries,

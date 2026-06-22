@@ -9,7 +9,6 @@ Rumors are modeled as distorted information — distortion increases with hop co
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import List, Optional, Tuple
 
 import numpy as np
 
@@ -29,7 +28,7 @@ class GossipConfig:
 class GossipModel:
     """Manages information exchange between agents during simulation steps."""
 
-    def __init__(self, config: Optional[GossipConfig] = None) -> None:
+    def __init__(self, config: GossipConfig | None = None) -> None:
         self.config = config or GossipConfig()
 
     def exchange(
@@ -189,7 +188,7 @@ class GossipModel:
     def broadcast(
         self,
         broadcaster_beliefs: BeliefVector,
-        receivers: List[Tuple[BeliefVector, float, float, str, float]],
+        receivers: list[tuple[BeliefVector, float, float, str, float]],
         broadcaster_credibility: float = 1.0,
     ) -> int:
         """

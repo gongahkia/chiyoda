@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping
 from pathlib import Path
-from typing import Any, Mapping, Optional
-
+from typing import Any
 
 REQUIRED_FIELDS = {
     "station",
@@ -22,7 +22,7 @@ REQUIRED_FIELDS = {
 def load_station_provenance(
     metadata: Mapping[str, Any],
     *,
-    source_file: Optional[str] = None,
+    source_file: str | None = None,
 ) -> dict[str, Any] | None:
     if not metadata:
         return None
@@ -83,7 +83,7 @@ def validate_station_provenance(
         )
 
 
-def _resolve_path(raw_path: str, source_file: Optional[str]) -> Path:
+def _resolve_path(raw_path: str, source_file: str | None) -> Path:
     path = Path(raw_path)
     if path.is_absolute():
         return path

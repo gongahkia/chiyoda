@@ -1,16 +1,16 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 import json
 import math
+from collections.abc import Iterable, Mapping, Sequence
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterable, Mapping, Sequence, Tuple
+from typing import Any
 
 import numpy as np
 
-
-Cell = Tuple[int, int]
-Point = Tuple[float, float]
+Cell = tuple[int, int]
+Point = tuple[float, float]
 
 WALL_TOKEN = "X"
 EMPTY_TOKEN = "."
@@ -42,15 +42,15 @@ GTFS_WALKABLE_PATHWAY_MODES = {"1", "2", "3", "4", "5", "6", "7"}
 class ObstacleSpec:
     shape: str
     fill: str = WALL_TOKEN
-    cells: Tuple[Cell, ...] = ()
-    points: Tuple[Point, ...] = ()
-    holes: Tuple[Tuple[Point, ...], ...] = ()
+    cells: tuple[Cell, ...] = ()
+    points: tuple[Point, ...] = ()
+    holes: tuple[tuple[Point, ...], ...] = ()
     center: Point = (0.0, 0.0)
     radius: float = 0.0
     thickness: float = 1.0
 
     @classmethod
-    def from_config(cls, config: Mapping[str, Any]) -> "ObstacleSpec":
+    def from_config(cls, config: Mapping[str, Any]) -> ObstacleSpec:
         shape = str(config.get("shape", config.get("type", "rectangle"))).lower()
         fill = str(config.get("fill", WALL_TOKEN))
 
@@ -218,7 +218,9 @@ class ObstacleSpec:
                 if any(
                     _point_segment_distance((center_x, center_y), start, end)
                     <= half_thickness
-                    for start, end in zip(self.points[:-1], self.points[1:])
+                    for start, end in zip(
+                        self.points[:-1], self.points[1:], strict=False
+                    )
                 )
             }
 
@@ -337,7 +339,7 @@ def rasterize_dxf_layout(
         grid[:, 0] = WALL_TOKEN
         grid[:, -1] = WALL_TOKEN
 
-    for entity, role in zip(entities, resolved_roles):
+    for entity, role in zip(entities, resolved_roles, strict=False):
         token = _role_token(role)
         for obstacle in _dxf_entity_obstacles(
             entity,

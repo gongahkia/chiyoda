@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 import argparse
+import json
+import sys
+from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass
-import json
 from pathlib import Path
-import sys
-from typing import Iterator
 
 import pandas as pd
 import yaml
@@ -17,6 +17,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+import chiyoda.navigation.social_force as social_force  # noqa: E402
 from chiyoda.analysis.external_validation import (  # noqa: E402
     compare_bottleneck_flow,
     load_petrack_trajectory,
@@ -25,8 +26,6 @@ from chiyoda.analysis.external_validation import (  # noqa: E402
 from chiyoda.analysis.metrics import SimulationAnalytics  # noqa: E402
 from chiyoda.scenarios.manager import ScenarioManager  # noqa: E402
 from chiyoda.studies.runner import _collect_run_tables  # noqa: E402
-import chiyoda.navigation.social_force as social_force  # noqa: E402
-
 
 DEFAULT_SCENARIO = ROOT / "scenarios/validation_wuppertal_bottleneck.yaml"
 DEFAULT_REFERENCE = ROOT / "data/external/wuppertal_bottleneck_2018/040_c_56_h-.txt"

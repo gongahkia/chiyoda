@@ -16,10 +16,10 @@ Canonical parameters:
 """
 
 from __future__ import annotations
-from dataclasses import dataclass
-from typing import Optional, Tuple
-import numpy as np
 
+from dataclasses import dataclass
+
+import numpy as np
 
 # canonical Weidmann parameters
 V0_WEIDMANN = 1.34  # free-flow speed (m/s)

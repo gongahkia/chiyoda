@@ -10,7 +10,6 @@ from chiyoda.information.route_choice_calibration import (
     load_figshare_route_choice_records,
 )
 
-
 DATA_DIR = Path("data/calibration/route_choice_2025")
 ARCHIVE = DATA_DIR / "Snopkova_Isovists.zip"
 

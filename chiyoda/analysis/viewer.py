@@ -51,9 +51,9 @@ def _viewer_payload(bundle: StudyBundle, *, max_frames: int) -> dict[str, Any]:
             for row in frame.itertuples(index=False):
                 agents.append(
                     {
-                        "id": int(getattr(row, "agent_id")),
-                        "x": float(getattr(row, "x")),
-                        "y": float(getattr(row, "y")),
+                        "id": int(row.agent_id),
+                        "x": float(row.x),
+                        "y": float(row.y),
                         "z": float(getattr(row, "z", 0.0)),
                         "floor_id": str(getattr(row, "floor_id", "0")),
                         "speed": float(getattr(row, "speed", 0.0)),

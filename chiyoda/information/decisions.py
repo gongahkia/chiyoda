@@ -1,18 +1,19 @@
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, field
 import hashlib
 import json
+from collections.abc import Sequence
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
+from typing import Any
 from urllib import request as urlrequest
 from urllib.error import HTTPError, URLError
-from typing import Any, Optional, Sequence, Tuple
 
 from chiyoda.agents.base import INTENTION_EVACUATE, INTENTION_EXPLORE, INTENTION_FOLLOW
 from chiyoda.information.entropy import agent_entropy
 from chiyoda.information.llm import (
-    LLMBudgetGuard,
     HazardSnapshot,
+    LLMBudgetGuard,
     ValidationResult,
     _extract_anthropic_text,
     _extract_response_text,
@@ -26,7 +27,6 @@ from chiyoda.information.llm import (
     raw_usage_tokens,
     validator_settings,
 )
-
 
 Cell = tuple
 Point = tuple
@@ -51,7 +51,7 @@ class LLMDecisionRequest:
 @dataclass
 class GeneratedAgentDecision:
     intent: str = INTENTION_EVACUATE
-    target_exit: Optional[Cell] = None
+    target_exit: Cell | None = None
     trust_delta: float = 0.0
     avoid_congested: bool = True
     rationale: str = ""
@@ -78,7 +78,7 @@ class LLMDecisionRecord:
         }
 
     @classmethod
-    def from_json_dict(cls, payload: dict[str, Any]) -> "LLMDecisionRecord":
+    def from_json_dict(cls, payload: dict[str, Any]) -> LLMDecisionRecord:
         req = payload["request"]
         dec = payload["decision"]
         val = payload["validation"]
@@ -142,9 +142,9 @@ class LLMDecisionEvent:
     validation_status: str
     validation_reasons: str
     selected_intent: str
-    target_exit_floor: Optional[str]
-    target_exit_x: Optional[int]
-    target_exit_y: Optional[int]
+    target_exit_floor: str | None
+    target_exit_x: int | None
+    target_exit_y: int | None
     trust_delta: float
     avoid_congested: bool
     confidence: float
@@ -158,25 +158,25 @@ class AgentDecisionConfig:
     enabled: bool = False
     provider: str = "template"
     model: str = "template"
-    cache_path: Optional[str] = None
+    cache_path: str | None = None
     cache_mode: str = "cache_first"
     store_cache: bool = True
     start_step: int = 0
-    end_step: Optional[int] = None
+    end_step: int | None = None
     interval_steps: int = 20
     agent_budget_per_interval: int = 4
     objective: str = "bounded_agent_decision"
     prompt_style: str = "bounded"
     validator_profile: str = "standard"
     max_trust_delta: float = 0.2
-    max_calls_per_run: Optional[int] = None
-    max_estimated_tokens_per_run: Optional[int] = None
-    max_estimated_usd_per_run: Optional[float] = None
+    max_calls_per_run: int | None = None
+    max_estimated_tokens_per_run: int | None = None
+    max_estimated_usd_per_run: float | None = None
     input_usd_per_mtok: float = 0.0
     output_usd_per_mtok: float = 0.0
 
     @classmethod
-    def from_mapping(cls, payload: Optional[dict[str, Any]]) -> "AgentDecisionConfig":
+    def from_mapping(cls, payload: dict[str, Any] | None) -> AgentDecisionConfig:
         data = dict(payload or {})
         return cls(
             enabled=bool(data.get("enabled", False)),
@@ -227,7 +227,7 @@ class LLMDecisionCache:
         )
         return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
-    def load(self, key: str) -> Optional[LLMDecisionRecord]:
+    def load(self, key: str) -> LLMDecisionRecord | None:
         record_path = self.path / f"{key}.json"
         if not record_path.exists():
             return None
@@ -326,9 +326,9 @@ class OpenAIDecisionGenerator(LLMDecisionGenerator):
 
     def __init__(
         self,
-        model: Optional[str] = None,
+        model: str | None = None,
         *,
-        api_key: Optional[str] = None,
+        api_key: str | None = None,
         timeout_s: float = 30.0,
         endpoint: str = "https://api.openai.com/v1/responses",
     ) -> None:
@@ -396,7 +396,7 @@ class OpenAIDecisionGenerator(LLMDecisionGenerator):
         self,
         request: LLMDecisionRequest,
         error: str,
-        payload: Optional[dict[str, Any]] = None,
+        payload: dict[str, Any] | None = None,
     ) -> GeneratedAgentDecision:
         raw = {"error": error}
         if payload is not None:
@@ -416,9 +416,9 @@ class AnthropicDecisionGenerator(LLMDecisionGenerator):
 
     def __init__(
         self,
-        model: Optional[str] = None,
+        model: str | None = None,
         *,
-        api_key: Optional[str] = None,
+        api_key: str | None = None,
         timeout_s: float = 30.0,
         endpoint: str = "https://api.anthropic.com/v1/messages",
         api_version: str = "2023-06-01",
@@ -493,7 +493,7 @@ class AnthropicDecisionGenerator(LLMDecisionGenerator):
         self,
         request: LLMDecisionRequest,
         error: str,
-        payload: Optional[dict[str, Any]] = None,
+        payload: dict[str, Any] | None = None,
     ) -> GeneratedAgentDecision:
         raw = {"error": error}
         if payload is not None:
@@ -772,8 +772,8 @@ def _append_decision_audit(
 
 
 def create_agent_decision_policy(
-    payload: Optional[dict[str, Any]],
-) -> Optional[AgentDecisionPolicy]:
+    payload: dict[str, Any] | None,
+) -> AgentDecisionPolicy | None:
     config = AgentDecisionConfig.from_mapping(payload)
     if not config.enabled:
         return None
@@ -888,7 +888,7 @@ def _decision_instructions(prompt_style: str) -> str:
     )
 
 
-def _parse_optional_cell(value: Any) -> Optional[Cell]:
+def _parse_optional_cell(value: Any) -> Cell | None:
     if value in (None, ""):
         return None
     if isinstance(value, dict):
@@ -913,7 +913,7 @@ def _parse_optional_cell(value: Any) -> Optional[Cell]:
     return None
 
 
-def _cell_floor(cell: Optional[Cell]) -> Optional[str]:
+def _cell_floor(cell: Cell | None) -> str | None:
     if cell is None:
         return None
     return str(cell[0]) if len(cell) >= 3 and isinstance(cell[0], str) else None

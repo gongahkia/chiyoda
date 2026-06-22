@@ -1,15 +1,13 @@
 from __future__ import annotations
 
-import pytest
-
 import pandas as pd
+import pytest
 
 from chiyoda.analysis.external_validation import (
     compare_bottleneck_flow,
     load_petrack_trajectory,
     summarize_bottleneck_flow,
 )
-
 
 REFERENCE = "data/external/wuppertal_bottleneck_2018/040_c_56_h-.txt"
 

@@ -1,7 +1,9 @@
 """Commuter — default evacuating agent with familiarity parameter."""
 
 from __future__ import annotations
+
 from dataclasses import dataclass
+
 from chiyoda.agents.base import CognitiveAgent
 
 
