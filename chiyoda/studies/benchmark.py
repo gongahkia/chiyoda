@@ -226,6 +226,14 @@ def composite_v1_causal(
     Callers may pass aggregated dictionaries across seeds; the function
     is a pure transform and does not refit any model.
     """
+    if _is_study_bundle(intervention_metrics) and _is_study_bundle(
+        no_intervention_metrics
+    ):
+        return _composite_v1_causal_bundles(
+            treated=intervention_metrics,
+            baseline=no_intervention_metrics,
+        )
+
     treated = benchmark_score(intervention_metrics)
     baseline = benchmark_score(no_intervention_metrics)
     return {
@@ -233,6 +241,54 @@ def composite_v1_causal(
         "composite_v1_no_intervention": baseline,
         "delta_vs_no_intervention": treated - baseline,
     }
+
+
+def _composite_v1_causal_bundles(*, treated, baseline) -> dict[str, float]:
+    from dataclasses import replace
+
+    from chiyoda.studies.causal import compare_bundles
+
+    treated_scored = replace(
+        treated, summary=_summary_with_composite_v1(treated.summary)
+    )
+    baseline_scored = replace(
+        baseline, summary=_summary_with_composite_v1(baseline.summary)
+    )
+    result = compare_bundles(
+        baseline_scored,
+        treated_scored,
+        metrics=["composite_v1"],
+        bootstrap_samples=0,
+    )
+    if result.empty:
+        return {
+            "composite_v1_treated": 0.0,
+            "composite_v1_no_intervention": 0.0,
+            "delta_vs_no_intervention": 0.0,
+        }
+    row = result.iloc[0]
+    return {
+        "composite_v1_treated": float(row["treated_mean"]),
+        "composite_v1_no_intervention": float(row["baseline_mean"]),
+        "delta_vs_no_intervention": float(row["ate"]),
+    }
+
+
+def _summary_with_composite_v1(summary: pd.DataFrame) -> pd.DataFrame:
+    frame = summary.copy()
+    frame["composite_v1"] = [
+        (
+            benchmark_score(row.to_dict())
+            if row.get("record_type", "run") == "run"
+            else pd.NA
+        )
+        for _, row in frame.iterrows()
+    ]
+    return frame
+
+
+def _is_study_bundle(value: Any) -> bool:
+    return hasattr(value, "summary") and hasattr(value, "tables")
 
 
 def generate_reference_trajectories(

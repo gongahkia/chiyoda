@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 
+import pandas as pd
 import pytest
 
 from chiyoda.studies.benchmark import (
@@ -12,6 +13,7 @@ from chiyoda.studies.benchmark import (
     benchmark_spec_v2,
     benchmark_spec_v3,
 )
+from chiyoda.studies.models import StudyBundle
 
 
 def test_benchmark_spec_v2_registration():
@@ -139,3 +141,75 @@ def test_composite_v1_causal_delta_is_zero_when_arms_match():
     }
     result = composite_v1_causal(metrics, metrics)
     assert result["delta_vs_no_intervention"] == 0.0
+
+
+def test_composite_v1_causal_uses_matched_pair_bundles():
+    from chiyoda.studies.benchmark import composite_v1_causal
+
+    baseline = _bundle(
+        {
+            1: {
+                "mean_travel_time_s": 30.0,
+                "p95_hazard_exposure": 2.0,
+                "equity_time_gap_s": 8.0,
+                "harmful_convergence_index_induced": 1.5,
+            },
+            2: {
+                "mean_travel_time_s": 20.0,
+                "p95_hazard_exposure": 1.0,
+                "equity_time_gap_s": 4.0,
+                "harmful_convergence_index_induced": 1.0,
+            },
+        }
+    )
+    treated = _bundle(
+        {
+            1: {
+                "mean_travel_time_s": 5.0,
+                "p95_hazard_exposure": 0.2,
+                "equity_time_gap_s": 1.0,
+                "harmful_convergence_index_induced": 0.1,
+            },
+            2: {
+                "mean_travel_time_s": 7.0,
+                "p95_hazard_exposure": 0.4,
+                "equity_time_gap_s": 1.5,
+                "harmful_convergence_index_induced": 0.2,
+            },
+        }
+    )
+
+    result = composite_v1_causal(treated, baseline)
+
+    assert result["composite_v1_treated"] > result["composite_v1_no_intervention"]
+    assert result["delta_vs_no_intervention"] > 0.0
+
+
+def _bundle(rows_by_seed: dict[int, dict[str, float]]) -> StudyBundle:
+    summary = pd.DataFrame(
+        [
+            {
+                "study_name": "synthetic",
+                "scenario_name": "toy",
+                "variant_name": "variant",
+                "seed": seed,
+                "run_id": f"seed_{seed}",
+                "record_type": "run",
+                **metrics,
+            }
+            for seed, metrics in rows_by_seed.items()
+        ]
+    )
+    empty = pd.DataFrame()
+    return StudyBundle(
+        metadata={},
+        summary=summary,
+        steps=empty,
+        cells=empty,
+        agent_steps=empty,
+        agents=empty,
+        bottlenecks=empty,
+        dwell_samples=empty,
+        exits=empty,
+        hazards=empty,
+    )
