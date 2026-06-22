@@ -19,7 +19,7 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt pytest
       - name: benchmark unit tests
-        run: python -m pytest tests/test_benchmark.py
+        run: python -m pytest tests/test_benchmark.py tests/test_benchmark_v2_v3.py
       - name: benchmark submit smoke
         run: python -m chiyoda.cli benchmark submit --suite v1 -o out/benchmark_submission_ci
       - name: upload benchmark smoke artifacts
