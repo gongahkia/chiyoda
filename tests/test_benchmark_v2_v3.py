@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -47,6 +48,51 @@ def test_benchmark_spec_v2_v3_seed_reproducibility():
     spec_b = benchmark_spec_v2()
     assert spec_a.seeds == spec_b.seeds
     assert benchmark_spec_v3().seeds == [42, 137]
+
+
+def test_submit_policy_accepts_non_v1_suite(monkeypatch, tmp_path):
+    import chiyoda.studies.benchmark as benchmark_module
+
+    class StubSimulation:
+        completed_agents = [
+            SimpleNamespace(travel_time_s=1.0),
+            SimpleNamespace(travel_time_s=3.0),
+        ]
+
+        def run(self):
+            return None
+
+    class StubManager:
+        def load_config(self, scenario_file):
+            return {"name": Path(scenario_file).stem, "simulation": {}}
+
+        def build_simulation(self, config):
+            return StubSimulation()
+
+    class StubAnalytics:
+        def calculate_performance_metrics(self, simulation):
+            return {
+                "mean_travel_time_s": 1.0,
+                "p95_hazard_exposure": 0.0,
+                "harmful_convergence_index_induced": 0.0,
+            }
+
+    monkeypatch.setattr(benchmark_module, "ScenarioManager", StubManager)
+    monkeypatch.setattr(benchmark_module, "SimulationAnalytics", StubAnalytics)
+    monkeypatch.setattr(
+        benchmark_module,
+        "write_leaderboard_site",
+        lambda leaderboard, output_file: output_file,
+    )
+
+    result = benchmark_module.submit_policy(
+        policy_path=None, suite="v2", output_dir=tmp_path
+    )
+
+    assert result["leaderboard"]["suite"] == "v2"
+    assert result["leaderboard"]["entries"][0]["run_count"] == 4
+    assert result["manifest"]["suite"] == "v2"
+    assert (tmp_path / "benchmark_runs.csv").exists()
 
 
 def test_benchmark_spec_artifacts_exist():
