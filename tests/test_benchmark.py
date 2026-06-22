@@ -1,9 +1,15 @@
 from __future__ import annotations
 
+import time
+from types import SimpleNamespace
+
+import numpy as np
 import pandas as pd
 from click.testing import CliRunner
 
 from chiyoda.cli import cli
+from chiyoda.navigation.social_force import adjusted_step
+from chiyoda.navigation.spatial_index import SpatialIndex
 from chiyoda.studies.benchmark import (
     BenchmarkSpec,
     benchmark_score,
@@ -61,3 +67,26 @@ def test_reference_trajectory_generation(tmp_path):
     assert {"transit_cbrn", "transit_shooter", "transit_mixed"} <= set(
         frame["scenario"]
     )
+
+
+def test_optional_numba_kernel_perf_smoke():
+    pos = np.array([5.0, 5.0])
+    desired = np.array([0.12, 0.0])
+    neighbors = np.array([[5.5, 5.0], [4.7, 5.1], [8.0, 8.0]], dtype=float)
+    walls = [[4.0, 5.0], [7.0, 5.0]]
+    start = time.perf_counter()
+    for _ in range(250):
+        step = adjusted_step(pos, desired, neighbors, walls, 0.1, counter_flow=True)
+    elapsed_s = time.perf_counter() - start
+
+    assert np.all(np.isfinite(step))
+    assert elapsed_s < 2.0
+
+    index = SpatialIndex()
+    index.update(
+        [
+            SimpleNamespace(id=idx, pos=np.array([float(idx), 0.0, 0.0]))
+            for idx in range(64)
+        ]
+    )
+    assert index.local_density(np.array([10.0, 0.0, 0.0]), radius=2.0) > 0.0

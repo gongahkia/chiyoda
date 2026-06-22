@@ -3,6 +3,33 @@ from __future__ import annotations
 import numpy as np
 from scipy.spatial import cKDTree
 
+try:
+    from numba import njit
+
+    NUMBA_AVAILABLE = True
+except Exception:  # pragma: no cover - depends on optional dependency
+    NUMBA_AVAILABLE = False
+    njit = None
+
+
+if NUMBA_AVAILABLE:
+
+    @njit(cache=True)
+    def _nonself_mask(points: np.ndarray, pos: np.ndarray, eps: float) -> np.ndarray:
+        mask = np.zeros(points.shape[0], dtype=np.bool_)
+        for idx in range(points.shape[0]):
+            total = 0.0
+            for axis in range(points.shape[1]):
+                delta = points[idx, axis] - pos[axis]
+                total += delta * delta
+            mask[idx] = np.sqrt(total) > eps
+        return mask
+
+else:
+
+    def _nonself_mask(points: np.ndarray, pos: np.ndarray, eps: float) -> np.ndarray:
+        return np.linalg.norm(points - pos, axis=1) > eps
+
 
 class SpatialIndex:
     """KD-tree backed spatial index for fast neighbor queries."""
@@ -45,7 +72,7 @@ class SpatialIndex:
         if not idxs:
             return np.zeros((0, 3), dtype=float)
         points = self._positions[idxs]
-        mask = np.linalg.norm(points - pos, axis=1) > 1e-6
+        mask = _nonself_mask(points, pos, 1e-6)
         return points[mask]
 
     def neighbor_agents(self, pos: np.ndarray, radius: float = 1.0) -> list[object]:
@@ -53,10 +80,10 @@ class SpatialIndex:
             return []
         idxs = self.find_neighbors(pos, radius=radius)
         neighbors = [self._agents[idx] for idx in idxs]
+        positions = self._positions[idxs]
+        mask = _nonself_mask(positions, pos, 1e-6)
         return [
-            agent
-            for agent in neighbors
-            if np.linalg.norm(np.array(agent.pos) - pos) > 1e-6
+            agent for agent, keep in zip(neighbors, mask, strict=False) if bool(keep)
         ]
 
     def density_penalty_fn(self):
