@@ -42,3 +42,49 @@ CSV format requires `x`, `y`, and `intensity` columns, plus optional
 This is an import and regression-test path only. External summaries should
 continue to describe the default hazards as stylized until a concrete reference
 field and matching scenario are included as a validation artifact.
+
+## Worked Example: FDS Smoke Slice → Imported Field
+
+A tiny synthetic FDS-style smoke slice ships in
+`tests/fixtures/fds_smoke_slice.csv`. The format mirrors what a slice file
+preprocessor would emit: one row per `(x, y)` cell with `intensity` and
+`visibility` columns. Origin is `(0, 0)` and cell size is 1.0 m.
+
+```csv
+x,y,intensity,visibility
+0,0,0.05,0.95
+1,0,0.10,0.90
+...
+```
+
+Load it and inspect the resulting field directly:
+
+```python
+from chiyoda.environment.hazards import ImportedHazardField
+
+field = ImportedHazardField.from_csv(
+    "tests/fixtures/fds_smoke_slice.csv", kind="SMOKE"
+)
+print(field.severity, field.radius, field.intensity_grid.shape)
+```
+
+End-to-end CLI: reference the same CSV from a scenario YAML and run it
+through the existing `run` command. A minimal scenario stanza:
+
+```yaml
+hazards:
+  - type: SMOKE
+    field:
+      file: tests/fixtures/fds_smoke_slice.csv
+      cell_size: 1.0
+      origin: [0.0, 0.0]
+```
+
+```sh
+.venv/bin/python -m chiyoda.cli run path/to/scenario.yaml -o out/fds_demo
+```
+
+The imported field is treated as a static hazard for the run; agent
+hazard exposure, vision decay, and route hazard penalty all consult
+`intensity_at` against the grid rather than the stylized spreading
+`Hazard` model.
