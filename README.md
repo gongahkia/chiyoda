@@ -48,7 +48,7 @@ Core capabilities include:
 |:------|:-----------|
 | **Information** | Shannon-entropy beliefs, gossip propagation, beacon broadcast, responder relay, belief decay, hostile-channel provenance |
 | **Agents** | BDI-style cognitive agents, familiarity priors, herding/exploration, physiological impairment |
-| **Hazards** | Stylized GAS/SMOKE/FIRE/CRUSH hazards, spread fields, imported-field checks, visibility reduction |
+| **Hazards** | Stylized GAS/SMOKE/FIRE/CRUSH/SHOOTER/WILDFIRE/EMBER/FLOOD/EARTHQUAKE/AFTERSHOCK hazards, spread fields, imported-field checks, visibility reduction |
 | **Navigation** | Social-force dynamics, belief-weighted A* routing, bottleneck and counterflow pressure, floor-aware connector routing |
 | **Interventions** | Static, global, responder, entropy-targeted, density-aware, exposure-aware, bottleneck-avoidance, bounded LLM, and responder-coordination messaging |
 | **Analysis** | Belief entropy, belief accuracy, information-safety efficiency, harmful-convergence index, benchmark scoring, trajectory exports, static 3D viewer exports |
