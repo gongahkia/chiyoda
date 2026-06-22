@@ -169,6 +169,14 @@ class BeliefRevisionModel:
 
 @dataclass
 class HostileChannelConfig:
+    """Hostile-channel configuration.
+
+    Persona-targeting fields (``target_persona``) follow the
+    cohort/mobility/age homophily code path in
+    ``chiyoda/information/propagation.py``. See arxiv 2511.04697 for the
+    persona-driven misinformation framing this mirrors.
+    """
+
     id: str = "hostile_channel"
     channel_type: str = "gossip"
     objective: AttackerObjective = AttackerObjective.DECOY_EXIT
@@ -178,6 +186,7 @@ class HostileChannelConfig:
     plausibility: float = 0.65
     radius: float = 6.0
     target_cohort: str | None = None
+    target_persona: dict[str, Any] | None = None
     source_id: str = "attacker"
     claimed_exit: tuple | None = None
     claimed_hazard: tuple | None = None
@@ -204,6 +213,7 @@ class HostileChannelConfig:
                 if payload.get("target_cohort") is None
                 else str(payload["target_cohort"])
             ),
+            target_persona=_normalize_persona(payload.get("target_persona")),
             source_id=str(payload.get("source_id", "attacker")),
             claimed_exit=_tuple_or_none(payload.get("claimed_exit")),
             claimed_hazard=_tuple_or_none(payload.get("claimed_hazard")),
@@ -308,6 +318,7 @@ class HostileChannel:
         )
 
     def _select_recipients(self, simulation) -> list[Any]:
+        persona = self.config.target_persona or {}
         active = [
             agent
             for agent in simulation._active_agents()
@@ -316,6 +327,7 @@ class HostileChannel:
                 self.config.target_cohort is None
                 or getattr(agent, "cohort_name", None) == self.config.target_cohort
             )
+            and _persona_match(agent, persona)
         ]
         if not active:
             return []
@@ -426,6 +438,42 @@ def _tuple_or_none(value: Sequence[Any] | None) -> tuple | None:
 
 def _distance(a: Sequence[Any], b: Sequence[Any]) -> float:
     return float(np.linalg.norm(_point3(a) - _point3(b)))
+
+
+def _normalize_persona(value: Any) -> dict[str, Any] | None:
+    if not value:
+        return None
+    if not isinstance(value, dict):
+        return None
+    normalized: dict[str, Any] = {}
+    if "cohort" in value:
+        normalized["cohort"] = str(value["cohort"])
+    if "mobility" in value:
+        normalized["mobility"] = str(value["mobility"]).lower()
+    if "age_band" in value:
+        normalized["age_band"] = str(value["age_band"]).lower()
+    return normalized or None
+
+
+def _persona_match(agent: Any, persona: dict[str, Any]) -> bool:
+    if not persona:
+        return True
+    cohort = persona.get("cohort")
+    if cohort is not None and getattr(agent, "cohort_name", None) != cohort:
+        return False
+    mobility = persona.get("mobility")
+    if mobility is not None:
+        agent_mobility = str(
+            getattr(agent, "mobility", getattr(agent, "mobility_class", "")) or ""
+        ).lower()
+        if agent_mobility != mobility:
+            return False
+    age_band = persona.get("age_band")
+    if age_band is not None:
+        agent_age = str(getattr(agent, "age_band", "") or "").lower()
+        if agent_age != age_band:
+            return False
+    return True
 
 
 def _point3(value: Sequence[Any]) -> np.ndarray:
