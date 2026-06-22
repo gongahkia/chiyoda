@@ -67,6 +67,20 @@ def _bundle_export_settings(
     return resolved_figures, resolved_tables, resolved_profile, should_export_figures
 
 
+def _dump_debug_steps(bundle: StudyBundle, out_dir: str) -> None:
+    """Write per-step telemetry to ``<out_dir>/debug_steps.jsonl``."""
+    output_dir = Path(out_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    target = output_dir / "debug_steps.jsonl"
+    steps = getattr(bundle, "steps", None)
+    if steps is None or getattr(steps, "empty", True):
+        target.write_text("")
+        return
+    with target.open("w") as handle:
+        for record in steps.to_dict(orient="records"):
+            handle.write(json.dumps(record, default=str) + "\n")
+
+
 def _export_bundle(
     bundle: StudyBundle,
     out_dir: str,
@@ -107,12 +121,20 @@ def _export_bundle(
     help="Table format(s) to export",
 )
 @click.option("--profile", default=None, help="Export profile")
-def run(scenario_file, out_dir, figure_formats, table_formats, profile):
+@click.option(
+    "--debug",
+    is_flag=True,
+    default=False,
+    help="Dump per-step telemetry to <out>/debug_steps.jsonl",
+)
+def run(scenario_file, out_dir, figure_formats, table_formats, profile, debug):
     """Run a single scenario and export a structured study bundle."""
     bundle = run_study(scenario_file)
     _export_bundle(
         bundle, out_dir, tuple(figure_formats), tuple(table_formats), profile
     )
+    if debug:
+        _dump_debug_steps(bundle, out_dir)
     click.echo(f"Exported study bundle to {out_dir}")
 
 
