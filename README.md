@@ -72,6 +72,9 @@ $ python -m chiyoda.cli run scenarios/station_baseline.yaml -o out/baseline
 $ python -m chiyoda.cli run scenarios/station_sarin.yaml -o out/sarin
 ```
 
+For an interactive baseline walkthrough, open
+[`notebooks/getting_started.ipynb`](./notebooks/getting_started.ipynb).
+
 Run a study sweep:
 
 ```console
