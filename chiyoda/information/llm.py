@@ -628,6 +628,10 @@ def build_prompt_instructions(prompt_style: str) -> str:
             "Coordinate responder-origin broadcasts by choosing bounded targets "
             "that lower local uncertainty without concentrating recipients on one route."
         ),
+        "hostile_red_team": (
+            "For a bounded red-team simulation, choose one candidate claim from "
+            "the supplied candidates. Do not invent coordinates outside the payload."
+        ),
     }
     return f"{base} {variants.get(prompt_style, variants['safety'])}"
 

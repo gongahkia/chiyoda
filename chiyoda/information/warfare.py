@@ -5,12 +5,32 @@ from __future__ import annotations
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 from enum import Enum
+from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
 import numpy as np
 
 from chiyoda.information.field import ExitBelief, HazardBelief
+from chiyoda.information.llm import (
+    AnthropicMessagesGenerator,
+    GeneratedEvacuationMessage,
+    HazardSnapshot,
+    LLMBudgetGuard,
+    LLMGenerationRecord,
+    LLMMessageCache,
+    LLMMessageRequest,
+    OpenAIResponsesGenerator,
+    ReplayOnlyGenerator,
+    TemplateLLMGenerator,
+    ValidationResult,
+    build_prompt_instructions,
+    estimate_llm_cost,
+    estimate_llm_tokens,
+    load_anthropic_model,
+    load_openai_model,
+    raw_usage_tokens,
+)
 
 
 class AttackerObjective(str, Enum):
@@ -191,12 +211,25 @@ class HostileChannelConfig:
     claimed_exit: tuple | None = None
     claimed_hazard: tuple | None = None
     enabled: bool = True
+    llm_claims_enabled: bool = False
+    llm_provider: str = "template"
+    llm_model: str = "template"
+    llm_cache_path: str | None = None
+    llm_cache_mode: str = "cache_first"
+    llm_store_cache: bool = True
+    llm_prompt_style: str = "hostile_red_team"
+    llm_max_calls_per_run: int | None = None
+    llm_max_estimated_tokens_per_run: int | None = None
+    llm_max_estimated_usd_per_run: float | None = None
+    llm_input_usd_per_mtok: float = 0.0
+    llm_output_usd_per_mtok: float = 0.0
 
     @classmethod
     def from_mapping(cls, payload: dict[str, Any]) -> HostileChannelConfig:
         objective = AttackerObjective(
             str(payload.get("objective", AttackerObjective.DECOY_EXIT.value))
         )
+        llm_provider = payload.get("llm_provider")
         return cls(
             id=str(payload.get("id", "hostile_channel")),
             channel_type=str(
@@ -218,6 +251,28 @@ class HostileChannelConfig:
             claimed_exit=_tuple_or_none(payload.get("claimed_exit")),
             claimed_hazard=_tuple_or_none(payload.get("claimed_hazard")),
             enabled=bool(payload.get("enabled", True)),
+            llm_claims_enabled=bool(
+                payload.get("llm_claims_enabled", llm_provider is not None)
+            ),
+            llm_provider=str(llm_provider or "template").lower(),
+            llm_model=str(payload.get("llm_model", "template")),
+            llm_cache_path=(
+                None
+                if payload.get("llm_cache_path") is None
+                else str(payload["llm_cache_path"])
+            ),
+            llm_cache_mode=str(payload.get("llm_cache_mode", "cache_first")),
+            llm_store_cache=bool(payload.get("llm_store_cache", True)),
+            llm_prompt_style=str(payload.get("llm_prompt_style", "hostile_red_team")),
+            llm_max_calls_per_run=_optional_int(payload.get("llm_max_calls_per_run")),
+            llm_max_estimated_tokens_per_run=_optional_int(
+                payload.get("llm_max_estimated_tokens_per_run")
+            ),
+            llm_max_estimated_usd_per_run=_optional_float(
+                payload.get("llm_max_estimated_usd_per_run")
+            ),
+            llm_input_usd_per_mtok=float(payload.get("llm_input_usd_per_mtok", 0.0)),
+            llm_output_usd_per_mtok=float(payload.get("llm_output_usd_per_mtok", 0.0)),
         )
 
 
@@ -235,10 +290,254 @@ class HostileChannelEvent:
     claimed_hazard: tuple | None = None
 
 
+class LLMHostileClaimGenerator:
+    def __init__(self, config: HostileChannelConfig) -> None:
+        self.config = config
+        self.cache = (
+            LLMMessageCache(Path(config.llm_cache_path))
+            if config.llm_cache_path
+            else None
+        )
+        self.budget_guard = LLMBudgetGuard(
+            max_calls=config.llm_max_calls_per_run,
+            max_estimated_tokens=config.llm_max_estimated_tokens_per_run,
+            max_estimated_usd=config.llm_max_estimated_usd_per_run,
+            input_usd_per_mtok=config.llm_input_usd_per_mtok,
+            output_usd_per_mtok=config.llm_output_usd_per_mtok,
+        )
+        provider = config.llm_provider.lower()
+        if provider == "template":
+            self.generator = TemplateLLMGenerator()
+        elif provider in {"replay", "local_replay"}:
+            if self.cache is None:
+                raise ValueError("hostile LLM replay requires llm_cache_path")
+            config.llm_cache_mode = "replay_only"
+            self.generator = ReplayOnlyGenerator(self.cache)
+        elif provider == "openai":
+            model = (
+                config.llm_model
+                if config.llm_model and config.llm_model != "template"
+                else load_openai_model()
+            )
+            self.generator = OpenAIResponsesGenerator(model=model)
+        elif provider == "anthropic":
+            model = (
+                config.llm_model
+                if config.llm_model and config.llm_model != "template"
+                else load_anthropic_model()
+            )
+            self.generator = AnthropicMessagesGenerator(model=model)
+        else:
+            raise ValueError(
+                "Unsupported hostile llm_provider. Use 'template', 'replay', 'local_replay', 'openai', or 'anthropic'."
+            )
+
+    def build_claim(
+        self,
+        simulation,
+        recipients: Sequence[Any],
+        fallback: dict[str, tuple | None],
+    ) -> dict[str, tuple | None]:
+        request = self._build_request(simulation, recipients, fallback)
+        cache_key = self.cache.key_for(request) if self.cache is not None else ""
+        generated, cached_validation, cache_status, audit = self._generate(
+            request, cache_key
+        )
+        claim, validation, used_fallback = self._claim_from_message(generated, fallback)
+        if (
+            cached_validation is not None
+            and validation.reasons == cached_validation.reasons
+        ):
+            validation = cached_validation
+        if (
+            self.cache is not None
+            and self.config.llm_store_cache
+            and self.config.llm_provider not in {"replay", "local_replay"}
+            and cache_status not in {"hit", "budget_exceeded"}
+        ):
+            self.cache.store(
+                LLMGenerationRecord(
+                    cache_key=cache_key,
+                    request=request,
+                    message=generated,
+                    validation=validation,
+                )
+            )
+        _append_hostile_llm_audit(
+            simulation,
+            config=self.config,
+            request=request,
+            generated=generated,
+            validation=validation,
+            cache_key=cache_key,
+            cache_status=cache_status,
+            used_fallback=used_fallback,
+            audit=audit,
+        )
+        return claim
+
+    def _build_request(
+        self,
+        simulation,
+        recipients: Sequence[Any],
+        fallback: dict[str, tuple | None],
+    ) -> LLMMessageRequest:
+        target = _mean_agent_point(recipients)
+        exits = [fallback["exit"]] if fallback.get("exit") is not None else []
+        hazards = (
+            [
+                HazardSnapshot(
+                    position=tuple(fallback["hazard"]),
+                    kind="hostile_claim",
+                    radius=float(self.config.radius),
+                    severity=float(self.config.plausibility),
+                )
+            ]
+            if fallback.get("hazard") is not None
+            else []
+        )
+        return LLMMessageRequest(
+            policy=f"hostile_channel:{self.config.id}",
+            step=int(simulation.current_step),
+            target=target,
+            selected_reason="hostile_claim_generation",
+            objective=self.config.objective.value,
+            exits=exits,
+            hazards=hazards,
+            congested_exits=[],
+            recipients_estimate=len(recipients),
+            mean_local_density=_mean(
+                [float(getattr(agent, "local_density", 0.0)) for agent in recipients]
+            ),
+            mean_hazard_load=_mean(
+                [
+                    float(getattr(agent, "current_hazard_load", 0.0))
+                    for agent in recipients
+                ]
+            ),
+            prompt_style=self.config.llm_prompt_style,
+        )
+
+    def _generate(
+        self, request: LLMMessageRequest, cache_key: str
+    ) -> tuple[
+        GeneratedEvacuationMessage, ValidationResult | None, str, dict[str, Any]
+    ]:
+        if self.cache is not None:
+            cached = self.cache.load(cache_key)
+            if cached is not None and self.config.llm_cache_mode in {
+                "cache_first",
+                "replay_only",
+            }:
+                return (
+                    cached.message,
+                    cached.validation,
+                    "hit",
+                    self._cached_audit(cached.message),
+                )
+            if self.config.llm_cache_mode == "replay_only":
+                return (
+                    self.generator.generate(request, cache_key),
+                    None,
+                    "miss",
+                    _empty_budget_audit(),
+                )
+
+        check = self._budget_check(request)
+        if not check["allowed"]:
+            return self._budget_exceeded_message(check), None, "budget_exceeded", check
+        self.budget_guard.record(check["check"])
+        status = "miss" if self.cache is not None else "disabled"
+        return self.generator.generate(request, cache_key), None, status, check
+
+    def _budget_check(self, request: LLMMessageRequest) -> dict[str, Any]:
+        input_tokens = estimate_llm_tokens(
+            {
+                "instructions": build_prompt_instructions(request.prompt_style),
+                "input": request,
+            },
+            output_tokens=0,
+        )
+        output_tokens = 500
+        check = self.budget_guard.evaluate(input_tokens, output_tokens)
+        return {
+            "allowed": check.allowed,
+            "budget_reason": check.reason,
+            "estimated_input_tokens": check.estimated_input_tokens,
+            "estimated_output_tokens": check.estimated_output_tokens,
+            "estimated_total_tokens": check.estimated_total_tokens,
+            "estimated_usd": check.estimated_usd,
+            "check": check,
+        }
+
+    def _cached_audit(self, message: GeneratedEvacuationMessage) -> dict[str, Any]:
+        usage = raw_usage_tokens(message.raw_response)
+        return {
+            "allowed": True,
+            "budget_reason": "cache_hit",
+            "estimated_input_tokens": usage["input_tokens"],
+            "estimated_output_tokens": usage["output_tokens"],
+            "estimated_total_tokens": usage["total_tokens"],
+            "estimated_usd": estimate_llm_cost(
+                input_tokens=usage["input_tokens"],
+                output_tokens=usage["output_tokens"],
+                input_usd_per_mtok=self.config.llm_input_usd_per_mtok,
+                output_usd_per_mtok=self.config.llm_output_usd_per_mtok,
+            ),
+        }
+
+    def _budget_exceeded_message(
+        self, audit: dict[str, Any]
+    ) -> GeneratedEvacuationMessage:
+        return GeneratedEvacuationMessage(
+            text="LLM budget guard blocked hostile claim generation.",
+            abstain=True,
+            provider="budget_guard",
+            model="local",
+            raw_response={
+                "error": audit["budget_reason"],
+                "estimated_input_tokens": audit["estimated_input_tokens"],
+                "estimated_output_tokens": audit["estimated_output_tokens"],
+                "estimated_total_tokens": audit["estimated_total_tokens"],
+                "estimated_usd": audit["estimated_usd"],
+            },
+        )
+
+    def _claim_from_message(
+        self,
+        message: GeneratedEvacuationMessage,
+        fallback: dict[str, tuple | None],
+    ) -> tuple[dict[str, tuple | None], ValidationResult, bool]:
+        if message.abstain:
+            return (
+                fallback,
+                ValidationResult(False, ["generator_abstained"]),
+                True,
+            )
+        if self.config.objective == AttackerObjective.PANIC_INDUCE:
+            if message.hazard_positions:
+                return (
+                    {"exit": None, "hazard": tuple(message.hazard_positions[0])},
+                    ValidationResult(True, []),
+                    False,
+                )
+            return fallback, ValidationResult(False, ["missing_claimed_hazard"]), True
+        if message.recommended_exits:
+            return (
+                {"exit": tuple(message.recommended_exits[0]), "hazard": None},
+                ValidationResult(True, []),
+                False,
+            )
+        return fallback, ValidationResult(False, ["missing_claimed_exit"]), True
+
+
 class HostileChannel:
     def __init__(self, config: HostileChannelConfig) -> None:
         self.config = config
         self.emitted = 0
+        self.llm_claim_generator = (
+            LLMHostileClaimGenerator(config) if config.llm_claims_enabled else None
+        )
 
     def should_fire(self, simulation) -> bool:
         cfg = self.config
@@ -256,7 +555,7 @@ class HostileChannel:
             return None
         remaining = self.config.budget - self.emitted
         recipients = recipients[:remaining]
-        claim = self._build_claim(simulation)
+        claim = self._build_claim(simulation, recipients)
         objective = self.config.objective.value
         credibility_values = []
         for agent in recipients:
@@ -345,7 +644,17 @@ class HostileChannel:
             return active
         return active
 
-    def _build_claim(self, simulation) -> dict[str, tuple | None]:
+    def _build_claim(
+        self, simulation, recipients: Sequence[Any] = ()
+    ) -> dict[str, tuple | None]:
+        fallback = self._fallback_claim(simulation)
+        if self.llm_claim_generator is not None:
+            return self.llm_claim_generator.build_claim(
+                simulation, recipients, fallback
+            )
+        return fallback
+
+    def _fallback_claim(self, simulation) -> dict[str, tuple | None]:
         if self.config.objective in {
             AttackerObjective.DECOY_EXIT,
             AttackerObjective.RESPONDER_SPOOF,
@@ -406,6 +715,69 @@ def evaluate_pending_provenance(agent, simulation, vision_radius: float) -> None
             )
 
 
+def _append_hostile_llm_audit(
+    simulation,
+    *,
+    config: HostileChannelConfig,
+    request: LLMMessageRequest,
+    generated: GeneratedEvacuationMessage,
+    validation: ValidationResult,
+    cache_key: str,
+    cache_status: str,
+    used_fallback: bool,
+    audit: dict[str, Any],
+) -> None:
+    rows = getattr(simulation, "llm_call_audit", None)
+    if rows is None:
+        return
+    usage = raw_usage_tokens(generated.raw_response)
+    rows.append(
+        {
+            "step": int(simulation.current_step),
+            "time_s": float(simulation.time_s),
+            "surface": "hostile_channel",
+            "policy": config.id,
+            "agent_id": None,
+            "provider": generated.provider,
+            "model": generated.model,
+            "cache_key": cache_key,
+            "cache_status": cache_status,
+            "validation_status": validation.status,
+            "validation_reasons": ";".join(validation.reasons),
+            "judge_status": "",
+            "judge_safety": None,
+            "judge_specificity": None,
+            "judge_alignment": None,
+            "judge_reasons": "",
+            "judge_provider": "",
+            "used_fallback": bool(used_fallback),
+            "objective": request.objective,
+            "prompt_style": request.prompt_style,
+            "target_x": float(request.target[0]),
+            "target_y": float(request.target[1]),
+            "estimated_input_tokens": int(audit.get("estimated_input_tokens", 0)),
+            "estimated_output_tokens": int(audit.get("estimated_output_tokens", 0)),
+            "estimated_total_tokens": int(audit.get("estimated_total_tokens", 0)),
+            "estimated_usd": float(audit.get("estimated_usd", 0.0)),
+            "budget_reason": str(audit.get("budget_reason", "")),
+            "raw_input_tokens": usage["input_tokens"],
+            "raw_output_tokens": usage["output_tokens"],
+            "raw_total_tokens": usage["total_tokens"],
+        }
+    )
+
+
+def _empty_budget_audit() -> dict[str, Any]:
+    return {
+        "allowed": False,
+        "budget_reason": "cache_miss",
+        "estimated_input_tokens": 0,
+        "estimated_output_tokens": 0,
+        "estimated_total_tokens": 0,
+        "estimated_usd": 0.0,
+    }
+
+
 def _default_false_exit(simulation) -> tuple:
     floor_id = simulation.layout.primary_floor_id
     return (
@@ -434,6 +806,14 @@ def _tuple_or_none(value: Sequence[Any] | None) -> tuple | None:
         if {"x", "y", "z"}.issubset(value):
             return (float(value["x"]), float(value["y"]), float(value["z"]))
     return tuple(value)
+
+
+def _optional_int(value: Any) -> int | None:
+    return None if value is None else int(value)
+
+
+def _optional_float(value: Any) -> float | None:
+    return None if value is None else float(value)
 
 
 def _distance(a: Sequence[Any], b: Sequence[Any]) -> float:
@@ -486,3 +866,17 @@ def _point3(value: Sequence[Any]) -> np.ndarray:
             [float(value[0]), float(value[1]), float(value[2])], dtype=float
         )
     return np.array([float(value[0]), float(value[1]), 0.0], dtype=float)
+
+
+def _mean(values: Sequence[float]) -> float:
+    if not values:
+        return 0.0
+    return float(sum(values) / len(values))
+
+
+def _mean_agent_point(agents: Sequence[Any]) -> tuple[float, float]:
+    if not agents:
+        return (0.0, 0.0)
+    xs = [float(agent.pos[0]) for agent in agents]
+    ys = [float(agent.pos[1]) for agent in agents]
+    return (_mean(xs), _mean(ys))

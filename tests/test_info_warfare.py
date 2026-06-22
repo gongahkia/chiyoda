@@ -8,7 +8,7 @@ from chiyoda.analysis.metrics import SimulationAnalytics
 from chiyoda.cli import cli
 from chiyoda.information.warfare import BeliefRevisionConfig, BeliefRevisionModel
 from chiyoda.scenarios.manager import ScenarioManager
-from chiyoda.studies.runner import _materialize_variants
+from chiyoda.studies.runner import _materialize_variants, load_study_config
 from chiyoda.studies.schema import AdversarialStudyConfig, StudyConfig
 
 
@@ -143,3 +143,51 @@ scenario:
     assert result.exit_code == 0
     assert payload["hostile_events"] == 1
     assert payload["metrics"]["hostile_channel_recipients"] == 1
+
+
+def test_llm_hostile_channel_uses_template_cache_and_audit(tmp_path):
+    scenario = _hostile_scenario()
+    cache_path = tmp_path / "llm_hostile_cache"
+    scenario["hostile_channels"][0].update(
+        {
+            "llm_claims_enabled": True,
+            "llm_provider": "template",
+            "llm_model": "template",
+            "llm_cache_path": str(cache_path),
+            "llm_cache_mode": "cache_first",
+            "llm_store_cache": True,
+            "llm_prompt_style": "hostile_red_team",
+            "llm_max_calls_per_run": 1,
+        }
+    )
+
+    simulation = ScenarioManager().build_simulation(scenario)
+    simulation.run()
+
+    assert len(simulation.hostile_channel_events) == 1
+    event = simulation.hostile_channel_events[0]
+    assert event.claimed_exit == ("0", 2, 1)
+    assert list(cache_path.glob("*.json"))
+    audit = simulation.llm_call_audit[0]
+    assert audit["surface"] == "hostile_channel"
+    assert audit["provider"] == "deterministic"
+    assert audit["cache_status"] == "miss"
+    assert audit["validation_status"] == "accepted"
+    assert audit["prompt_style"] == "hostile_red_team"
+
+
+def test_llm_red_team_study_declares_template_and_replay_variants():
+    config = load_study_config("scenarios/study_llm_red_team.yaml")
+    variants = _materialize_variants(config)
+    by_name = {variant.name: variant for variant in variants}
+
+    template = by_name["llm_template_decoy_exit"].scenario_overrides[
+        "hostile_channels"
+    ][0]
+    replay = by_name["llm_replay_decoy_exit"].scenario_overrides["hostile_channels"][0]
+
+    assert template["llm_provider"] == "template"
+    assert template["llm_store_cache"] is True
+    assert replay["llm_provider"] == "replay"
+    assert replay["llm_cache_mode"] == "replay_only"
+    assert replay["llm_cache_path"] == template["llm_cache_path"]
