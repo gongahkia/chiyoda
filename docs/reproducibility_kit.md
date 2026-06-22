@@ -14,6 +14,15 @@ Python version used for the current local verification: `3.14.6`.
 
 Package input file: `requirements.txt`.
 
+For fully pinned reproduction, install from the lock file instead:
+
+```sh
+.venv/bin/python -m pip install -r requirements-lock.txt
+```
+
+`requirements-lock.txt` was generated via `pip freeze` against the verified
+`.venv` and pins exact versions of every transitive dependency.
+
 ## Verification Commands
 
 ```sh
