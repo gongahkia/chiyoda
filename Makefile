@@ -1,7 +1,7 @@
 PYTHON ?= python3
 VENV_PYTHON ?= .venv/bin/python
 
-.PHONY: all config venv test verify doctor precommit profile
+.PHONY: all config venv test verify doctor precommit profile build dist-check
 
 all:config
 
@@ -34,3 +34,11 @@ profile:
 	@mkdir -p out
 	@$(PYTHON) -m cProfile -o out/profile.prof scripts/profile_large_scenario.py
 	@echo "wrote out/profile.prof; inspect with: snakeviz out/profile.prof"
+
+build:
+	@$(PYTHON) -m pip install --quiet build
+	@$(PYTHON) -m build --sdist --wheel
+
+dist-check: build
+	@$(PYTHON) -m pip install --quiet twine
+	@$(PYTHON) -m twine check dist/*

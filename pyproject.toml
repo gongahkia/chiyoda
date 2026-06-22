@@ -1,3 +1,42 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "chiyoda"
+description = "Information-warfare-aware evacuation and crowd dynamics simulator."
+readme = "README.md"
+requires-python = ">=3.12"
+license = { file = "LICENSE" }
+authors = [
+    { name = "Gabriel Ong", email = "gabrielong@elegantelefant.com" },
+]
+keywords = ["simulation", "evacuation", "agent-based", "crowd-dynamics"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering",
+]
+dynamic = ["version", "dependencies"]
+
+[project.urls]
+Homepage = "https://github.com/gongahkia/chiyoda"
+Issues = "https://github.com/gongahkia/chiyoda/issues"
+
+[project.scripts]
+chiyoda = "chiyoda.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["chiyoda*"]
+exclude = ["tests*", "scripts*", "notebooks*"]
+
+[tool.setuptools.dynamic]
+version = { attr = "chiyoda.__version__.__version__" }
+dependencies = { file = ["requirements.txt"] }
+
 [tool.black]
 line-length = 88
 target-version = ["py312"]

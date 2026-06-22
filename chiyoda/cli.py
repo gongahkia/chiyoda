@@ -513,5 +513,10 @@ def generate(layout_output, width, height):
         click.echo(f"Generated basic layout saved to {layout_output}")
 
 
-if __name__ == "__main__":
+def main() -> None:
+    """Console script entrypoint for the ``chiyoda`` command."""
     cli()
+
+
+if __name__ == "__main__":
+    main()
