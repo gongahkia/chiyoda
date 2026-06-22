@@ -1,0 +1,36 @@
+name: Feature request
+description: Propose a new capability or extension
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: motivation
+    attributes:
+      label: Motivation
+      description: What problem does this address? Why now?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposal
+      description: |
+        High-level design. Include the files/modules likely touched and any
+        new scenarios or telemetry fields.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+  - type: dropdown
+    id: scope
+    attributes:
+      label: Scope
+      options:
+        - Runtime / simulation core
+        - Information / interventions
+        - Hazards
+        - Benchmark / studies
+        - Acceleration / performance
+        - Tooling / DevEx
+        - Documentation

@@ -1,0 +1,44 @@
+name: Bug report
+description: Report a defect in Chiyoda runtime, CLI, or benchmark layer
+labels: ["bug"]
+body:
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: One-line description of the problem.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Reproduction
+      description: |
+        Minimal commands that reproduce the issue. Prefer pointing at a
+        scenario YAML in `scenarios/` rather than a custom one if possible.
+      placeholder: |
+        .venv/bin/python -m chiyoda.cli run scenarios/station_baseline.yaml --seed 42
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: chiyoda version
+      placeholder: "3.0.0"
+    validations:
+      required: true
+  - type: input
+    id: python
+    attributes:
+      label: Python version
+      placeholder: "3.12.6"
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior / traceback

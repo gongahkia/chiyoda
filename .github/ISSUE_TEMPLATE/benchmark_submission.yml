@@ -1,0 +1,47 @@
+name: Benchmark submission
+description: Submit a policy to the public Chiyoda benchmark leaderboard
+labels: ["benchmark-submission"]
+body:
+  - type: input
+    id: policy_hash
+    attributes:
+      label: Policy hash
+      description: 16-character hash printed by `chiyoda benchmark submit`.
+    validations:
+      required: true
+  - type: dropdown
+    id: suite
+    attributes:
+      label: Benchmark suite
+      options:
+        - v1
+        - v2
+        - v3
+    validations:
+      required: true
+  - type: input
+    id: mean_score
+    attributes:
+      label: Mean composite score
+      placeholder: "62.34"
+    validations:
+      required: true
+  - type: input
+    id: seeds
+    attributes:
+      label: Seeds used
+      placeholder: "42, 137"
+    validations:
+      required: true
+  - type: input
+    id: manifest_hash
+    attributes:
+      label: Manifest hash
+      description: SHA-256 of `reproducibility_manifest.json`.
+    validations:
+      required: true
+  - type: textarea
+    id: notes
+    attributes:
+      label: Notes
+      description: Optional context (intervention design, ablation, surprises).
