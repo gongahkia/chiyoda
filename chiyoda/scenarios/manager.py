@@ -489,7 +489,11 @@ class ScenarioManager:
                 }
             )
 
-        required = sum(int(c.get("count", 0)) for c in cohorts_cfg)
+        required = sum(
+            int(c.get("count", 0))
+            for c in cohorts_cfg
+            if not list(c.get("spawn_cells", []) or [])
+        )
         positions = list(layout_positions)
         while len(positions) < required:
             positions.append(layout.world_position(layout.random_walkable_position()))

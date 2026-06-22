@@ -16,7 +16,7 @@ venv: requirements.txt
 	@$(VENV_PYTHON) -m pip install -r requirements.txt pytest
 
 test:
-	@$(PYTHON) -m pytest
+	@$(PYTHON) -m pytest -m "not slow"
 
 verify: test
 

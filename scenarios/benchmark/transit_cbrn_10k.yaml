@@ -1,0 +1,58 @@
+scenario:
+  name: transit_cbrn_10k
+  description: "Opt-in 10k-agent transit CBRN stress fixture."
+  layout:
+    cell_size: 1.0
+    floors:
+      - id: "0"
+        z: 0.0
+        text: |
+          XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+          E..............................................................................E
+          X..............................................................................X
+          X....................XXXXXX..........................XXXXXX....................X
+          X....................XXXXXX..........................XXXXXX....................X
+          X..............................................................................X
+          X..............................................................................X
+          X....................XXXXXX..........................XXXXXX....................X
+          X....................XXXXXX..........................XXXXXX....................X
+          E..............................................................................E
+          XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+  population:
+    total: 10000
+    cohorts:
+      - name: regulars_10k
+        count: 7000
+        familiarity: 0.7
+        calmness: 0.8
+        spawn_cells:
+          - {floor: "0", x: 8, y: 2}
+          - {floor: "0", x: 12, y: 5}
+          - {floor: "0", x: 16, y: 8}
+      - name: visitors_10k
+        count: 3000
+        familiarity: 0.15
+        calmness: 0.6
+        spawn_cells:
+          - {floor: "0", x: 60, y: 2}
+          - {floor: "0", x: 64, y: 5}
+          - {floor: "0", x: 68, y: 8}
+  hazards:
+    - type: GAS
+      location: [40.0, 5.0, 0.0]
+      radius: 2.0
+      severity: 0.6
+      spread_rate: 0.02
+      diffusion_rate: 0.03
+      visibility_reduction: 0.25
+  information:
+    mode: asymmetric
+    observation_radius: 5.0
+    gossip_radius: 1.5
+    beacon_radius: 10.0
+  behavior:
+    freeze_probability: 0.0
+  simulation:
+    max_steps: 1
+    dt: 0.1
+    random_seed: 42
