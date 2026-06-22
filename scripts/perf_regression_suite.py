@@ -21,7 +21,7 @@ import gc
 import os
 import resource
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from chiyoda.scenarios.manager import ScenarioManager
@@ -101,7 +101,7 @@ def main() -> None:
             continue
         rows.append(_run_one(scenario, args.seed))
 
-    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
     csv_path = args.out / f"perf_{timestamp}.csv"
     with csv_path.open("w", newline="") as handle:
         fieldnames = sorted({key for row in rows for key in row.keys()})

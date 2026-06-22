@@ -70,7 +70,7 @@ def get_logger(name: str = _DEFAULT_NAME) -> logging.Logger:
         )
     logger.addHandler(handler)
     logger.propagate = False
-    setattr(logger, "_chiyoda_configured", True)
+    logger._chiyoda_configured = True
     return logger
 
 
