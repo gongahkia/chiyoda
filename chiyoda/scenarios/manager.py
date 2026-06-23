@@ -214,8 +214,16 @@ class ScenarioManager:
             freeze_probability=float(behavior_cfg.get("freeze_probability", 0.02)),
             calm_recovery_rate=float(behavior_cfg.get("calm_recovery_rate", 0.005)),
             helping_threshold=float(behavior_cfg.get("helping_threshold", 0.7)),
+            milling_time_dist=str(
+                behavior_cfg.get("milling_time_dist", "synthetic_baseline")
+            ),
+            compliance_dist=str(
+                behavior_cfg.get("compliance_dist", "synthetic_baseline")
+            ),
         )
-        sim.attach_behavior_model(BehaviorModel(bconfig))
+        behavior_model = BehaviorModel(bconfig)
+        behavior_model.apply_empirical_priors(agents, sim.config.dt)
+        sim.attach_behavior_model(behavior_model)
         policy = create_intervention_policy(sc.get("interventions"))
         if policy is not None:
             sim.attach_intervention_policy(policy)

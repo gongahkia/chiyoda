@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import hashlib
 import json
+import random
 from collections.abc import Sequence
 from dataclasses import asdict, dataclass, field
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 from urllib import request as urlrequest
@@ -31,6 +33,12 @@ from chiyoda.information.llm import (
 Cell = tuple
 Point = tuple
 ALLOWED_INTENTS = {INTENTION_EVACUATE, INTENTION_EXPLORE, INTENTION_FOLLOW}
+EMPIRICAL_PRIORS_PATH = (
+    Path(__file__).resolve().parents[2]
+    / "data"
+    / "empirical"
+    / "milling_distributions.json"
+)
 
 
 @dataclass(frozen=True)
@@ -215,6 +223,93 @@ class AgentDecisionConfig:
             input_usd_per_mtok=float(data.get("input_usd_per_mtok", 0.0)),
             output_usd_per_mtok=float(data.get("output_usd_per_mtok", 0.0)),
         )
+
+
+@dataclass(frozen=True)
+class EmpiricalDistribution:
+    prior_name: str
+    kind: str
+    values: tuple[float, ...]
+    probabilities: tuple[float, ...]
+    mean: float
+    variance: float
+    source: str
+
+    def sample(self, rng: random.Random | None = None) -> float:
+        draw = (rng or random).random()
+        cumulative = 0.0
+        for value, probability in zip(self.values, self.probabilities, strict=False):
+            cumulative += probability
+            if draw <= cumulative:
+                return value
+        return self.values[-1]
+
+
+@lru_cache(maxsize=4)
+def load_empirical_behavior_priors(path: str | None = None) -> dict[str, Any]:
+    target = Path(path) if path else EMPIRICAL_PRIORS_PATH
+    with target.open("r", encoding="utf-8") as fh:
+        payload = json.load(fh)
+    if "priors" not in payload or not isinstance(payload["priors"], dict):
+        raise ValueError("empirical behavior priors must contain a priors object")
+    return payload
+
+
+def empirical_distribution(
+    prior_name: str,
+    kind: str,
+    *,
+    path: str | None = None,
+) -> EmpiricalDistribution:
+    payload = load_empirical_behavior_priors(path)
+    priors = payload["priors"]
+    if prior_name not in priors:
+        raise ValueError(f"Unknown empirical behavior prior: {prior_name}")
+    prior = priors[prior_name]
+    if kind == "milling_time":
+        raw = prior["milling_time_seconds"]
+        values = tuple(float(item["seconds"]) for item in raw["buckets"])
+        probabilities = tuple(float(item["probability"]) for item in raw["buckets"])
+    elif kind == "compliance":
+        raw = prior["compliance"]
+        p = float(raw["p"])
+        values = (1.0, 0.0)
+        probabilities = (p, 1.0 - p)
+    else:
+        raise ValueError(f"Unknown empirical distribution kind: {kind}")
+    if not values:
+        raise ValueError(f"Empirical distribution {prior_name}:{kind} is empty")
+    probability_sum = sum(probabilities)
+    if abs(probability_sum - 1.0) > 1e-6:
+        raise ValueError(
+            f"Empirical distribution {prior_name}:{kind} probabilities sum to "
+            f"{probability_sum:.6f}"
+        )
+    return EmpiricalDistribution(
+        prior_name=prior_name,
+        kind=kind,
+        values=values,
+        probabilities=probabilities,
+        mean=float(raw["mean"]),
+        variance=float(raw["variance"]),
+        source=str(prior.get("source", "")),
+    )
+
+
+def sample_milling_time_seconds(
+    prior_name: str,
+    *,
+    rng: random.Random | None = None,
+) -> float:
+    return empirical_distribution(prior_name, "milling_time").sample(rng)
+
+
+def sample_compliance(
+    prior_name: str,
+    *,
+    rng: random.Random | None = None,
+) -> bool:
+    return bool(empirical_distribution(prior_name, "compliance").sample(rng))
 
 
 class LLMDecisionCache:

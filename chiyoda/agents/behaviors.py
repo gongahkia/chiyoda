@@ -9,6 +9,12 @@ from __future__ import annotations
 
 import random
 from dataclasses import dataclass
+from math import ceil
+
+from chiyoda.information.decisions import (
+    sample_compliance,
+    sample_milling_time_seconds,
+)
 
 STATES = {
     "CALM": {"speed_mult": 1.0, "rationality": 1.0},
@@ -33,6 +39,8 @@ class BehaviorConfig:
     freeze_probability: float = 0.02  # base freeze probability when panicked
     calm_recovery_rate: float = 0.005  # probability of de-escalation per step
     helping_threshold: float = 0.7  # impairment level at which nearby agents help
+    milling_time_dist: str = "synthetic_baseline"
+    compliance_dist: str = "synthetic_baseline"
 
 
 class BehaviorModel:
@@ -41,11 +49,32 @@ class BehaviorModel:
     def __init__(self, config: BehaviorConfig | None = None) -> None:
         self.config = config or BehaviorConfig()
 
+    def apply_empirical_priors(self, agents: list, dt: float) -> None:
+        cfg = self.config
+        for agent in agents:
+            if getattr(agent, "is_responder", False) or getattr(
+                agent, "is_hostile", False
+            ):
+                continue
+            milling_s = sample_milling_time_seconds(cfg.milling_time_dist)
+            compliant = sample_compliance(cfg.compliance_dist)
+            agent.milling_time_s = float(milling_s)
+            agent.milling_time_dist = cfg.milling_time_dist
+            agent.compliance_dist = cfg.compliance_dist
+            agent.will_comply_with_alert = bool(compliant)
+            if cfg.milling_time_dist != "synthetic_baseline":
+                agent.release_step += int(ceil(milling_s / max(dt, 1e-9)))
+
     def update_agent(self, agent, simulation) -> None:
         if not agent.is_released(simulation) or agent.has_evacuated:
             return
 
         cfg = self.config
+        if getattr(agent, "will_comply_with_alert", True) is False:
+            agent.state = "FROZEN"
+            agent.speed_multiplier = 0.0
+            return
+
         if getattr(agent, "intention", "") == "RUN":
             agent.state = "RUNNING"
         elif getattr(agent, "intention", "") == "HIDE":

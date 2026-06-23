@@ -13,15 +13,6 @@ Conventions:
 
 ## P0 — Core novelty: ground the information layer
 
-### [ ] T0.2 Empirically primed milling-time and compliance distributions
-- Scope: replace synthetic gossip/decision delays with empirically anchored distributions; expose YAML knobs `behavior.milling_time_dist` and `behavior.compliance_dist` keyed to source datasets.
-- Files: `chiyoda/agents/behaviors.py`, `chiyoda/information/decisions.py`, new `data/empirical/milling_distributions.json`, `docs/empirical_priors.md` (new).
-- Acceptance:
-  - Defaults match the Cell Broadcast tsunami 2024 milling dataset (PMC11599998) within 1 stddev; deviations documented.
-  - At least 3 named priors selectable from YAML (`cb_fr_2024`, `wea_us_default`, `synthetic_baseline`).
-  - Unit test verifies sampled means/variances within tolerance.
-- Refs: Cell Broadcast tsunami milling-time dataset 2024 (PMC11599998); FEMA WEA best practices.
-
 ### [ ] T0.3 Saddle-point characterization of harmful entropy reduction
 - Scope: derive and document the analytical condition under which entropy reduction increases harmful convergence index (HCI). Implement a closed-form detector that flags scenario configs likely to sit in the harmful regime BEFORE running the sim.
 - Files: new `chiyoda/analysis/info_safety_frontier.py`, `docs/info_safety_theory.md` (new), CLI subcommand `chiyoda info-safety-check <scenario>` in `chiyoda/cli.py`.

@@ -1,0 +1,136 @@
+{
+  "schema_version": 1,
+  "default_milling_time_dist": "cb_fr_2024",
+  "default_compliance_dist": "cb_fr_2024",
+  "priors": {
+    "cb_fr_2024": {
+      "source": "Mendeley Data DOI 10.17632/9wg3hb4w23.1; PMC11599998",
+      "source_url": "https://data.mendeley.com/datasets/9wg3hb4w23/1",
+      "source_file": "Tsunami_test_En.csv",
+      "source_sha256": "c30d98682bb6e24b9f0a0524be017b51eaf28687cc011f805fe5151a2f236581",
+      "milling_time_seconds": {
+        "type": "categorical",
+        "n": 7135,
+        "mean": 417.88086895585144,
+        "variance": 245066.7076017677,
+        "stddev": 495.04212709805586,
+        "buckets": [
+          {
+            "label": "less_than_1_min",
+            "seconds": 30.0,
+            "count": 1401,
+            "probability": 0.19635599159074982
+          },
+          {
+            "label": "2_to_5_min",
+            "seconds": 210.0,
+            "count": 3041,
+            "probability": 0.426208829712684
+          },
+          {
+            "label": "6_to_10_min",
+            "seconds": 480.0,
+            "count": 1502,
+            "probability": 0.21051156271899088
+          },
+          {
+            "label": "11_to_20_min",
+            "seconds": 930.0,
+            "count": 706,
+            "probability": 0.09894884372810091
+          },
+          {
+            "label": "21_to_30_min",
+            "seconds": 1530.0,
+            "count": 330,
+            "probability": 0.046250875963559916
+          },
+          {
+            "label": "more_than_31_min",
+            "seconds": 2700.0,
+            "count": 155,
+            "probability": 0.021723896285914507
+          }
+        ]
+      },
+      "compliance": {
+        "type": "bernoulli",
+        "n": 8011,
+        "mean": 0.8906503557608288,
+        "variance": 0.09739229954393785,
+        "p": 0.8906503557608288,
+        "positive_label": "gave_evacuation_time",
+        "negative_label": "would_not_evacuate"
+      }
+    },
+    "wea_us_default": {
+      "source": "FEMA IPAWS WEA best practices; WEA 360-character study PMC11424238",
+      "source_url": "https://www.fema.gov/emergency-managers/practitioners/integrated-public-alert-warning-system/public-safety-officials/alerting-authorities/best-practices",
+      "milling_time_seconds": {
+        "type": "categorical",
+        "n": 0,
+        "mean": 360.0,
+        "variance": 126900.0,
+        "stddev": 356.2302637347377,
+        "buckets": [
+          {
+            "label": "under_2_min",
+            "seconds": 60.0,
+            "probability": 0.25
+          },
+          {
+            "label": "2_to_5_min",
+            "seconds": 210.0,
+            "probability": 0.35
+          },
+          {
+            "label": "5_to_10_min",
+            "seconds": 450.0,
+            "probability": 0.25
+          },
+          {
+            "label": "10_to_20_min",
+            "seconds": 900.0,
+            "probability": 0.15
+          }
+        ]
+      },
+      "compliance": {
+        "type": "bernoulli",
+        "n": 0,
+        "mean": 0.85,
+        "variance": 0.1275,
+        "p": 0.85,
+        "positive_label": "complies",
+        "negative_label": "does_not_comply"
+      }
+    },
+    "synthetic_baseline": {
+      "source": "legacy Chiyoda baseline",
+      "source_url": "docs/empirical_priors.md",
+      "milling_time_seconds": {
+        "type": "categorical",
+        "n": 0,
+        "mean": 0.0,
+        "variance": 0.0,
+        "stddev": 0.0,
+        "buckets": [
+          {
+            "label": "immediate",
+            "seconds": 0.0,
+            "probability": 1.0
+          }
+        ]
+      },
+      "compliance": {
+        "type": "bernoulli",
+        "n": 0,
+        "mean": 1.0,
+        "variance": 0.0,
+        "p": 1.0,
+        "positive_label": "complies",
+        "negative_label": "does_not_comply"
+      }
+    }
+  }
+}
