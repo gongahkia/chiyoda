@@ -38,13 +38,20 @@ work. When those are absent, GeoJSON ingestion also recognizes common
 OpenStreetMap/OpenStationMap and GTFS Pathways fields:
 
 - OSM Simple Indoor Tagging: `indoor=corridor`, `indoor=area`,
-  `indoor=room`, and `indoor=level` become walkable; `indoor=wall` and
-  `indoor=column` become blocked.
+  `indoor=room`, `indoor=door`, `indoor=yes`, and `indoor=level` become
+  walkable; `indoor=wall` and `indoor=column` become blocked; `indoor=no` is
+  ignored.
 - OSM station access: truthy `entrance=*`, `railway=subway_entrance`, and
   `railway=train_station_entrance` become exits.
 - OSM pedestrian features: `highway=footway`, `highway=pedestrian`,
   `highway=path`, `highway=steps`, `highway=elevator`,
   `highway=corridor`, and matching `area:highway=*` values become walkable.
+- OSM levels: semicolon lists, integer ranges such as `-2-2`, and
+  `repeat_on=*` duplicate features across generated `layout.floors`.
+- OSM vertical links: `highway=steps`, `stairs=yes`,
+  `highway=steps` plus `conveying=*`, `highway=elevator`, and
+  `building:part=elevator` become typed connectors when they span multiple
+  levels.
 - OSM platforms: `railway=platform`, `public_transport=platform`, and
   `public_transport=stop_position` become walkable.
 - GTFS Pathways: `location_type=2` becomes an exit, `location_type=0`, `3`,

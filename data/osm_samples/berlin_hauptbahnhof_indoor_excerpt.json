@@ -1,0 +1,474 @@
+{
+  "access_date": "2026-06-23",
+  "elements": [
+    {
+      "id": 390962614,
+      "lat": 52.5267751,
+      "lon": 13.3693687,
+      "tags": {
+        "check_date:wheelchair": "2022-08-08",
+        "entrance": "yes",
+        "entrance:name": "Invalidenstra\u00dfe",
+        "level": "0",
+        "name": "Hauptbahnhof",
+        "railway": "subway_entrance",
+        "wheelchair": "no"
+      },
+      "type": "node"
+    },
+    {
+      "id": 742238077,
+      "lat": 52.5252588,
+      "lon": 13.368619,
+      "tags": {
+        "access": "yes",
+        "bicycle": "no",
+        "door": "hinged",
+        "entrance": "secondary",
+        "exit": "emergency",
+        "foot": "yes",
+        "level": "1",
+        "wheelchair": "no"
+      },
+      "type": "node"
+    },
+    {
+      "id": 2089374928,
+      "lat": 52.5243657,
+      "lon": 13.3699123,
+      "tags": {
+        "amenity": "clock",
+        "check_date": "2025-04-09",
+        "display": "analog",
+        "indoor": "no",
+        "lit": "yes",
+        "support": "wall_mounted",
+        "visibility": "street"
+      },
+      "type": "node"
+    },
+    {
+      "id": 2745105107,
+      "lat": 52.5256614,
+      "lon": 13.3690438,
+      "tags": {
+        "door": "revolving",
+        "entrance": "main",
+        "level": "0",
+        "name": "Eingang Europaplatz",
+        "wheelchair": "yes"
+      },
+      "type": "node"
+    },
+    {
+      "bounds": {
+        "maxlat": 52.5252662,
+        "maxlon": 13.3689357,
+        "minlat": 52.5251673,
+        "minlon": 13.3686292
+      },
+      "geometry": [
+        {
+          "lat": 52.5252007,
+          "lon": 13.3689357
+        },
+        {
+          "lat": 52.5251673,
+          "lon": 13.3686872
+        },
+        {
+          "lat": 52.525247,
+          "lon": 13.3686292
+        },
+        {
+          "lat": 52.5252662,
+          "lon": 13.3688897
+        },
+        {
+          "lat": 52.5252007,
+          "lon": 13.3689357
+        }
+      ],
+      "id": 59806042,
+      "nodes": [
+        774078916,
+        747764194,
+        747764204,
+        4052052696,
+        774078916
+      ],
+      "tags": {
+        "access": "customers",
+        "brand": "BackWerk",
+        "brand:wikidata": "Q798298",
+        "brand:wikipedia": "de:BackWerk",
+        "check_date:opening_hours": "2026-06-14",
+        "indoor": "room",
+        "indoor_seating": "no",
+        "level": "1",
+        "name": "Backwerk",
+        "name:ja": "\u30d0\u30c3\u30af\u30f4\u30a7\u30eb\u30af",
+        "opening_hours": "Mo-Fr 03:30-24:00; Sa,Su 00:00-24:00",
+        "outdoor_seating": "no",
+        "shop": "bakery",
+        "takeaway": "only",
+        "wheelchair": "yes"
+      },
+      "type": "way"
+    },
+    {
+      "bounds": {
+        "maxlat": 52.524811,
+        "maxlon": 13.3707042,
+        "minlat": 52.5246625,
+        "minlon": 13.3703269
+      },
+      "geometry": [
+        {
+          "lat": 52.5246881,
+          "lon": 13.3703416
+        },
+        {
+          "lat": 52.5247092,
+          "lon": 13.3703269
+        },
+        {
+          "lat": 52.5247227,
+          "lon": 13.3703793
+        },
+        {
+          "lat": 52.5247352,
+          "lon": 13.3703706
+        },
+        {
+          "lat": 52.5247381,
+          "lon": 13.3703686
+        },
+        {
+          "lat": 52.5247506,
+          "lon": 13.3704202
+        },
+        {
+          "lat": 52.5247668,
+          "lon": 13.3704818
+        },
+        {
+          "lat": 52.5247729,
+          "lon": 13.3705034
+        },
+        {
+          "lat": 52.5247772,
+          "lon": 13.3705221
+        },
+        {
+          "lat": 52.5247917,
+          "lon": 13.3705775
+        },
+        {
+          "lat": 52.524811,
+          "lon": 13.3706516
+        },
+        {
+          "lat": 52.5247957,
+          "lon": 13.3706622
+        },
+        {
+          "lat": 52.5247766,
+          "lon": 13.3706754
+        },
+        {
+          "lat": 52.524754,
+          "lon": 13.3706912
+        },
+        {
+          "lat": 52.5247355,
+          "lon": 13.3707042
+        },
+        {
+          "lat": 52.5246625,
+          "lon": 13.3704211
+        },
+        {
+          "lat": 52.5246767,
+          "lon": 13.3704112
+        },
+        {
+          "lat": 52.5246632,
+          "lon": 13.3703589
+        },
+        {
+          "lat": 52.5246881,
+          "lon": 13.3703416
+        }
+      ],
+      "id": 86379616,
+      "nodes": [
+        4097074057,
+        768447047,
+        4097074058,
+        1003553267,
+        4097074059,
+        1003534093,
+        1003553269,
+        4282072988,
+        1003553261,
+        1003534073,
+        1003553274,
+        4283844693,
+        2088250574,
+        4283844691,
+        1003553271,
+        4097074056,
+        1003553270,
+        4097074055,
+        4097074057
+      ],
+      "tags": {
+        "area": "yes",
+        "indoor": "corridor",
+        "level": "-1",
+        "tactile_paving": "yes",
+        "tunnel": "yes"
+      },
+      "type": "way"
+    },
+    {
+      "bounds": {
+        "maxlat": 52.5259342,
+        "maxlon": 13.3697924,
+        "minlat": 52.5258039,
+        "minlon": 13.3696704
+      },
+      "geometry": [
+        {
+          "lat": 52.5259231,
+          "lon": 13.3696704
+        },
+        {
+          "lat": 52.5259286,
+          "lon": 13.369692
+        },
+        {
+          "lat": 52.5259342,
+          "lon": 13.3697134
+        },
+        {
+          "lat": 52.5258146,
+          "lon": 13.3697924
+        },
+        {
+          "lat": 52.5258093,
+          "lon": 13.3697721
+        },
+        {
+          "lat": 52.5258039,
+          "lon": 13.3697516
+        },
+        {
+          "lat": 52.5259231,
+          "lon": 13.3696704
+        }
+      ],
+      "id": 86379618,
+      "nodes": [
+        4282073094,
+        4282073095,
+        4282073097,
+        1003534074,
+        2089375225,
+        1003553650,
+        4282073094
+      ],
+      "tags": {
+        "area": "yes",
+        "indoor": "yes",
+        "level": "-1;-2",
+        "stairwell": "flight_of_stairs"
+      },
+      "type": "way"
+    },
+    {
+      "bounds": {
+        "maxlat": 52.5259286,
+        "maxlon": 13.3697721,
+        "minlat": 52.5258093,
+        "minlon": 13.369692
+      },
+      "geometry": [
+        {
+          "lat": 52.5259286,
+          "lon": 13.369692
+        },
+        {
+          "lat": 52.5258093,
+          "lon": 13.3697721
+        }
+      ],
+      "id": 86379630,
+      "nodes": [
+        4282073095,
+        2089375225
+      ],
+      "tags": {
+        "highway": "steps",
+        "incline": "down",
+        "indoor": "yes",
+        "layer": "-1",
+        "level": "-1;-2",
+        "lit": "24/7"
+      },
+      "type": "way"
+    },
+    {
+      "bounds": {
+        "maxlat": 52.524222,
+        "maxlon": 13.3696897,
+        "minlat": 52.524216,
+        "minlon": 13.3696799
+      },
+      "geometry": [
+        {
+          "lat": 52.5242203,
+          "lon": 13.3696799
+        },
+        {
+          "lat": 52.524222,
+          "lon": 13.3696867
+        },
+        {
+          "lat": 52.5242177,
+          "lon": 13.3696897
+        },
+        {
+          "lat": 52.524216,
+          "lon": 13.369683
+        },
+        {
+          "lat": 52.5242203,
+          "lon": 13.3696799
+        }
+      ],
+      "id": 407270286,
+      "nodes": [
+        4093208396,
+        4093208397,
+        4093208395,
+        4058572047,
+        4093208396
+      ],
+      "tags": {
+        "indoor": "wall",
+        "level": "-2;-1;0"
+      },
+      "type": "way"
+    },
+    {
+      "bounds": {
+        "maxlat": 52.5241243,
+        "maxlon": 13.3703762,
+        "minlat": 52.5239489,
+        "minlon": 13.3699085
+      },
+      "geometry": [
+        {
+          "lat": 52.5239489,
+          "lon": 13.369955
+        },
+        {
+          "lat": 52.5240154,
+          "lon": 13.3699085
+        },
+        {
+          "lat": 52.5241243,
+          "lon": 13.3703297
+        },
+        {
+          "lat": 52.5240578,
+          "lon": 13.3703762
+        },
+        {
+          "lat": 52.5239489,
+          "lon": 13.369955
+        }
+      ],
+      "id": 407270296,
+      "nodes": [
+        4093208332,
+        2739626393,
+        2739626395,
+        4093208377,
+        4093208332
+      ],
+      "tags": {
+        "indoor": "corridor",
+        "level": "-1"
+      },
+      "type": "way"
+    },
+    {
+      "bounds": {
+        "maxlat": 52.5257005,
+        "maxlon": 13.3699253,
+        "minlat": 52.5256662,
+        "minlon": 13.3698707
+      },
+      "geometry": [
+        {
+          "lat": 52.5256662,
+          "lon": 13.3698882
+        },
+        {
+          "lat": 52.5256907,
+          "lon": 13.3698707
+        },
+        {
+          "lat": 52.5257005,
+          "lon": 13.3699079
+        },
+        {
+          "lat": 52.5256759,
+          "lon": 13.3699253
+        },
+        {
+          "lat": 52.5256707,
+          "lon": 13.3699053
+        },
+        {
+          "lat": 52.5256662,
+          "lon": 13.3698882
+        }
+      ],
+      "id": 440217887,
+      "nodes": [
+        2088250586,
+        4379408159,
+        4379408161,
+        1003534082,
+        2088250587,
+        2088250586
+      ],
+      "tags": {
+        "building:part": "elevator",
+        "indoor": "yes",
+        "level": "-2;-1;0"
+      },
+      "type": "way"
+    }
+  ],
+  "license": "OpenStreetMap data: Open Data Commons Open Database License (ODbL) 1.0",
+  "license_url": "https://www.openstreetmap.org/copyright/",
+  "osm3s": {
+    "copyright": "The data included in this document is from www.openstreetmap.org. The data is made available under ODbL.",
+    "timestamp_osm_base": "2026-06-23T08:51:15Z"
+  },
+  "osm_bbox": [
+    52.524,
+    13.367,
+    52.527,
+    13.371
+  ],
+  "overpass_query": "[out:json][timeout:25][bbox:52.524,13.367,52.527,13.371];(node[\"indoor\"];node[\"door\"];node[\"entrance\"];way[\"indoor\"];way[\"highway\"~\"elevator|steps\"];way[\"building:part\"=\"elevator\"];);out geom;",
+  "source_url": "https://overpass-api.de/api/interpreter",
+  "station": "Berlin Hauptbahnhof",
+  "type": "overpass_excerpt"
+}

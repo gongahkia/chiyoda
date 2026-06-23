@@ -27,12 +27,6 @@ Conventions:
 
 ## P4 — Standards & data ingestion
 
-### [ ] T4.3 OSM indoor + level= tag full support
-- Scope: OSM converter is a "pragmatic bridge". Cover full `indoor=*` and `level=*` tag grammar.
-- Files: `chiyoda/environment/obstacles.py` (or OSM-specific converter), tests with real OSM extract.
-- Acceptance:
-  - Multi-level OSM extract converts without manual fix-ups for at least one named station.
-
 ---
 
 ## P5 — Calibration

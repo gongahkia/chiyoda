@@ -32,6 +32,11 @@ matter for simulation.
 - It maps OSM `highway=steps` to stairs, `highway=steps` plus
   `conveying=*` to escalator, `highway=elevator` to elevator, and `ramp=yes`
   to ramp.
+- It parses OSM `level=*` semicolon lists, integer ranges such as `-2-32`,
+  and `repeat_on=*`; `indoor=door` and `indoor=yes` are walkable and
+  `indoor=no` is ignored.
+- It maps OSM `stairs=yes` to stairs and `building:part=elevator` to elevator
+  connectors when those features span multiple levels.
 - Connector endpoints use `{floor, x, y}` mappings rather than ambiguous 2D
   tuples.
 - Hazards are positioned in `[x, y, z]` world coordinates and use 3D distance.
@@ -39,8 +44,10 @@ matter for simulation.
 
 ## Limits
 
-- The converter is pragmatic and supports common GTFS Pathways / OSM indoor
-  fields; it is not a full standards-complete indoor importer.
+- The converter supports OSM node/way Simple Indoor role and level grammar
+  used by Chiyoda's raster import. It still does not reconstruct arbitrary OSM
+  relation multipolygons or validate that OSM station geometry is operationally
+  complete.
 - Viewer authoring can paint existing runtime floors and preserve existing
   connectors, but it cannot create new connectors yet.
 - Elevator behavior is capacity/dwell/travel-time holding, not a physical car

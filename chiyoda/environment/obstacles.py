@@ -21,8 +21,9 @@ WALKABLE_ROLES = {"walkable", "floor", "room", "corridor", "space"}
 OBSTACLE_ROLES = {"obstacle", "wall", "blocked", "blocker"}
 EXIT_ROLES = {"exit", "egress", "entrance"}
 SPAWN_ROLES = {"spawn", "person", "agent", "start"}
+IGNORE_ROLES = {"ignore", "ignored", "none"}
 
-OSM_WALKABLE_INDOOR = {"area", "corridor", "level", "room"}
+OSM_WALKABLE_INDOOR = {"area", "corridor", "door", "level", "room", "yes"}
 OSM_OBSTACLE_INDOOR = {"column", "wall"}
 OSM_WALKABLE_HIGHWAY = {
     "corridor",
@@ -288,6 +289,8 @@ def rasterize_geojson_layout(
 
     for feature in features:
         role = _feature_role(feature, role_property=role_property)
+        if role in IGNORE_ROLES:
+            continue
         token = _role_token(role)
         for obstacle in _feature_obstacles(feature, fill=token):
             for x, y in obstacle.rasterize(
@@ -761,6 +764,8 @@ def _infer_station_feature_role(properties: Mapping[str, Any]) -> str | None:
         return "walkable"
 
     indoor = _tag_value(properties.get("indoor"))
+    if indoor == "no":
+        return "ignore"
     if indoor in OSM_OBSTACLE_INDOOR:
         return "obstacle"
     if indoor in OSM_WALKABLE_INDOOR:

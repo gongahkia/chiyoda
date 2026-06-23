@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import math
+import re
 from collections.abc import Callable, Mapping, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
@@ -19,6 +20,7 @@ GTFS_CONNECTOR_MODES = {
     "4": "escalator",
     "5": "elevator",
 }
+LEVEL_RANGE_RE = re.compile(r"^\s*(-?\d+)\s*-\s*(-?\d+)\s*$")
 
 
 def strict_layout_from_geojson(
@@ -242,11 +244,17 @@ def _overpass_query(
     return f"""[out:json][timeout:{int(timeout)}][bbox:{bbox_text}];
 (
   node["entrance"];
+  node["door"];
+  node["indoor"];
+  node["repeat_on"];
   node["railway"~"station|subway_entrance|train_station_entrance"];
   node["public_transport"~"platform|entrance|station_entrance"];
   way["indoor"];
+  way["repeat_on"];
+  way["stairs"];
   way["highway"~"corridor|elevator|footway|path|pedestrian|steps"];
   way["area:highway"];
+  way["building:part"="elevator"];
   way["railway"~"platform|subway_entrance|train_station_entrance"];
   way["public_transport"~"platform|entrance|station_entrance"];
   way["barrier"~"block|fence|wall"];
@@ -388,10 +396,12 @@ def _floor_ids(features: list[dict[str, Any]]) -> list[str]:
 
 
 def _feature_levels(properties: Mapping[str, Any]) -> list[str]:
-    raw = properties.get(
-        "level", properties.get("level_id", properties.get("floor", "0"))
-    )
-    return _parse_levels(raw)
+    if str(properties.get("indoor", "")).strip().lower() == "no":
+        return []
+    raw = properties.get("level", properties.get("level_id", properties.get("floor")))
+    levels = _parse_levels(raw)
+    levels.extend(_parse_levels(properties.get("repeat_on")))
+    return _dedupe(levels or ["0"])
 
 
 def _connector_levels(properties: Mapping[str, Any]) -> list[str]:
@@ -405,22 +415,44 @@ def _connector_levels(properties: Mapping[str, Any]) -> list[str]:
         and properties.get("to_floor") is not None
     ):
         return [str(properties["from_floor"]), str(properties["to_floor"])]
-    return _parse_levels(properties.get("level", properties.get("level_id", "")))
+    levels = _parse_levels(properties.get("level", properties.get("level_id", "")))
+    levels.extend(_parse_levels(properties.get("repeat_on")))
+    return _dedupe(levels)
 
 
 def _parse_levels(raw: Any) -> list[str]:
+    if raw is None:
+        return []
     text = str(raw).strip()
     if not text:
         return []
-    if ";" in text:
-        return [part.strip() for part in text.split(";") if part.strip()]
-    if "-" in text and all(
-        part.strip().lstrip("-").isdigit() for part in text.split("-", 1)
-    ):
-        start, end = (int(part) for part in text.split("-", 1))
+    levels: list[str] = []
+    for part in text.split(";"):
+        levels.extend(_parse_level_part(part))
+    return _dedupe(levels)
+
+
+def _parse_level_part(raw: str) -> list[str]:
+    text = raw.strip()
+    if not text:
+        return []
+    match = LEVEL_RANGE_RE.match(text)
+    if match is not None:
+        start, end = (int(value) for value in match.groups())
         step = 1 if end >= start else -1
         return [str(value) for value in range(start, end + step, step)]
     return [text]
+
+
+def _dedupe(values: list[str]) -> list[str]:
+    seen: set[str] = set()
+    deduped = []
+    for value in values:
+        if value in seen:
+            continue
+        seen.add(value)
+        deduped.append(value)
+    return deduped
 
 
 def _z_by_floor(floor_ids: list[str]) -> dict[str, float]:
@@ -449,8 +481,14 @@ def _connector_type(properties: Mapping[str, Any]) -> str | None:
         return GTFS_CONNECTOR_MODES[mode]
     highway = str(properties.get("highway", "")).lower()
     conveying = str(properties.get("conveying", "")).lower()
-    if highway == "elevator":
+    building_part = str(properties.get("building:part", "")).lower()
+    indoor = str(properties.get("indoor", "")).lower()
+    if highway == "elevator" or building_part == "elevator" or indoor == "elevator":
         return "elevator"
+    if str(properties.get("stairs", "")).lower() in {"yes", "true", "1"}:
+        if conveying in {"yes", "forward", "backward", "reversible"}:
+            return "escalator"
+        return "stairs"
     if highway == "steps" and conveying in {"yes", "forward", "backward", "reversible"}:
         return "escalator"
     if highway == "steps":
@@ -470,7 +508,23 @@ def _line_endpoints(
     if geometry.get("type") == "Point":
         point = _point(geometry.get("coordinates", [0.0, 0.0]))
         return point, point
+    if geometry.get("type") == "Polygon":
+        point = _polygon_anchor(geometry.get("coordinates", []))
+        return (point, point) if point is not None else None
     return None
+
+
+def _polygon_anchor(value: Any) -> tuple[float, float] | None:
+    rings = value if isinstance(value, list) else []
+    if not rings or not isinstance(rings[0], list):
+        return None
+    points = [_point(point) for point in rings[0] if isinstance(point, list)]
+    if not points:
+        return None
+    return (
+        sum(point[0] for point in points) / len(points),
+        sum(point[1] for point in points) / len(points),
+    )
 
 
 def _point(value: Any) -> tuple[float, float]:
