@@ -17,14 +17,30 @@ Canonical parameters:
 
 from __future__ import annotations
 
+import json
+from collections.abc import Sequence
 from dataclasses import dataclass
+from math import sqrt
+from pathlib import Path
+from typing import Any
 
 import numpy as np
+import pandas as pd
+
+from chiyoda.scenarios.manager import ScenarioManager
 
 # canonical Weidmann parameters
 V0_WEIDMANN = 1.34  # free-flow speed (m/s)
 RHO_MAX_WEIDMANN = 5.4  # jam density (ped/m²)
 GAMMA_WEIDMANN = 1.913  # shape parameter
+
+JUELICH_REFERENCE = Path(
+    "data/external/juelich_bottleneck_flow/specific_flow_width.csv"
+)
+JUELICH_SCENARIOS = tuple(
+    Path(f"scenarios/validation_bottleneck_juelich_{width}.yaml")
+    for width in ("080", "100", "120", "140", "160")
+)
 
 
 def weidmann_speed(
@@ -193,3 +209,172 @@ def validate_against_weidmann(
         rmse_threshold=rmse_threshold,
         message=msg,
     )
+
+
+def load_specific_flow_reference(path: str | Path = JUELICH_REFERENCE) -> pd.DataFrame:
+    frame = pd.read_csv(path)
+    required = {"width_m", "specific_flow_ped_m_s"}
+    missing = required - set(frame.columns)
+    if missing:
+        raise ValueError(f"specific-flow reference missing columns: {sorted(missing)}")
+    frame = frame.copy()
+    frame["width_m"] = pd.to_numeric(frame["width_m"], errors="raise")
+    frame["specific_flow_ped_m_s"] = pd.to_numeric(
+        frame["specific_flow_ped_m_s"], errors="raise"
+    )
+    return frame.sort_values("width_m").reset_index(drop=True)
+
+
+def run_bottleneck_width_curve(
+    scenario_files: Sequence[str | Path] = JUELICH_SCENARIOS,
+) -> pd.DataFrame:
+    rows = []
+    manager = ScenarioManager()
+    for scenario_file in scenario_files:
+        path = Path(scenario_file)
+        scenario = manager.load_config(str(path))
+        simulation = manager.build_simulation(scenario)
+        simulation.run()
+        rows.append(_scenario_specific_flow(path, scenario, simulation))
+    return pd.DataFrame(rows).sort_values("width_m").reset_index(drop=True)
+
+
+def compare_specific_flow_curve(
+    simulated: pd.DataFrame,
+    reference: pd.DataFrame,
+) -> pd.DataFrame:
+    sim = simulated.rename(
+        columns={"specific_flow_ped_m_s": "simulated_specific_flow_ped_m_s"}
+    )
+    ref = reference.rename(
+        columns={"specific_flow_ped_m_s": "reference_specific_flow_ped_m_s"}
+    )
+    comparison = ref.merge(
+        sim[
+            [
+                "width_m",
+                "scenario",
+                "crossing_count",
+                "flow_ped_s",
+                "simulated_specific_flow_ped_m_s",
+            ]
+        ],
+        on="width_m",
+        how="inner",
+    )
+    comparison["delta_specific_flow_ped_m_s"] = (
+        comparison["simulated_specific_flow_ped_m_s"]
+        - comparison["reference_specific_flow_ped_m_s"]
+    )
+    comparison["squared_error"] = comparison["delta_specific_flow_ped_m_s"] ** 2
+    return comparison.sort_values("width_m").reset_index(drop=True)
+
+
+def specific_flow_rmse(comparison: pd.DataFrame) -> float:
+    if comparison.empty:
+        return float("nan")
+    return float(sqrt(float(comparison["squared_error"].mean())))
+
+
+def write_specific_flow_report(
+    output_dir: str | Path,
+    *,
+    scenario_files: Sequence[str | Path] = JUELICH_SCENARIOS,
+    reference_path: str | Path = JUELICH_REFERENCE,
+    rmse_threshold: float = 0.25,
+) -> dict[str, Any]:
+    output = Path(output_dir)
+    output.mkdir(parents=True, exist_ok=True)
+    reference = load_specific_flow_reference(reference_path)
+    simulated = run_bottleneck_width_curve(scenario_files)
+    comparison = compare_specific_flow_curve(simulated, reference)
+    rmse = specific_flow_rmse(comparison)
+    ok = bool(rmse <= float(rmse_threshold))
+
+    simulated.to_csv(output / "juelich_specific_flow_simulated.csv", index=False)
+    comparison.to_csv(output / "juelich_specific_flow_comparison.csv", index=False)
+    figure_path = output / "juelich_specific_flow_curve.png"
+    plot_specific_flow_curve(comparison, figure_path)
+
+    summary: dict[str, Any] = {
+        "rmse_specific_flow_ped_m_s": rmse,
+        "rmse_threshold_ped_m_s": float(rmse_threshold),
+        "ok": ok,
+        "width_count": int(len(comparison)),
+        "figure": str(figure_path),
+    }
+    (output / "juelich_specific_flow_summary.json").write_text(
+        json.dumps(summary, indent=2) + "\n"
+    )
+    return summary
+
+
+def plot_specific_flow_curve(
+    comparison: pd.DataFrame,
+    output_path: str | Path,
+) -> Path:
+    import matplotlib.pyplot as plt
+
+    output = Path(output_path)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    fig, ax = plt.subplots(figsize=(6, 4))
+    ax.plot(
+        comparison["width_m"],
+        comparison["reference_specific_flow_ped_m_s"],
+        marker="o",
+        label="Juelich reference",
+    )
+    ax.plot(
+        comparison["width_m"],
+        comparison["simulated_specific_flow_ped_m_s"],
+        marker="s",
+        label="Chiyoda proxy",
+    )
+    ax.set_xlabel("Bottleneck width (m)")
+    ax.set_ylabel("Specific flow (ped/(m*s))")
+    ax.grid(True, alpha=0.25)
+    ax.legend()
+    fig.tight_layout()
+    fig.savefig(output, dpi=160)
+    plt.close(fig)
+    return output
+
+
+def _scenario_specific_flow(
+    scenario_file: Path,
+    scenario: dict[str, Any],
+    simulation,
+) -> dict[str, Any]:
+    metadata = scenario.get("metadata", {}) or {}
+    width_m = float(metadata["bottleneck_width_m"])
+    connector_ids = set(
+        str(value)
+        for value in metadata.get(
+            "bottleneck_connector_ids",
+            list(getattr(simulation, "connector_usage_cumulative", {}).keys()),
+        )
+    )
+    crossing_times = sorted(
+        float(event["time_s"])
+        for event in getattr(simulation, "connector_events", [])
+        if event.get("phase") == "finish"
+        and str(event.get("connector_id")) in connector_ids
+    )
+    if len(crossing_times) < 2:
+        raise ValueError(f"{scenario_file} recorded fewer than two crossings")
+    duration_s = crossing_times[-1] - crossing_times[0]
+    if duration_s <= 0:
+        raise ValueError(f"{scenario_file} recorded non-positive crossing duration")
+    flow_ped_s = len(crossing_times) / duration_s
+    return {
+        "scenario": str(scenario.get("name", scenario_file.stem)),
+        "scenario_file": str(scenario_file),
+        "width_m": width_m,
+        "connector_ids": ",".join(sorted(connector_ids)),
+        "crossing_count": int(len(crossing_times)),
+        "first_crossing_s": float(crossing_times[0]),
+        "last_crossing_s": float(crossing_times[-1]),
+        "duration_s": float(duration_s),
+        "flow_ped_s": float(flow_ped_s),
+        "specific_flow_ped_m_s": float(flow_ped_s / width_m),
+    }

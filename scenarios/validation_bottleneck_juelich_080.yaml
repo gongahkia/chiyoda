@@ -26,7 +26,7 @@ scenario:
         type: ramp
         from: {floor: "0", x: 4, y: 4}
         to: {floor: "0", x: 6, y: 4}
-        bidirectional: false
+        bidirectional: true
         width: 0.8
         flow_rate: 1.472
         capacity: 100

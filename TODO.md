@@ -15,14 +15,6 @@ Conventions:
 
 ## P1 — Validation: drop the "not externally validated" caveat
 
-### [ ] T1.2 Expand bottleneck validation beyond Wuppertal
-- Scope: add at least one additional bottleneck dataset (e.g., Forschungszentrum Jülich corridor experiments, BAMR/HERMES) and reproduce specific flow rate vs width curve.
-- Files: `scenarios/validation_bottleneck_juelich_*.yaml`, `chiyoda/analysis/fundamental_diagram.py`, `docs/external_validation.md`.
-- Acceptance:
-  - Specific flow curve plotted in study output figures.
-  - Agreement metric (RMSE on specific flow at widths 0.8–1.6 m) recorded; thresholds set explicitly.
-- Refs: Wuppertal bottleneck data; Jülich pedestrian dynamics datasets; SigmaEva validation paper.
-
 ### [ ] T1.3 FDS / CFAST scalar field agreement study
 - Scope: import a published FDS smoke scenario field, run Chiyoda, report agreement on visibility and gas concentration profile vs FDS reference.
 - Files: `chiyoda/environment/hazards.py` (extend imported-field hooks), `scenarios/validation_fds_room_corridor.yaml`, `data/fds_reference/` (read-only), `docs/fds_agreement.md` (new).
