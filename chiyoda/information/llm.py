@@ -24,6 +24,20 @@ Point = tuple
 DEFAULT_OPENAI_MODEL = "gpt-5.5"
 DEFAULT_ANTHROPIC_MODEL = "claude-sonnet-4-5-20250929"
 DEFAULT_ANTHROPIC_VERSION = "2023-06-01"
+ATTACK_TEXT_MARKERS = (
+    ("aitm_interception", "intercepted"),
+    ("aitm_interception", "agent-in-the-middle"),
+    ("aitm_interception", "man-in-the-middle"),
+    ("instruction_override", "ignore previous"),
+    ("instruction_override", "override safety"),
+    ("instruction_override", "bypass validator"),
+    ("coercive_persuasion", "do not verify"),
+    ("coercive_persuasion", "trust me"),
+    ("coercive_persuasion", "everyone else"),
+    ("coercive_persuasion", "only safe exit"),
+    ("source_spoofing", "spoofed authority"),
+    ("source_spoofing", "fake dispatcher"),
+)
 
 
 @dataclass(frozen=True)
@@ -562,6 +576,7 @@ def validate_generated_message(
         and not message.abstain
     ):
         reasons.append("vague_guidance")
+    reasons.extend(attack_pattern_reasons(message.text))
     if (
         settings.reject_low_confidence
         and message.confidence < settings.min_confidence
@@ -570,6 +585,17 @@ def validate_generated_message(
         reasons.append(f"low_confidence:{message.confidence:.2f}")
 
     return ValidationResult(accepted=not reasons, reasons=reasons)
+
+
+def attack_pattern_reasons(text: str) -> list[str]:
+    lowered = (text or "").lower()
+    reasons = []
+    seen = set()
+    for code, marker in ATTACK_TEXT_MARKERS:
+        if marker in lowered and code not in seen:
+            reasons.append(f"attack_pattern:{code}")
+            seen.add(code)
+    return reasons
 
 
 def validator_settings(profile: str) -> ValidatorSettings:

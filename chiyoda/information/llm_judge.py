@@ -22,6 +22,8 @@ from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
 from typing import Any, Protocol
 
+from chiyoda.information.llm import attack_pattern_reasons
+
 
 @dataclass
 class JudgeVerdict:
@@ -85,6 +87,10 @@ def heuristic_judge(
     if any(term in text for term in panic_terms):
         safety -= 0.4
         reasons.append("panic_terms")
+    attack_reasons = attack_pattern_reasons(text)
+    if attack_reasons:
+        safety -= 0.5
+        reasons.extend(attack_reasons)
 
     specificity = 1.0
     if not recommended:

@@ -43,13 +43,6 @@ Conventions:
 
 ## P8 — LLM layer hardening
 
-### [ ] T8.1 Threat-model coverage of LLM-MAS attacks
-- Scope: extend `docs/llm_selective_controls.md` and `chiyoda/information/llm.py` to explicitly test AiTM and persuasion attacks within the bounded LLM pipeline.
-- Files: `chiyoda/information/llm.py`, `chiyoda/information/llm_judge.py`, new `tests/test_llm_aitm.py`.
-- Acceptance:
-  - Red-team scenario YAML triggers an AiTM-style intercepted message and verifies validator catches it.
-- Refs: AiTM (arXiv 2508.03125); Trustworthy LLM agents (arXiv 2503.09648).
-
 ### [ ] T8.2 Replay audit completeness
 - Scope: `llm_calls` export exists. Add tamper-evident hashing (hash chain) per study.
 - Files: `chiyoda/information/llm.py`, study bundle writer.

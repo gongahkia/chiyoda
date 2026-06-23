@@ -24,6 +24,7 @@ from chiyoda.information.llm import (
     ReplayOnlyGenerator,
     TemplateLLMGenerator,
     ValidationResult,
+    attack_pattern_reasons,
     build_prompt_instructions,
     estimate_llm_cost,
     estimate_llm_tokens,
@@ -518,6 +519,9 @@ class LLMHostileClaimGenerator:
                 ValidationResult(False, ["generator_abstained"]),
                 True,
             )
+        attack_reasons = attack_pattern_reasons(message.text)
+        if attack_reasons:
+            return fallback, ValidationResult(False, attack_reasons), True
         if self.config.objective == AttackerObjective.THREAT_AMPLIFICATION:
             if message.hazard_positions:
                 return (

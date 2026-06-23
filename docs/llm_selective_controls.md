@@ -50,6 +50,24 @@ Generated cohorts preserve exact `persona_condition` labels, exact total count, 
 
 `policy: llm_responder_coordination` ranks active responders by nearby entropy, density, and hazard load, then asks the configured generator for bounded broadcast guidance from those responder targets.
 
+## LLM-MAS Attack Coverage
+
+Chiyoda treats multi-agent LLM communication as an untrusted message surface.
+Agent-in-the-Middle attacks intercept and manipulate inter-agent messages
+without compromising each agent directly
+([arXiv:2502.14847](https://arxiv.org/abs/2502.14847)). Multi-round stealthy
+tampering attacks similarly target message content while trying to preserve
+semantic similarity ([arXiv:2508.03125](https://arxiv.org/abs/2508.03125)).
+The TrustAgent survey frames agent and multi-agent trustworthiness as spanning
+internal modules and external interaction surfaces
+([arXiv:2503.09648](https://arxiv.org/abs/2503.09648)).
+
+The bounded validator rejects generated messages that contain intercepted-message
+markers, instruction override markers, source spoofing, or coercive persuasion
+markers such as unverifiable social-proof claims. These rejections apply to
+normal intervention generations and to hostile-channel red-team generations
+before a generated hostile claim can be used.
+
 ## Replay Audit
 
 Study bundles include `tables/llm_calls.*` with one row per generated/replayed/blocked LLM call across:
