@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from math import sqrt
 from pathlib import Path
 
 import matplotlib
@@ -17,6 +18,17 @@ from chiyoda.analysis.fundamental_diagram import weidmann_speed
 from chiyoda.analysis.metrics import SimulationAnalytics
 from chiyoda.studies.models import ComparisonResult, StudyBundle
 from chiyoda.studies.runner import _collect_run_tables
+
+
+def export_policy_brief(
+    result: ComparisonResult,
+    output_dir: str | Path,
+) -> Path:
+    out = Path(output_dir)
+    out.mkdir(parents=True, exist_ok=True)
+    path = out / "policy_brief.md"
+    path.write_text(_policy_brief_markdown(result))
+    return path
 
 
 def export_figures(
@@ -58,6 +70,134 @@ def export_figures(
     for name, fig in figures:
         exported.extend(_save_figure(fig, out, name, formats))
     return exported
+
+
+def _policy_brief_markdown(result: ComparisonResult) -> str:
+    baseline = _series_row(result.summary, "baseline")
+    variant = _series_row(result.summary, "variant")
+    recommended = _recommended_policy(baseline, variant)
+    rows = [
+        _brief_metric("Time to clear", "total_time_s", "s", baseline, variant),
+        _brief_metric(
+            "Expected exposure", "mean_hazard_exposure", "", baseline, variant
+        ),
+        _brief_metric(
+            "Attacker-induced harm",
+            _hci_metric(result),
+            "",
+            baseline,
+            variant,
+        ),
+    ]
+    lines = [
+        "# Policy Brief",
+        "",
+        f"Recommended policy: **{recommended}**.",
+        "",
+        "| Measure | Baseline | Variant | Change | 95% uncertainty |",
+        "|---|---:|---:|---:|---|",
+    ]
+    for row in rows:
+        lines.append(
+            f"| {row['label']} | {row['baseline']} | {row['variant']} | "
+            f"{row['delta']} | {row['uncertainty']} |"
+        )
+    lines.extend(
+        [
+            "",
+            "Read this as a decision screen, not a proof of superiority. Lower time, "
+            "lower exposure, and lower attacker-induced harm are better. The interval "
+            "uses the exported run-to-run spread when repeated seeds exist; single-run "
+            "comparisons report zero spread.",
+        ]
+    )
+    return "\n".join(lines) + "\n"
+
+
+def _series_row(summary: pd.DataFrame, series: str) -> pd.Series:
+    frame = summary[summary["series"] == series]
+    if frame.empty:
+        return pd.Series(dtype=float)
+    return frame.iloc[0]
+
+
+def _brief_metric(
+    label: str,
+    metric: str,
+    unit: str,
+    baseline: pd.Series,
+    variant: pd.Series,
+) -> dict[str, str]:
+    b_val = _number(baseline.get(metric))
+    v_val = _number(variant.get(metric))
+    delta = v_val - b_val
+    ci = _delta_ci95(metric, baseline, variant)
+    return {
+        "label": label,
+        "baseline": _format_value(b_val, unit),
+        "variant": _format_value(v_val, unit),
+        "delta": _format_signed(delta, unit),
+        "uncertainty": f"+/- {_format_value(ci, unit)}",
+    }
+
+
+def _hci_metric(result: ComparisonResult) -> str:
+    metrics = set(result.metrics.get("metric", [])) if not result.metrics.empty else set()
+    if "harmful_convergence_index_induced" in metrics:
+        return "harmful_convergence_index_induced"
+    if "harmful_convergence_index" in metrics:
+        return "harmful_convergence_index"
+    return "information_safety_efficiency_adversarial"
+
+
+def _recommended_policy(baseline: pd.Series, variant: pd.Series) -> str:
+    metrics = [
+        "total_time_s",
+        "mean_hazard_exposure",
+        "harmful_convergence_index_induced",
+    ]
+    baseline_wins = 0
+    variant_wins = 0
+    for metric in metrics:
+        b_val = _number(baseline.get(metric))
+        v_val = _number(variant.get(metric))
+        if v_val < b_val:
+            variant_wins += 1
+        elif b_val < v_val:
+            baseline_wins += 1
+    if variant_wins > baseline_wins:
+        return "variant"
+    if baseline_wins > variant_wins:
+        return "baseline"
+    return "no clear winner"
+
+
+def _delta_ci95(metric: str, baseline: pd.Series, variant: pd.Series) -> float:
+    b_n = max(1.0, _number(baseline.get("run_count"), 1.0))
+    v_n = max(1.0, _number(variant.get("run_count"), 1.0))
+    b_std = _number(baseline.get(f"{metric}_std"))
+    v_std = _number(variant.get(f"{metric}_std"))
+    return 1.96 * sqrt((b_std * b_std / b_n) + (v_std * v_std / v_n))
+
+
+def _number(value: object, fallback: float = 0.0) -> float:
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return fallback
+    if not np.isfinite(parsed):
+        return fallback
+    return parsed
+
+
+def _format_value(value: float, unit: str) -> str:
+    text = f"{value:.3f}".rstrip("0").rstrip(".")
+    return f"{text}{unit}" if unit else text
+
+
+def _format_signed(value: float, unit: str) -> str:
+    sign = "+" if value >= 0 else ""
+    return f"{sign}{_format_value(value, unit)}"
 
 
 def generate_report(simulation, output_path: str | Path) -> list[Path]:

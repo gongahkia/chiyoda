@@ -23,13 +23,6 @@ Conventions:
 
 ## P3 — Authoring & ops surfaces (non-CLI users)
 
-### [ ] T3.5 Ops-shaped policy comparison brief
-- Scope: alongside research figures, emit a 1-page "policy brief" PDF/MD per comparison: time-to-clear, expected exposure, attacker-induced harm delta (with CI), recommended policy.
-- Files: `chiyoda/analysis/reports.py`, templates under `templates/`.
-- Acceptance:
-  - `chiyoda compare` produces both research figures AND `policy_brief.md` by default.
-  - Brief is < 1 page, no jargon, includes uncertainty.
-
 ---
 
 ## P4 — Standards & data ingestion

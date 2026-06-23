@@ -7,7 +7,7 @@ import click
 
 from chiyoda.analysis.info_safety_frontier import check_info_safety_scenario
 from chiyoda.analysis.metrics import SimulationAnalytics
-from chiyoda.analysis.reports import export_figures
+from chiyoda.analysis.reports import export_figures, export_policy_brief
 from chiyoda.analysis.trajectory_reference import (
     compare_trajectory_reference,
     load_trajectory_table,
@@ -381,6 +381,7 @@ def compare(baseline, variant, out_dir, figure_formats, table_formats, profile):
             profile=resolved_profile,
             formats=resolved_figures,
         )
+    export_policy_brief(result, output_dir)
     click.echo(f"Exported study comparison to {out_dir}")
 
 
