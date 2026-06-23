@@ -31,14 +31,6 @@ Conventions:
 
 ## P5 — Calibration
 
-### [ ] T5.2 Population calibration against station observations
-- Scope: extend toy population calibration to ingest at least one real source (turnstile counts, GTFS-derived demand, or published CCTV densities).
-- Files: `chiyoda/information/route_choice_calibration.py`, `scripts/run_toy_calibrations.py` → `scripts/run_population_calibration.py`.
-- Acceptance:
-  - One station feed calibrated; calibration residuals reported.
-  - Doc `docs/population_calibration.md` updated with the new pipeline.
-- Refs: Nature Cities 2025 mobile-data DT; existing `docs/generated_population_calibration.md`.
-
 ### [ ] T5.3 Counterflow + visual-range extensions to SFM
 - Scope: add counterflow avoidance and limited visual range terms (cited 2024 critiques of vanilla SFM).
 - Files: `chiyoda/navigation/` SFM module.

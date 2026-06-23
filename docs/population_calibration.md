@@ -1,15 +1,49 @@
-# Population Calibration Examples
+# Population Calibration
 
 Chiyoda exposes behavior and cohort parameters so sensitivity studies can make
-population assumptions explicit. The examples in
-`scenarios/study_population_calibration_examples.yaml` are heuristic stress
-variants only. They are not calibrated to a real trajectory, evacuation drill,
-VR study, incident record, or expert-coded station observation.
+population assumptions explicit. The MTA hourly ridership workflow below adds a
+measured station-demand calibration path. The older example study remains a
+heuristic stress suite.
+
+## MTA Hourly Ridership Calibration
+
+`scripts/run_population_calibration.py` ingests a station-hour ridership feed,
+scales it to an integer Chiyoda population budget, and reports the residual
+introduced by integer cohort rounding.
+
+Default fixture:
+
+- source: New York State Open Data, `MTA Subway Hourly Ridership: 2020-2024`
+  <https://data.ny.gov/Transportation/MTA-Subway-Hourly-Ridership-2020-2024/wujg-7c2s>
+- station: `Times Sq-42 St (N,Q,R,W,S,1,2,3,7)/42 St (A,C,E)`
+- date: `2024-12-31`
+- local file:
+  `data/calibration/population_mta_2024/times_sq_2024_12_31_hourly.csv`
+
+Run:
+
+```sh
+PYTHONPATH=. .venv/bin/python scripts/run_population_calibration.py \
+  -o data/calibration/population_mta_2024/fit_parameters.json
+```
+
+The committed fit reports:
+
+- 24 hourly station observations,
+- total observed ridership of `90131.0`,
+- target Chiyoda population of `240`,
+- mean absolute residual of `99.86006944444449` observed riders after integer
+  scaling,
+- a `scenario_population` block with one release cohort per observed hour.
+
+The data source is an estimated station-complex ridership feed, not a platform
+occupancy or evacuation-drill trajectory. It calibrates demand timing and
+relative cohort counts only.
 
 ## What the Example Study Covers
 
-The example study keeps the base station and hazard scenario fixed and varies
-population and behavior assumptions:
+`scenarios/study_population_calibration_examples.yaml` keeps the base station
+and hazard scenario fixed and varies population and behavior assumptions:
 
 - `documented_baseline`: the current commuter/visitor split with every exposed
   cohort and behavior knob stated explicitly.

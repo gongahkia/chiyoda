@@ -74,6 +74,35 @@ class RouteChoiceFit:
         }
 
 
+@dataclass(frozen=True)
+class PopulationDemandObservation:
+    timestamp: str
+    station_complex: str
+    ridership: float
+
+
+@dataclass(frozen=True)
+class PopulationCalibrationFit:
+    source: dict[str, Any]
+    records: dict[str, Any]
+    scaling: dict[str, Any]
+    metrics: dict[str, float]
+    hourly_profile: list[dict[str, Any]]
+    scenario_population: dict[str, Any]
+    method: dict[str, Any]
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "source": self.source,
+            "records": self.records,
+            "scaling": self.scaling,
+            "metrics": self.metrics,
+            "hourly_profile": self.hourly_profile,
+            "scenario_population": self.scenario_population,
+            "method": self.method,
+        }
+
+
 def load_figshare_route_choice_records(
     archive_path: str | Path,
 ) -> list[RouteChoiceObservation]:
@@ -135,6 +164,139 @@ def load_figshare_route_choice_records(
             )
         )
     return observations
+
+
+def load_mta_hourly_ridership(
+    path: str | Path,
+    *,
+    station_complex: str | None = None,
+) -> list[PopulationDemandObservation]:
+    source = Path(path)
+    if source.suffix.lower() == ".json":
+        frame = pd.read_json(source)
+    else:
+        frame = pd.read_csv(source)
+    if "sum_ridership" in frame.columns and "ridership" not in frame.columns:
+        frame = frame.rename(columns={"sum_ridership": "ridership"})
+    required = {"transit_timestamp", "station_complex", "ridership"}
+    missing = required.difference(frame.columns)
+    if missing:
+        raise ValueError(f"MTA hourly ridership feed missing columns: {sorted(missing)}")
+    if station_complex is not None:
+        frame = frame[frame["station_complex"] == station_complex].copy()
+    frame["transit_timestamp"] = pd.to_datetime(
+        frame["transit_timestamp"], errors="raise"
+    )
+    frame["ridership"] = pd.to_numeric(frame["ridership"], errors="raise")
+    frame = frame[frame["ridership"].notna()].copy()
+    if (frame["ridership"] < 0).any():
+        raise ValueError("MTA hourly ridership feed contains negative ridership")
+    grouped = (
+        frame.groupby(["transit_timestamp", "station_complex"], as_index=False)[
+            "ridership"
+        ]
+        .sum()
+        .sort_values(["station_complex", "transit_timestamp"])
+    )
+    return [
+        PopulationDemandObservation(
+            timestamp=row.transit_timestamp.isoformat(),
+            station_complex=str(row.station_complex),
+            ridership=float(row.ridership),
+        )
+        for row in grouped.itertuples(index=False)
+    ]
+
+
+def fit_population_demand_profile(
+    observations: Iterable[PopulationDemandObservation],
+    *,
+    target_population: int = 240,
+    release_interval_steps: int = 1,
+    source_name: str = "MTA Subway Hourly Ridership: 2020-2024",
+) -> PopulationCalibrationFit:
+    records = list(observations)
+    if not records:
+        raise ValueError("no population-demand observations")
+    if target_population <= 0:
+        raise ValueError("target_population must be positive")
+    if release_interval_steps <= 0:
+        raise ValueError("release_interval_steps must be positive")
+    stations = sorted({record.station_complex for record in records})
+    if len(stations) != 1:
+        raise ValueError("population calibration requires exactly one station_complex")
+    records = sorted(records, key=lambda record: record.timestamp)
+    observed = np.array([record.ridership for record in records], dtype=float)
+    observed_total = float(observed.sum())
+    if observed_total <= 0.0:
+        raise ValueError("population-demand observations have zero total ridership")
+    scale = float(target_population / observed_total)
+    raw_agents = observed * scale
+    calibrated_agents = _round_counts_to_total(raw_agents, int(target_population))
+    predicted_ridership = calibrated_agents.astype(float) / scale
+    residuals = observed - predicted_ridership
+    hourly_profile = []
+    cohorts = []
+    for index, record in enumerate(records):
+        release_step = int(index * release_interval_steps)
+        profile_row = {
+            "timestamp": record.timestamp,
+            "station_complex": record.station_complex,
+            "observed_ridership": float(record.ridership),
+            "raw_scaled_agents": float(raw_agents[index]),
+            "calibrated_agents": int(calibrated_agents[index]),
+            "predicted_ridership": float(predicted_ridership[index]),
+            "residual_ridership": float(residuals[index]),
+            "release_step": release_step,
+        }
+        hourly_profile.append(profile_row)
+        cohorts.append(
+            {
+                "name": f"mta_hour_{index:02d}",
+                "count": int(calibrated_agents[index]),
+                "release_step": release_step,
+                "source_timestamp": record.timestamp,
+                "source_ridership": float(record.ridership),
+            }
+        )
+    return PopulationCalibrationFit(
+        source={
+            "dataset": source_name,
+            "api_id": "wujg-7c2s",
+            "url": "https://data.ny.gov/Transportation/MTA-Subway-Hourly-Ridership-2020-2024/wujg-7c2s",
+            "station_complex": stations[0],
+            "start_timestamp": records[0].timestamp,
+            "end_timestamp": records[-1].timestamp,
+        },
+        records={
+            "total": len(records),
+            "station_complexes": len(stations),
+        },
+        scaling={
+            "target_population": int(target_population),
+            "observed_total_ridership": observed_total,
+            "agents_per_observed_rider": scale,
+            "release_interval_steps": int(release_interval_steps),
+        },
+        metrics={
+            "mean_absolute_residual_ridership": float(np.mean(np.abs(residuals))),
+            "rmse_residual_ridership": float(
+                np.sqrt(np.mean(residuals * residuals))
+            ),
+            "max_abs_residual_ridership": float(np.max(np.abs(residuals))),
+            "total_residual_ridership": float(residuals.sum()),
+        },
+        hourly_profile=hourly_profile,
+        scenario_population={
+            "total": int(target_population),
+            "cohorts": cohorts,
+        },
+        method={
+            "model": "hourly ridership proportional integer cohort scaling",
+            "residual_definition": "observed_ridership - calibrated_agents / agents_per_observed_rider",
+            "rounding": "largest remainder with exact target_population sum",
+        },
+    )
 
 
 def fit_route_choice_priors(
@@ -250,6 +412,25 @@ def write_route_choice_fit(fit: RouteChoiceFit, output_path: str | Path) -> None
     output = Path(output_path)
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(fit.to_dict(), indent=2, sort_keys=True) + "\n")
+
+
+def write_population_calibration_fit(
+    fit: PopulationCalibrationFit, output_path: str | Path
+) -> None:
+    output = Path(output_path)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(json.dumps(fit.to_dict(), indent=2, sort_keys=True) + "\n")
+
+
+def _round_counts_to_total(values: np.ndarray, total: int) -> np.ndarray:
+    floors = np.floor(values).astype(int)
+    remainder = int(total - floors.sum())
+    if remainder < 0:
+        raise ValueError("rounded population exceeds target")
+    if remainder:
+        order = np.argsort(-(values - floors))
+        floors[order[:remainder]] += 1
+    return floors
 
 
 def _confidence_map(frame: pd.DataFrame) -> dict[tuple[str, str, int], float]:

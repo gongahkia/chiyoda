@@ -1,0 +1,446 @@
+{
+  "hourly_profile": [
+    {
+      "calibrated_agents": 8,
+      "observed_ridership": 2828.0,
+      "predicted_ridership": 3004.366666666667,
+      "raw_scaled_agents": 7.530372457866882,
+      "release_step": 0,
+      "residual_ridership": -176.3666666666668,
+      "station_complex": "Times Sq-42 St (N,Q,R,W,S,1,2,3,7)/42 St (A,C,E)",
+      "timestamp": "2024-12-31T00:00:00"
+    },
+    {
+      "calibrated_agents": 3,
+      "observed_ridership": 1198.0,
+      "predicted_ridership": 1126.6375,
+      "raw_scaled_agents": 3.190023410369351,
+      "release_step": 1,
+      "residual_ridership": 71.36249999999995,
+      "station_complex": "Times Sq-42 St (N,Q,R,W,S,1,2,3,7)/42 St (A,C,E)",
+      "timestamp": "2024-12-31T01:00:00"
+    },
+    {
+      "calibrated_agents": 1,
+      "observed_ridership": 565.0,
+      "predicted_ridership": 375.54583333333335,
+      "raw_scaled_agents": 1.504476817077365,
+      "release_step": 2,
+      "residual_ridership": 189.45416666666665,
+      "station_complex": "Times Sq-42 St (N,Q,R,W,S,1,2,3,7)/42 St (A,C,E)",
+      "timestamp": "2024-12-31T02:00:00"
+    },
+    {
+      "calibrated_agents": 1,
+      "observed_ridership": 399.0,
+      "predicted_ridership": 375.54583333333335,
+      "raw_scaled_agents": 1.0624535398475552,
+      "release_step": 3,
+      "residual_ridership": 23.45416666666665,
+      "station_complex": "Times Sq-42 St (N,Q,R,W,S,1,2,3,7)/42 St (A,C,E)",
+      "timestamp": "2024-12-31T03:00:00"
+    },
+    {
+      "calibrated_agents": 1,
+      "observed_ridership": 315.0,
+      "predicted_ridership": 375.54583333333335,
+      "raw_scaled_agents": 0.8387791104059645,
+      "release_step": 4,
+      "residual_ridership": -60.54583333333335,
+      "station_complex": "Times Sq-42 St (N,Q,R,W,S,1,2,3,7)/42 St (A,C,E)",
+      "timestamp": "2024-12-31T04:00:00"
+    },
+    {
+      "calibrated_agents": 5,
+      "observed_ridership": 1838.0,
+      "predicted_ridership": 1877.7291666666667,
+      "raw_scaled_agents": 4.894209539448136,
+      "release_step": 5,
+      "residual_ridership": -39.72916666666674,
+      "station_complex": "Times Sq-42 St (N,Q,R,W,S,1,2,3,7)/42 St (A,C,E)",
+      "timestamp": "2024-12-31T05:00:00"
+    },
+    {
+      "calibrated_agents": 10,
+      "observed_ridership": 3820.0,
+      "predicted_ridership": 3755.4583333333335,
+      "raw_scaled_agents": 10.171860957939,
+      "release_step": 6,
+      "residual_ridership": 64.54166666666652,
+      "station_complex": "Times Sq-42 St (N,Q,R,W,S,1,2,3,7)/42 St (A,C,E)",
+      "timestamp": "2024-12-31T06:00:00"
+    },
+    {
+      "calibrated_agents": 12,
+      "observed_ridership": 4584.0,
+      "predicted_ridership": 4506.55,
+      "raw_scaled_agents": 12.206233149526799,
+      "release_step": 7,
+      "residual_ridership": 77.44999999999982,
+      "station_complex": "Times Sq-42 St (N,Q,R,W,S,1,2,3,7)/42 St (A,C,E)",
+      "timestamp": "2024-12-31T07:00:00"
+    },
+    {
+      "calibrated_agents": 14,
+      "observed_ridership": 5223.0,
+      "predicted_ridership": 5257.641666666667,
+      "raw_scaled_agents": 13.907756487778899,
+      "release_step": 8,
+      "residual_ridership": -34.641666666667334,
+      "station_complex": "Times Sq-42 St (N,Q,R,W,S,1,2,3,7)/42 St (A,C,E)",
+      "timestamp": "2024-12-31T08:00:00"
+    },
+    {
+      "calibrated_agents": 13,
+      "observed_ridership": 4984.0,
+      "predicted_ridership": 4882.095833333334,
+      "raw_scaled_agents": 13.27134948020104,
+      "release_step": 9,
+      "residual_ridership": 101.90416666666624,
+      "station_complex": "Times Sq-42 St (N,Q,R,W,S,1,2,3,7)/42 St (A,C,E)",
+      "timestamp": "2024-12-31T09:00:00"
+    },
+    {
+      "calibrated_agents": 13,
+      "observed_ridership": 4908.0,
+      "predicted_ridership": 4882.095833333334,
+      "raw_scaled_agents": 13.068977377372933,
+      "release_step": 10,
+      "residual_ridership": 25.904166666666242,
+      "station_complex": "Times Sq-42 St (N,Q,R,W,S,1,2,3,7)/42 St (A,C,E)",
+      "timestamp": "2024-12-31T10:00:00"
+    },
+    {
+      "calibrated_agents": 15,
+      "observed_ridership": 5484.0,
+      "predicted_ridership": 5633.1875,
+      "raw_scaled_agents": 14.602744893543841,
+      "release_step": 11,
+      "residual_ridership": -149.1875,
+      "station_complex": "Times Sq-42 St (N,Q,R,W,S,1,2,3,7)/42 St (A,C,E)",
+      "timestamp": "2024-12-31T11:00:00"
+    },
+    {
+      "calibrated_agents": 14,
+      "observed_ridership": 5137.0,
+      "predicted_ridership": 5257.641666666667,
+      "raw_scaled_agents": 13.678756476683937,
+      "release_step": 12,
+      "residual_ridership": -120.64166666666733,
+      "station_complex": "Times Sq-42 St (N,Q,R,W,S,1,2,3,7)/42 St (A,C,E)",
+      "timestamp": "2024-12-31T12:00:00"
+    },
+    {
+      "calibrated_agents": 15,
+      "observed_ridership": 5737.0,
+      "predicted_ridership": 5633.1875,
+      "raw_scaled_agents": 15.276430972695298,
+      "release_step": 13,
+      "residual_ridership": 103.8125,
+      "station_complex": "Times Sq-42 St (N,Q,R,W,S,1,2,3,7)/42 St (A,C,E)",
+      "timestamp": "2024-12-31T13:00:00"
+    },
+    {
+      "calibrated_agents": 14,
+      "observed_ridership": 5454.0,
+      "predicted_ridership": 5257.641666666667,
+      "raw_scaled_agents": 14.522861168743272,
+      "release_step": 14,
+      "residual_ridership": 196.35833333333267,
+      "station_complex": "Times Sq-42 St (N,Q,R,W,S,1,2,3,7)/42 St (A,C,E)",
+      "timestamp": "2024-12-31T14:00:00"
+    },
+    {
+      "calibrated_agents": 16,
+      "observed_ridership": 5997.0,
+      "predicted_ridership": 6008.733333333334,
+      "raw_scaled_agents": 15.968756587633555,
+      "release_step": 15,
+      "residual_ridership": -11.733333333333576,
+      "station_complex": "Times Sq-42 St (N,Q,R,W,S,1,2,3,7)/42 St (A,C,E)",
+      "timestamp": "2024-12-31T15:00:00"
+    },
+    {
+      "calibrated_agents": 14,
+      "observed_ridership": 5145.0,
+      "predicted_ridership": 5257.641666666667,
+      "raw_scaled_agents": 13.700058803297422,
+      "release_step": 16,
+      "residual_ridership": -112.64166666666733,
+      "station_complex": "Times Sq-42 St (N,Q,R,W,S,1,2,3,7)/42 St (A,C,E)",
+      "timestamp": "2024-12-31T16:00:00"
+    },
+    {
+      "calibrated_agents": 13,
+      "observed_ridership": 4784.0,
+      "predicted_ridership": 4882.095833333334,
+      "raw_scaled_agents": 12.738791314863919,
+      "release_step": 17,
+      "residual_ridership": -98.09583333333376,
+      "station_complex": "Times Sq-42 St (N,Q,R,W,S,1,2,3,7)/42 St (A,C,E)",
+      "timestamp": "2024-12-31T17:00:00"
+    },
+    {
+      "calibrated_agents": 11,
+      "observed_ridership": 4269.0,
+      "predicted_ridership": 4131.004166666667,
+      "raw_scaled_agents": 11.367454039120835,
+      "release_step": 18,
+      "residual_ridership": 137.9958333333334,
+      "station_complex": "Times Sq-42 St (N,Q,R,W,S,1,2,3,7)/42 St (A,C,E)",
+      "timestamp": "2024-12-31T18:00:00"
+    },
+    {
+      "calibrated_agents": 10,
+      "observed_ridership": 3833.0,
+      "predicted_ridership": 3755.4583333333335,
+      "raw_scaled_agents": 10.206477238685912,
+      "release_step": 19,
+      "residual_ridership": 77.54166666666652,
+      "station_complex": "Times Sq-42 St (N,Q,R,W,S,1,2,3,7)/42 St (A,C,E)",
+      "timestamp": "2024-12-31T19:00:00"
+    },
+    {
+      "calibrated_agents": 12,
+      "observed_ridership": 4366.0,
+      "predicted_ridership": 4506.55,
+      "raw_scaled_agents": 11.625744749309337,
+      "release_step": 20,
+      "residual_ridership": -140.55000000000018,
+      "station_complex": "Times Sq-42 St (N,Q,R,W,S,1,2,3,7)/42 St (A,C,E)",
+      "timestamp": "2024-12-31T20:00:00"
+    },
+    {
+      "calibrated_agents": 10,
+      "observed_ridership": 3884.0,
+      "predicted_ridership": 3755.4583333333335,
+      "raw_scaled_agents": 10.342279570846877,
+      "release_step": 21,
+      "residual_ridership": 128.54166666666652,
+      "station_complex": "Times Sq-42 St (N,Q,R,W,S,1,2,3,7)/42 St (A,C,E)",
+      "timestamp": "2024-12-31T21:00:00"
+    },
+    {
+      "calibrated_agents": 10,
+      "observed_ridership": 3599.0,
+      "predicted_ridership": 3755.4583333333335,
+      "raw_scaled_agents": 9.583384185241481,
+      "release_step": 22,
+      "residual_ridership": -156.45833333333348,
+      "station_complex": "Times Sq-42 St (N,Q,R,W,S,1,2,3,7)/42 St (A,C,E)",
+      "timestamp": "2024-12-31T22:00:00"
+    },
+    {
+      "calibrated_agents": 5,
+      "observed_ridership": 1780.0,
+      "predicted_ridership": 1877.7291666666667,
+      "raw_scaled_agents": 4.739767671500371,
+      "release_step": 23,
+      "residual_ridership": -97.72916666666674,
+      "station_complex": "Times Sq-42 St (N,Q,R,W,S,1,2,3,7)/42 St (A,C,E)",
+      "timestamp": "2024-12-31T23:00:00"
+    }
+  ],
+  "method": {
+    "model": "hourly ridership proportional integer cohort scaling",
+    "residual_definition": "observed_ridership - calibrated_agents / agents_per_observed_rider",
+    "rounding": "largest remainder with exact target_population sum"
+  },
+  "metrics": {
+    "max_abs_residual_ridership": 196.35833333333267,
+    "mean_absolute_residual_ridership": 99.86006944444449,
+    "rmse_residual_ridership": 112.59463320471644,
+    "total_residual_ridership": -5.4569682106375694e-12
+  },
+  "records": {
+    "station_complexes": 1,
+    "total": 24
+  },
+  "scaling": {
+    "agents_per_observed_rider": 0.002662790826685602,
+    "observed_total_ridership": 90131.0,
+    "release_interval_steps": 1,
+    "target_population": 240
+  },
+  "scenario_population": {
+    "cohorts": [
+      {
+        "count": 8,
+        "name": "mta_hour_00",
+        "release_step": 0,
+        "source_ridership": 2828.0,
+        "source_timestamp": "2024-12-31T00:00:00"
+      },
+      {
+        "count": 3,
+        "name": "mta_hour_01",
+        "release_step": 1,
+        "source_ridership": 1198.0,
+        "source_timestamp": "2024-12-31T01:00:00"
+      },
+      {
+        "count": 1,
+        "name": "mta_hour_02",
+        "release_step": 2,
+        "source_ridership": 565.0,
+        "source_timestamp": "2024-12-31T02:00:00"
+      },
+      {
+        "count": 1,
+        "name": "mta_hour_03",
+        "release_step": 3,
+        "source_ridership": 399.0,
+        "source_timestamp": "2024-12-31T03:00:00"
+      },
+      {
+        "count": 1,
+        "name": "mta_hour_04",
+        "release_step": 4,
+        "source_ridership": 315.0,
+        "source_timestamp": "2024-12-31T04:00:00"
+      },
+      {
+        "count": 5,
+        "name": "mta_hour_05",
+        "release_step": 5,
+        "source_ridership": 1838.0,
+        "source_timestamp": "2024-12-31T05:00:00"
+      },
+      {
+        "count": 10,
+        "name": "mta_hour_06",
+        "release_step": 6,
+        "source_ridership": 3820.0,
+        "source_timestamp": "2024-12-31T06:00:00"
+      },
+      {
+        "count": 12,
+        "name": "mta_hour_07",
+        "release_step": 7,
+        "source_ridership": 4584.0,
+        "source_timestamp": "2024-12-31T07:00:00"
+      },
+      {
+        "count": 14,
+        "name": "mta_hour_08",
+        "release_step": 8,
+        "source_ridership": 5223.0,
+        "source_timestamp": "2024-12-31T08:00:00"
+      },
+      {
+        "count": 13,
+        "name": "mta_hour_09",
+        "release_step": 9,
+        "source_ridership": 4984.0,
+        "source_timestamp": "2024-12-31T09:00:00"
+      },
+      {
+        "count": 13,
+        "name": "mta_hour_10",
+        "release_step": 10,
+        "source_ridership": 4908.0,
+        "source_timestamp": "2024-12-31T10:00:00"
+      },
+      {
+        "count": 15,
+        "name": "mta_hour_11",
+        "release_step": 11,
+        "source_ridership": 5484.0,
+        "source_timestamp": "2024-12-31T11:00:00"
+      },
+      {
+        "count": 14,
+        "name": "mta_hour_12",
+        "release_step": 12,
+        "source_ridership": 5137.0,
+        "source_timestamp": "2024-12-31T12:00:00"
+      },
+      {
+        "count": 15,
+        "name": "mta_hour_13",
+        "release_step": 13,
+        "source_ridership": 5737.0,
+        "source_timestamp": "2024-12-31T13:00:00"
+      },
+      {
+        "count": 14,
+        "name": "mta_hour_14",
+        "release_step": 14,
+        "source_ridership": 5454.0,
+        "source_timestamp": "2024-12-31T14:00:00"
+      },
+      {
+        "count": 16,
+        "name": "mta_hour_15",
+        "release_step": 15,
+        "source_ridership": 5997.0,
+        "source_timestamp": "2024-12-31T15:00:00"
+      },
+      {
+        "count": 14,
+        "name": "mta_hour_16",
+        "release_step": 16,
+        "source_ridership": 5145.0,
+        "source_timestamp": "2024-12-31T16:00:00"
+      },
+      {
+        "count": 13,
+        "name": "mta_hour_17",
+        "release_step": 17,
+        "source_ridership": 4784.0,
+        "source_timestamp": "2024-12-31T17:00:00"
+      },
+      {
+        "count": 11,
+        "name": "mta_hour_18",
+        "release_step": 18,
+        "source_ridership": 4269.0,
+        "source_timestamp": "2024-12-31T18:00:00"
+      },
+      {
+        "count": 10,
+        "name": "mta_hour_19",
+        "release_step": 19,
+        "source_ridership": 3833.0,
+        "source_timestamp": "2024-12-31T19:00:00"
+      },
+      {
+        "count": 12,
+        "name": "mta_hour_20",
+        "release_step": 20,
+        "source_ridership": 4366.0,
+        "source_timestamp": "2024-12-31T20:00:00"
+      },
+      {
+        "count": 10,
+        "name": "mta_hour_21",
+        "release_step": 21,
+        "source_ridership": 3884.0,
+        "source_timestamp": "2024-12-31T21:00:00"
+      },
+      {
+        "count": 10,
+        "name": "mta_hour_22",
+        "release_step": 22,
+        "source_ridership": 3599.0,
+        "source_timestamp": "2024-12-31T22:00:00"
+      },
+      {
+        "count": 5,
+        "name": "mta_hour_23",
+        "release_step": 23,
+        "source_ridership": 1780.0,
+        "source_timestamp": "2024-12-31T23:00:00"
+      }
+    ],
+    "total": 240
+  },
+  "source": {
+    "api_id": "wujg-7c2s",
+    "dataset": "MTA Subway Hourly Ridership: 2020-2024",
+    "end_timestamp": "2024-12-31T23:00:00",
+    "start_timestamp": "2024-12-31T00:00:00",
+    "station_complex": "Times Sq-42 St (N,Q,R,W,S,1,2,3,7)/42 St (A,C,E)",
+    "url": "https://data.ny.gov/Transportation/MTA-Subway-Hourly-Ridership-2020-2024/wujg-7c2s"
+  }
+}
