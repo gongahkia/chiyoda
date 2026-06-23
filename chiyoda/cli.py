@@ -30,6 +30,7 @@ from chiyoda.policies import (
 )
 from chiyoda.scenarios.assertions import evaluate_scenario_assertions
 from chiyoda.scenarios.manager import ScenarioManager
+from chiyoda.scenarios import strict_scenario_from_ifc
 from chiyoda.scenarios.standards import (
     OVERPASS_URL,
     strict_scenario_from_geojson,
@@ -333,6 +334,28 @@ def convert_gtfs_command(feed_dir, output_file, name, cell_size, padding):
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(yaml.safe_dump(payload, sort_keys=False))
     click.echo(f"Exported GTFS Pathways scenario to {output}")
+
+
+@cli.command("convert-ifc")
+@click.argument("source")
+@click.argument("output_file")
+@click.option("--name", default="ifc_import", help="Scenario name")
+@click.option("--cell-size", default=1.0, type=float, help="Raster cell size")
+@click.option("--padding", default=1, type=int, help="Raster padding in cells")
+def convert_ifc_command(source, output_file, name, cell_size, padding):
+    """Convert IFC building geometry into strict layout.floors scenario YAML."""
+    import yaml
+
+    payload = strict_scenario_from_ifc(
+        source,
+        name=name,
+        cell_size=cell_size,
+        padding=padding,
+    )
+    output = Path(output_file)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(yaml.safe_dump(payload, sort_keys=False))
+    click.echo(f"Exported IFC scenario to {output}")
 
 
 @cli.command("calibrate-route-choice")

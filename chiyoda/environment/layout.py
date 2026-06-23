@@ -215,6 +215,30 @@ class Layout:
         )
         return cls(grid=grid, origin=origin, cell_size=resolved_cell_size)
 
+    @classmethod
+    def from_ifc(
+        cls,
+        source,
+        *,
+        cell_size: float = 1.0,
+        padding: int = 1,
+        add_border_walls: bool = True,
+    ) -> Layout:
+        from chiyoda.scenarios.ifc_import import strict_layout_from_ifc
+
+        layout = strict_layout_from_ifc(
+            source,
+            cell_size=cell_size,
+            padding=padding,
+            add_border_walls=add_border_walls,
+        )
+        return cls.from_floors(
+            layout["floors"],
+            connectors=layout.get("connectors", []) or [],
+            cell_size=float(layout.get("cell_size", cell_size)),
+            origin=tuple(layout.get("origin", (0.0, 0.0))),
+        )
+
     @property
     def grid(self) -> np.ndarray:
         return self.floors[self.primary_floor_id].grid

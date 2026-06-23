@@ -37,7 +37,7 @@ def export_viewer(
 
 def _viewer_payload(bundle: StudyBundle, *, max_frames: int) -> dict[str, Any]:
     run_id = str(bundle.metadata.get("representative_run_id") or "")
-    floors = _source_floors(bundle)
+    floors = _source_floors(bundle) + _source_ifc_floors(bundle)
     layout_floors = _layout_floors(bundle.metadata)
     origin, source_scenario = _scenario_origin(bundle.metadata)
     agent_steps = bundle.agent_steps.copy()
@@ -237,6 +237,43 @@ def _source_floors(bundle: StudyBundle) -> list[dict[str, Any]]:
     return [
         {"level": level, "features": features}
         for level, features in sorted(by_level.items(), key=lambda item: item[0])
+    ]
+
+
+def _source_ifc_floors(bundle: StudyBundle) -> list[dict[str, Any]]:
+    metadata = bundle.metadata.get("scenario_metadata", {}) or {}
+    ifc = metadata.get("ifc_import", {}) if isinstance(metadata, dict) else {}
+    elements = ifc.get("elements", []) if isinstance(ifc, dict) else []
+    by_floor: dict[str, list[dict[str, Any]]] = {}
+    for element in elements:
+        if not isinstance(element, dict):
+            continue
+        span = element.get("cell_span", {}) or {}
+        try:
+            x0 = float(span["x0"])
+            y0 = float(span["y0"])
+            x1 = float(span["x1"]) + 1.0
+            y1 = float(span["y1"]) + 1.0
+        except (KeyError, TypeError, ValueError):
+            continue
+        floor = str(element.get("floor", "0"))
+        by_floor.setdefault(floor, []).append(
+            {
+                "role": str(element.get("role", "ifc")),
+                "name": str(element.get("name", element.get("ifc_type", ""))),
+                "source": "ifc",
+                "ifc_type": str(element.get("ifc_type", "")),
+                "geometry": {
+                    "type": "Polygon",
+                    "coordinates": [
+                        [[x0, y0], [x1, y0], [x1, y1], [x0, y1], [x0, y0]]
+                    ],
+                },
+            }
+        )
+    return [
+        {"level": f"ifc:{floor}", "features": features}
+        for floor, features in sorted(by_floor.items(), key=lambda item: item[0])
     ]
 
 

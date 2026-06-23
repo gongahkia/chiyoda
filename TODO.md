@@ -27,14 +27,6 @@ Conventions:
 
 ## P4 — Standards & data ingestion
 
-### [ ] T4.2 IFC import promoted from optional
-- Scope: optional IFC importer (commit `caa5658`) is the right primitive — wire to scenario validation, role inference, and viewer.
-- Files: `chiyoda/environment/layout.py`, IFC importer module.
-- Acceptance:
-  - IFC → `layout.floors` round-trip preserves spaces, walls, doors with `role` tags inferred.
-  - At least one open IFC sample (e.g., Building Smart sample files) ships under `data/ifc_samples/`.
-- Refs: buildingSMART IFC4 spec.
-
 ### [ ] T4.3 OSM indoor + level= tag full support
 - Scope: OSM converter is a "pragmatic bridge". Cover full `indoor=*` and `level=*` tag grammar.
 - Files: `chiyoda/environment/obstacles.py` (or OSM-specific converter), tests with real OSM extract.

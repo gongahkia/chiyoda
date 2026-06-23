@@ -92,6 +92,54 @@ def strict_layout_from_ifc(
     }
 
 
+def strict_scenario_from_ifc(
+    source: str | Path,
+    *,
+    name: str = "ifc_import",
+    cell_size: float = 1.0,
+    padding: int = 1,
+    add_border_walls: bool = True,
+) -> dict[str, Any]:
+    layout, metadata = strict_layout_and_metadata_from_ifc(
+        source,
+        cell_size=cell_size,
+        padding=padding,
+        add_border_walls=add_border_walls,
+    )
+    return {
+        "scenario": {
+            "name": name,
+            "metadata": {"ifc_import": metadata},
+            "layout": layout,
+            "population": {"total": 0},
+            "simulation": {"max_steps": 1, "random_seed": 42},
+        }
+    }
+
+
+def strict_layout_and_metadata_from_ifc(
+    source: str | Path,
+    *,
+    cell_size: float = 1.0,
+    padding: int = 1,
+    add_border_walls: bool = True,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    layout = strict_layout_from_ifc(
+        source,
+        cell_size=cell_size,
+        padding=padding,
+        add_border_walls=add_border_walls,
+    )
+    ifcopenshell, geom = _import_ifcopenshell()
+    model = ifcopenshell.open(str(source))
+    settings = geom.settings()
+    _set_geom_setting(settings, "use-world-coords", True)
+    features = _collect_features(model, geom, settings)
+    floors = _model_floors(model) or _infer_floors(features)
+    origin = tuple(float(value) for value in layout.get("origin", (0.0, 0.0)))
+    return layout, _ifc_metadata(source, features, floors, origin, cell_size, layout)
+
+
 def _import_ifcopenshell():
     try:
         ifcopenshell = importlib.import_module("ifcopenshell")
@@ -351,4 +399,53 @@ def _connector_type(ifc_type: str) -> str:
     return "stairs"
 
 
-__all__ = ["strict_layout_from_ifc"]
+def _ifc_metadata(
+    source: str | Path,
+    features: list[_IfcFeature],
+    floors: list[_FloorSpec],
+    origin: tuple[float, float],
+    cell_size: float,
+    layout: dict[str, Any],
+) -> dict[str, Any]:
+    grids = {
+        floor["id"]: [list(row) for row in str(floor["text"]).splitlines()]
+        for floor in layout.get("floors", [])
+    }
+    elements = []
+    for feature in features:
+        floor = min(floors, key=lambda item: abs(item.z - _center_z(feature.bounds)))
+        grid = grids.get(floor.id) or [["."]]
+        x0, y0, x1, y1 = _cell_span(
+            feature.bounds,
+            origin,
+            cell_size,
+            (len(grid), len(grid[0])),
+        )
+        elements.append(
+            {
+                "name": feature.name,
+                "ifc_type": feature.ifc_type,
+                "role": feature.role,
+                "floor": floor.id,
+                "bounds": [float(value) for value in feature.bounds],
+                "cell_span": {"x0": x0, "y0": y0, "x1": x1, "y1": y1},
+            }
+        )
+    return {
+        "source": str(Path(source)),
+        "schema_reference": "https://standards.buildingsmart.org/IFC/RELEASE/IFC4/ADD2_TC1/HTML/",
+        "role_rules": {
+            "walkable": list(WALKABLE_TYPES),
+            "wall": list(WALL_TYPES),
+            "exit": list(EXIT_TYPES),
+            "connector": list(CONNECTOR_TYPES),
+        },
+        "elements": elements,
+    }
+
+
+__all__ = [
+    "strict_layout_from_ifc",
+    "strict_layout_and_metadata_from_ifc",
+    "strict_scenario_from_ifc",
+]
