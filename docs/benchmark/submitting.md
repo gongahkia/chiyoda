@@ -24,7 +24,12 @@ Submission JSON line (one per run, append to `docs/benchmark/leaderboard.jsonl`)
   "policy_path": "policies/my_policy.yaml",
   "policy_hash": "44136fa355b3678a",
   "mean_score": 62.34,
+  "score_ci_low": 59.10,
+  "score_ci_high": 65.42,
   "seeds": [42, 137],
+  "seed_count": 2,
+  "bootstrap_n": 1000,
+  "tier": "smoke",
   "manifest_sha256": "...",
   "commit": "<short sha>",
   "submitted_at_utc": "2026-06-22T00:00:00Z"
@@ -48,8 +53,9 @@ Use the `Benchmark submission` issue template or write a PR body with:
 
 - Suite: v1
 - Policy hash: 44136fa355b3678a
-- Mean composite score: 62.34
+- Mean composite score: 62.34 [59.10, 65.42]
 - Seeds: 42, 137
+- Tier: smoke
 - Manifest hash: <sha256>
 
 ## Reproduction
@@ -72,6 +78,9 @@ The `benchmark-smoke` workflow runs on PRs labeled `benchmark-smoke` or
 `benchmark-submission`. It executes `tests/test_benchmark.py` and
 `tests/test_benchmark_v2_v3.py`, then performs a `chiyoda benchmark submit`
 smoke run, and uploads the resulting bundle as a workflow artifact.
+
+Official benchmark submissions require at least 20 distinct seeds. The bundled
+two-seed command is a smoke-tier reproducibility check.
 
 ## Leaderboard
 

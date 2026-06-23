@@ -12,6 +12,7 @@ from chiyoda.navigation.social_force import adjusted_step
 from chiyoda.navigation.spatial_index import SpatialIndex
 from chiyoda.studies.benchmark import (
     BenchmarkSpec,
+    _leaderboard,
     benchmark_score,
     benchmark_spec_v1,
     generate_reference_trajectories,
@@ -50,6 +51,44 @@ def test_benchmark_score_rewards_lower_risk_metrics():
     )
 
     assert strong > weak
+
+
+def test_leaderboard_reports_bootstrap_ci_and_scenario_breakdown():
+    frame = pd.DataFrame(
+        [
+            {"scenario": "a", "seed": 1, "benchmark_score": 10.0},
+            {"scenario": "b", "seed": 1, "benchmark_score": 20.0},
+            {"scenario": "a", "seed": 2, "benchmark_score": 30.0},
+            {"scenario": "b", "seed": 2, "benchmark_score": 40.0},
+        ]
+    )
+
+    leaderboard = _leaderboard(frame, "policyhash", suite="v1")
+    entry = leaderboard["entries"][0]
+
+    assert entry["mean_score"] == 25.0
+    assert entry["score_ci_low"] <= entry["mean_score"] <= entry["score_ci_high"]
+    assert entry["seeds_used"] == [1, 2]
+    assert entry["bootstrap_n"] == 1000
+    assert entry["tier"] == "smoke"
+    assert {row["scenario"] for row in entry["scenario_breakdown"]} == {"a", "b"}
+    assert all(
+        row["score_ci_low"] <= row["mean_score"] <= row["score_ci_high"]
+        for row in entry["scenario_breakdown"]
+    )
+
+
+def test_leaderboard_marks_twenty_seed_submission_official():
+    frame = pd.DataFrame(
+        [
+            {"scenario": "a", "seed": seed, "benchmark_score": float(seed)}
+            for seed in range(20)
+        ]
+    )
+
+    leaderboard = _leaderboard(frame, "policyhash", suite="v1")
+
+    assert leaderboard["entries"][0]["tier"] == "official"
 
 
 def test_benchmark_cli_group_is_available():

@@ -19,6 +19,33 @@ Where:
 - `equity = 1 / (1 + equity_time_gap_s)`.
 - `hci = 1 / (1 + harmful_convergence_index_induced)`.
 
+## Statistical Reporting
+
+Leaderboard JSON reports the mean composite score plus a seed-bootstrap 95% CI:
+
+- `mean_score`
+- `score_ci_low`
+- `score_ci_high`
+- `seeds_used`
+- `seed_count`
+- `bootstrap_n`
+- `tier`
+- `scenario_breakdown`
+
+`scenario_breakdown` repeats `mean_score`, `score_ci_low`, `score_ci_high`,
+`seeds_used`, `seed_count`, `bootstrap_n`, and `run_count` for each scenario.
+
+The bootstrap resamples seed-level scores with replacement, using `bootstrap_n =
+1000`. Scenario-level CIs resample that scenario's seed scores. Overall CIs
+resample each seed's mean score across scenarios.
+
+## Tiers
+
+Official submissions require at least 20 distinct seeds. Runs with fewer than
+20 seeds are accepted as `smoke` tier only. The bundled benchmark specs still
+use seeds `[42, 137]` so local CI remains cheap; those two-seed outputs are
+therefore `smoke`, not official leaderboard results.
+
 Submission policies may only override `interventions`, `information`,
 `behavior`, and `hostile_channels`.
 

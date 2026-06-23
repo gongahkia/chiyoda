@@ -92,7 +92,12 @@ def test_submit_policy_accepts_non_v1_suite(monkeypatch, tmp_path):
     )
 
     assert result["leaderboard"]["suite"] == "v2"
-    assert result["leaderboard"]["entries"][0]["run_count"] == 4
+    entry = result["leaderboard"]["entries"][0]
+    assert entry["run_count"] == 4
+    assert entry["seeds_used"] == [42, 137]
+    assert entry["tier"] == "smoke"
+    assert entry["bootstrap_n"] == 1000
+    assert len(entry["scenario_breakdown"]) == 2
     assert result["manifest"]["suite"] == "v2"
     assert (tmp_path / "benchmark_runs.csv").exists()
 

@@ -10,6 +10,7 @@ from hashlib import sha256
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 import pandas as pd
 import yaml
 
@@ -83,6 +84,9 @@ _BENCHMARK_ALLOWED_KNOBS_V1 = [
     "behavior",
     "hostile_channels",
 ]
+BENCHMARK_BOOTSTRAP_N = 1000
+BENCHMARK_BOOTSTRAP_SEED = 90210
+OFFICIAL_MIN_SEEDS = 20
 
 
 def benchmark_spec_v1() -> BenchmarkSpec:
@@ -354,13 +358,21 @@ def write_spec_artifacts() -> None:
 def write_leaderboard_site(leaderboard: dict[str, Any], output_file: Path) -> Path:
     output_file.parent.mkdir(parents=True, exist_ok=True)
     rows = "\n".join(
-        f"<tr><td>{item['policy_hash']}</td><td>{item['mean_score']:.3f}</td><td>{item['run_count']}</td></tr>"
+        "<tr>"
+        f"<td>{item['policy_hash']}</td>"
+        f"<td>{item['mean_score']:.3f}</td>"
+        f"<td>{item.get('score_ci_low', item['mean_score']):.3f}-"
+        f"{item.get('score_ci_high', item['mean_score']):.3f}</td>"
+        f"<td>{item.get('tier', 'smoke')}</td>"
+        f"<td>{item['run_count']}</td>"
+        "</tr>"
         for item in leaderboard["entries"]
     )
     output_file.write_text(
         '<!doctype html><html><head><meta charset="utf-8"><title>Chiyoda Benchmark</title></head>'
         "<body><h1>Chiyoda Benchmark v1</h1>"
-        "<table><thead><tr><th>Policy</th><th>Score</th><th>Runs</th></tr></thead>"
+        "<table><thead><tr><th>Policy</th><th>Score</th><th>95% CI</th>"
+        "<th>Tier</th><th>Runs</th></tr></thead>"
         f"<tbody>{rows}</tbody></table></body></html>\n"
     )
     return output_file
@@ -369,17 +381,85 @@ def write_leaderboard_site(leaderboard: dict[str, Any], output_file: Path) -> Pa
 def _leaderboard(
     frame: pd.DataFrame, policy_hash: str, *, suite: str = "v1"
 ) -> dict[str, Any]:
-    mean_score = float(frame["benchmark_score"].mean()) if not frame.empty else 0.0
+    score = _score_summary(frame, bootstrap_n=BENCHMARK_BOOTSTRAP_N)
+    seeds_used = _seeds_used(frame)
     return {
         "suite": suite,
         "entries": [
             {
                 "policy_hash": policy_hash,
-                "mean_score": mean_score,
+                "mean_score": score["mean_score"],
+                "score_ci_low": score["score_ci_low"],
+                "score_ci_high": score["score_ci_high"],
+                "seeds_used": seeds_used,
+                "seed_count": len(seeds_used),
+                "bootstrap_n": BENCHMARK_BOOTSTRAP_N,
+                "tier": (
+                    "official" if len(seeds_used) >= OFFICIAL_MIN_SEEDS else "smoke"
+                ),
+                "official_min_seeds": OFFICIAL_MIN_SEEDS,
                 "run_count": int(len(frame)),
+                "scenario_breakdown": _scenario_breakdown(frame),
             }
         ],
     }
+
+
+def _scenario_breakdown(frame: pd.DataFrame) -> list[dict[str, Any]]:
+    if frame.empty:
+        return []
+    rows: list[dict[str, Any]] = []
+    for scenario, group in frame.groupby("scenario", sort=True):
+        score = _score_summary(group, bootstrap_n=BENCHMARK_BOOTSTRAP_N)
+        seeds_used = _seeds_used(group)
+        rows.append(
+            {
+                "scenario": str(scenario),
+                "mean_score": score["mean_score"],
+                "score_ci_low": score["score_ci_low"],
+                "score_ci_high": score["score_ci_high"],
+                "seeds_used": seeds_used,
+                "seed_count": len(seeds_used),
+                "bootstrap_n": BENCHMARK_BOOTSTRAP_N,
+                "run_count": int(len(group)),
+            }
+        )
+    return rows
+
+
+def _score_summary(frame: pd.DataFrame, *, bootstrap_n: int) -> dict[str, float]:
+    if frame.empty or "benchmark_score" not in frame:
+        return {"mean_score": 0.0, "score_ci_low": 0.0, "score_ci_high": 0.0}
+    seed_scores = (
+        frame.groupby("seed", sort=True)["benchmark_score"].mean()
+        if "seed" in frame
+        else frame["benchmark_score"]
+    )
+    scores = pd.to_numeric(seed_scores, errors="coerce").dropna().to_numpy(dtype=float)
+    if len(scores) == 0:
+        return {"mean_score": 0.0, "score_ci_low": 0.0, "score_ci_high": 0.0}
+    mean_score = float(np.mean(scores))
+    if len(scores) < 2 or bootstrap_n <= 0:
+        return {
+            "mean_score": mean_score,
+            "score_ci_low": mean_score,
+            "score_ci_high": mean_score,
+        }
+    rng = np.random.default_rng(BENCHMARK_BOOTSTRAP_SEED)
+    sampled = rng.choice(scores, size=(int(bootstrap_n), len(scores)), replace=True)
+    means = sampled.mean(axis=1)
+    return {
+        "mean_score": mean_score,
+        "score_ci_low": float(np.percentile(means, 2.5)),
+        "score_ci_high": float(np.percentile(means, 97.5)),
+    }
+
+
+def _seeds_used(frame: pd.DataFrame) -> list[int]:
+    if frame.empty or "seed" not in frame:
+        return []
+    seeds = pd.to_numeric(frame["seed"], errors="coerce").dropna().unique()
+    return [int(seed) for seed in sorted(seeds)]
 
 
 def _equity_time_gap(simulation) -> float:

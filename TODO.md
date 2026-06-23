@@ -19,14 +19,6 @@ Conventions:
 
 ## P2 — Benchmark v1 → real leaderboard
 
-### [ ] T2.1 Statistical reporting (CIs, not point estimates)
-- Scope: replace mean-only scoring with mean ± 95% CI bootstrapped over seeds. Update composite formula docs.
-- Files: `chiyoda/studies/` (locate `composite_v1` scorer via grep), `docs/benchmark/spec.md`.
-- Acceptance:
-  - Benchmark JSON adds `score_ci_low`, `score_ci_high`, `seeds_used`, `bootstrap_n`.
-  - Per-scenario breakdown includes CIs.
-  - Spec doc rewritten to require ≥20 seeds for "official" submissions; current 2-seed run downgraded to `smoke` tier.
-
 ### [ ] T2.2 Add ≥5 scenarios per suite
 - Scope: v1 currently has 3 scenarios. Add at least 2 more per suite, biased toward published incident geometries.
 - Files: `scenarios/benchmark/v1/*.yaml`.
