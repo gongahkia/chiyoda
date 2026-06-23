@@ -47,13 +47,6 @@ Conventions:
 
 ## P9 — Documentation and positioning
 
-### [ ] T9.3 Policy / standards engagement note
-- Scope: add a short doc framing Chiyoda's relevance to alerting authorities (FCC WEA rulemaking 2025, FEMA best practices, ICAO/UNDRR equivalents).
-- Files: new `docs/policy_engagement.md`.
-- Acceptance:
-  - Document cites the open FCC docket and FEMA WEA best-practices page and states what Chiyoda outputs would be relevant to each.
-- Refs: FCC WEA rulemaking 2025; FEMA WEA best practices.
-
 ### [ ] T9.4 Glossary
 - Scope: many overloaded terms (entropy, HCI, belief, intent). Add a single glossary.
 - Files: new `docs/glossary.md`.
