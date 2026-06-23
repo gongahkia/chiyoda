@@ -111,6 +111,11 @@ uniformly.
 ## High-Impact Gaps
 
 - Static validation catches topology errors but not behavioral plausibility.
-- Path-usage debug is aggregate max usage per cell, not per-step route intent.
+- Per-step route intent is now opt-in with `--per-step-intent`. It writes a
+  sparse `intent_path_usage` table grouped by `(run_id, step, floor_id, x, y,
+  intent)` and is loaded into the viewer payload as `intent_path_usage`.
+  Expected file-size budget is at most one pre-grouping row per active agent per
+  recorded step; grouped parquet output should stay under the corresponding
+  `agent_steps` table size for the same run.
 - The GeoJSON converter is a pragmatic OSM/GTFS-like bridge, not a
   standards-complete indoor data importer.

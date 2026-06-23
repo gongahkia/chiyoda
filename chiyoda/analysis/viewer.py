@@ -98,6 +98,9 @@ def _viewer_payload(bundle: StudyBundle, *, max_frames: int) -> dict[str, Any]:
         "floors": floors,
         "bottlenecks": bundle.metadata.get("bottleneck_zones", []),
         "path_usage": _path_usage_cells(bundle.cells, run_id=run_id),
+        "intent_path_usage": _table_rows(
+            getattr(bundle, "intent_path_usage", pd.DataFrame()), run_id=run_id
+        ),
         "hazards": _table_rows(bundle.hazards, run_id=run_id),
         "interventions": _table_rows(bundle.interventions, run_id=run_id),
         "llm_decisions": _table_rows(bundle.llm_decisions, run_id=run_id),

@@ -35,13 +35,6 @@ Conventions:
 
 ## P6 — Telemetry, causality, and analysis
 
-### [ ] T6.2 Per-step route-intent path usage
-- Scope: path-usage debug is aggregate max-per-cell (`implementation_audit.md`). Add per-step intent tensor; gate behind a CLI flag to control file size.
-- Files: `chiyoda/analysis/telemetry.py`, viewer overlay loader.
-- Acceptance:
-  - Flag `--per-step-intent` works.
-  - File size budget documented (e.g., compressed parquet under a stated cap).
-
 ### [ ] T6.3 Equity reporting beyond aggregate
 - Scope: equity term in composite score is single-number. Add subgroup breakdowns (impaired, elderly, familiarity prior).
 - Files: `chiyoda/analysis/metrics.py`, reports.

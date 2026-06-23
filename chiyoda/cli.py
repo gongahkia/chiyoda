@@ -144,6 +144,12 @@ def _export_bundle(
     help="Dump per-step telemetry to <out>/debug_steps.jsonl",
 )
 @click.option(
+    "--per-step-intent",
+    is_flag=True,
+    default=False,
+    help="Export sparse per-step intent path-usage tensor",
+)
+@click.option(
     "--counterfactual",
     is_flag=True,
     default=False,
@@ -168,6 +174,7 @@ def run(
     table_formats,
     profile,
     debug,
+    per_step_intent,
     counterfactual,
     counterfactual_repetitions,
     counterfactual_bootstrap_samples,
@@ -178,6 +185,7 @@ def run(
             scenario_file,
             repetitions=int(counterfactual_repetitions),
             bootstrap_samples=int(counterfactual_bootstrap_samples),
+            per_step_intent=bool(per_step_intent),
         )
         output_dir = Path(out_dir)
         _export_bundle(
@@ -200,7 +208,7 @@ def run(
         )
         click.echo(f"Exported counterfactual study bundle to {out_dir}")
         return
-    bundle = run_study(scenario_file)
+    bundle = run_study(scenario_file, per_step_intent=bool(per_step_intent))
     _export_bundle(
         bundle, out_dir, tuple(figure_formats), tuple(table_formats), profile
     )
@@ -228,12 +236,20 @@ def run(
 )
 @click.option("--profile", default=None, help="Export profile")
 @click.option("--jobs", default=None, type=int, help="Parallel seed jobs")
-def sweep(study_file, out_dir, figure_formats, table_formats, profile, jobs):
+@click.option(
+    "--per-step-intent",
+    is_flag=True,
+    default=False,
+    help="Export sparse per-step intent path-usage tensor",
+)
+def sweep(
+    study_file, out_dir, figure_formats, table_formats, profile, jobs, per_step_intent
+):
     """Run a study definition with repeated seeds, variants, and sweeps."""
     config = load_study_config(study_file)
     if jobs is not None:
         config = config.model_copy(update={"jobs": jobs})
-    bundle = run_study(config)
+    bundle = run_study(config, per_step_intent=bool(per_step_intent))
     _export_bundle(
         bundle, out_dir, tuple(figure_formats), tuple(table_formats), profile
     )

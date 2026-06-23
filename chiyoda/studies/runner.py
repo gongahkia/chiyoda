@@ -34,7 +34,9 @@ def load_study_config(path: str | Path) -> StudyConfig:
     return config.model_copy(update={"scenario_file": str(scenario_path.resolve())})
 
 
-def run_study(study: str | Path | StudyConfig) -> StudyBundle:
+def run_study(
+    study: str | Path | StudyConfig, *, per_step_intent: bool = False
+) -> StudyBundle:
     from chiyoda._logging import log_event
 
     config = _coerce_study_input(study)
@@ -49,6 +51,7 @@ def run_study(study: str | Path | StudyConfig) -> StudyBundle:
     summary_frames: list[pd.DataFrame] = []
     steps_frames: list[pd.DataFrame] = []
     cells_frames: list[pd.DataFrame] = []
+    intent_path_usage_frames: list[pd.DataFrame] = []
     agent_steps_frames: list[pd.DataFrame] = []
     agents_frames: list[pd.DataFrame] = []
     bottlenecks_frames: list[pd.DataFrame] = []
@@ -98,6 +101,7 @@ def run_study(study: str | Path | StudyConfig) -> StudyBundle:
                     "seed": int(seed),
                     "run_id": run_id,
                     "study_name": config.name,
+                    "per_step_intent": bool(per_step_intent),
                 }
             )
             run_index += 1
@@ -116,6 +120,7 @@ def run_study(study: str | Path | StudyConfig) -> StudyBundle:
             summary_frames.append(tables["summary"])
             steps_frames.append(tables["steps"])
             cells_frames.append(tables["cells"])
+            intent_path_usage_frames.append(tables["intent_path_usage"])
             agent_steps_frames.append(tables["agent_steps"])
             agents_frames.append(tables["agents"])
             bottlenecks_frames.append(tables["bottlenecks"])
@@ -193,6 +198,8 @@ def run_study(study: str | Path | StudyConfig) -> StudyBundle:
         "treatment_assignments": dict(config.treatment_assignments),
         "runs": runs_manifest,
         "representative_run_id": runs_manifest[0]["run_id"] if runs_manifest else None,
+        "per_step_intent": bool(per_step_intent),
+        "per_step_intent_budget": "sparse rows only; at most active agents per step before intent/cell grouping",
     }
 
     log_event(
@@ -208,6 +215,7 @@ def run_study(study: str | Path | StudyConfig) -> StudyBundle:
         summary=summary,
         steps=_concat(steps_frames),
         cells=_concat(cells_frames),
+        intent_path_usage=_concat(intent_path_usage_frames),
         agent_steps=_concat(agent_steps_frames),
         agents=_concat(agents_frames),
         bottlenecks=_concat(bottlenecks_frames),
@@ -230,6 +238,7 @@ def run_counterfactual_pair(
     jobs: int = 1,
     bootstrap_samples: int = 1000,
     random_seed: int = 42,
+    per_step_intent: bool = False,
 ) -> dict[str, Any]:
     scenario_path = Path(scenario_file).resolve()
     seed_list = list(seeds or [])
@@ -246,7 +255,8 @@ def run_counterfactual_pair(
                     scenario_overrides={"interventions": {"policy": "none"}},
                 )
             ],
-        )
+        ),
+        per_step_intent=per_step_intent,
     )
     treated = run_study(
         StudyConfig(
@@ -256,7 +266,8 @@ def run_counterfactual_pair(
             repetitions=repetitions,
             jobs=jobs,
             variants=[StudyVariant(name="treated")],
-        )
+        ),
+        per_step_intent=per_step_intent,
     )
     scenario = ScenarioManager().load_config(str(scenario_path))
     interventions = _intervention_descriptors(scenario.get("interventions"))
@@ -468,6 +479,7 @@ def _execute_study_task(task: dict[str, Any]) -> dict[str, Any]:
         variant_name=variant.name,
         seed=seed,
         run_id=run_id,
+        per_step_intent=bool(task.get("per_step_intent", False)),
     )
     exit_labels = {
         f"{cell[0]},{cell[1]},{cell[2]}": label
@@ -635,9 +647,11 @@ def _collect_run_tables(
     variant_name: str,
     seed: int,
     run_id: str,
+    per_step_intent: bool = False,
 ) -> dict[str, pd.DataFrame]:
     steps_rows: list[dict[str, Any]] = []
     cells_rows: list[dict[str, Any]] = []
+    intent_path_usage_rows: list[dict[str, Any]] = []
     agent_step_rows: list[dict[str, Any]] = []
     exit_rows: list[dict[str, Any]] = []
     bottleneck_rows: list[dict[str, Any]] = []
@@ -759,6 +773,24 @@ def _collect_run_tables(
                     "padm_decide": int(getattr(agent, "padm_decide", 0)),
                 }
             )
+            if per_step_intent:
+                intent_path_usage_rows.append(
+                    {
+                        "study_name": study_name,
+                        "scenario_name": scenario_name,
+                        "variant_name": variant_name,
+                        "seed": seed,
+                        "run_id": run_id,
+                        "step": step.step,
+                        "time_s": step.time_s,
+                        "floor_id": agent.cell[0],
+                        "z": float(simulation.layout.floor_z(agent.cell[0])),
+                        "x": int(agent.cell[1]),
+                        "y": int(agent.cell[2]),
+                        "intent": str(getattr(agent, "decision_mode", "EVACUATE")),
+                        "count": 1,
+                    }
+                )
 
         for exit_label in simulation.exit_labels.values():
             exit_rows.append(
@@ -1018,6 +1050,7 @@ def _collect_run_tables(
         "summary": summary_row,
         "steps": pd.DataFrame(steps_rows),
         "cells": pd.DataFrame(cells_rows),
+        "intent_path_usage": _intent_path_usage_frame(intent_path_usage_rows),
         "agent_steps": pd.DataFrame(agent_step_rows),
         "agents": pd.DataFrame(agent_rows),
         "bottlenecks": pd.DataFrame(bottleneck_rows),
@@ -1123,3 +1156,29 @@ def _concat(frames: Sequence[pd.DataFrame]) -> pd.DataFrame:
     if not frames:
         return pd.DataFrame()
     return pd.concat(frames, ignore_index=True)
+
+
+def _intent_path_usage_frame(rows: list[dict[str, Any]]) -> pd.DataFrame:
+    if not rows:
+        return pd.DataFrame()
+    frame = pd.DataFrame(rows)
+    group_cols = [
+        "study_name",
+        "scenario_name",
+        "variant_name",
+        "seed",
+        "run_id",
+        "step",
+        "time_s",
+        "floor_id",
+        "z",
+        "x",
+        "y",
+        "intent",
+    ]
+    return (
+        frame.groupby(group_cols, as_index=False)["count"]
+        .sum()
+        .sort_values(["run_id", "step", "floor_id", "y", "x", "intent"])
+        .reset_index(drop=True)
+    )

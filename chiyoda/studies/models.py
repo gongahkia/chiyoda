@@ -49,6 +49,21 @@ TABLE_COLUMNS: dict[str, list[str]] = {
         "speed",
         "path_usage",
     ],
+    "intent_path_usage": [
+        "study_name",
+        "scenario_name",
+        "variant_name",
+        "seed",
+        "run_id",
+        "step",
+        "time_s",
+        "floor_id",
+        "z",
+        "x",
+        "y",
+        "intent",
+        "count",
+    ],
     "agent_steps": [
         "study_name",
         "scenario_name",
@@ -350,6 +365,7 @@ class StudyBundle:
     dwell_samples: pd.DataFrame
     exits: pd.DataFrame
     hazards: pd.DataFrame
+    intent_path_usage: pd.DataFrame = field(default_factory=_empty_frame)
     measurements: pd.DataFrame = field(default_factory=_empty_frame)
     gossip: pd.DataFrame = field(default_factory=_empty_frame)
     interventions: pd.DataFrame = field(default_factory=_empty_frame)
@@ -389,6 +405,7 @@ class StudyBundle:
             "summary": self.summary,
             "steps": self.steps,
             "cells": self.cells,
+            "intent_path_usage": self.intent_path_usage,
             "agent_steps": self.agent_steps,
             "agents": self.agents,
             "bottlenecks": self.bottlenecks,
@@ -412,6 +429,7 @@ class StudyBundle:
             summary=_read_table(tables_dir, "summary"),
             steps=_read_table(tables_dir, "steps"),
             cells=_read_table(tables_dir, "cells"),
+            intent_path_usage=_read_table(tables_dir, "intent_path_usage"),
             agent_steps=_read_table(tables_dir, "agent_steps"),
             agents=_read_table(tables_dir, "agents"),
             bottlenecks=_read_table(tables_dir, "bottlenecks"),
