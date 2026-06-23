@@ -39,13 +39,6 @@ Conventions:
 
 ## P7 — Reproducibility, CI, performance
 
-### [ ] T7.1 Pin matplotlib (and other missing dev deps) into install path
-- Scope: `python -m chiyoda.cli --help` currently fails without matplotlib (observed locally). Either lazy-import or pin in core requirements.
-- Files: `pyproject.toml`, `requirements.txt`, `requirements-lock.txt`, CLI imports.
-- Acceptance:
-  - `pip install -e .` followed by `python -m chiyoda.cli --help` works on a clean venv.
-  - CI job verifies this on Linux + macOS.
-
 ### [ ] T7.2 Reproducibility manifest hash audit on every release
 - Scope: `docs/reproducibility_kit.md` exists. Add CI step that recomputes manifest and fails if drift.
 - Files: `.github/workflows/`, `scripts/repro_audit.py` (new).
