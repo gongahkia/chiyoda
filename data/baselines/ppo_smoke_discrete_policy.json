@@ -1,12 +1,12 @@
 {
   "algorithm": "PPO",
   "backend": "stable-baselines3",
-  "trained_with_stable_baselines3": false,
-  "fallback": "deterministic_discrete_policy",
-  "fallback_reason": "CI artifact for environments without optional stable-baselines3/gymnasium dependencies",
+  "trained_with_stable_baselines3": true,
+  "policy_source": "stable-baselines3 model prediction cached as action_index",
   "scenario_file": "scenarios/benchmark/transit_cbrn.yaml",
-  "total_timesteps": 0,
+  "total_timesteps": 16,
   "seed": 42,
+  "model_path": "data/baselines/ppo_chiyoda_smoke.zip",
   "actions": [
     {
       "policy": "none"

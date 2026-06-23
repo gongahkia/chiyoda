@@ -462,16 +462,20 @@ def baseline_group():
 @click.option("--timesteps", default=256, type=int)
 @click.option("--seed", default=42, type=int)
 @click.option("-o", "--out", "out_dir", default="data/baselines")
-@click.option("--require-sb3", is_flag=True, help="Fail if stable-baselines3 is absent")
-def baseline_train_command(kind, scenario, timesteps, seed, out_dir, require_sb3):
-    """Train or materialize a baseline policy artifact."""
+@click.option(
+    "--allow-fallback",
+    is_flag=True,
+    help="Write deterministic metadata if stable-baselines3 is absent",
+)
+def baseline_train_command(kind, scenario, timesteps, seed, out_dir, allow_fallback):
+    """Train a baseline policy artifact."""
     del kind
     artifact = train_ppo_baseline(
         scenario_file=scenario,
         output_dir=out_dir,
         total_timesteps=timesteps,
         seed=seed,
-        require_sb3=require_sb3,
+        require_sb3=not allow_fallback,
     )
     click.echo(json.dumps(artifact, indent=2, sort_keys=True))
 

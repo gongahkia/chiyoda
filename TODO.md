@@ -19,14 +19,6 @@ Conventions:
 
 ## P2 — Benchmark v1 → real leaderboard
 
-### [ ] T2.3 Reference baselines beyond heuristics
-- Scope: ship at least one trained RL baseline (PPO via stable-baselines3) and one rule-based oracle, both reproducible from CLI.
-- Files: new `chiyoda/policies/ppo_baseline.py`, new `chiyoda/policies/oracle.py`, CLI subcommand `chiyoda baseline train|eval`.
-- Acceptance:
-  - Trained policy weights checked into `data/baselines/` (size-permitting) or downloadable via documented URL.
-  - Eval reproduces scores in `docs/benchmark/baselines.md` (new) within CI.
-- Refs: Safety-Gymnasium baselines; Gymnasium standardized interface (arXiv 2407.17032).
-
 ### [ ] T2.4 Public leaderboard format
 - Scope: define machine-readable submission format (JSON schema) and validation script.
 - Files: new `docs/benchmark/submission_schema.json`, `chiyoda/cli.py` `benchmark validate-submission`.

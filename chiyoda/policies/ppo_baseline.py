@@ -9,6 +9,14 @@ import numpy as np
 
 from chiyoda.acceleration.rl_env import ChiyodaRLEnv
 
+try:
+    from gymnasium import Env as _GymEnv
+except Exception:
+
+    class _GymEnv:  # type: ignore[no-redef]
+        pass
+
+
 DEFAULT_ACTIONS = [
     {"policy": "none"},
     {
@@ -37,7 +45,7 @@ def train_ppo_baseline(
     output_dir: str | Path = "data/baselines",
     total_timesteps: int = 256,
     seed: int = 42,
-    require_sb3: bool = False,
+    require_sb3: bool = True,
 ) -> dict[str, Any]:
     out = Path(output_dir)
     out.mkdir(parents=True, exist_ok=True)
@@ -61,16 +69,18 @@ def train_ppo_baseline(
     model.learn(total_timesteps=int(total_timesteps))
     model_path = out / "ppo_chiyoda_smoke.zip"
     model.save(model_path)
+    action_index = _model_action_index(model)
     artifact = {
         "algorithm": "PPO",
         "backend": "stable-baselines3",
         "trained_with_stable_baselines3": True,
+        "policy_source": "stable-baselines3 model prediction cached as action_index",
         "scenario_file": str(scenario_file),
         "total_timesteps": int(total_timesteps),
         "seed": int(seed),
         "model_path": str(model_path),
         "actions": DEFAULT_ACTIONS,
-        "action_index": 1,
+        "action_index": action_index,
     }
     metadata_path.write_text(json.dumps(artifact, indent=2) + "\n")
     return artifact | {"path": str(metadata_path)}
@@ -90,7 +100,12 @@ def policy_from_artifact(path: str | Path = DEFAULT_PPO_BASELINE) -> dict[str, A
     return deepcopy(actions[action_index])
 
 
-class DiscreteInterventionEnv:
+def _model_action_index(model: Any) -> int:
+    action, _ = model.predict(np.zeros((1, 4), dtype=np.float32), deterministic=True)
+    return int(np.asarray(action).reshape(-1)[0]) % len(DEFAULT_ACTIONS)
+
+
+class DiscreteInterventionEnv(_GymEnv):
     metadata = {"render_modes": []}
 
     def __init__(self, scenario_file: str | Path, *, seed: int | None = None) -> None:
