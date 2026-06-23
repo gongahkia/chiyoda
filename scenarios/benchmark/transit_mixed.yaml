@@ -1,6 +1,9 @@
 scenario:
   name: transit_mixed
   description: "Mixed CBRN and misinformation transit benchmark."
+  metadata:
+    info_safety_tags:
+      - transit_mixed
   layout:
     cell_size: 1.0
     floors:

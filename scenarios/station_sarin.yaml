@@ -1,5 +1,8 @@
 scenario:
   name: Station CBRN Sarin
+  metadata:
+    info_safety_tags:
+    - station_sarin
   layout:
     cell_size: 1.0
     floors:

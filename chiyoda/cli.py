@@ -5,6 +5,7 @@ from pathlib import Path
 
 import click
 
+from chiyoda.analysis.info_safety_frontier import check_info_safety_scenario
 from chiyoda.analysis.metrics import SimulationAnalytics
 from chiyoda.analysis.reports import export_figures
 from chiyoda.analysis.trajectory_reference import (
@@ -228,6 +229,28 @@ def assert_scenario_command(ctx, scenario_file, json_output):
             )
     if not result.ok:
         ctx.exit(1)
+
+
+@cli.command("info-safety-check")
+@click.argument("scenario_file")
+@click.option("--json", "json_output", is_flag=True, help="Emit JSON verdict")
+def info_safety_check_command(scenario_file, json_output):
+    """Flag scenarios likely to increase HCI after entropy-reducing messages."""
+    verdict = check_info_safety_scenario(scenario_file)
+    payload = verdict.to_dict()
+    if json_output:
+        click.echo(json.dumps(payload, indent=2))
+        return
+    click.echo(
+        f"{payload['verdict'].upper()}: {scenario_file} "
+        f"score={payload['score']:.3f} "
+        f"entropy={payload['entropy_reduction_potential']:.3f} "
+        f"convergence={payload['convergence_pressure']:.3f} "
+        f"queue={payload['queue_pressure']:.3f} "
+        f"exposure={payload['exposure_pressure']:.3f}"
+    )
+    for reason in payload["reasons"]:
+        click.echo(f"- {reason}")
 
 
 @cli.command("convert-layout")

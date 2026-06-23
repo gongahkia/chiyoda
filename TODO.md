@@ -13,15 +13,6 @@ Conventions:
 
 ## P0 — Core novelty: ground the information layer
 
-### [ ] T0.3 Saddle-point characterization of harmful entropy reduction
-- Scope: derive and document the analytical condition under which entropy reduction increases harmful convergence index (HCI). Implement a closed-form detector that flags scenario configs likely to sit in the harmful regime BEFORE running the sim.
-- Files: new `chiyoda/analysis/info_safety_frontier.py`, `docs/info_safety_theory.md` (new), CLI subcommand `chiyoda info-safety-check <scenario>` in `chiyoda/cli.py`.
-- Acceptance:
-  - Doc states the inequality on belief-distribution → queue/exposure mapping with proof sketch. Label as `[Inference]` if not from a published source.
-  - Detector returns a structured verdict (`safe`, `borderline`, `harmful`) with reasons.
-  - 3 scenarios tagged in `scenarios/` (`station_baseline`, `station_sarin`, `transit_mixed`) covered by tests.
-- Refs: extend the empirical "harmful convergence" framing in `docs/paper_outline_info_warfare.md`.
-
 ### [ ] T0.4 Adversary taxonomy mapped to documented incidents
 - Scope: replace ad-hoc `decoy-exit`, `panic-induce`, `responder-spoof`, `gossip-poison` labels with a taxonomy keyed to real-world incidents.
 - Files: `chiyoda/information/warfare.py`, new `docs/adversary_taxonomy.md`, new `data/adversary_incidents.yaml`.
