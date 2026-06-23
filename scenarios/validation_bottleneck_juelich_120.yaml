@@ -1,0 +1,58 @@
+scenario:
+  name: validation_bottleneck_juelich_120
+  description: "Juelich bottleneck-flow proxy for width 1.2 m."
+  metadata:
+    validation_scope: juelich_bottleneck_flow
+    external_reference: data/external/juelich_bottleneck_flow/specific_flow_width.csv
+    bottleneck_width_m: 1.2
+    bottleneck_connector_ids: [bottleneck_gate]
+  layout:
+    cell_size: 0.2
+    floors:
+      - id: "0"
+        z: 0.0
+        text: |
+          XXXXXXXXXXXX
+          X....X....EX
+          X....X.....X
+          X....X.....X
+          X....X.....X
+          X....X.....X
+          X....X.....X
+          X....X.....X
+          XXXXXXXXXXXX
+    connectors:
+      - id: bottleneck_gate
+        type: ramp
+        from: {floor: "0", x: 4, y: 4}
+        to: {floor: "0", x: 6, y: 4}
+        bidirectional: false
+        width: 1.2
+        flow_rate: 2.208
+        capacity: 100
+        travel_s: 0.01
+        queue_mode: fifo
+  population:
+    total: 60
+    cohorts:
+      - name: juelich_flow_group
+        count: 60
+        base_speed: 1.34
+        familiarity: 1.0
+        spawn_cells: *left_spawn
+  information:
+    mode: perfect
+  behavior:
+    freeze_probability: 0.0
+  simulation:
+    max_steps: 700
+    dt: 0.1
+    random_seed: 42
+    density_slowdown_scale: 0.0
+    min_crowd_speed_factor: 1.0
+  assertions:
+    evacuated: {eq: 60}
+    remaining: {eq: 0}
+    connector_usage:
+      bottleneck_gate: {eq: 60}
+    agent_base_speed_mps: {min: 1.34, max: 1.34, mean_min: 1.34, mean_max: 1.34}
