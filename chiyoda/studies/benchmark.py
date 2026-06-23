@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Iterable
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
@@ -87,6 +88,25 @@ _BENCHMARK_ALLOWED_KNOBS_V1 = [
 BENCHMARK_BOOTSTRAP_N = 1000
 BENCHMARK_BOOTSTRAP_SEED = 90210
 OFFICIAL_MIN_SEEDS = 20
+SUBMISSION_SCHEMA_VERSION = "chiyoda-benchmark-submission-v1"
+_HASH_PATTERN = re.compile(r"^[0-9a-f]{16,64}$")
+_SUBMISSION_REQUIRED_FIELDS = {
+    "schema_version",
+    "suite",
+    "submitter",
+    "policy_hash",
+    "config_hash",
+    "env_version",
+    "seed_set",
+    "overall",
+    "scenarios",
+}
+_SUBMISSION_ALLOWED_FIELDS = _SUBMISSION_REQUIRED_FIELDS | {
+    "created_at_utc",
+    "command",
+    "artifacts",
+    "notes",
+}
 
 
 def benchmark_spec_v1() -> BenchmarkSpec:
@@ -354,6 +374,61 @@ def reproducibility_manifest(spec: BenchmarkSpec, policy_hash: str) -> dict[str,
     }
 
 
+def validate_submission_file(path: str | Path) -> dict[str, Any]:
+    source = Path(path)
+    try:
+        payload = json.loads(source.read_text())
+    except Exception as exc:
+        return {
+            "ok": False,
+            "submission_file": str(source),
+            "issues": [{"path": "$", "message": f"invalid JSON: {exc}"}],
+        }
+    result = validate_submission(payload)
+    result["submission_file"] = str(source)
+    return result
+
+
+def validate_submission(payload: Any) -> dict[str, Any]:
+    issues: list[dict[str, str]] = []
+    if not isinstance(payload, dict):
+        _issue(issues, "$", "submission must be a JSON object")
+        return {"ok": False, "issues": issues}
+
+    missing = sorted(_SUBMISSION_REQUIRED_FIELDS - set(payload))
+    for field_name in missing:
+        _issue(issues, f"$.{field_name}", "required field missing")
+    for field_name in sorted(set(payload) - _SUBMISSION_ALLOWED_FIELDS):
+        _issue(issues, f"$.{field_name}", "unknown field")
+
+    if payload.get("schema_version") != SUBMISSION_SCHEMA_VERSION:
+        _issue(
+            issues,
+            "$.schema_version",
+            f"must be {SUBMISSION_SCHEMA_VERSION}",
+        )
+    _validate_non_empty_string(payload.get("submitter"), "$.submitter", issues)
+
+    suite = payload.get("suite")
+    spec = None
+    if isinstance(suite, str) and suite in _SUITE_BUILDERS:
+        spec = _spec_for_suite(suite)
+    else:
+        _issue(issues, "$.suite", f"must be one of {sorted(_SUITE_BUILDERS)}")
+
+    _validate_hash(payload.get("policy_hash"), "$.policy_hash", issues)
+    _validate_hash(payload.get("config_hash"), "$.config_hash", issues)
+    if spec is not None and payload.get("config_hash") != _hash_json(spec.to_dict()):
+        _issue(issues, "$.config_hash", "does not match benchmark suite config hash")
+
+    seed_set = _validate_seed_array(payload.get("seed_set"), "$.seed_set", issues)
+    _validate_env_version(payload.get("env_version"), issues)
+    _validate_overall(payload.get("overall"), issues)
+    _validate_scenarios(payload.get("scenarios"), spec, seed_set, issues)
+
+    return {"ok": len(issues) == 0, "issues": issues}
+
+
 def write_spec_artifacts() -> None:
     root = Path("docs/benchmark")
     root.mkdir(parents=True, exist_ok=True)
@@ -516,3 +591,112 @@ def _hash_json(value: Any) -> str:
     return sha256(
         json.dumps(value, sort_keys=True, default=str).encode("utf-8")
     ).hexdigest()[:16]
+
+
+def _issue(issues: list[dict[str, str]], path: str, message: str) -> None:
+    issues.append({"path": path, "message": message})
+
+
+def _validate_hash(value: Any, path: str, issues: list[dict[str, str]]) -> None:
+    if not isinstance(value, str) or not _HASH_PATTERN.fullmatch(value):
+        _issue(issues, path, "must be a 16-64 character lowercase hex string")
+
+
+def _validate_non_empty_string(
+    value: Any, path: str, issues: list[dict[str, str]]
+) -> None:
+    if not isinstance(value, str) or not value:
+        _issue(issues, path, "must be a non-empty string")
+
+
+def _validate_seed_array(
+    value: Any, path: str, issues: list[dict[str, str]]
+) -> list[int]:
+    if not isinstance(value, list) or len(value) == 0:
+        _issue(issues, path, "must be a non-empty integer array")
+        return []
+    if not all(isinstance(seed, int) and not isinstance(seed, bool) for seed in value):
+        _issue(issues, path, "all seeds must be integers")
+        return []
+    if len(set(value)) != len(value):
+        _issue(issues, path, "seeds must be unique")
+    return [int(seed) for seed in value]
+
+
+def _validate_env_version(value: Any, issues: list[dict[str, str]]) -> None:
+    if not isinstance(value, dict):
+        _issue(issues, "$.env_version", "must be an object")
+        return
+    for field_name in ("chiyoda", "python", "platform"):
+        if not isinstance(value.get(field_name), str) or not value.get(field_name):
+            _issue(issues, f"$.env_version.{field_name}", "must be a non-empty string")
+
+
+def _validate_score_block(
+    value: Any, path: str, issues: list[dict[str, str]]
+) -> None:
+    if not isinstance(value, dict):
+        _issue(issues, path, "must be an object")
+        return
+    for field_name in ("mean_score", "score_ci_low", "score_ci_high"):
+        score = value.get(field_name)
+        if not isinstance(score, (int, float)) or not np.isfinite(float(score)):
+            _issue(issues, f"{path}.{field_name}", "must be a finite number")
+    if all(
+        field_name in value
+        for field_name in ("mean_score", "score_ci_low", "score_ci_high")
+    ):
+        low = float(value["score_ci_low"])
+        mean = float(value["mean_score"])
+        high = float(value["score_ci_high"])
+        if not low <= mean <= high:
+            _issue(issues, path, "score CI must satisfy low <= mean <= high")
+    run_count = value.get("run_count")
+    if not isinstance(run_count, int) or isinstance(run_count, bool) or run_count < 1:
+        _issue(issues, f"{path}.run_count", "must be a positive integer")
+
+
+def _validate_overall(value: Any, issues: list[dict[str, str]]) -> None:
+    _validate_score_block(value, "$.overall", issues)
+    if not isinstance(value, dict):
+        return
+    if value.get("tier") not in {"smoke", "official"}:
+        _issue(issues, "$.overall.tier", "must be smoke or official")
+
+
+def _validate_scenarios(
+    value: Any,
+    spec: BenchmarkSpec | None,
+    seed_set: list[int],
+    issues: list[dict[str, str]],
+) -> None:
+    if not isinstance(value, list) or len(value) == 0:
+        _issue(issues, "$.scenarios", "must be a non-empty array")
+        return
+    names: list[str] = []
+    for index, item in enumerate(value):
+        path = f"$.scenarios[{index}]"
+        if not isinstance(item, dict):
+            _issue(issues, path, "must be an object")
+            continue
+        name = item.get("scenario")
+        if not isinstance(name, str) or not name:
+            _issue(issues, f"{path}.scenario", "must be a non-empty string")
+        else:
+            names.append(name)
+        _validate_score_block(item, path, issues)
+        seeds_used = _validate_seed_array(
+            item.get("seeds_used"), f"{path}.seeds_used", issues
+        )
+        if seed_set and sorted(seeds_used) != sorted(seed_set):
+            _issue(issues, f"{path}.seeds_used", "must match root seed_set")
+    if len(set(names)) != len(names):
+        _issue(issues, "$.scenarios", "scenario names must be unique")
+    if spec is not None:
+        expected = {scenario.name for scenario in spec.scenarios}
+        actual = set(names)
+        if actual != expected:
+            missing = sorted(expected - actual)
+            extra = sorted(actual - expected)
+            detail = f"missing={missing} extra={extra}"
+            _issue(issues, "$.scenarios", f"must match suite scenarios: {detail}")

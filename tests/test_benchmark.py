@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import json
 import time
+from pathlib import Path
 from types import SimpleNamespace
 
 import numpy as np
@@ -16,7 +18,12 @@ from chiyoda.studies.benchmark import (
     benchmark_score,
     benchmark_spec_v1,
     generate_reference_trajectories,
+    validate_submission,
+    validate_submission_file,
 )
+
+SCHEMA = Path("docs/benchmark/submission_schema.json")
+EXAMPLE_SUBMISSION = Path("docs/benchmark/example_submission.json")
 
 
 def test_benchmark_spec_v1_schema_and_scenarios():
@@ -100,6 +107,56 @@ def test_benchmark_cli_group_is_available():
 
     assert result.exit_code == 0
     assert "submit" in result.output
+    assert "validate-submission" in result.output
+
+
+def test_submission_schema_requires_public_leaderboard_fields():
+    schema = json.loads(SCHEMA.read_text())
+    root_required = set(schema["required"])
+    scenario_required = set(schema["$defs"]["scenario_score"]["required"])
+
+    assert {
+        "policy_hash",
+        "config_hash",
+        "seed_set",
+        "env_version",
+        "scenarios",
+    } <= root_required
+    assert {
+        "scenario",
+        "mean_score",
+        "score_ci_low",
+        "score_ci_high",
+        "seeds_used",
+    } <= scenario_required
+
+
+def test_example_submission_passes_validator_and_cli():
+    result = validate_submission_file(EXAMPLE_SUBMISSION)
+    cli_result = CliRunner().invoke(
+        cli, ["benchmark", "validate-submission", str(EXAMPLE_SUBMISSION)]
+    )
+
+    assert result == {
+        "ok": True,
+        "issues": [],
+        "submission_file": str(EXAMPLE_SUBMISSION),
+    }
+    assert cli_result.exit_code == 0
+    assert "OK:" in cli_result.output
+
+
+def test_validate_submission_rejects_missing_hash_and_bad_scenarios():
+    payload = json.loads(EXAMPLE_SUBMISSION.read_text())
+    del payload["policy_hash"]
+    payload["scenarios"] = payload["scenarios"][:-1]
+
+    result = validate_submission(payload)
+
+    assert result["ok"] is False
+    paths = {issue["path"] for issue in result["issues"]}
+    assert "$.policy_hash" in paths
+    assert "$.scenarios" in paths
 
 
 def test_reference_trajectory_generation(tmp_path):

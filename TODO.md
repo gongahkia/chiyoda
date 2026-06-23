@@ -19,13 +19,6 @@ Conventions:
 
 ## P2 — Benchmark v1 → real leaderboard
 
-### [ ] T2.4 Public leaderboard format
-- Scope: define machine-readable submission format (JSON schema) and validation script.
-- Files: new `docs/benchmark/submission_schema.json`, `chiyoda/cli.py` `benchmark validate-submission`.
-- Acceptance:
-  - Sample submission in `docs/benchmark/example_submission.json` passes validation.
-  - Schema requires policy hash, config hash, seed set, env version, score+CI per scenario.
-
 ---
 
 ## P3 — Authoring & ops surfaces (non-CLI users)

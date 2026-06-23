@@ -42,6 +42,7 @@ from chiyoda.studies import (
     load_study_config,
     run_study,
     submit_policy,
+    validate_submission_file,
 )
 
 
@@ -448,6 +449,25 @@ def benchmark_submit_command(policy_path, suite, out_dir):
     """Run a benchmark submission and export leaderboard artifacts."""
     result = submit_policy(policy_path=policy_path, suite=suite, output_dir=out_dir)
     click.echo(json.dumps(result["leaderboard"], indent=2, sort_keys=True))
+
+
+@benchmark.command("validate-submission")
+@click.argument("submission_file")
+@click.option("--json", "json_output", is_flag=True, help="Emit JSON validation result")
+@click.pass_context
+def benchmark_validate_submission_command(ctx, submission_file, json_output):
+    """Validate a public benchmark submission JSON file."""
+    result = validate_submission_file(submission_file)
+    if json_output:
+        click.echo(json.dumps(result, indent=2, sort_keys=True))
+    elif result["ok"]:
+        click.echo(f"OK: {submission_file}")
+    else:
+        click.echo(f"ERROR: {submission_file}")
+        for issue in result["issues"]:
+            click.echo(f"{issue['path']}: {issue['message']}")
+    if not result["ok"]:
+        ctx.exit(1)
 
 
 @cli.group("baseline")

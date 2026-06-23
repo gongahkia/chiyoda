@@ -13,27 +13,26 @@ A submission is a single PR that:
 3. Carries the `benchmark-submission` GitHub label so CI runs the
    benchmark smoke workflow.
 
-## Required Fields
+## Required Format
 
-Submission JSON line (one per run, append to `docs/benchmark/leaderboard.jsonl`):
+Submission JSON must conform to
+`docs/benchmark/submission_schema.json`. The canonical example is
+`docs/benchmark/example_submission.json`.
 
-```json
-{
-  "submitter": "github_handle_or_team",
-  "suite": "v1|v2|v3",
-  "policy_path": "policies/my_policy.yaml",
-  "policy_hash": "44136fa355b3678a",
-  "mean_score": 62.34,
-  "score_ci_low": 59.10,
-  "score_ci_high": 65.42,
-  "seeds": [42, 137],
-  "seed_count": 2,
-  "bootstrap_n": 1000,
-  "tier": "smoke",
-  "manifest_sha256": "...",
-  "commit": "<short sha>",
-  "submitted_at_utc": "2026-06-22T00:00:00Z"
-}
+Required public leaderboard fields include:
+
+- `policy_hash`
+- `config_hash`
+- `seed_set`
+- `env_version`
+- `overall.mean_score`, `overall.score_ci_low`, `overall.score_ci_high`
+- `scenarios[*].mean_score`, `scenarios[*].score_ci_low`, `scenarios[*].score_ci_high`
+- `scenarios[*].seeds_used`
+
+Validate locally:
+
+```sh
+.venv/bin/python -m chiyoda.cli benchmark validate-submission docs/benchmark/example_submission.json
 ```
 
 The PR description should include:

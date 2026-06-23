@@ -1,0 +1,77 @@
+{
+  "schema_version": "chiyoda-benchmark-submission-v1",
+  "suite": "v1",
+  "submitter": "example_policy_author",
+  "created_at_utc": "2026-06-23T00:00:00Z",
+  "command": "python -m chiyoda.cli baseline eval --baseline ppo --suite v1 --weights data/baselines/ppo_smoke_discrete_policy.json -o out/baselines/ppo_v1",
+  "policy_hash": "b89108b3ba529d21",
+  "config_hash": "135cfcafb2f1a219",
+  "env_version": {
+    "chiyoda": "3.0.0",
+    "python": "3.14.6",
+    "platform": "darwin-arm64"
+  },
+  "seed_set": [42, 137],
+  "overall": {
+    "mean_score": 52.50156909662613,
+    "score_ci_low": 52.227133966213735,
+    "score_ci_high": 52.77600422703853,
+    "run_count": 12,
+    "tier": "smoke"
+  },
+  "scenarios": [
+    {
+      "scenario": "large_station_multifloor",
+      "mean_score": 46.75877206595143,
+      "score_ci_low": 46.293393216913294,
+      "score_ci_high": 47.22415091498958,
+      "seeds_used": [42, 137],
+      "run_count": 2
+    },
+    {
+      "scenario": "mixed_indoor_outdoor_arena",
+      "mean_score": 47.68201669597481,
+      "score_ci_low": 39.93451975200236,
+      "score_ci_high": 55.42951363994727,
+      "seeds_used": [42, 137],
+      "run_count": 2
+    },
+    {
+      "scenario": "open_air_event_funnel",
+      "mean_score": 36.70815396766959,
+      "score_ci_low": 36.6128760517337,
+      "score_ci_high": 36.80343188360547,
+      "seeds_used": [42, 137],
+      "run_count": 2
+    },
+    {
+      "scenario": "transit_cbrn",
+      "mean_score": 54.430815649051794,
+      "score_ci_low": 53.811620602612166,
+      "score_ci_high": 55.05001069549142,
+      "seeds_used": [42, 137],
+      "run_count": 2
+    },
+    {
+      "scenario": "transit_mixed",
+      "mean_score": 99.99999999999999,
+      "score_ci_low": 99.99999999999999,
+      "score_ci_high": 99.99999999999999,
+      "seeds_used": [42, 137],
+      "run_count": 2
+    },
+    {
+      "scenario": "transit_shooter",
+      "mean_score": 29.429656201109182,
+      "score_ci_low": 22.339474060069225,
+      "score_ci_high": 36.519838342149136,
+      "seeds_used": [42, 137],
+      "run_count": 2
+    }
+  ],
+  "artifacts": {
+    "weights": "data/baselines/ppo_smoke_discrete_policy.json",
+    "scores": "docs/benchmark/baselines.md#scores"
+  },
+  "notes": "Example smoke-tier submission using the shipped PPO baseline."
+}
