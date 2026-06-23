@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 from pathlib import Path
@@ -38,6 +39,7 @@ def _viewer_payload(bundle: StudyBundle, *, max_frames: int) -> dict[str, Any]:
     run_id = str(bundle.metadata.get("representative_run_id") or "")
     floors = _source_floors(bundle)
     layout_floors = _layout_floors(bundle.metadata)
+    origin, source_scenario = _scenario_origin(bundle.metadata)
     agent_steps = bundle.agent_steps.copy()
     if run_id and "run_id" in agent_steps.columns:
         agent_steps = agent_steps[agent_steps["run_id"] == run_id]
@@ -86,6 +88,8 @@ def _viewer_payload(bundle: StudyBundle, *, max_frames: int) -> dict[str, Any]:
             "layout_origin_y": bundle.metadata.get("layout_origin_y", 0.0),
             "station_provenance": bundle.metadata.get("station_provenance"),
         },
+        "origin": origin,
+        "source_scenario": source_scenario,
         "layout": _layout_cells(str(bundle.metadata.get("layout_text", ""))),
         "layout_grid": _layout_grid(str(bundle.metadata.get("layout_text", ""))),
         "layout_floors": layout_floors,
@@ -99,6 +103,25 @@ def _viewer_payload(bundle: StudyBundle, *, max_frames: int) -> dict[str, Any]:
         "llm_decisions": _table_rows(bundle.llm_decisions, run_id=run_id),
         "frames": frames,
     }
+
+
+def _scenario_origin(metadata: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
+    raw_path = metadata.get("scenario_file")
+    origin = {"path": "", "sha256": ""}
+    if not raw_path:
+        return origin, {}
+    path = Path(str(raw_path)).resolve()
+    if not path.exists():
+        origin["path"] = str(path)
+        return origin, {}
+    content = path.read_bytes()
+    origin = {"path": str(path), "sha256": hashlib.sha256(content).hexdigest()}
+    try:
+        payload = yaml.safe_load(content.decode()) or {}
+    except Exception:
+        return origin, {}
+    scenario = payload.get("scenario", payload) if isinstance(payload, dict) else {}
+    return origin, scenario if isinstance(scenario, dict) else {}
 
 
 def _browser_sim_payload(
@@ -1214,7 +1237,7 @@ function initialHazards() {
   return hazards;
 }
 
-function exportScenarioYaml() {
+function scenarioExportSections() {
   const scenarioName = `${String(data.metadata.scenario_name || "chiyoda_viewer")}_edited`;
   const spawns = collectFloorTokenCells("@");
   const responders = collectFloorTokenCells("R");
@@ -1222,91 +1245,156 @@ function exportScenarioYaml() {
   const populationTotal = Math.max(spawns.length, Number(frames[0]?.agents?.length || 0), 1);
   const lastStep = Number(frames[frames.length - 1]?.step || 0);
   const maxSteps = Math.max(1, Math.ceil(lastStep || 400));
-  const lines = [
-    "scenario:",
-    `  name: ${yamlQuote(scenarioName)}`,
-    `  description: ${yamlQuote("Edited from Chiyoda static viewer export.")}`,
-    "  layout:",
-    `    cell_size: ${yamlNumber(data.metadata.layout_cell_size || 1, 1)}`,
-    "    floors:",
+  const sections = [
+    { key: "name", scalar: yamlQuote(scenarioName) },
+    { key: "description", scalar: yamlQuote("Edited from Chiyoda static viewer export.") },
+  ];
+  const layoutLines = [
+    `cell_size: ${yamlNumber(data.metadata.layout_cell_size || 1, 1)}`,
+    "floors:",
   ];
   for (const floor of floors) {
-    lines.push(
-      `      - id: ${yamlQuote(floor.id)}`,
-      `        z: ${yamlNumber(floor.z)}`,
-      "        text: |"
+    layoutLines.push(
+      `  - id: ${yamlQuote(floor.id)}`,
+      `    z: ${yamlNumber(floor.z)}`,
+      "    text: |"
     );
-    for (const line of floorText(floor.grid).split("\\n")) lines.push(`          ${line}`);
+    for (const line of floorText(floor.grid).split("\\n")) layoutLines.push(`      ${line}`);
   }
   if (runtimeConnectors.length) {
-    lines.push("    connectors:");
+    layoutLines.push("connectors:");
     for (const connector of runtimeConnectors) {
-      lines.push(
-        `      - id: ${yamlQuote(connector.id)}`,
-        `        type: ${yamlQuote(connector.type)}`,
-        `        from: {floor: ${yamlQuote(connector.from.floor)}, x: ${connector.from.x}, y: ${connector.from.y}}`,
-        `        to: {floor: ${yamlQuote(connector.to.floor)}, x: ${connector.to.x}, y: ${connector.to.y}}`,
-        `        bidirectional: ${connector.bidirectional ? "true" : "false"}`,
-        `        width: ${yamlNumber(connector.width, 1)}`,
-        `        speed_multiplier: ${yamlNumber(connector.speed_multiplier, 1)}`
+      layoutLines.push(
+        `  - id: ${yamlQuote(connector.id)}`,
+        `    type: ${yamlQuote(connector.type)}`,
+        `    from: {floor: ${yamlQuote(connector.from.floor)}, x: ${connector.from.x}, y: ${connector.from.y}}`,
+        `    to: {floor: ${yamlQuote(connector.to.floor)}, x: ${connector.to.x}, y: ${connector.to.y}}`,
+        `    bidirectional: ${connector.bidirectional ? "true" : "false"}`,
+        `    width: ${yamlNumber(connector.width, 1)}`,
+        `    speed_multiplier: ${yamlNumber(connector.speed_multiplier, 1)}`
       );
-      if (connector.capacity !== null) lines.push(`        capacity: ${Math.max(1, Math.round(connector.capacity))}`);
-      if (connector.dwell_s) lines.push(`        dwell_s: ${yamlNumber(connector.dwell_s)}`);
-      if (connector.travel_s) lines.push(`        travel_s: ${yamlNumber(connector.travel_s)}`);
+      if (connector.capacity !== null) layoutLines.push(`    capacity: ${Math.max(1, Math.round(connector.capacity))}`);
+      if (connector.dwell_s) layoutLines.push(`    dwell_s: ${yamlNumber(connector.dwell_s)}`);
+      if (connector.travel_s) layoutLines.push(`    travel_s: ${yamlNumber(connector.travel_s)}`);
     }
   }
-  lines.push("  population:", `    total: ${populationTotal}`);
+  sections.push({ key: "layout", lines: layoutLines });
+  const populationLines = [`total: ${populationTotal}`];
   if (spawns.length) {
-    lines.push("    cohorts:", "      - name: baseline", `        count: ${populationTotal}`, "        spawn_cells:");
-    for (const cell of spawns) lines.push(`          - {floor: ${yamlQuote(cell.floor_id)}, x: ${cell.x}, y: ${cell.y}}`);
+    populationLines.push("cohorts:", "  - name: baseline", `    count: ${populationTotal}`, "    spawn_cells:");
+    for (const cell of spawns) populationLines.push(`      - {floor: ${yamlQuote(cell.floor_id)}, x: ${cell.x}, y: ${cell.y}}`);
   }
+  sections.push({ key: "population", lines: populationLines });
   if (responders.length) {
-    lines.push("  responders:", `    - count: ${responders.length}`, "      spawn_cells:");
-    for (const cell of responders) lines.push(`        - {floor: ${yamlQuote(cell.floor_id)}, x: ${cell.x}, y: ${cell.y}}`);
+    const responderLines = [`- count: ${responders.length}`, "  spawn_cells:"];
+    for (const cell of responders) responderLines.push(`    - {floor: ${yamlQuote(cell.floor_id)}, x: ${cell.x}, y: ${cell.y}}`);
+    sections.push({ key: "responders", lines: responderLines });
   }
   const hazards = initialHazards();
   if (hazards.length) {
-    lines.push("  hazards:");
+    const hazardLines = [];
     for (const hazard of hazards) {
-      lines.push(
-        `    - type: ${yamlQuote(hazard.kind || "GAS")}`,
-        `      location: [${yamlNumber(hazard.x)}, ${yamlNumber(hazard.y)}, ${yamlNumber(hazard.z)}]`,
-        `      radius: ${yamlNumber(hazard.radius)}`,
-        `      severity: ${yamlNumber(hazard.severity)}`
+      hazardLines.push(
+        `- type: ${yamlQuote(hazard.kind || "GAS")}`,
+        `  location: [${yamlNumber(hazard.x)}, ${yamlNumber(hazard.y)}, ${yamlNumber(hazard.z)}]`,
+        `  radius: ${yamlNumber(hazard.radius)}`,
+        `  severity: ${yamlNumber(hazard.severity)}`
       );
     }
+    sections.push({ key: "hazards", lines: hazardLines });
   }
   if (authoredHostileChannels.length) {
-    lines.push("  hostile_channels:");
+    const hostileLines = [];
     for (const channel of authoredHostileChannels) {
       const claimKey = hostileClaimKey(channel);
-      lines.push(
-        `    - id: ${yamlQuote(channel.id)}`,
-        `      channel_type: ${yamlQuote(channel.channel_type)}`,
-        `      objective: ${yamlQuote(channel.objective)}`,
-        `      budget: ${Math.max(1, Math.round(channel.budget))}`,
-        `      start_step: ${Math.max(0, Math.round(channel.start_step))}`,
-        `      interval_steps: ${Math.max(1, Math.round(channel.interval_steps))}`,
-        `      plausibility: ${yamlNumber(channel.plausibility, 0.7)}`,
-        `      radius: ${yamlNumber(channel.radius, 6)}`,
-        `      source_id: ${yamlQuote(channel.source_id)}`,
-        `      target_cohort: ${yamlQuote(channel.target_cohort)}`,
-        `      ${claimKey}:`,
-        `        floor: ${yamlQuote(channel.floor)}`,
-        `        x: ${channel.x}`,
-        `        y: ${channel.y}`
+      hostileLines.push(
+        `- id: ${yamlQuote(channel.id)}`,
+        `  channel_type: ${yamlQuote(channel.channel_type)}`,
+        `  objective: ${yamlQuote(channel.objective)}`,
+        `  budget: ${Math.max(1, Math.round(channel.budget))}`,
+        `  start_step: ${Math.max(0, Math.round(channel.start_step))}`,
+        `  interval_steps: ${Math.max(1, Math.round(channel.interval_steps))}`,
+        `  plausibility: ${yamlNumber(channel.plausibility, 0.7)}`,
+        `  radius: ${yamlNumber(channel.radius, 6)}`,
+        `  source_id: ${yamlQuote(channel.source_id)}`,
+        `  target_cohort: ${yamlQuote(channel.target_cohort)}`,
+        `  ${claimKey}:`,
+        `    floor: ${yamlQuote(channel.floor)}`,
+        `    x: ${channel.x}`,
+        `    y: ${channel.y}`
       );
     }
+    sections.push({ key: "hostile_channels", lines: hostileLines });
   }
-  lines.push(
-    "  simulation:",
-    `    max_steps: ${maxSteps}`,
-    "    dt: 0.1",
-    "    random_seed: 42",
-    "  information:",
-    "    mode: asymmetric",
-    ""
-  );
+  sections.push({ key: "simulation", lines: [`max_steps: ${maxSteps}`, "dt: 0.1", "random_seed: 42"] });
+  sections.push({ key: "information", lines: ["mode: asymmetric"] });
+  return sections;
+}
+
+function sourceScenarioKeys() {
+  const source = data.source_scenario || {};
+  return source && typeof source === "object" && !Array.isArray(source) ? Object.keys(source) : [];
+}
+
+function jsonPointerKey(key) {
+  return String(key).replace(/~/g, "~0").replace(/\\//g, "~1");
+}
+
+function pushIndented(target, source, spaces) {
+  const pad = " ".repeat(spaces);
+  for (const line of source) target.push(`${pad}${line}`);
+}
+
+function pushSection(target, section, spaces) {
+  const pad = " ".repeat(spaces);
+  if (section.scalar !== undefined) {
+    target.push(`${pad}${section.key}: ${section.scalar}`);
+    return;
+  }
+  target.push(`${pad}${section.key}:`);
+  pushIndented(target, section.lines, spaces + 2);
+}
+
+function pushPatchValue(target, section) {
+  if (section.scalar !== undefined) {
+    target.push(`      value: ${section.scalar}`);
+    return;
+  }
+  target.push("      value:");
+  pushIndented(target, section.lines, 8);
+}
+
+function exportScenarioYaml() {
+  const origin = data.origin || {};
+  const sections = scenarioExportSections();
+  const exportedKeys = new Set(sections.map(section => section.key));
+  const sourceKeys = sourceScenarioKeys();
+  const lines = [
+    "origin:",
+    `  path: ${yamlQuote(origin.path || "")}`,
+    `  sha256: ${yamlQuote(origin.sha256 || "")}`,
+    "patch:",
+    '  format: "RFC6902"',
+    "  ops:",
+  ];
+  for (const key of sourceKeys) {
+    if (exportedKeys.has(key)) continue;
+    lines.push(
+      '    - op: "remove"',
+      `      path: ${yamlQuote(`/${jsonPointerKey(key)}`)}`
+    );
+  }
+  for (const section of sections) {
+    const op = sourceKeys.includes(section.key) ? "replace" : "add";
+    lines.push(
+      `    - op: ${yamlQuote(op)}`,
+      `      path: ${yamlQuote(`/${jsonPointerKey(section.key)}`)}`
+    );
+    pushPatchValue(lines, section);
+  }
+  lines.push("scenario:");
+  for (const section of sections) pushSection(lines, section, 2);
+  lines.push("");
   return lines.join("\\n");
 }
 

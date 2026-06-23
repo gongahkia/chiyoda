@@ -23,13 +23,6 @@ Conventions:
 
 ## P3 — Authoring & ops surfaces (non-CLI users)
 
-### [ ] T3.3 Source-preserving scenario patch on export
-- Scope: viewer currently exports a minimal runnable YAML, not a patch onto the source scenario. Track an `_origin` pointer plus diff.
-- Files: `chiyoda/scenarios/` loader, viewer export pipeline.
-- Acceptance:
-  - Exported file contains `origin.path`, `origin.sha256`, and `patch.ops` (RFC 6902-style).
-  - Re-applying patch to original yields byte-identical (modulo timestamps) runnable scenario.
-
 ### [ ] T3.4 Dispatcher / HITL panel
 - Scope: add a viewer panel for a human operator to author a message during a paused run, see projected belief / HCI / exposure deltas BEFORE committing.
 - Files: viewer JS, new `chiyoda/information/projection.py` (lightweight forward model for short horizon).

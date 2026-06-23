@@ -63,6 +63,8 @@ Authoring:
 - use the validation overlay to check exits, disconnected cells, reachable
   spawn/responder starts, and connector-crossing paths,
 - export `chiyoda_edited_scenario.yaml`,
+- inspect the top-level `origin.path`, `origin.sha256`, and `patch.ops`
+  sidecar when source provenance matters,
 - validate the exported scenario,
 - run the exported scenario with `python -m chiyoda.cli run <file> -o <out>`.
 
@@ -90,6 +92,12 @@ The browser-side sim is a constrained local preview. It supports one runtime
 floor, at most 200 replay-seeded agents, no LLM calls, and grid egress toward
 exit cells. Reference and benchmark runs still come from Python exports.
 Authoring exports a runnable raster `layout.floors` scenario; it does not edit
-the original GeoJSON/CAD source or replace trajectory-analysis tools. Authoring
-can paint any runtime floor, create connector records, and add hostile-channel
-actors to exported YAML.
+the original GeoJSON/CAD source or replace trajectory-analysis tools. It now
+adds a top-level source-origin block and RFC 6902-style `patch.ops` using RFC
+6901 JSON Pointer paths:
+
+- RFC 6902 JSON Patch: <https://www.rfc-editor.org/rfc/rfc6902>
+- RFC 6901 JSON Pointer: <https://www.rfc-editor.org/rfc/rfc6901>
+
+Authoring can paint any runtime floor, create connector records, and add
+hostile-channel actors to exported YAML.

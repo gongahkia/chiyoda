@@ -110,12 +110,7 @@ uniformly.
 
 ## High-Impact Gaps
 
-- Scenario authoring still exports a minimal runnable YAML, not a source-
-  preserve scenario patch.
 - Static validation catches topology errors but not behavioral plausibility.
 - Path-usage debug is aggregate max usage per cell, not per-step route intent.
-- No browser-side simulation loop exists; edited YAML must be rerun through CLI.
-- Browser authoring still does not preserve an origin patch against source
-  GeoJSON/CAD files.
 - The GeoJSON converter is a pragmatic OSM/GTFS-like bridge, not a
   standards-complete indoor data importer.

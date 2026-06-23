@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import shutil
@@ -124,6 +125,8 @@ def test_export_viewer_writes_static_threejs_artifact(tmp_path):
     assert "exportScenarioYaml" in html
     assert "chiyoda_edited_scenario.yaml" in html
     assert data["metadata"]["study_name"] == "viewer_test"
+    assert data["origin"] == {"path": "", "sha256": ""}
+    assert data["source_scenario"] == {}
     assert data["frames"][0]["agents"][0]["intent"] == "EVACUATE"
     assert data["frames"][0]["agents"][0]["cell_x"] == 1
     assert data["frames"][0]["agents"][0]["cell_y"] == 2
@@ -198,6 +201,18 @@ scenario:
     result = validate_scenario_file(scenario)
 
     assert not result.has_errors
+
+
+def test_export_viewer_records_source_origin_hash(tmp_path):
+    scenario = _write_small_scenario(tmp_path, "origin_hash", "XXXXX\nX@.EX\nXXXXX", 1)
+    bundle = run_study(str(scenario))
+
+    export_viewer(bundle, tmp_path / "viewer")
+    data = json.loads((tmp_path / "viewer" / "viewer_data.json").read_text())
+
+    assert data["origin"]["path"] == str(scenario.resolve())
+    assert data["origin"]["sha256"] == hashlib.sha256(scenario.read_bytes()).hexdigest()
+    assert data["source_scenario"]["name"] == "origin_hash"
 
 
 def test_export_viewer_includes_source_geojson_levels(tmp_path):
