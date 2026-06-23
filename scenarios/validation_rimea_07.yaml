@@ -1,0 +1,36 @@
+scenario:
+  name: validation_rimea_07
+  description: "RiMEA Test 7 scaled proxy: demographic walking-speed allocation."
+  metadata:
+    validation_standard: "RiMEA 4.1.1 Annex 1 Test 7"
+    validation_scope: "scaled_ci_proxy"
+  layout:
+    cell_size: 1.0
+    floors:
+      - id: "0"
+        z: 0.0
+        text: |
+          XXXXXXXXXXXXXXXXXXXXXXXXX
+          X.......................E
+          X.......................E
+          X.......................E
+          XXXXXXXXXXXXXXXXXXXXXXXXX
+  population:
+    total: 50
+    cohorts:
+      - {name: slow_adults, count: 10, base_speed: 0.8, familiarity: 1.0}
+      - {name: nominal_adults, count: 20, base_speed: 1.2, familiarity: 1.0}
+      - {name: fast_adults, count: 20, base_speed: 1.5, familiarity: 1.0}
+  information:
+    mode: perfect
+  behavior:
+    freeze_probability: 0.0
+  simulation:
+    max_steps: 900
+    dt: 0.1
+    random_seed: 42
+  assertions:
+    evacuated: {eq: 50}
+    remaining: {eq: 0}
+    travel_time_s: {min: 0.1, max: 110.0}
+    agent_base_speed_mps: {min: 0.8, max: 1.5, mean_min: 1.2, mean_max: 1.3}

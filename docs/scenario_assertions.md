@@ -15,10 +15,14 @@ Supported checks:
 - `evacuated`: integer or `{eq,min,max}`.
 - `remaining`: integer or `{eq,min,max}`.
 - `travel_time_s`: `{min,max,mean_min,mean_max}` over evacuated agents.
+- `agent_base_speed_mps`: `{min,max,mean_min,mean_max}` over non-responder agents.
+- `agent_release_step`: `{min,max,mean_min,mean_max}` over non-responder agents.
 - `connector_usage`: mapping from connector ID to integer or `{eq,min,max}`.
 - `connector_flow`: latest-step finished transfers per connector.
 - `connector_capacity`: configured queue capacity per connector.
 - `connector_queue_length`: latest waiting count per connector.
+- `exit_usage`: mapping from exit label or `floor:x,y` to integer or `{eq,min,max}`.
+- `cohort_exit_usage`: nested cohort-to-exit mapping with integer or `{eq,min,max}`.
 - `no_impossible_floor_jumps: true`.
 - `impossible_floor_jumps`: integer or `{eq,min,max}`.
 - `exit_floors`: list of floor IDs that must receive at least one evacuation.

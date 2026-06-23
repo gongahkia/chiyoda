@@ -106,6 +106,109 @@ def evaluate_scenario_assertions(
             issues,
         )
 
+    exit_usage = config.get("exit_usage", {}) or {}
+    if exit_usage:
+        observed_exit_usage = _exit_usage(simulation)
+        for exit_ref, expected in exit_usage.items():
+            _check_count(
+                f"exit_usage.{exit_ref}",
+                int(observed_exit_usage.get(str(exit_ref), 0)),
+                expected,
+                issues,
+            )
+
+    cohort_exit_usage = config.get("cohort_exit_usage", {}) or {}
+    if cohort_exit_usage:
+        observed_cohort_usage = _cohort_exit_usage(simulation)
+        for cohort, exits in cohort_exit_usage.items():
+            for exit_ref, expected in (exits or {}).items():
+                _check_count(
+                    f"cohort_exit_usage.{cohort}.{exit_ref}",
+                    int(
+                        observed_cohort_usage.get(str(cohort), {}).get(
+                            str(exit_ref), 0
+                        )
+                    ),
+                    expected,
+                    issues,
+                )
+
+    base_speed = config.get("agent_base_speed_mps")
+    if base_speed is not None:
+        speeds = [
+            float(getattr(agent, "base_speed", 0.0))
+            for agent in simulation.agents
+            if not getattr(agent, "is_responder", False)
+            and not getattr(agent, "is_hostile", False)
+        ]
+        if not speeds:
+            issues.append(
+                ScenarioAssertionIssue(
+                    "missing_agent_speeds",
+                    "no non-responder agent base speeds were recorded",
+                )
+            )
+        else:
+            _check_range(
+                "agent_base_speed_mps.min",
+                min(speeds),
+                base_speed.get("min"),
+                None,
+                issues,
+            )
+            _check_range(
+                "agent_base_speed_mps.max",
+                max(speeds),
+                None,
+                base_speed.get("max"),
+                issues,
+            )
+            _check_range(
+                "agent_base_speed_mps.mean",
+                sum(speeds) / len(speeds),
+                base_speed.get("mean_min"),
+                base_speed.get("mean_max"),
+                issues,
+            )
+
+    release_step = config.get("agent_release_step")
+    if release_step is not None:
+        release_steps = [
+            int(getattr(agent, "release_step", 0))
+            for agent in simulation.agents
+            if not getattr(agent, "is_responder", False)
+            and not getattr(agent, "is_hostile", False)
+        ]
+        if not release_steps:
+            issues.append(
+                ScenarioAssertionIssue(
+                    "missing_agent_release_steps",
+                    "no non-responder agent release steps were recorded",
+                )
+            )
+        else:
+            _check_range(
+                "agent_release_step.min",
+                min(release_steps),
+                release_step.get("min"),
+                None,
+                issues,
+            )
+            _check_range(
+                "agent_release_step.max",
+                max(release_steps),
+                None,
+                release_step.get("max"),
+                issues,
+            )
+            _check_range(
+                "agent_release_step.mean",
+                sum(release_steps) / len(release_steps),
+                release_step.get("mean_min"),
+                release_step.get("mean_max"),
+                issues,
+            )
+
     latest = (
         simulation.step_history[-1] if getattr(simulation, "step_history", []) else None
     )
@@ -196,6 +299,39 @@ def _check_connector_map(
             rule,
             issues,
         )
+
+
+def _exit_usage(simulation) -> dict[str, int]:
+    aliases: dict[str, int] = {}
+    label_to_cell = {label: cell for cell, label in simulation.exit_labels.items()}
+    for label, count in getattr(simulation, "exit_flow_cumulative", {}).items():
+        cell = label_to_cell.get(label)
+        for alias in _exit_aliases(label, cell):
+            aliases[alias] = aliases.get(alias, 0) + int(count)
+    return aliases
+
+
+def _cohort_exit_usage(simulation) -> dict[str, dict[str, int]]:
+    label_to_cell = {label: cell for cell, label in simulation.exit_labels.items()}
+    usage: dict[str, dict[str, int]] = {}
+    for agent in simulation.completed_agents:
+        cohort = str(getattr(agent, "cohort_name", "unknown"))
+        label = getattr(agent, "evacuated_via", None)
+        if label is None:
+            continue
+        cell = label_to_cell.get(label)
+        usage.setdefault(cohort, {})
+        for alias in _exit_aliases(label, cell):
+            usage[cohort][alias] = usage[cohort].get(alias, 0) + 1
+    return usage
+
+
+def _exit_aliases(label: str, cell: Any) -> list[str]:
+    aliases = [str(label)]
+    if cell is not None:
+        floor, x, y = tuple(cell)
+        aliases.append(f"{floor}:{x},{y}")
+    return aliases
 
 
 def _issue(name: str, observed: Any, expected: Any) -> ScenarioAssertionIssue:

@@ -1,0 +1,43 @@
+scenario:
+  name: validation_rimea_05
+  description: "RiMEA Test 5 scaled proxy: premovement/reaction delay distribution."
+  metadata:
+    validation_standard: "RiMEA 4.1.1 Annex 1 Test 5"
+    validation_scope: "scaled_ci_proxy"
+  layout:
+    cell_size: 1.0
+    floors:
+      - id: "0"
+        z: 0.0
+        text: |
+          XXXXXXXXXX
+          X........X
+          X........E
+          X........X
+          XXXXXXXXXX
+  population:
+    total: 10
+    cohorts:
+      - {name: release_10s, count: 1, base_speed: 1.0, release_step: 100, familiarity: 1.0, spawn_cells: [{floor: "0", x: 1, y: 2}]}
+      - {name: release_20s, count: 1, base_speed: 1.0, release_step: 200, familiarity: 1.0, spawn_cells: [{floor: "0", x: 2, y: 2}]}
+      - {name: release_30s, count: 1, base_speed: 1.0, release_step: 300, familiarity: 1.0, spawn_cells: [{floor: "0", x: 3, y: 2}]}
+      - {name: release_40s, count: 1, base_speed: 1.0, release_step: 400, familiarity: 1.0, spawn_cells: [{floor: "0", x: 4, y: 2}]}
+      - {name: release_50s, count: 1, base_speed: 1.0, release_step: 500, familiarity: 1.0, spawn_cells: [{floor: "0", x: 5, y: 2}]}
+      - {name: release_60s, count: 1, base_speed: 1.0, release_step: 600, familiarity: 1.0, spawn_cells: [{floor: "0", x: 6, y: 2}]}
+      - {name: release_70s, count: 1, base_speed: 1.0, release_step: 700, familiarity: 1.0, spawn_cells: [{floor: "0", x: 1, y: 1}]}
+      - {name: release_80s, count: 1, base_speed: 1.0, release_step: 800, familiarity: 1.0, spawn_cells: [{floor: "0", x: 2, y: 1}]}
+      - {name: release_90s, count: 1, base_speed: 1.0, release_step: 900, familiarity: 1.0, spawn_cells: [{floor: "0", x: 3, y: 1}]}
+      - {name: release_100s, count: 1, base_speed: 1.0, release_step: 1000, familiarity: 1.0, spawn_cells: [{floor: "0", x: 4, y: 1}]}
+  information:
+    mode: perfect
+  behavior:
+    freeze_probability: 0.0
+  simulation:
+    max_steps: 1400
+    dt: 0.1
+    random_seed: 42
+  assertions:
+    evacuated: {eq: 10}
+    remaining: {eq: 0}
+    travel_time_s: {min: 10.0, max: 130.0}
+    agent_release_step: {min: 100, max: 1000, mean_min: 550, mean_max: 550}

@@ -15,15 +15,6 @@ Conventions:
 
 ## P1 — Validation: drop the "not externally validated" caveat
 
-### [ ] T1.1 RiMEA test cases 1–10
-- Scope: implement the RiMEA microscopic-evacuation validation directive cases as runnable scenarios with pass/fail assertions.
-- Files: `scenarios/validation_rimea_01.yaml` ... `validation_rimea_10.yaml`, `chiyoda/analysis/external_validation.py`, `docs/rimea_results.md` (new).
-- Acceptance:
-  - Each case has scenario YAML + an assertion entry in `chiyoda/cli.py` `assert-scenario`.
-  - `docs/rimea_results.md` records observed vs expected metrics (CIs over ≥5 seeds).
-  - CI workflow runs at least cases 1, 4, 6, 7 on PR.
-- Refs: RiMEA directive (Richtlinie für Mikroskopische Entfluchtungsanalysen).
-
 ### [ ] T1.2 Expand bottleneck validation beyond Wuppertal
 - Scope: add at least one additional bottleneck dataset (e.g., Forschungszentrum Jülich corridor experiments, BAMR/HERMES) and reproduce specific flow rate vs width curve.
 - Files: `scenarios/validation_bottleneck_juelich_*.yaml`, `chiyoda/analysis/fundamental_diagram.py`, `docs/external_validation.md`.

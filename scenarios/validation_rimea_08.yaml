@@ -1,0 +1,87 @@
+scenario:
+  name: validation_rimea_08
+  description: "RiMEA Test 8 scaled proxy: parameter variation on a multi-floor plan."
+  metadata:
+    validation_standard: "RiMEA 4.1.1 Annex 1 Test 8"
+    validation_scope: "scaled_ci_proxy"
+  layout:
+    cell_size: 1.0
+    floors:
+      - id: "0"
+        z: 0.0
+        text: |
+          XXXXXXXXX
+          X@..X@..X
+          X...X...X
+          XXXXXXXXX
+      - id: "1"
+        z: 3.0
+        text: |
+          XXXXXXXXX
+          X...X...X
+          X...X...X
+          XXXXXXXXX
+      - id: "2"
+        z: 6.0
+        text: |
+          XXXXXXXXX
+          XE..XE..X
+          X...X...X
+          XXXXXXXXX
+    connectors:
+      - id: rimea_stairs_left
+        type: stairs
+        from: {floor: "0", x: 3, y: 1}
+        to: {floor: "1", x: 3, y: 1}
+        bidirectional: true
+        width: 1.0
+        flow_rate: 1.0
+        queue_mode: fifo
+      - id: rimea_stairs_left_upper
+        type: stairs
+        from: {floor: "1", x: 3, y: 2}
+        to: {floor: "2", x: 3, y: 2}
+        bidirectional: true
+        width: 1.0
+        flow_rate: 1.0
+        queue_mode: fifo
+      - id: rimea_stairs_right
+        type: stairs
+        from: {floor: "0", x: 7, y: 1}
+        to: {floor: "2", x: 7, y: 1}
+        bidirectional: true
+        width: 1.0
+        flow_rate: 1.0
+        queue_mode: fifo
+  population:
+    total: 12
+    cohorts:
+      - name: slow_room
+        count: 6
+        base_speed: 0.8
+        familiarity: 1.0
+        spawn_cells:
+          - {floor: "0", x: 1, y: 1}
+      - name: fast_room
+        count: 6
+        base_speed: 1.4
+        familiarity: 1.0
+        spawn_cells:
+          - {floor: "0", x: 5, y: 1}
+  information:
+    mode: perfect
+  behavior:
+    freeze_probability: 0.0
+  simulation:
+    max_steps: 700
+    dt: 0.1
+    random_seed: 42
+  assertions:
+    evacuated: {eq: 12}
+    remaining: {eq: 0}
+    travel_time_s: {min: 1.0, max: 120.0}
+    agent_base_speed_mps: {min: 0.8, max: 1.4, mean_min: 1.0, mean_max: 1.2}
+    connector_usage:
+      rimea_stairs_left: {min: 1}
+      rimea_stairs_right: {min: 1}
+    no_impossible_floor_jumps: true

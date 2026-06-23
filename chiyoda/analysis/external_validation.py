@@ -2,10 +2,20 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
+from math import sqrt
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
+
+from chiyoda.scenarios.assertions import evaluate_scenario_assertions
+from chiyoda.scenarios.manager import ScenarioManager
+
+
+RIMEA_VALIDATION_CASES = tuple(
+    Path(f"scenarios/validation_rimea_{case:02d}.yaml") for case in range(1, 11)
+)
+RIMEA_VALIDATION_SEEDS = (42, 43, 44, 45, 46)
 
 
 @dataclass(frozen=True)
@@ -157,6 +167,94 @@ def compare_bottleneck_flow(
     return pd.DataFrame(rows)
 
 
+def run_rimea_validation_scenarios(
+    scenario_files: Sequence[str | Path] = RIMEA_VALIDATION_CASES,
+    *,
+    seeds: Sequence[int] = RIMEA_VALIDATION_SEEDS,
+) -> pd.DataFrame:
+    rows: list[dict[str, object]] = []
+    manager = ScenarioManager()
+    for scenario_file in scenario_files:
+        path = Path(scenario_file)
+        for seed in seeds:
+            scenario = manager.load_config(str(path))
+            scenario.setdefault("simulation", {})
+            scenario["simulation"]["random_seed"] = int(seed)
+            simulation = manager.build_simulation(scenario)
+            simulation.run()
+            assertions = evaluate_scenario_assertions(scenario, simulation)
+            travel_times = [
+                float(value) for value in getattr(simulation, "travel_times_s", [])
+            ]
+            rows.append(
+                {
+                    "case": _rimea_case_id(path),
+                    "scenario": str(scenario.get("name", path.stem)),
+                    "seed": int(seed),
+                    "ok": bool(assertions.ok),
+                    "assertion_issue_count": len(assertions.issues),
+                    "evacuated": int(len(simulation.completed_agents)),
+                    "remaining": int(
+                        len(
+                            [
+                                agent
+                                for agent in simulation.agents
+                                if not getattr(agent, "has_evacuated", False)
+                                and not getattr(agent, "is_responder", False)
+                            ]
+                        )
+                    ),
+                    "evacuation_time_s": (
+                        float(max(travel_times)) if travel_times else float("nan")
+                    ),
+                    "mean_travel_time_s": _mean(travel_times),
+                }
+            )
+    return pd.DataFrame(rows)
+
+
+def summarize_rimea_validation_runs(runs: pd.DataFrame) -> pd.DataFrame:
+    rows: list[dict[str, object]] = []
+    if runs.empty:
+        return pd.DataFrame()
+    for (case, scenario), group in runs.groupby(["case", "scenario"], sort=True):
+        evacuation_time = pd.to_numeric(
+            group["evacuation_time_s"], errors="coerce"
+        ).dropna()
+        mean_travel_time = pd.to_numeric(
+            group["mean_travel_time_s"], errors="coerce"
+        ).dropna()
+        rows.append(
+            {
+                "case": int(case),
+                "scenario": str(scenario),
+                "seed_count": int(group["seed"].nunique()),
+                "pass_count": int(group["ok"].sum()),
+                "run_count": int(len(group)),
+                "evacuated_min": int(group["evacuated"].min()),
+                "evacuated_max": int(group["evacuated"].max()),
+                "remaining_max": int(group["remaining"].max()),
+                "evacuation_time_mean_s": _mean(evacuation_time),
+                "evacuation_time_ci95_s": _ci95(evacuation_time),
+                "mean_travel_time_mean_s": _mean(mean_travel_time),
+                "mean_travel_time_ci95_s": _ci95(mean_travel_time),
+            }
+        )
+    return pd.DataFrame(rows)
+
+
 def _mean(values: Iterable[float] | pd.Series) -> float:
     series = pd.to_numeric(pd.Series(values), errors="coerce").dropna()
     return float(series.mean()) if not series.empty else float("nan")
+
+
+def _ci95(values: Iterable[float] | pd.Series) -> float:
+    series = pd.to_numeric(pd.Series(values), errors="coerce").dropna()
+    if len(series) < 2:
+        return 0.0
+    return float(1.96 * series.std(ddof=1) / sqrt(len(series)))
+
+
+def _rimea_case_id(path: Path) -> int:
+    suffix = path.stem.rsplit("_", maxsplit=1)[-1]
+    return int(suffix)

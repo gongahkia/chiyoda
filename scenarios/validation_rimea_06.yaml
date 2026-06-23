@@ -1,0 +1,47 @@
+scenario:
+  name: validation_rimea_06
+  description: "RiMEA Test 6 scaled proxy: movement around a left-turning corner."
+  metadata:
+    validation_standard: "RiMEA 4.1.1 Annex 1 Test 6"
+    validation_scope: "scaled_ci_proxy"
+  layout:
+    cell_size: 1.0
+    floors:
+      - id: "0"
+        z: 0.0
+        text: |
+          XXXXXXXXXXXXX
+          X@..........X
+          X@XXXXXXXX..X
+          X@XXXXXXXX..X
+          X@XXXXXXXX..X
+          X@XXXXXXXX..X
+          X@XXXXXXXX..E
+          XXXXXXXXXXXXX
+  population:
+    total: 20
+    cohorts:
+      - name: corner_group
+        count: 20
+        base_speed: 1.1
+        familiarity: 1.0
+        spawn_cells:
+          - {floor: "0", x: 1, y: 1}
+          - {floor: "0", x: 1, y: 2}
+          - {floor: "0", x: 1, y: 3}
+          - {floor: "0", x: 1, y: 4}
+          - {floor: "0", x: 1, y: 5}
+          - {floor: "0", x: 1, y: 6}
+  information:
+    mode: perfect
+  behavior:
+    freeze_probability: 0.0
+  simulation:
+    max_steps: 700
+    dt: 0.1
+    random_seed: 42
+  assertions:
+    evacuated: {eq: 20}
+    remaining: {eq: 0}
+    travel_time_s: {min: 1.0, max: 100.0}
+    no_impossible_floor_jumps: true
