@@ -31,14 +31,6 @@ Conventions:
 
 ## P5 — Calibration
 
-### [ ] T5.1 Vision-calibrated social force defaults
-- Scope: replace generic SFM defaults with a published vision-calibrated parameter set (e.g., YOLOv5-derived, MDPI Sensors 2024). Tag parameters with provenance.
-- Files: `chiyoda/navigation/` SFM module, new `data/sfm_calibrations/`.
-- Acceptance:
-  - At least 2 calibration sets selectable from YAML (`generic_legacy`, `yolov5_mdpi_2024`).
-  - Sensitivity test documents per-parameter Δ on a baseline scenario.
-- Refs: MDPI Sensors 2024 (SFM YOLOv5 calibration); Physica A 2024 counterflow SFM.
-
 ### [ ] T5.2 Population calibration against station observations
 - Scope: extend toy population calibration to ingest at least one real source (turnstile counts, GTFS-derived demand, or published CCTV densities).
 - Files: `chiyoda/information/route_choice_calibration.py`, `scripts/run_toy_calibrations.py` → `scripts/run_population_calibration.py`.

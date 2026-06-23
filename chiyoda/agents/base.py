@@ -439,6 +439,7 @@ class CognitiveAgent:
                 neighbors=neighbors,
                 walls=[],
                 dt=dt,
+                parameters=getattr(simulation, "social_force_parameters", None),
             )
             new_pos = self.pos + adjusted
             if simulation.layout.is_walkable(new_pos):
@@ -510,6 +511,7 @@ class CognitiveAgent:
                 neighbors=neighbors,
                 walls=[],
                 dt=dt,
+                parameters=getattr(simulation, "social_force_parameters", None),
             )
             new_pos = self.pos + adjusted
 
@@ -549,6 +551,7 @@ class CognitiveAgent:
                     neighbors=neighbors,
                     walls=[],
                     dt=dt,
+                    parameters=getattr(simulation, "social_force_parameters", None),
                 )
                 new_pos = self.pos + adjusted
                 if simulation.layout.is_walkable(new_pos):

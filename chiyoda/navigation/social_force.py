@@ -11,7 +11,13 @@ Proper SFM implementation with:
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
+
 import numpy as np
+import yaml
 
 try:
     from numba import njit
@@ -21,13 +27,144 @@ except Exception:  # pragma: no cover - depends on optional dependency
     NUMBA_AVAILABLE = False
     njit = None
 
-# SFM parameters (Helbing & Molnar 1995, calibrated)
+# SFM parameters (legacy Chiyoda defaults)
 TAU = 0.5  # relaxation time (s)
 A_AGENT = 2.1  # agent repulsion strength
 B_AGENT = 0.3  # agent repulsion range
 A_WALL = 5.0  # wall repulsion strength
 B_WALL = 0.2  # wall repulsion range
 COUNTER_FLOW_K = 1.5  # friction coefficient for opposing flow
+BODY_DIAMETER = 0.6  # combined pedestrian body diameter in repulsion term
+WALL_DISTANCE = 0.3  # wall contact distance in repulsion term
+AGENT_INTERACTION_RADIUS = 3.0
+WALL_INTERACTION_RADIUS = 2.0
+MAX_SPEED_MULTIPLIER = 1.5
+BASE_VISION_RADIUS = 5.0
+_CALIBRATION_DIR = Path(__file__).resolve().parents[2] / "data" / "sfm_calibrations"
+
+
+@dataclass(frozen=True)
+class SocialForceCalibration:
+    profile: str
+    desired_speed_mps: float
+    relaxation_time_s: float
+    agent_repulsion_strength: float
+    agent_repulsion_range_m: float
+    wall_repulsion_strength: float
+    wall_repulsion_range_m: float
+    counter_flow_friction: float
+    body_diameter_m: float = BODY_DIAMETER
+    wall_distance_m: float = WALL_DISTANCE
+    agent_interaction_radius_m: float = AGENT_INTERACTION_RADIUS
+    wall_interaction_radius_m: float = WALL_INTERACTION_RADIUS
+    max_speed_multiplier: float = MAX_SPEED_MULTIPLIER
+    base_vision_radius_m: float = BASE_VISION_RADIUS
+    provenance: Mapping[str, Any] | None = None
+
+    def with_overrides(self, values: Mapping[str, Any]) -> SocialForceCalibration:
+        data = self.to_parameters()
+        for key, value in values.items():
+            if key not in data:
+                raise ValueError(f"Unknown social force calibration parameter: {key}")
+            data[key] = _parameter_value(value)
+        return SocialForceCalibration(
+            profile=self.profile,
+            provenance=self.provenance,
+            **data,
+        )
+
+    def to_parameters(self) -> dict[str, float]:
+        return {
+            "desired_speed_mps": float(self.desired_speed_mps),
+            "relaxation_time_s": float(self.relaxation_time_s),
+            "agent_repulsion_strength": float(self.agent_repulsion_strength),
+            "agent_repulsion_range_m": float(self.agent_repulsion_range_m),
+            "wall_repulsion_strength": float(self.wall_repulsion_strength),
+            "wall_repulsion_range_m": float(self.wall_repulsion_range_m),
+            "counter_flow_friction": float(self.counter_flow_friction),
+            "body_diameter_m": float(self.body_diameter_m),
+            "wall_distance_m": float(self.wall_distance_m),
+            "agent_interaction_radius_m": float(self.agent_interaction_radius_m),
+            "wall_interaction_radius_m": float(self.wall_interaction_radius_m),
+            "max_speed_multiplier": float(self.max_speed_multiplier),
+            "base_vision_radius_m": float(self.base_vision_radius_m),
+        }
+
+    def provenance_for(self, parameter: str) -> Any:
+        provenance = self.provenance or {}
+        return provenance.get(parameter)
+
+
+GENERIC_LEGACY = SocialForceCalibration(
+    profile="generic_legacy",
+    desired_speed_mps=1.34,
+    relaxation_time_s=TAU,
+    agent_repulsion_strength=A_AGENT,
+    agent_repulsion_range_m=B_AGENT,
+    wall_repulsion_strength=A_WALL,
+    wall_repulsion_range_m=B_WALL,
+    counter_flow_friction=COUNTER_FLOW_K,
+)
+
+YOLOV5_MDPI_2024 = SocialForceCalibration(
+    profile="yolov5_mdpi_2024",
+    desired_speed_mps=1.37,
+    relaxation_time_s=0.53,
+    agent_repulsion_strength=10.25,
+    agent_repulsion_range_m=0.28,
+    wall_repulsion_strength=A_WALL,
+    wall_repulsion_range_m=B_WALL,
+    counter_flow_friction=COUNTER_FLOW_K,
+)
+
+_EMBEDDED_PROFILES = {
+    GENERIC_LEGACY.profile: GENERIC_LEGACY,
+    YOLOV5_MDPI_2024.profile: YOLOV5_MDPI_2024,
+}
+
+
+def load_social_force_calibration(config: str | Mapping[str, Any] | None = None):
+    if config is None:
+        profile = "generic_legacy"
+        overrides: Mapping[str, Any] = {}
+    elif isinstance(config, str):
+        profile = config
+        overrides = {}
+    else:
+        profile = str(config.get("profile", config.get("name", "generic_legacy")))
+        overrides = config.get("parameters", {}) or {}
+    calibration = _load_profile(profile)
+    return calibration.with_overrides(overrides) if overrides else calibration
+
+
+def _load_profile(profile: str) -> SocialForceCalibration:
+    path = _CALIBRATION_DIR / f"{profile}.yaml"
+    if not path.exists():
+        if profile in _EMBEDDED_PROFILES:
+            return _EMBEDDED_PROFILES[profile]
+        raise ValueError(f"Unknown social force calibration profile: {profile}")
+    payload = yaml.safe_load(path.read_text()) or {}
+    parameters = payload.get("parameters", {}) or {}
+    values = {key: _parameter_value(value) for key, value in parameters.items()}
+    base = _EMBEDDED_PROFILES.get(profile, GENERIC_LEGACY)
+    merged = base.to_parameters()
+    merged.update(values)
+    provenance = {
+        key: value.get("provenance")
+        for key, value in parameters.items()
+        if isinstance(value, Mapping)
+    }
+    return SocialForceCalibration(
+        profile=str(payload.get("profile", profile)),
+        provenance=provenance,
+        **merged,
+    )
+
+
+def _parameter_value(value: Any) -> float:
+    if isinstance(value, Mapping):
+        value = value.get("value")
+    return float(value)
 
 
 if NUMBA_AVAILABLE:
@@ -43,16 +180,31 @@ if NUMBA_AVAILABLE:
         dt: float,
         counter_flow: bool,
         has_neighbor_velocities: bool,
+        relaxation_time_s: float,
+        agent_repulsion_strength: float,
+        agent_repulsion_range_m: float,
+        wall_repulsion_strength: float,
+        wall_repulsion_range_m: float,
+        counter_flow_friction: float,
+        body_diameter_m: float,
+        wall_distance_m: float,
+        agent_interaction_radius_m: float,
+        wall_interaction_radius_m: float,
+        max_speed_multiplier: float,
     ) -> np.ndarray:
         dim = current_pos.shape[0]
-        f_total = (desired_velocity - current_velocity) / TAU
+        f_total = (desired_velocity - current_velocity) / relaxation_time_s
 
         for idx in range(neighbors.shape[0]):
             delta = current_pos - neighbors[idx]
             dist = np.sqrt(np.sum(delta * delta)) + 1e-6
-            if dist < 3.0:
+            if dist < agent_interaction_radius_m:
                 n_hat = delta / dist
-                f_total += A_AGENT * np.exp((0.6 - dist) / B_AGENT) * n_hat
+                f_total += (
+                    agent_repulsion_strength
+                    * np.exp((body_diameter_m - dist) / agent_repulsion_range_m)
+                    * n_hat
+                )
                 if counter_flow and has_neighbor_velocities:
                     n_vel = neighbor_velocities[idx]
                     dot = np.sum(desired_velocity * n_vel)
@@ -61,7 +213,7 @@ if NUMBA_AVAILABLE:
                         tangent[0] = -n_hat[1]
                         tangent[1] = n_hat[0]
                         f_total += (
-                            COUNTER_FLOW_K
+                            counter_flow_friction
                             * abs(dot)
                             * tangent
                             * np.sign(np.sum(tangent * desired_velocity))
@@ -70,12 +222,20 @@ if NUMBA_AVAILABLE:
         for idx in range(walls.shape[0]):
             delta = current_pos - walls[idx]
             dist = np.sqrt(np.sum(delta * delta)) + 1e-6
-            if dist < 2.0:
+            if dist < wall_interaction_radius_m:
                 n_hat = delta / dist
-                f_total += A_WALL * np.exp((0.3 - dist) / B_WALL) * n_hat
+                f_total += (
+                    wall_repulsion_strength
+                    * np.exp((wall_distance_m - dist) / wall_repulsion_range_m)
+                    * n_hat
+                )
 
         new_velocity = current_velocity + f_total * dt
-        max_speed = max(np.sqrt(np.sum(desired_velocity * desired_velocity)) * 1.5, 0.5)
+        max_speed = max(
+            np.sqrt(np.sum(desired_velocity * desired_velocity))
+            * max_speed_multiplier,
+            0.5,
+        )
         speed = np.sqrt(np.sum(new_velocity * new_velocity))
         if speed > max_speed:
             new_velocity = new_velocity / speed * max_speed
@@ -94,12 +254,15 @@ def social_force_step(
     walls: list | None = None,
     dt: float = 0.1,
     counter_flow: bool = False,
+    parameters: SocialForceCalibration | Mapping[str, Any] | None = None,
 ) -> np.ndarray:
     """
     Full SFM step computation.
 
     Returns the displacement vector for this timestep.
     """
+    calibration = _coerce_calibration(parameters)
+    params = calibration.to_parameters()
     if _social_force_step_njit is not None:
         dim = int(current_pos.shape[0])
         return _social_force_step_njit(
@@ -116,10 +279,21 @@ def social_force_step(
             float(dt),
             bool(counter_flow),
             neighbor_velocities is not None,
+            params["relaxation_time_s"],
+            params["agent_repulsion_strength"],
+            params["agent_repulsion_range_m"],
+            params["wall_repulsion_strength"],
+            params["wall_repulsion_range_m"],
+            params["counter_flow_friction"],
+            params["body_diameter_m"],
+            params["wall_distance_m"],
+            params["agent_interaction_radius_m"],
+            params["wall_interaction_radius_m"],
+            params["max_speed_multiplier"],
         )
 
     # driving force: tendency toward desired velocity
-    f_drive = (desired_velocity - current_velocity) / TAU
+    f_drive = (desired_velocity - current_velocity) / params["relaxation_time_s"]
 
     # agent-agent repulsion (exponential)
     dim = int(current_pos.shape[0])
@@ -127,9 +301,16 @@ def social_force_step(
     for i, n_pos in enumerate(neighbors):
         delta = current_pos - n_pos
         dist = np.linalg.norm(delta) + 1e-6
-        if dist < 3.0:  # only consider nearby agents
+        if dist < params["agent_interaction_radius_m"]:
             n_hat = delta / dist
-            f_repel = A_AGENT * np.exp((0.6 - dist) / B_AGENT) * n_hat
+            f_repel = (
+                params["agent_repulsion_strength"]
+                * np.exp(
+                    (params["body_diameter_m"] - dist)
+                    / params["agent_repulsion_range_m"]
+                )
+                * n_hat
+            )
             f_agents += f_repel
 
             # counter-flow friction: if neighbor moving in opposite direction
@@ -145,7 +326,7 @@ def social_force_step(
                     tangent[0] = -n_hat[1]
                     tangent[1] = n_hat[0]
                     f_friction = (
-                        COUNTER_FLOW_K
+                        params["counter_flow_friction"]
                         * abs(dot)
                         * tangent
                         * np.sign(np.dot(tangent, desired_velocity))
@@ -161,9 +342,16 @@ def social_force_step(
                 wall = np.pad(wall, (0, dim - wall.shape[0]))
             delta = current_pos - wall
             dist = np.linalg.norm(delta) + 1e-6
-            if dist < 2.0:
+            if dist < params["wall_interaction_radius_m"]:
                 n_hat = delta / dist
-                f_walls += A_WALL * np.exp((0.3 - dist) / B_WALL) * n_hat
+                f_walls += (
+                    params["wall_repulsion_strength"]
+                    * np.exp(
+                        (params["wall_distance_m"] - dist)
+                        / params["wall_repulsion_range_m"]
+                    )
+                    * n_hat
+                )
 
     # total force
     f_total = f_drive + f_agents + f_walls
@@ -172,12 +360,24 @@ def social_force_step(
     new_velocity = current_velocity + f_total * dt
 
     # clamp to maximum speed (1.5x desired speed)
-    max_speed = max(np.linalg.norm(desired_velocity) * 1.5, 0.5)
+    max_speed = max(
+        np.linalg.norm(desired_velocity) * params["max_speed_multiplier"], 0.5
+    )
     speed = np.linalg.norm(new_velocity)
     if speed > max_speed:
         new_velocity = new_velocity / speed * max_speed
 
     return new_velocity * dt
+
+
+def _coerce_calibration(
+    parameters: SocialForceCalibration | Mapping[str, Any] | None,
+) -> SocialForceCalibration:
+    if parameters is None:
+        return GENERIC_LEGACY
+    if isinstance(parameters, SocialForceCalibration):
+        return parameters
+    return GENERIC_LEGACY.with_overrides(parameters)
 
 
 def _walls_to_array(walls: list | None, dim: int) -> np.ndarray:
@@ -198,6 +398,7 @@ def adjusted_step(
     walls: list,
     dt: float,
     counter_flow: bool = False,
+    parameters: SocialForceCalibration | Mapping[str, Any] | None = None,
 ) -> np.ndarray:
     """
     Backward-compatible wrapper around the full SFM.
@@ -216,6 +417,7 @@ def adjusted_step(
         walls=walls,
         dt=dt,
         counter_flow=counter_flow,
+        parameters=parameters,
     )
 
     # clamp displacement magnitude to avoid teleportation

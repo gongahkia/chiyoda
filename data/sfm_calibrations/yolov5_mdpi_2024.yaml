@@ -1,0 +1,61 @@
+profile: yolov5_mdpi_2024
+description: "YOLOv5 density-map calibrated SFM profile from Sensors 2024, with unsupported Chiyoda kernel terms inherited from legacy defaults."
+references:
+  - title: "The Parameter Calibration of Social Force Model for Pedestrian Flow Simulation Based on YOLOv5"
+    doi: "10.3390/s24155011"
+    table: "Table 7"
+  - title: "Improved social force model based on pedestrian collision avoidance behavior in counterflow"
+    doi: "10.1016/j.physa.2024.129762"
+parameters:
+  desired_speed_mps:
+    value: 1.37
+    unit: "m/s"
+    provenance: "Sensors 2024 DOI 10.3390/s24155011 Table 7, v_i^o"
+  relaxation_time_s:
+    value: 0.53
+    unit: "s"
+    provenance: "Sensors 2024 DOI 10.3390/s24155011 Table 7, tau_i"
+  agent_repulsion_strength:
+    value: 10.25
+    unit: "m/s^2"
+    provenance: "Sensors 2024 DOI 10.3390/s24155011 Table 7, A_i"
+  agent_repulsion_range_m:
+    value: 0.28
+    unit: "m"
+    provenance: "Sensors 2024 DOI 10.3390/s24155011 Table 7, B_i"
+  wall_repulsion_strength:
+    value: 5.0
+    unit: "m/s^2"
+    provenance: "legacy Chiyoda default; Sensors 2024 Table 7 calibrates pedestrian term A_i, not A_w"
+  wall_repulsion_range_m:
+    value: 0.2
+    unit: "m"
+    provenance: "legacy Chiyoda default; Sensors 2024 Table 7 calibrates pedestrian term B_i, not B_w"
+  counter_flow_friction:
+    value: 1.5
+    unit: "dimensionless"
+    provenance: "legacy Chiyoda counterflow term; Physica A 2024 DOI 10.1016/j.physa.2024.129762 is tracked as counterflow SFM context"
+  body_diameter_m:
+    value: 0.6
+    unit: "m"
+    provenance: "legacy Chiyoda default"
+  wall_distance_m:
+    value: 0.3
+    unit: "m"
+    provenance: "legacy Chiyoda default"
+  agent_interaction_radius_m:
+    value: 3.0
+    unit: "m"
+    provenance: "legacy Chiyoda cutoff"
+  wall_interaction_radius_m:
+    value: 2.0
+    unit: "m"
+    provenance: "legacy Chiyoda cutoff"
+  max_speed_multiplier:
+    value: 1.5
+    unit: "dimensionless"
+    provenance: "legacy Chiyoda clamp"
+  base_vision_radius_m:
+    value: 5.0
+    unit: "m"
+    provenance: "legacy Chiyoda observation radius; Sensors 2024 calibrates density-map SFM parameters, not visual range"

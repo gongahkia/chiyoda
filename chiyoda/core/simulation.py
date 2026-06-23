@@ -100,6 +100,9 @@ class Simulation:
         self.exits = exits
         self.hazards = hazards or []
         self.config = config or SimulationConfig()
+        self.social_force_calibration_profile = "generic_legacy"
+        self.social_force_parameters = None
+        self.social_force_provenance: dict[str, Any] = {}
         self.padm_stage_config = PADMStageConfig.from_enabled(
             self.config.padm_enabled_stages
         )

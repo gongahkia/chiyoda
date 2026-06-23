@@ -1,0 +1,148 @@
+{
+  "baseline": {
+    "counter_flow": true,
+    "current_pos": [
+      1.0,
+      1.0
+    ],
+    "current_velocity": [
+      0.65,
+      0.05
+    ],
+    "desired_heading": [
+      1.0,
+      0.0
+    ],
+    "desired_lateral_velocity_mps": 0.15,
+    "dt": 0.1,
+    "neighbor_velocities": [
+      [
+        -0.9,
+        0.0
+      ],
+      [
+        1.0,
+        0.0
+      ]
+    ],
+    "neighbors": [
+      [
+        1.55,
+        1.12
+      ],
+      [
+        2.25,
+        1.0
+      ]
+    ],
+    "walls": [
+      [
+        1.0,
+        0.0
+      ],
+      [
+        0.0,
+        1.0
+      ]
+    ]
+  },
+  "comparison_delta_m": 0.10096203286639686,
+  "comparison_desired_velocity": [
+    1.37,
+    0.15
+  ],
+  "comparison_displacement": [
+    -0.04033735034902239,
+    -0.03461489793217892
+  ],
+  "comparison_profile": "yolov5_mdpi_2024",
+  "generic_desired_velocity": [
+    1.34,
+    0.15
+  ],
+  "generic_displacement": [
+    0.058545231208449566,
+    -0.014229433869634118
+  ],
+  "generic_profile": "generic_legacy",
+  "parameters": {
+    "agent_interaction_radius_m": {
+      "generic_value": 3.0,
+      "profile_value": 3.0,
+      "provenance": "legacy Chiyoda cutoff",
+      "single_parameter_delta_m": 0.0
+    },
+    "agent_repulsion_range_m": {
+      "generic_value": 0.3,
+      "profile_value": 0.28,
+      "provenance": "Sensors 2024 DOI 10.3390/s24155011 Table 7, B_i",
+      "single_parameter_delta_m": 0.000146242651399182
+    },
+    "agent_repulsion_strength": {
+      "generic_value": 2.1,
+      "profile_value": 10.25,
+      "provenance": "Sensors 2024 DOI 10.3390/s24155011 Table 7, A_i",
+      "single_parameter_delta_m": 0.10135762861129073
+    },
+    "base_vision_radius_m": {
+      "generic_value": 5.0,
+      "profile_value": 5.0,
+      "provenance": "legacy Chiyoda observation radius; Sensors 2024 calibrates density-map SFM parameters, not visual range",
+      "single_parameter_delta_m": 0.0
+    },
+    "body_diameter_m": {
+      "generic_value": 0.6,
+      "profile_value": 0.6,
+      "provenance": "legacy Chiyoda default",
+      "single_parameter_delta_m": 0.0
+    },
+    "counter_flow_friction": {
+      "generic_value": 1.5,
+      "profile_value": 1.5,
+      "provenance": "legacy Chiyoda counterflow term; Physica A 2024 DOI 10.1016/j.physa.2024.129762 is tracked as counterflow SFM context",
+      "single_parameter_delta_m": 0.0
+    },
+    "desired_speed_mps": {
+      "generic_value": 1.34,
+      "profile_value": 1.37,
+      "provenance": "Sensors 2024 DOI 10.3390/s24155011 Table 7, v_i^o",
+      "single_parameter_delta_m": 0.0007922268815048574
+    },
+    "max_speed_multiplier": {
+      "generic_value": 1.5,
+      "profile_value": 1.5,
+      "provenance": "legacy Chiyoda clamp",
+      "single_parameter_delta_m": 0.0
+    },
+    "relaxation_time_s": {
+      "generic_value": 0.5,
+      "profile_value": 0.53,
+      "provenance": "Sensors 2024 DOI 10.3390/s24155011 Table 7, tau_i",
+      "single_parameter_delta_m": 0.0007892928911797653
+    },
+    "wall_distance_m": {
+      "generic_value": 0.3,
+      "profile_value": 0.3,
+      "provenance": "legacy Chiyoda default",
+      "single_parameter_delta_m": 0.0
+    },
+    "wall_interaction_radius_m": {
+      "generic_value": 2.0,
+      "profile_value": 2.0,
+      "provenance": "legacy Chiyoda cutoff",
+      "single_parameter_delta_m": 0.0
+    },
+    "wall_repulsion_range_m": {
+      "generic_value": 0.2,
+      "profile_value": 0.2,
+      "provenance": "legacy Chiyoda default; Sensors 2024 Table 7 calibrates pedestrian term B_i, not B_w",
+      "single_parameter_delta_m": 0.0
+    },
+    "wall_repulsion_strength": {
+      "generic_value": 5.0,
+      "profile_value": 5.0,
+      "provenance": "legacy Chiyoda default; Sensors 2024 Table 7 calibrates pedestrian term A_i, not A_w",
+      "single_parameter_delta_m": 0.0
+    }
+  }
+}

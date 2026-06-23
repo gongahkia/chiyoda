@@ -94,7 +94,13 @@ class FirstResponder(CognitiveAgent):
                 else np.zeros((0, 3), dtype=float)
             )
             adj = adjusted_step(
-                self.pos, desired_step, neighbors, [], dt, counter_flow=True
+                self.pos,
+                desired_step,
+                neighbors,
+                [],
+                dt,
+                counter_flow=True,
+                parameters=getattr(simulation, "social_force_parameters", None),
             )
             new_pos = self.pos + adj
             if np.linalg.norm(target - new_pos) < 0.35:

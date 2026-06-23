@@ -25,6 +25,7 @@ from chiyoda.information.decisions import create_agent_decision_policy
 from chiyoda.information.interventions import create_intervention_policy
 from chiyoda.information.warfare import create_hostile_channels
 from chiyoda.navigation.pathfinding import SmartNavigator
+from chiyoda.navigation.social_force import load_social_force_calibration
 from chiyoda.navigation.spatial_index import SpatialIndex
 from chiyoda.scenarios.generated_calibration import (
     apply_generated_population_calibration,
@@ -101,12 +102,17 @@ class ScenarioManager:
             np.random.seed(random_seed)
 
         layout = self._build_layout(sc)
+        sfm_calibration = load_social_force_calibration(
+            sc.get("social_force_calibration", sc.get("sfm_calibration"))
+        )
         exits = [Exit(pos=tuple(p)) for p in layout.exit_positions()]
         hazards = self._build_hazards(
             sc.get("hazards", []) or [],
             source_file=sc.get("_source_file"),
         )
-        agents = self._build_agents(layout, sc.get("population", {}) or {})
+        agents = self._build_agents(
+            layout, sc.get("population", {}) or {}, sfm_calibration=sfm_calibration
+        )
 
         # build responders if specified
         responders = self._build_responders(
@@ -145,6 +151,9 @@ class ScenarioManager:
         sim = Simulation(
             layout=layout, agents=agents, exits=exits, hazards=hazards, config=sim_cfg
         )
+        sim.social_force_calibration_profile = sfm_calibration.profile
+        sim.social_force_parameters = sfm_calibration
+        sim.social_force_provenance = dict(sfm_calibration.provenance or {})
         population_audit = (sc.get("metadata", {}) or {}).get(
             "generated_population_calibration_audit"
         )
@@ -459,7 +468,11 @@ class ScenarioManager:
         return responders
 
     def _build_agents(
-        self, layout: Layout, population_cfg: dict[str, Any]
+        self,
+        layout: Layout,
+        population_cfg: dict[str, Any],
+        *,
+        sfm_calibration,
     ) -> list[Commuter]:
         layout_positions = [
             layout.world_position(cell) for cell in layout.people_positions()
@@ -518,7 +531,12 @@ class ScenarioManager:
             personality = str(cohort_cfg.get("personality", "NORMAL"))
             calmness = float(cohort_cfg.get("calmness", 0.8))
             base_speed = float(
-                cohort_cfg.get("base_speed", cohort_cfg.get("base_speed_mps", 1.34))
+                cohort_cfg.get(
+                    "base_speed",
+                    cohort_cfg.get(
+                        "base_speed_mps", sfm_calibration.desired_speed_mps
+                    ),
+                )
             )
             base_speed *= float(cohort_cfg.get("base_speed_multiplier", 1.0))
             release_step = int(cohort_cfg.get("release_step", 0))
@@ -534,7 +552,11 @@ class ScenarioManager:
                     "mobility_speed_multiplier", mobility["speed_multiplier"]
                 )
             )
-            base_vision_radius = float(cohort_cfg.get("base_vision_radius", 5.0))
+            base_vision_radius = float(
+                cohort_cfg.get(
+                    "base_vision_radius", sfm_calibration.base_vision_radius_m
+                )
+            )
             base_vision_radius *= float(
                 cohort_cfg.get(
                     "mobility_vision_multiplier", mobility["vision_multiplier"]
