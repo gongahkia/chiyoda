@@ -9,6 +9,7 @@ import pandas as pd
 import pytest
 
 from chiyoda.analysis.viewer import export_viewer
+from chiyoda.scenarios.validation import validate_scenario_file
 from chiyoda.studies.runner import run_study
 from chiyoda.studies.models import StudyBundle
 
@@ -106,6 +107,12 @@ def test_export_viewer_writes_static_threejs_artifact(tmp_path):
     assert "runBrowserSimulation" in html
     assert "browserSim" in html
     assert "simStatus" in html
+    assert "authorTool" in html
+    assert "connectorType" in html
+    assert "connectorToFloor" in html
+    assert "hostileObjective" in html
+    assert "authoredHostileChannels" in html
+    assert "hostile_channels" in html
     assert "authorMode" in html
     assert "activeFloor" in html
     assert "runtimeConnectors" in html
@@ -129,6 +136,68 @@ def test_export_viewer_writes_static_threejs_artifact(tmp_path):
     assert data["layout_grid"] == [["X", "X", "X"], ["X", "E", "X"], ["X", "@", "X"]]
     assert data["layout_floors"][0]["id"] == "0"
     assert data["layout_connectors"][0]["id"] == "stairs_a"
+
+
+def test_viewer_authored_connector_and_hostile_yaml_round_trips(tmp_path):
+    scenario = tmp_path / "authored.yaml"
+    scenario.write_text(
+        """
+scenario:
+  name: viewer_authored
+  layout:
+    floors:
+      - id: "0"
+        z: 0.0
+        text: |-
+          XXX
+          X@X
+          X.X
+          XXX
+      - id: "1"
+        z: 3.0
+        text: |-
+          XXX
+          XEX
+          XXX
+    connectors:
+      - id: "viewer_connector_1"
+        type: "stairs"
+        from: {floor: "0", x: 1, y: 2}
+        to: {floor: "1", x: 1, y: 1}
+        bidirectional: true
+        capacity: 30
+  population:
+    total: 1
+    cohorts:
+      - name: baseline
+        count: 1
+        spawn_cells:
+          - {floor: "0", x: 1, y: 1}
+  hostile_channels:
+    - id: "viewer_hostile_1"
+      channel_type: "gossip"
+      objective: "false-protective-action"
+      budget: 1
+      start_step: 0
+      interval_steps: 5
+      plausibility: 0.7
+      radius: 6
+      source_id: "viewer_hostile_1"
+      target_cohort: "baseline"
+      claimed_exit:
+        floor: "0"
+        x: 1
+        y: 2
+  simulation:
+    max_steps: 40
+    dt: 0.1
+    random_seed: 42
+"""
+    )
+
+    result = validate_scenario_file(scenario)
+
+    assert not result.has_errors
 
 
 def test_export_viewer_includes_source_geojson_levels(tmp_path):

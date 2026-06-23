@@ -53,9 +53,13 @@ Controls:
 Authoring:
 
 - enable `author`,
+- choose `paint`, `connector`, or `hostile`,
 - choose the active `edit floor`,
-- choose a paint token,
+- choose a paint token, connector type/capacity, or hostile objective/target/credibility,
 - click or drag on the grid to paint cells,
+- in connector mode, drag from the active floor cell to a target cell; the
+  `to floor` selector sets the target floor,
+- in hostile mode, click a cell to place a bounded hostile-channel actor,
 - use the validation overlay to check exits, disconnected cells, reachable
   spawn/responder starts, and connector-crossing paths,
 - export `chiyoda_edited_scenario.yaml`,
@@ -87,5 +91,5 @@ floor, at most 200 replay-seeded agents, no LLM calls, and grid egress toward
 exit cells. Reference and benchmark runs still come from Python exports.
 Authoring exports a runnable raster `layout.floors` scenario; it does not edit
 the original GeoJSON/CAD source or replace trajectory-analysis tools. Authoring
-can paint any runtime floor and preserves existing connectors in exported YAML.
-Creating new connectors in the browser is not implemented.
+can paint any runtime floor, create connector records, and add hostile-channel
+actors to exported YAML.

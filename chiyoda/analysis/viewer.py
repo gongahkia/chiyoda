@@ -406,6 +406,11 @@ def _viewer_html() -> str:
     <label>edit floor <select id="activeFloor" aria-label="edit floor"></select></label>
     <label><input id="connectors" type="checkbox" checked> connectors</label>
     <label><input id="authorMode" type="checkbox"> author</label>
+    <select id="authorTool" aria-label="author tool">
+      <option value="paint">paint</option>
+      <option value="connector">connector</option>
+      <option value="hostile">hostile</option>
+    </select>
     <select id="paintToken" aria-label="paint token">
       <option value=".">floor</option>
       <option value="X">wall</option>
@@ -414,6 +419,22 @@ def _viewer_html() -> str:
       <option value="S">signage</option>
       <option value="R">responder</option>
     </select>
+    <select id="connectorType" aria-label="connector type">
+      <option value="stairs">stairs</option>
+      <option value="ramp">ramp</option>
+      <option value="escalator">escalator</option>
+      <option value="elevator">elevator</option>
+    </select>
+    <label>to floor <select id="connectorToFloor" aria-label="connector target floor"></select></label>
+    <label>capacity <input id="connectorCapacity" type="number" min="1" value="30" style="width:5rem"></label>
+    <select id="hostileObjective" aria-label="hostile objective">
+      <option value="false-protective-action">false action</option>
+      <option value="threat-amplification">amplify threat</option>
+      <option value="authority-confusion">authority</option>
+      <option value="social-proof-poisoning">social proof</option>
+    </select>
+    <label>target <input id="hostileTarget" value="baseline" style="width:7rem"></label>
+    <label>cred <input id="hostileCredibility" type="number" min="0.01" max="0.99" step="0.01" value="0.70" style="width:5rem"></label>
     <button id="exportScenario">Export YAML</button>
     <span class="metric" id="editorStatus">author off</span>
   </div>
@@ -450,16 +471,24 @@ controls.enableRotate = false;
 controls.target.set(width / 2, 0, height / 2);
 controls.update();
 const authorMode = document.querySelector("#authorMode");
+const authorTool = document.querySelector("#authorTool");
 const paintToken = document.querySelector("#paintToken");
+const connectorType = document.querySelector("#connectorType");
+const connectorToFloorSelect = document.querySelector("#connectorToFloor");
+const connectorCapacity = document.querySelector("#connectorCapacity");
+const hostileObjective = document.querySelector("#hostileObjective");
+const hostileTarget = document.querySelector("#hostileTarget");
+const hostileCredibility = document.querySelector("#hostileCredibility");
 const editorStatus = document.querySelector("#editorStatus");
 const validationOverlay = document.querySelector("#validationOverlay");
 const runtimeFloors = normalizeRuntimeFloors(data.layout_floors || []);
 const runtimeConnectors = normalizeRuntimeConnectors(data.layout_connectors || []);
+const authoredHostileChannels = [];
 const activeFloorSelect = document.querySelector("#activeFloor");
 const editorFloors = runtimeFloors.map(floor => ({ id: floor.id, z: floor.z, grid: floor.grid.map(row => row.slice()) }));
 const editorGrid = editorFloors[0]?.grid || normalizeLayoutGrid(data.layout_grid && data.layout_grid.length ? data.layout_grid : layoutGridFromCells());
 populateActiveFloorSelect();
-window.chiyodaViewer = { camera, controls, renderer, scene, data, editorGrid, editorFloors, runtimeConnectors, browserSimSupport, runBrowserSimulation };
+window.chiyodaViewer = { camera, controls, renderer, scene, data, editorGrid, editorFloors, runtimeConnectors, authoredHostileChannels, browserSimSupport, runBrowserSimulation };
 
 const root = new THREE.Group();
 scene.add(root);
@@ -470,9 +499,10 @@ const bottleneckGroup = new THREE.Group();
 const pathUsageGroup = new THREE.Group();
 const validationGroup = new THREE.Group();
 const messageGroup = new THREE.Group();
+const hostileGroup = new THREE.Group();
 const connectorGroup = new THREE.Group();
 const sourceFloorGroup = new THREE.Group();
-scene.add(sourceFloorGroup, connectorGroup, agentGroup, hazardGroup, bottleneckGroup, pathUsageGroup, validationGroup, messageGroup);
+scene.add(sourceFloorGroup, connectorGroup, hostileGroup, agentGroup, hazardGroup, bottleneckGroup, pathUsageGroup, validationGroup, messageGroup);
 
 function box(x, z, sx, sz, color, y = 0.05, h = 0.1) {
   const geo = new THREE.BoxGeometry(sx, h, sz);
@@ -547,12 +577,17 @@ function normalizeConnectorEndpoint(value) {
 
 function populateActiveFloorSelect() {
   activeFloorSelect.innerHTML = "";
+  connectorToFloorSelect.innerHTML = "";
   editorFloors.forEach((floor, index) => {
     const option = document.createElement("option");
     option.value = String(index);
     option.textContent = `${floor.id} z=${floor.z}`;
     activeFloorSelect.appendChild(option);
+    const connectorOption = option.cloneNode(true);
+    connectorOption.value = floor.id;
+    connectorToFloorSelect.appendChild(connectorOption);
   });
+  if (editorFloors.length > 1) connectorToFloorSelect.value = editorFloors[1].id;
 }
 
 function activeFloorIndex() {
@@ -670,6 +705,65 @@ function renderConnectors() {
   }
 }
 renderConnectors();
+
+function renderHostileChannels() {
+  hostileGroup.clear();
+  for (const channel of authoredHostileChannels) {
+    const color = channel.objective === "threat-amplification" ? 0xe05d44 : 0xc44cff;
+    hostileGroup.add(overlayBox(channel.x + 0.5, channel.y + 0.5, 0.7, 0.7, color, 0.68, floorZ(channel.floor) + 0.35, 0.22));
+  }
+}
+
+function addAuthoredConnector(from, to) {
+  if (!from || !to) return null;
+  if (from.floor === to.floor && from.x === to.x && from.y === to.y) return null;
+  const connector = {
+    id: `viewer_connector_${runtimeConnectors.length + 1}`,
+    type: String(connectorType.value || "stairs"),
+    from,
+    to,
+    bidirectional: true,
+    width: 1,
+    speed_multiplier: 1,
+    capacity: Math.max(1, Math.round(Number(connectorCapacity.value || 30))),
+    dwell_s: 0,
+    travel_s: 0,
+  };
+  runtimeConnectors.push(connector);
+  renderConnectors();
+  const result = renderValidationOverlay();
+  updateEditorStatus(`connector ${connector.type} ${from.floor}:${from.x},${from.y} -> ${to.floor}:${to.x},${to.y} | ${validationSummary(result)}`);
+  return connector;
+}
+
+function addHostileChannel(cell) {
+  const objective = String(hostileObjective.value || "false-protective-action");
+  const target = String(hostileTarget.value || "baseline").trim() || "baseline";
+  const plausibility = Math.max(0.01, Math.min(0.99, Number(hostileCredibility.value || 0.7)));
+  const channel = {
+    id: `viewer_hostile_${authoredHostileChannels.length + 1}`,
+    channel_type: "gossip",
+    objective,
+    budget: 1,
+    start_step: 0,
+    interval_steps: 5,
+    plausibility,
+    radius: 6,
+    source_id: `viewer_hostile_${authoredHostileChannels.length + 1}`,
+    target_cohort: target,
+    floor: activeFloor().id,
+    x: cell.x,
+    y: cell.y,
+  };
+  authoredHostileChannels.push(channel);
+  renderHostileChannels();
+  updateEditorStatus(`hostile ${objective} ${channel.floor}:${channel.x},${channel.y}`);
+  return channel;
+}
+
+function hostileClaimKey(channel) {
+  return channel.objective === "threat-amplification" ? "claimed_hazard" : "claimed_exit";
+}
 
 function renderSourceFloors() {
   sourceFloorGroup.clear();
@@ -803,13 +897,16 @@ document.querySelector("#hazards").addEventListener("change", event => hazardGro
 document.querySelector("#bottlenecks").addEventListener("change", event => bottleneckGroup.visible = event.target.checked);
 document.querySelector("#pathUsage").addEventListener("change", event => pathUsageGroup.visible = event.target.checked);
 validationOverlay.addEventListener("change", renderValidationOverlay);
-document.querySelector("#messages").addEventListener("change", event => messageGroup.visible = event.target.checked);
+document.querySelector("#messages").addEventListener("change", event => {
+  messageGroup.visible = event.target.checked;
+  hostileGroup.visible = event.target.checked;
+});
 document.querySelector("#connectors").addEventListener("change", event => connectorGroup.visible = event.target.checked);
 document.querySelector("#sourceFloors").addEventListener("change", event => sourceFloorGroup.visible = event.target.checked);
 document.querySelector("#floorGap").addEventListener("input", renderSourceFloors);
 activeFloorSelect.addEventListener("change", () => {
   renderValidationOverlay();
-  updateEditorStatus(`floor ${activeFloor().id} | ${tokenLabel(paintToken.value)} | ${validationSummary(validateEditorGrid())}`);
+  updateEditorStatus(`floor ${activeFloor().id} | ${authorActionLabel()} | ${validationSummary(validateEditorGrid())}`);
 });
 document.querySelector("#resetCamera").addEventListener("click", () => {
   camera.position.set(width * 0.55, Math.max(width, height) * 0.9, height * 1.1);
@@ -841,7 +938,10 @@ authorMode.addEventListener("change", () => {
   }
   renderLayoutGrid();
   const result = renderValidationOverlay();
-  updateEditorStatus(authorMode.checked ? `author ${tokenLabel(paintToken.value)} | ${validationSummary(result)}` : validationSummary(result));
+  updateEditorStatus(authorMode.checked ? `author ${authorActionLabel()} | ${validationSummary(result)}` : validationSummary(result));
+});
+authorTool.addEventListener("change", () => {
+  if (authorMode.checked) updateEditorStatus(`author ${authorTool.value}`);
 });
 paintToken.addEventListener("change", () => {
   if (authorMode.checked) updateEditorStatus(`author ${tokenLabel(paintToken.value)} | ${validationSummary(validateEditorGrid())}`);
@@ -851,6 +951,8 @@ window.chiyodaViewer.exportScenarioYaml = exportScenarioYaml;
 window.chiyodaViewer.renderLayoutGrid = renderLayoutGrid;
 window.chiyodaViewer.validateEditorGrid = validateEditorGrid;
 window.chiyodaViewer.renderValidationOverlay = renderValidationOverlay;
+window.chiyodaViewer.addAuthoredConnector = addAuthoredConnector;
+window.chiyodaViewer.addHostileChannel = addHostileChannel;
 
 function tokenLabel(token) {
   if (token === ".") return "floor";
@@ -860,6 +962,12 @@ function tokenLabel(token) {
   if (token === "S") return "signage";
   if (token === "R") return "responder";
   return token;
+}
+
+function authorActionLabel() {
+  if (authorTool.value === "connector") return `${connectorType.value} -> ${connectorToFloorSelect.value}`;
+  if (authorTool.value === "hostile") return `${hostileObjective.value} -> ${hostileTarget.value}`;
+  return tokenLabel(paintToken.value);
 }
 
 function updateEditorStatus(text) {
@@ -1168,6 +1276,28 @@ function exportScenarioYaml() {
       );
     }
   }
+  if (authoredHostileChannels.length) {
+    lines.push("  hostile_channels:");
+    for (const channel of authoredHostileChannels) {
+      const claimKey = hostileClaimKey(channel);
+      lines.push(
+        `    - id: ${yamlQuote(channel.id)}`,
+        `      channel_type: ${yamlQuote(channel.channel_type)}`,
+        `      objective: ${yamlQuote(channel.objective)}`,
+        `      budget: ${Math.max(1, Math.round(channel.budget))}`,
+        `      start_step: ${Math.max(0, Math.round(channel.start_step))}`,
+        `      interval_steps: ${Math.max(1, Math.round(channel.interval_steps))}`,
+        `      plausibility: ${yamlNumber(channel.plausibility, 0.7)}`,
+        `      radius: ${yamlNumber(channel.radius, 6)}`,
+        `      source_id: ${yamlQuote(channel.source_id)}`,
+        `      target_cohort: ${yamlQuote(channel.target_cohort)}`,
+        `      ${claimKey}:`,
+        `        floor: ${yamlQuote(channel.floor)}`,
+        `        x: ${channel.x}`,
+        `        y: ${channel.y}`
+      );
+    }
+  }
   lines.push(
     "  simulation:",
     `    max_steps: ${maxSteps}`,
@@ -1197,6 +1327,7 @@ function downloadScenario() {
 
 let dragStart = null;
 let paintPointerId = null;
+let connectorDraft = null;
 const raycaster = new THREE.Raycaster();
 const pointer = new THREE.Vector2();
 const paintPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
@@ -1230,9 +1361,24 @@ function paintCellFromEvent(event) {
 canvas.addEventListener("pointerdown", event => {
   if (authorMode.checked && event.button === 0) {
     event.preventDefault();
-    paintPointerId = event.pointerId;
-    canvas.setPointerCapture(event.pointerId);
-    paintCellFromEvent(event);
+    const cell = gridCellFromEvent(event);
+    if (!cell) return;
+    const tool = authorTool.value;
+    if (tool === "paint") {
+      paintPointerId = event.pointerId;
+      canvas.setPointerCapture(event.pointerId);
+      paintCellFromEvent(event);
+    } else if (tool === "connector") {
+      connectorDraft = {
+        pointerId: event.pointerId,
+        from: { floor: activeFloor().id, x: cell.x, y: cell.y },
+      };
+      canvas.setPointerCapture(event.pointerId);
+      updateEditorStatus(`connector start ${connectorDraft.from.floor}:${cell.x},${cell.y}`);
+    } else if (tool === "hostile") {
+      addHostileChannel(cell);
+      renderValidationOverlay();
+    }
     return;
   }
   if (event.button !== 0) return;
@@ -1245,9 +1391,14 @@ canvas.addEventListener("pointermove", event => {
     paintCellFromEvent(event);
     return;
   }
+  if (connectorDraft && event.pointerId === connectorDraft.pointerId) {
+    const cell = gridCellFromEvent(event);
+    if (cell) updateEditorStatus(`connector ${connectorDraft.from.floor}:${connectorDraft.from.x},${connectorDraft.from.y} -> ${connectorToFloorSelect.value}:${cell.x},${cell.y}`);
+    return;
+  }
   if (authorMode.checked && paintPointerId === null) {
     const cell = gridCellFromEvent(event);
-    if (cell) updateEditorStatus(`${activeFloor().id}:${cell.x},${cell.y} ${tokenLabel(paintToken.value)}`);
+    if (cell) updateEditorStatus(`${activeFloor().id}:${cell.x},${cell.y} ${authorActionLabel()}`);
   }
   if (!dragStart || event.pointerId !== dragStart.pointerId) return;
   const dx = event.clientX - dragStart.x;
@@ -1256,6 +1407,18 @@ canvas.addEventListener("pointermove", event => {
   dragStart = { x: event.clientX, y: event.clientY, pointerId: event.pointerId };
 });
 canvas.addEventListener("pointerup", event => {
+  if (connectorDraft && event.pointerId === connectorDraft.pointerId) {
+    const cell = gridCellFromEvent(event);
+    if (cell) {
+      addAuthoredConnector(connectorDraft.from, {
+        floor: String(connectorToFloorSelect.value || activeFloor().id),
+        x: cell.x,
+        y: cell.y,
+      });
+    }
+    connectorDraft = null;
+    return;
+  }
   if (paintPointerId === event.pointerId) {
     paintPointerId = null;
     return;
@@ -1265,6 +1428,7 @@ canvas.addEventListener("pointerup", event => {
 canvas.addEventListener("pointercancel", () => {
   dragStart = null;
   paintPointerId = null;
+  connectorDraft = null;
 });
 
 function rotateCamera(deltaTheta, deltaPhi) {

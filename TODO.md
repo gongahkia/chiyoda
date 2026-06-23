@@ -23,14 +23,6 @@ Conventions:
 
 ## P3 — Authoring & ops surfaces (non-CLI users)
 
-### [ ] T3.2 Browser authoring of connectors and hostile channels
-- Scope: extend viewer author mode to create/edit connectors (stairs, ramps, escalators, elevators) and hostile-channel configs. Currently only raster floor painting works (`docs/implementation_audit.md`).
-- Files: `chiyoda/analysis/viewer.py`, viewer JS assets.
-- Acceptance:
-  - User can drag two cells across floors to author a connector with type and capacity.
-  - User can drop a hostile-channel actor with objective, target population, credibility.
-  - Exported YAML round-trips through `validate-scenario`.
-
 ### [ ] T3.3 Source-preserving scenario patch on export
 - Scope: viewer currently exports a minimal runnable YAML, not a patch onto the source scenario. Track an `_origin` pointer plus diff.
 - Files: `chiyoda/scenarios/` loader, viewer export pipeline.
