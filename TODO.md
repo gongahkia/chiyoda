@@ -47,12 +47,6 @@ Conventions:
 
 ## P9 — Documentation and positioning
 
-### [ ] T9.4 Glossary
-- Scope: many overloaded terms (entropy, HCI, belief, intent). Add a single glossary.
-- Files: new `docs/glossary.md`.
-- Acceptance:
-  - Every term used in `paper_outline_info_warfare.md` and `architecture_overview.md` is defined once.
-
 ---
 
 ## Out of scope for this TODO
