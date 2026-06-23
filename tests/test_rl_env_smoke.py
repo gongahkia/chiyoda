@@ -1,8 +1,13 @@
 from __future__ import annotations
 
 import numpy as np
+import yaml
 
-from chiyoda.acceleration.rl_env import ChiyodaRLEnv
+from chiyoda.acceleration.rl_env import (
+    ChiyodaParallelRLEnv,
+    ChiyodaRLEnv,
+    create_rl_env,
+)
 from chiyoda.scenarios.manager import ScenarioManager
 
 SCENARIO = "scenarios/benchmark/transit_cbrn.yaml"
@@ -67,6 +72,38 @@ def test_noop_rollout_matches_direct_simulation():
     np.testing.assert_allclose(env_positions, direct_positions)
 
 
+def test_two_player_rl_env_selected_from_yaml(tmp_path):
+    scenario_file = _two_player_scenario_file(tmp_path)
+
+    env = create_rl_env(scenario_file, max_episode_steps=100)
+
+    assert isinstance(env, ChiyodaParallelRLEnv)
+    observations, infos = env.reset(seed=3)
+    assert set(observations) == {"defender", "adversary"}
+    assert observations["defender"].shape == (6,)
+    assert infos["adversary"]["role"] == "adversary"
+
+
+def test_two_player_random_rollout_runs_100_steps(tmp_path):
+    scenario_file = _two_player_scenario_file(tmp_path)
+    env = ChiyodaParallelRLEnv(scenario_file, max_episode_steps=100)
+    observations, _ = env.reset(seed=11)
+    assert env.agents == ["defender", "adversary"]
+
+    for _ in range(100):
+        actions = {agent: env.action_space(agent).sample() for agent in env.agents}
+        observations, rewards, terminations, truncations, infos = env.step(actions)
+        assert set(rewards) == {"defender", "adversary"}
+        assert np.isfinite(list(rewards.values())).all()
+        assert all(np.isfinite(obs).all() for obs in observations.values())
+        if all(terminations.values()) or all(truncations.values()):
+            break
+
+    assert infos["defender"]["step"] == 100
+    assert truncations == {"defender": True, "adversary": True}
+    assert env.agents == []
+
+
 def _done(simulation) -> bool:
     return simulation.current_step >= simulation.config.max_steps or all(
         agent.has_evacuated
@@ -74,3 +111,46 @@ def _done(simulation) -> bool:
         or getattr(agent, "is_hostile", False)
         for agent in simulation.agents
     )
+
+
+def _two_player_scenario_file(tmp_path):
+    scenario = {
+        "scenario": {
+            "name": "two_player_smoke",
+            "layout": {
+                "floors": [
+                    {
+                        "id": "0",
+                        "z": 0.0,
+                        "text": "XXXXX\nX@..X\nX...X\nXXXXX",
+                    }
+                ]
+            },
+            "population": {
+                "total": 1,
+                "cohorts": [{"name": "baseline", "count": 1, "familiarity": 0.0}],
+            },
+            "information": {"mode": "asymmetric", "observation_radius": 3.0},
+            "simulation": {"max_steps": 100, "random_seed": 1},
+            "rl": {
+                "mode": "two_player",
+                "defender_actions": [
+                    {"policy": "none"},
+                    {
+                        "policy": "global_broadcast",
+                        "start_step": 0,
+                        "interval_steps": 1,
+                        "budget_per_interval": 1,
+                    },
+                ],
+                "adversary_actions": [
+                    {"policy": "none"},
+                    {"objective": "false-protective-action", "budget": 1},
+                    {"objective": "threat-amplification", "budget": 1},
+                ],
+            },
+        }
+    }
+    path = tmp_path / "two_player.yaml"
+    path.write_text(yaml.safe_dump(scenario, sort_keys=False))
+    return path

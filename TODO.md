@@ -13,17 +13,6 @@ Conventions:
 
 ## P0 — Core novelty: ground the information layer
 
-### [ ] T0.5 Multi-agent / two-player MARL framing of hostile channel vs responder
-- Scope: extend `ChiyodaRLEnv` to expose a paired adversary policy interface. Default still single-agent; opt-in two-player via YAML.
-- Files: `chiyoda/environment/__init__.py` (and wherever `ChiyodaRLEnv` lives — `[Unverified]` exact path, locate via grep on `ChiyodaRLEnv`), `docs/rl_interface.md`.
-- Acceptance:
-  - PettingZoo ParallelEnv-compatible wrapper exists.
-  - One smoke test runs random policies on both sides for 100 steps.
-  - `docs/rl_interface.md` adds adversarial section with observation/action specs.
-- Refs: PettingZoo, TAMAS benchmark.
-
----
-
 ## P1 — Validation: drop the "not externally validated" caveat
 
 ### [ ] T1.1 RiMEA test cases 1–10

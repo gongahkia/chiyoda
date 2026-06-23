@@ -114,6 +114,62 @@ model = PPO("MlpPolicy", DiscreteInterventionEnv(), verbose=1)
 model.learn(total_timesteps=10_000)
 ```
 
+## Two-Player Parallel API
+
+YAML opt-in selects the PettingZoo-style parallel wrapper:
+
+```yaml
+scenario:
+  rl:
+    mode: two_player
+    defender_actions:
+      - {policy: none}
+      - {policy: global_broadcast, start_step: 0, interval_steps: 1}
+    adversary_actions:
+      - {policy: none}
+      - {objective: false-protective-action, budget: 1}
+      - {objective: threat-amplification, budget: 1}
+```
+
+```python
+from chiyoda.acceleration.rl_env import create_rl_env
+
+env = create_rl_env("scenario.yaml")
+observations, infos = env.reset(seed=42)
+actions = {agent: env.action_space(agent).sample() for agent in env.agents}
+observations, rewards, terminations, truncations, infos = env.step(actions)
+```
+
+`create_rl_env()` returns `ChiyodaRLEnv` unless `rl.mode` is `two_player`; then
+it returns `ChiyodaParallelRLEnv`.
+
+Parallel agents:
+
+| Agent | Control surface | Reward |
+|:--|:--|:--|
+| `defender` | One intervention action template from `rl.defender_actions`. | Single-agent reward: evacuation gain minus exposure, remaining evacuees, and induced HCI. |
+| `adversary` | One hostile-channel action template from `rl.adversary_actions`. | Negative defender reward plus `0.1 * hostile_recipient_delta`. |
+
+Both agents receive the same 6-column global observation:
+
+| Column | Meaning |
+|:--|:--|
+| `belief_entropy` | Latest global belief entropy. |
+| `exposure` | Mean cumulative hazard exposure. |
+| `density` | Latest mean local density. |
+| `hci` | `harmful_convergence_index_induced`. |
+| `hostile_events` | Cumulative hostile-channel event count. |
+| `hostile_recipients` | Cumulative hostile-channel recipient count. |
+
+The wrapper implements the PettingZoo ParallelEnv call shape documented by
+Farama: `reset()` returns observation and info dictionaries, and `step()`
+returns observation, reward, termination, truncation, and info dictionaries.
+Reference: <https://pettingzoo.farama.org/api/parallel/>.
+
+The adversarial framing follows the multi-agent threat-model motivation in
+TAMAS, which benchmarks adversarial risks in multi-agent LLM systems:
+<https://arxiv.org/abs/2511.05269>.
+
 ## Prior Art
 
 - EvacuAI / ExitMatrix uses deep reinforcement learning for real-time indoor
