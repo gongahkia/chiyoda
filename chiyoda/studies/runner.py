@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from collections.abc import Sequence
 from concurrent.futures import ProcessPoolExecutor
 from copy import deepcopy
@@ -177,6 +178,21 @@ def run_study(
             runs_manifest[0]["requested_acceleration_backend"]
             if runs_manifest
             else "auto"
+        ),
+        "requested_pathfinding_strategy": (
+            runs_manifest[0].get("requested_pathfinding_strategy", "auto")
+            if runs_manifest
+            else "auto"
+        ),
+        "effective_pathfinding_strategy": (
+            runs_manifest[0].get("effective_pathfinding_strategy", "")
+            if runs_manifest
+            else ""
+        ),
+        "pathfinding_strategy_counts": (
+            runs_manifest[0].get("pathfinding_strategy_counts", {})
+            if runs_manifest
+            else {}
         ),
         "layout_text": first_layout_text or "",
         "layout_floors": first_layout_floors,
@@ -498,6 +514,7 @@ def _execute_study_task(task: dict[str, Any]) -> dict[str, Any]:
         f"{cell[0]},{cell[1]},{cell[2]}": label
         for cell, label in simulation.exit_labels.items()
     }
+    pathfinding_stats = simulation.pathfinding_stats()
     return {
         "tables": tables,
         "scenario_name": scenario_name,
@@ -522,6 +539,7 @@ def _execute_study_task(task: dict[str, Any]) -> dict[str, Any]:
             "seed": seed,
             "acceleration_backend": simulation.acceleration.name,
             "requested_acceleration_backend": simulation.acceleration.requested_backend,
+            **pathfinding_stats,
             "agents_total": len(simulation.agents),
             "agents_evacuated": len(simulation.completed_agents),
         },
@@ -924,6 +942,13 @@ def _collect_run_tables(
             )
 
     summary_metrics = analytics.calculate_performance_metrics(simulation)
+    pathfinding_stats = simulation.pathfinding_stats()
+    summary_pathfinding_stats = dict(pathfinding_stats)
+    strategy_counts = summary_pathfinding_stats.pop("pathfinding_strategy_counts", {})
+    summary_pathfinding_stats.pop("routing_wall_time_s", None)
+    summary_pathfinding_stats["pathfinding_strategy_counts_json"] = json.dumps(
+        strategy_counts, sort_keys=True
+    )
     summary_row = pd.DataFrame(
         [
             {
@@ -940,6 +965,7 @@ def _collect_run_tables(
                 "layout_cell_size": float(simulation.layout.cell_size),
                 "acceleration_backend": simulation.acceleration.name,
                 "requested_acceleration_backend": simulation.acceleration.requested_backend,
+                **summary_pathfinding_stats,
                 **summary_metrics,
             }
         ]

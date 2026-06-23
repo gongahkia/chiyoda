@@ -136,6 +136,7 @@ class ScenarioManager:
             acceleration_backend=str(
                 simulation_cfg.get("acceleration_backend", "auto")
             ),
+            pathfinding_strategy=str(simulation_cfg.get("pathfinding_strategy", "auto")),
             density_slowdown_scale=float(
                 simulation_cfg.get("density_slowdown_scale", 1.0)
             ),
@@ -208,6 +209,7 @@ class ScenarioManager:
             layout,
             density_fn=spatial.density_penalty_fn(),
             hazard_fn=sim.hazard_penalty_at_cell,
+            strategy=sim.config.pathfinding_strategy,
         )
         sim.attach_navigation(navigator)
 

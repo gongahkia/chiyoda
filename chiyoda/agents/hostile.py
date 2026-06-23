@@ -27,7 +27,7 @@ class HostileAgent(CognitiveAgent):
         self.target_agent_id = target.id
         start = simulation._grid_cell(self)
         goal = simulation._grid_cell(target)
-        path = navigator.find_optimal_path(start, [goal])
+        path = navigator.find_optimal_path(start, [goal], route_kind="target")
         if path:
             self.current_path = path
             self.path_index = 0

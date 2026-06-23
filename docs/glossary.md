@@ -4,7 +4,7 @@ This glossary defines Chiyoda terms used in `docs/paper_outline_info_warfare.md`
 
 | Term | Definition |
 |:--|:--|
-| A* | Graph-search route planner used as the base pathfinding algorithm. |
+| A* | Graph-search route planner available through Chiyoda's `networkx_astar` and `heap_astar` strategies. |
 | Active agent | An agent whose release time has passed and who is participating in the simulation step loop. |
 | Active-shooter scenario | Benchmark hazard scenario that represents a moving security threat and evacuation response. |
 | Adaptive intervention | Information-control action selected from current telemetry, such as entropy, density, exposure, or bottleneck state. |
@@ -19,6 +19,7 @@ This glossary defines Chiyoda terms used in `docs/paper_outline_info_warfare.md`
 | Belief revision | Update process that changes beliefs from observation, gossip, signage, interventions, or hostile channels. |
 | Belief vector | Per-agent numeric representation of exit or hazard belief state. |
 | Belief-weighted A* | A* routing whose edge or target costs use believed hazard and exit state rather than only ground truth. |
+| Reverse Dijkstra | Multi-source routing strategy that computes cached next hops from exits back to many starts. |
 | Benchmark | Repeatable scenario set with fixed seeds, allowed knobs, metrics, scoring, and manifest outputs. |
 | Benchmark manifest | Exported record of benchmark inputs, hashes, seeds, and outputs used for reproducibility. |
 | Benchmark suite | Named benchmark group such as `v1`, `v2`, or `v3`. |

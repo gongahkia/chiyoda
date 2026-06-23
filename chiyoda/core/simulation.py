@@ -51,6 +51,7 @@ class SimulationConfig:
     random_seed: int | None = 42
     hazard_avoidance_weight: float = 1.25
     acceleration_backend: str = "auto"
+    pathfinding_strategy: str = "auto"
     density_slowdown_scale: float = 1.0
     min_crowd_speed_factor: float = 0.25
     # ITED config
@@ -1317,7 +1318,23 @@ class Simulation:
             "agent_decision_events": list(self.agent_decision_events),
             "acceleration_backend": self.acceleration.name,
             "requested_acceleration_backend": self.acceleration.requested_backend,
+            "pathfinding": self.pathfinding_stats(),
         }
+
+    def pathfinding_stats(self) -> dict[str, Any]:
+        if self.navigator is None or not hasattr(self.navigator, "route_stats"):
+            return {
+                "requested_pathfinding_strategy": self.config.pathfinding_strategy,
+                "effective_pathfinding_strategy": "",
+                "last_effective_pathfinding_strategy": "",
+                "route_cache_hits": 0,
+                "route_cache_misses": 0,
+                "path_computations": 0,
+                "pathfinding_fallback_count": 0,
+                "routing_wall_time_s": 0.0,
+                "pathfinding_strategy_counts": {},
+            }
+        return dict(self.navigator.route_stats())
 
 
 def _point3(value) -> np.ndarray:

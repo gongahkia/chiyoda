@@ -35,6 +35,22 @@ def _bundle() -> StudyBundle:
             "layout_width": 3,
             "layout_height": 3,
             "layout_cell_size": 1.0,
+            "requested_pathfinding_strategy": "auto",
+            "effective_pathfinding_strategy": "reverse_dijkstra",
+            "runs": [
+                {
+                    "run_id": "run_1",
+                    "requested_pathfinding_strategy": "auto",
+                    "effective_pathfinding_strategy": "reverse_dijkstra",
+                    "last_effective_pathfinding_strategy": "reverse_dijkstra",
+                    "route_cache_hits": 3,
+                    "route_cache_misses": 2,
+                    "path_computations": 2,
+                    "pathfinding_fallback_count": 0,
+                    "routing_wall_time_s": 0.125,
+                    "pathfinding_strategy_counts": {"reverse_dijkstra": 5},
+                }
+            ],
             "bottleneck_zones": [
                 {"zone_id": "bn_1", "cells": [[1, 1]], "orientation": "vertical"}
             ],
@@ -115,6 +131,9 @@ def test_export_viewer_writes_static_threejs_artifact(tmp_path):
     assert "authoredHostileChannels" in html
     assert "hostile_channels" in html
     assert "dispatcherPanel" in html
+    assert "routingPanel" in html
+    assert "routingStatus" in html
+    assert "routingPathUsage" in html
     assert "dispatchMessageType" in html
     assert "projectDispatchMessage" in html
     assert "commitDispatchMarker" in html
@@ -136,6 +155,9 @@ def test_export_viewer_writes_static_threejs_artifact(tmp_path):
     assert data["frames"][0]["agents"][0]["cell_y"] == 2
     assert data["browser_sim"]["enabled"] is True
     assert data["browser_sim"]["duration_s"] == 60
+    assert data["pathfinding"]["requested_strategy"] == "auto"
+    assert data["pathfinding"]["effective_strategy"] == "reverse_dijkstra"
+    assert data["pathfinding"]["route_cache_hits"] == 3
     assert data["layout"]
     assert data["path_usage"] == [
         {"floor_id": "0", "z": 0.0, "x": 1, "y": 1, "path_usage": 3}

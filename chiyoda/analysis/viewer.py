@@ -87,7 +87,14 @@ def _viewer_payload(bundle: StudyBundle, *, max_frames: int) -> dict[str, Any]:
             "layout_origin_x": bundle.metadata.get("layout_origin_x", 0.0),
             "layout_origin_y": bundle.metadata.get("layout_origin_y", 0.0),
             "station_provenance": bundle.metadata.get("station_provenance"),
+            "requested_pathfinding_strategy": bundle.metadata.get(
+                "requested_pathfinding_strategy", "auto"
+            ),
+            "effective_pathfinding_strategy": bundle.metadata.get(
+                "effective_pathfinding_strategy", ""
+            ),
         },
+        "pathfinding": _pathfinding_payload(bundle.metadata),
         "origin": origin,
         "source_scenario": source_scenario,
         "layout": _layout_cells(str(bundle.metadata.get("layout_text", ""))),
@@ -105,6 +112,39 @@ def _viewer_payload(bundle: StudyBundle, *, max_frames: int) -> dict[str, Any]:
         "interventions": _table_rows(bundle.interventions, run_id=run_id),
         "llm_decisions": _table_rows(bundle.llm_decisions, run_id=run_id),
         "frames": frames,
+    }
+
+
+def _pathfinding_payload(metadata: dict[str, Any]) -> dict[str, Any]:
+    runs = metadata.get("runs", [])
+    representative = metadata.get("representative_run_id")
+    run = {}
+    if isinstance(runs, list):
+        for item in runs:
+            if isinstance(item, dict) and item.get("run_id") == representative:
+                run = item
+                break
+        if not run and runs and isinstance(runs[0], dict):
+            run = runs[0]
+    source = run or metadata
+    return {
+        "requested_strategy": source.get(
+            "requested_pathfinding_strategy",
+            metadata.get("requested_pathfinding_strategy", "auto"),
+        ),
+        "effective_strategy": source.get(
+            "effective_pathfinding_strategy",
+            metadata.get("effective_pathfinding_strategy", ""),
+        ),
+        "last_effective_strategy": source.get(
+            "last_effective_pathfinding_strategy", ""
+        ),
+        "route_cache_hits": int(source.get("route_cache_hits", 0) or 0),
+        "route_cache_misses": int(source.get("route_cache_misses", 0) or 0),
+        "path_computations": int(source.get("path_computations", 0) or 0),
+        "fallback_count": int(source.get("pathfinding_fallback_count", 0) or 0),
+        "routing_wall_time_s": float(source.get("routing_wall_time_s", 0.0) or 0.0),
+        "strategy_counts": source.get("pathfinding_strategy_counts", {}) or {},
     }
 
 
@@ -448,6 +488,7 @@ def _viewer_html() -> str:
     canvas { display: block; width: 100%; height: 100%; }
     .metric { color: #cfcfcf; min-width: 170px; }
     .dispatch { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 6px 8px; background: #282828; border-radius: 4px; }
+    .routing { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 6px 8px; background: #252b30; border-radius: 4px; }
   </style>
 </head>
 <body>
@@ -478,6 +519,11 @@ def _viewer_html() -> str:
     <label><input id="hazards" type="checkbox" checked> hazards</label>
     <label><input id="bottlenecks" type="checkbox" checked> bottlenecks</label>
     <label><input id="pathUsage" type="checkbox"> path usage</label>
+    <details class="routing" id="routingPanel">
+      <summary>Routing</summary>
+      <span class="metric" id="routingStatus">strategy unknown</span>
+      <button id="routingPathUsage" type="button">Toggle usage</button>
+    </details>
     <label><input id="validationOverlay" type="checkbox" checked> validation</label>
     <label><input id="messages" type="checkbox" checked> messages</label>
     <label>floor gap <input id="floorGap" type="range" min="0" max="8" step="0.5" value="2.5"></label>
@@ -1058,9 +1104,23 @@ let playbackFrames = frames;
 const scrub = document.querySelector("#scrub");
 const stepLabel = document.querySelector("#step");
 const simStatus = document.querySelector("#simStatus");
+const routingStatus = document.querySelector("#routingStatus");
+const pathUsageToggle = document.querySelector("#pathUsage");
 scrub.max = Math.max(0, playbackFrames.length - 1);
 let frameIndex = 0;
 let playing = false;
+
+function updateRoutingStatus() {
+  const routing = data.pathfinding || {};
+  const requested = String(routing.requested_strategy || data.metadata.requested_pathfinding_strategy || "auto");
+  const effective = String(routing.effective_strategy || data.metadata.effective_pathfinding_strategy || routing.last_effective_strategy || "unknown");
+  const hits = Number(routing.route_cache_hits || 0);
+  const misses = Number(routing.route_cache_misses || 0);
+  const computed = Number(routing.path_computations || 0);
+  const seconds = Number(routing.routing_wall_time_s || 0);
+  routingStatus.textContent = `${requested} -> ${effective} | cache ${hits}/${hits + misses} | paths ${computed} | ${seconds.toFixed(3)}s`;
+}
+updateRoutingStatus();
 
 function drawFrame(index) {
   agentGroup.clear();
@@ -1097,7 +1157,11 @@ scrub.addEventListener("input", () => {
 });
 document.querySelector("#hazards").addEventListener("change", event => hazardGroup.visible = event.target.checked);
 document.querySelector("#bottlenecks").addEventListener("change", event => bottleneckGroup.visible = event.target.checked);
-document.querySelector("#pathUsage").addEventListener("change", event => pathUsageGroup.visible = event.target.checked);
+pathUsageToggle.addEventListener("change", event => pathUsageGroup.visible = event.target.checked);
+document.querySelector("#routingPathUsage").addEventListener("click", () => {
+  pathUsageToggle.checked = !pathUsageToggle.checked;
+  pathUsageGroup.visible = pathUsageToggle.checked;
+});
 validationOverlay.addEventListener("change", renderValidationOverlay);
 document.querySelector("#messages").addEventListener("change", event => {
   messageGroup.visible = event.target.checked;

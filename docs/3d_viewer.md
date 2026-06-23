@@ -46,6 +46,7 @@ Controls:
 - project dispatcher message deltas before committing a marker,
 - toggle hazards, bottlenecks, messages, source floors, validation, and path
   usage,
+- inspect route strategy/cache metadata in the Routing panel,
 - use `floor gap` to flatten or vertically separate source GeoJSON levels,
 - toggle connector rendering.
 - drag/pan/zoom the camera with OrbitControls; rotation is disabled so the

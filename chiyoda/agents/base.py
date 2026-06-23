@@ -320,6 +320,7 @@ class CognitiveAgent:
             path = navigator.find_optimal_path(
                 simulation._grid_cell(self),
                 [simulation._grid_cell(hostile)],
+                route_kind="target",
             )
             if path:
                 self.current_path = path

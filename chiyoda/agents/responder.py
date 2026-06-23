@@ -59,7 +59,7 @@ class FirstResponder(CognitiveAgent):
             return
         start = simulation._grid_cell(self)
         target = simulation.layout.cell(self.mission_target)
-        path = navigator.find_optimal_path(start, [target])
+        path = navigator.find_optimal_path(start, [target], route_kind="target")
         if path:
             self.current_path = path
             self.path_index = 0

@@ -2,6 +2,8 @@
 
 `scripts/perf_regression_suite.py` runs a fixed smoke set and writes CSV timing
 rows with `elapsed_s`, `rss_delta_mib`, evacuation count, and step count.
+Pathfinding strategy and route-cache counters are exported in run metadata when
+the scenario is built through `ScenarioManager`.
 
 The PR workflow compares the pull request against the current `main` branch:
 
@@ -21,3 +23,7 @@ GitHub Actions artifacts, and appends the Markdown table to the job summary.
 than `10%` slower than the base branch for the same `(scenario, seed)` pair.
 `[Speculation]` The `10%` threshold is an engineering guardrail, not a
 statistical performance claim.
+
+For route-specific profiling, compare `simulation.pathfinding_strategy` values
+from `auto`, `networkx_astar`, `heap_astar`, and `reverse_dijkstra`; see
+[`pathfinding_strategies.md`](./pathfinding_strategies.md).

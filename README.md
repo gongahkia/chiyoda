@@ -178,6 +178,8 @@ Important documentation:
   current runtime semantics and known viewer/modeling gaps.
 * [`docs/scenario_assertions.md`](./docs/scenario_assertions.md) describes
   runtime assertion checks, toy calibration scenarios, and profiling scripts.
+* [`docs/pathfinding_strategies.md`](./docs/pathfinding_strategies.md) describes
+  route strategy selection and performance checks.
 * [`docs/standards_research.md`](./docs/standards_research.md) records the
   GTFS Pathways, OSM indoor, and pedestrian LOS references used to shape the
   multi-floor schema.
