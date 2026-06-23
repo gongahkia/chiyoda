@@ -356,6 +356,12 @@ def compare_studies(
         "variant_study_name": variant_bundle.metadata.get("study_name"),
         "created_at_utc": datetime.now(UTC).isoformat(),
     }
+    from chiyoda.analysis.reports import llm_cost_report
+
+    metadata["llm_cost_report"] = {
+        "baseline": llm_cost_report(baseline_bundle.llm_calls),
+        "variant": llm_cost_report(variant_bundle.llm_calls),
+    }
 
     return ComparisonResult(
         metadata=metadata,

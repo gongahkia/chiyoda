@@ -429,6 +429,10 @@ class StudyBundle:
         out.mkdir(parents=True, exist_ok=True)
         tables_dir.mkdir(parents=True, exist_ok=True)
 
+        from chiyoda.analysis.reports import llm_cost_report
+
+        self.metadata = dict(self.metadata)
+        self.metadata["llm_cost_report"] = llm_cost_report(self.llm_calls)
         (out / "metadata.json").write_text(
             json.dumps(self.metadata, indent=2, default=str) + "\n"
         )

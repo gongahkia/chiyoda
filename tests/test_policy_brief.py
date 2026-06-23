@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 from click.testing import CliRunner
 import pandas as pd
 
@@ -38,6 +40,21 @@ def test_compare_cli_exports_policy_brief_by_default(tmp_path):
     assert result.exit_code == 0, result.output
     assert (out_dir / "policy_brief.md").exists()
     assert (out_dir / "figures" / "06_scenario_comparison.png").exists()
+    assert "LLM Provider Cost" in (out_dir / "policy_brief.md").read_text()
+
+
+def test_study_bundle_export_includes_llm_cost_report(tmp_path):
+    bundle = _study_bundle("llm", 25.0, 0.3, 0.1)
+
+    bundle.export(tmp_path, table_formats=("csv",))
+    metadata = json.loads((tmp_path / "metadata.json").read_text())
+    report = metadata["llm_cost_report"]
+
+    assert report["total"]["calls"] == 1
+    assert report["total"]["estimated_total_tokens"] == 125
+    assert report["total"]["estimated_usd"] == 0.0002
+    assert report["by_provider_model"][0]["provider"] == "openai"
+    assert report["by_provider_model"][0]["model"] == "gpt-test"
 
 
 def _comparison_result() -> ComparisonResult:
@@ -83,6 +100,22 @@ def _study_bundle(name: str, total_time: float, exposure: float, harm: float) ->
         dwell_samples=pd.DataFrame(),
         exits=pd.DataFrame(),
         hazards=pd.DataFrame(),
+        llm_calls=pd.DataFrame(
+            [
+                {
+                    "provider": "openai",
+                    "model": "gpt-test",
+                    "cache_status": "miss",
+                    "estimated_input_tokens": 100,
+                    "estimated_output_tokens": 25,
+                    "estimated_total_tokens": 125,
+                    "estimated_usd": 0.0002,
+                    "raw_input_tokens": 90,
+                    "raw_output_tokens": 20,
+                    "raw_total_tokens": 110,
+                }
+            ]
+        ),
     )
 
 

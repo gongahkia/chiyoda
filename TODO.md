@@ -43,12 +43,6 @@ Conventions:
 
 ## P8 — LLM layer hardening
 
-### [ ] T8.3 Provider-cost transparency
-- Scope: add a per-study cost report (tokens, USD estimate, provider, model). Already partly there (budget guard) — surface in reports.
-- Files: `chiyoda/analysis/reports.py`.
-- Acceptance:
-  - Cost summary appears in study bundle and policy brief.
-
 ---
 
 ## P9 — Documentation and positioning

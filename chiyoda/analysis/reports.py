@@ -39,6 +39,44 @@ def export_policy_brief(
     return path
 
 
+def llm_cost_report(llm_calls: pd.DataFrame) -> dict[str, object]:
+    total = {
+        "calls": 0,
+        "estimated_input_tokens": 0,
+        "estimated_output_tokens": 0,
+        "estimated_total_tokens": 0,
+        "estimated_usd": 0.0,
+        "raw_input_tokens": 0,
+        "raw_output_tokens": 0,
+        "raw_total_tokens": 0,
+    }
+    if llm_calls.empty:
+        return {"total": total, "by_provider_model": []}
+    frame = llm_calls.copy()
+    for column in ("provider", "model"):
+        if column not in frame.columns:
+            frame[column] = ""
+    numeric = [column for column in total if column != "calls"]
+    for column in numeric:
+        if column not in frame.columns:
+            frame[column] = 0
+        frame[column] = pd.to_numeric(frame[column], errors="coerce").fillna(0)
+
+    rows: list[dict[str, object]] = []
+    for keys, group in frame.groupby(["provider", "model"], dropna=False, sort=True):
+        provider, model = keys
+        rows.append(
+            {
+                "provider": _text_value(provider),
+                "model": _text_value(model),
+                "calls": int(len(group)),
+                **_llm_cost_sums(group),
+            }
+        )
+    total = {"calls": int(len(frame)), **_llm_cost_sums(frame)}
+    return {"total": total, "by_provider_model": rows}
+
+
 def export_figures(
     artifact: StudyBundle | ComparisonResult,
     output_dir: str | Path | None = None,
@@ -111,6 +149,7 @@ def _policy_brief_markdown(result: ComparisonResult) -> str:
             f"| {row['label']} | {row['baseline']} | {row['variant']} | "
             f"{row['delta']} | {row['uncertainty']} |"
         )
+    lines.extend(_llm_cost_brief_lines(result.metadata.get("llm_cost_report")))
     lines.extend(
         [
             "",
@@ -121,6 +160,39 @@ def _policy_brief_markdown(result: ComparisonResult) -> str:
         ]
     )
     return "\n".join(lines) + "\n"
+
+
+def _llm_cost_brief_lines(raw_report: object) -> list[str]:
+    if not isinstance(raw_report, dict):
+        return []
+    series_reports = [
+        (series, raw_report.get(series))
+        for series in ("baseline", "variant")
+        if isinstance(raw_report.get(series), dict)
+    ]
+    rows: list[str] = []
+    for series, report in series_reports:
+        for item in report.get("by_provider_model", []):
+            if not isinstance(item, dict):
+                continue
+            rows.append(
+                "| "
+                f"{series} | {_text_value(item.get('provider'))} | "
+                f"{_text_value(item.get('model'))} | "
+                f"{int(_number(item.get('calls')))} | "
+                f"{int(_number(item.get('estimated_total_tokens')))} | "
+                f"{_format_usd(_number(item.get('estimated_usd')))} |"
+            )
+    if not rows:
+        return []
+    return [
+        "",
+        "## LLM Provider Cost",
+        "",
+        "| Series | Provider | Model | Calls | Est. tokens | Est. USD |",
+        "|---|---|---|---:|---:|---:|",
+        *rows,
+    ]
 
 
 def _series_row(summary: pd.DataFrame, series: str) -> pd.Series:
@@ -199,6 +271,14 @@ def _number(value: object, fallback: float = 0.0) -> float:
     return parsed
 
 
+def _text_value(value: object) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, float) and not np.isfinite(value):
+        return ""
+    return str(value)
+
+
 def _format_value(value: float, unit: str) -> str:
     text = f"{value:.3f}".rstrip("0").rstrip(".")
     return f"{text}{unit}" if unit else text
@@ -207,6 +287,29 @@ def _format_value(value: float, unit: str) -> str:
 def _format_signed(value: float, unit: str) -> str:
     sign = "+" if value >= 0 else ""
     return f"{sign}{_format_value(value, unit)}"
+
+
+def _format_usd(value: float) -> str:
+    if abs(value) < 0.01:
+        return f"${value:.6f}"
+    return f"${value:.2f}"
+
+
+def _llm_cost_sums(frame: pd.DataFrame) -> dict[str, object]:
+    integer_columns = [
+        "estimated_input_tokens",
+        "estimated_output_tokens",
+        "estimated_total_tokens",
+        "raw_input_tokens",
+        "raw_output_tokens",
+        "raw_total_tokens",
+    ]
+    values = {
+        column: int(frame[column].sum())
+        for column in integer_columns
+    }
+    values["estimated_usd"] = float(frame["estimated_usd"].sum())
+    return values
 
 
 def generate_report(simulation, output_path: str | Path) -> list[Path]:
