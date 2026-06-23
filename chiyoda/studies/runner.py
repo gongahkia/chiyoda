@@ -12,7 +12,11 @@ import numpy as np
 import pandas as pd
 import yaml
 
-from chiyoda.analysis.metrics import SimulationAnalytics, causal_delta_payload
+from chiyoda.analysis.metrics import (
+    SimulationAnalytics,
+    causal_delta_payload,
+    equity_subgroup_metrics,
+)
 from chiyoda.scenarios.manager import ScenarioManager
 from chiyoda.studies.models import ComparisonResult, StudyBundle
 from chiyoda.studies.schema import (
@@ -54,6 +58,7 @@ def run_study(
     intent_path_usage_frames: list[pd.DataFrame] = []
     agent_steps_frames: list[pd.DataFrame] = []
     agents_frames: list[pd.DataFrame] = []
+    equity_subgroups_frames: list[pd.DataFrame] = []
     bottlenecks_frames: list[pd.DataFrame] = []
     dwell_frames: list[pd.DataFrame] = []
     exits_frames: list[pd.DataFrame] = []
@@ -123,6 +128,7 @@ def run_study(
             intent_path_usage_frames.append(tables["intent_path_usage"])
             agent_steps_frames.append(tables["agent_steps"])
             agents_frames.append(tables["agents"])
+            equity_subgroups_frames.append(tables["equity_subgroups"])
             bottlenecks_frames.append(tables["bottlenecks"])
             dwell_frames.append(tables["dwell_samples"])
             exits_frames.append(tables["exits"])
@@ -218,6 +224,7 @@ def run_study(
         intent_path_usage=_concat(intent_path_usage_frames),
         agent_steps=_concat(agent_steps_frames),
         agents=_concat(agents_frames),
+        equity_subgroups=_concat(equity_subgroups_frames),
         bottlenecks=_concat(bottlenecks_frames),
         dwell_samples=_concat(dwell_frames),
         exits=_concat(exits_frames),
@@ -875,11 +882,18 @@ def _collect_run_tables(
                 "role_in_group": getattr(agent, "role_in_group", "solo"),
                 "mobility_class": getattr(agent, "mobility_class", "standard"),
                 "evacuation_mode": getattr(agent, "evacuation_mode", "pedestrian"),
+                "age_band": str(getattr(agent, "age_band", "") or ""),
                 "separation_anxiety_threshold": float(
                     getattr(agent, "separation_anxiety_threshold", 1.5)
                 ),
                 "breathing_height_m": float(getattr(agent, "breathing_height_m", 1.5)),
+                "familiarity": float(getattr(agent, "familiarity", 0.5)),
                 "homophily_weight": float(getattr(agent, "homophily_weight", 0.0)),
+                "impairment": float(
+                    getattr(getattr(agent, "physiology", None), "impairment_level", 0.0)
+                ),
+                "is_responder": bool(getattr(agent, "is_responder", False)),
+                "is_hostile": bool(getattr(agent, "is_hostile", False)),
                 "evacuated": bool(agent.has_evacuated),
                 "travel_time_s": float(agent.travel_time_s),
                 "hazard_exposure": float(agent.hazard_exposure),
@@ -1046,13 +1060,16 @@ def _collect_run_tables(
         )
         llm_call_rows.append(item)
 
+    agents_frame = pd.DataFrame(agent_rows)
+
     return {
         "summary": summary_row,
         "steps": pd.DataFrame(steps_rows),
         "cells": pd.DataFrame(cells_rows),
         "intent_path_usage": _intent_path_usage_frame(intent_path_usage_rows),
         "agent_steps": pd.DataFrame(agent_step_rows),
-        "agents": pd.DataFrame(agent_rows),
+        "agents": agents_frame,
+        "equity_subgroups": equity_subgroup_metrics(agents_frame),
         "bottlenecks": pd.DataFrame(bottleneck_rows),
         "dwell_samples": pd.DataFrame(dwell_rows),
         "exits": pd.DataFrame(exit_rows),

@@ -19,6 +19,14 @@ from chiyoda.analysis.metrics import SimulationAnalytics
 from chiyoda.studies.models import ComparisonResult, StudyBundle
 from chiyoda.studies.runner import _collect_run_tables
 
+_REPORT_EQUITY_TAGS = {
+    "impaired",
+    "elderly",
+    "low_familiarity",
+    "medium_familiarity",
+    "high_familiarity",
+}
+
 
 def export_policy_brief(
     result: ComparisonResult,
@@ -65,6 +73,7 @@ def export_figures(
             "13_information_safety_frontier",
             _figure_information_safety_frontier(artifact),
         ),
+        ("14_equity_subgroups", _figure_equity_subgroups(artifact)),
     ]
 
     for name, fig in figures:
@@ -1152,4 +1161,55 @@ def _figure_information_safety_frontier(bundle: StudyBundle) -> plt.Figure:
     axes[1].set_xlabel("Variant")
     axes[1].set_ylabel("Value")
     fig.suptitle("13 Information Safety Frontier", fontsize=16, fontweight="bold")
+    return fig
+
+
+def _figure_equity_subgroups(bundle: StudyBundle) -> plt.Figure:
+    fig, axes = plt.subplots(1, 2, figsize=(14, 5), constrained_layout=True)
+    equity = getattr(bundle, "equity_subgroups", pd.DataFrame()).copy()
+    if equity.empty:
+        for axis in axes:
+            axis.text(
+                0.5,
+                0.5,
+                "No equity subgroup telemetry available",
+                ha="center",
+                va="center",
+            )
+            axis.axis("off")
+        fig.suptitle("14 Equity Subgroups", fontsize=16, fontweight="bold")
+        return fig
+
+    plot = equity[equity["subgroup_tag"].isin(_REPORT_EQUITY_TAGS)].copy()
+    if plot.empty:
+        plot = equity.copy()
+    plot["subgroup"] = plot["subgroup_tag"].astype(str)
+
+    sns.barplot(
+        data=plot,
+        x="subgroup",
+        y="evacuation_rate_gap_vs_run",
+        hue="variant_name",
+        ax=axes[0],
+    )
+    axes[0].axhline(0.0, color="#333333", linewidth=0.8)
+    axes[0].tick_params(axis="x", rotation=25)
+    axes[0].set_title("Evacuation-rate gap vs run")
+    axes[0].set_xlabel("Subgroup")
+    axes[0].set_ylabel("Rate gap")
+    axes[0].legend(loc="best")
+
+    sns.barplot(
+        data=plot,
+        x="subgroup",
+        y="equity_time_gap_s",
+        hue="variant_name",
+        ax=axes[1],
+    )
+    axes[1].tick_params(axis="x", rotation=25)
+    axes[1].set_title("Travel-time gap vs run")
+    axes[1].set_xlabel("Subgroup")
+    axes[1].set_ylabel("Seconds")
+    axes[1].legend(loc="best")
+    fig.suptitle("14 Equity Subgroups", fontsize=16, fontweight="bold")
     return fig

@@ -29,6 +29,7 @@ def test_empty_optional_tables_export_readable_csv_headers(tmp_path):
     for table_name in (
         "dwell_samples",
         "intent_path_usage",
+        "equity_subgroups",
         "measurements",
         "gossip",
         "interventions",

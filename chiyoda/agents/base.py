@@ -80,6 +80,7 @@ class CognitiveAgent:
     separation_anxiety_threshold: float = 1.5
     mobility_class: str = "standard"
     breathing_height_m: float = 1.5
+    age_band: str = ""
 
     # navigation
     current_path: list[tuple] = field(default_factory=list)

@@ -569,6 +569,11 @@ class ScenarioManager:
                 cohort_cfg.get("breathing_height_m", mobility["breathing_height_m"])
             )
             homophily_profile = dict(cohort_cfg.get("homophily_profile", {}) or {})
+            age_band = str(
+                cohort_cfg.get("age_band", homophily_profile.get("age_band", ""))
+            ).lower()
+            if age_band:
+                homophily_profile.setdefault("age_band", age_band)
             homophily_weight = float(cohort_cfg.get("homophily_weight", 0.0))
             exit_affinity = float(cohort_cfg.get("exit_affinity", 0.5))
             herding = float(cohort_cfg.get("herding", 0.5))
@@ -603,6 +608,7 @@ class ScenarioManager:
                     separation_anxiety_threshold=separation_threshold,
                     mobility_class=mobility_class,
                     breathing_height_m=breathing_height,
+                    age_band=age_band,
                     base_vision_radius=base_vision_radius,
                     vision_radius=base_vision_radius,
                     homophily_profile=homophily_profile,

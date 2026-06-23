@@ -35,13 +35,6 @@ Conventions:
 
 ## P6 — Telemetry, causality, and analysis
 
-### [ ] T6.3 Equity reporting beyond aggregate
-- Scope: equity term in composite score is single-number. Add subgroup breakdowns (impaired, elderly, familiarity prior).
-- Files: `chiyoda/analysis/metrics.py`, reports.
-- Acceptance:
-  - Per-subgroup metrics in study bundle.
-  - Spec doc explains what each subgroup tag means.
-
 ---
 
 ## P7 — Reproducibility, CI, performance

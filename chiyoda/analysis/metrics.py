@@ -9,6 +9,7 @@ import json
 from typing import Any
 
 import numpy as np
+import pandas as pd
 
 CAUSAL_DELTA_METRICS = (
     "agents_evacuated",
@@ -17,6 +18,184 @@ CAUSAL_DELTA_METRICS = (
     "harmful_convergence_index",
     "information_safety_efficiency",
 )
+ELDERLY_AGE_BANDS = {
+    "senior",
+    "elderly",
+    "older_adult",
+    "older-adult",
+    "older adult",
+    "65+",
+}
+EQUITY_IMPAIRMENT_THRESHOLD = 0.1
+FAMILIARITY_LOW_MAX = 0.33
+FAMILIARITY_HIGH_MIN = 0.67
+
+
+def equity_subgroup_metrics(agents: pd.DataFrame) -> pd.DataFrame:
+    if agents.empty:
+        return pd.DataFrame()
+
+    frame = agents.copy()
+    if "is_responder" in frame.columns:
+        frame = frame[~_bool_series(frame["is_responder"])]
+    if "is_hostile" in frame.columns:
+        frame = frame[~_bool_series(frame["is_hostile"])]
+    if frame.empty:
+        return pd.DataFrame()
+
+    identity_defaults = {
+        "study_name": "unknown",
+        "scenario_name": "unknown",
+        "variant_name": "baseline",
+        "seed": np.nan,
+        "run_id": "run_1",
+    }
+    for column, default in identity_defaults.items():
+        if column not in frame.columns:
+            frame[column] = default
+
+    for column, default in {
+        "impairment": 0.0,
+        "familiarity": np.nan,
+        "age_band": "",
+        "evacuated": False,
+        "travel_time_s": 0.0,
+        "hazard_exposure": 0.0,
+    }.items():
+        if column not in frame.columns:
+            frame[column] = default
+
+    frame["impairment"] = pd.to_numeric(
+        frame["impairment"], errors="coerce"
+    ).fillna(0.0)
+    frame["familiarity"] = pd.to_numeric(frame["familiarity"], errors="coerce")
+    frame["travel_time_s"] = pd.to_numeric(
+        frame["travel_time_s"], errors="coerce"
+    ).fillna(0.0)
+    frame["hazard_exposure"] = pd.to_numeric(
+        frame["hazard_exposure"], errors="coerce"
+    ).fillna(0.0)
+    frame["evacuated"] = _bool_series(frame["evacuated"])
+    frame["age_band"] = frame["age_band"].fillna("").astype(str).str.lower()
+
+    rows: list[dict[str, Any]] = []
+    group_cols = ["study_name", "scenario_name", "variant_name", "seed", "run_id"]
+    for run_key, run_frame in frame.groupby(group_cols, dropna=False, sort=False):
+        run_meta = dict(zip(group_cols, run_key, strict=False))
+        run_evacuated = run_frame["evacuated"]
+        run_rate = float(run_evacuated.mean()) if len(run_frame) else 0.0
+        run_travel = run_frame.loc[run_evacuated, "travel_time_s"]
+        run_mean_travel = float(run_travel.mean()) if not run_travel.empty else 0.0
+        for subgroup_type, subgroup_tag, subgroup_label, mask in _equity_masks(
+            run_frame
+        ):
+            subgroup = run_frame[mask]
+            if subgroup.empty:
+                continue
+            rows.append(
+                _equity_row(
+                    run_meta,
+                    subgroup_type=subgroup_type,
+                    subgroup_tag=subgroup_tag,
+                    subgroup_label=subgroup_label,
+                    subgroup=subgroup,
+                    run_evacuation_rate=run_rate,
+                    run_mean_travel_s=run_mean_travel,
+                )
+            )
+    return pd.DataFrame(rows)
+
+
+def _equity_masks(frame: pd.DataFrame):
+    impaired = frame["impairment"] >= EQUITY_IMPAIRMENT_THRESHOLD
+    age_known = frame["age_band"].str.len() > 0
+    elderly = frame["age_band"].isin(ELDERLY_AGE_BANDS)
+    familiarity = frame["familiarity"]
+    return [
+        ("impairment", "impaired", "Final impairment >= 0.1", impaired),
+        ("impairment", "not_impaired", "Final impairment < 0.1", ~impaired),
+        ("age", "elderly", "age_band in elderly labels", elderly),
+        ("age", "non_elderly", "Known non-elderly age_band", age_known & ~elderly),
+        ("age", "unknown_age", "No age_band exported", ~age_known),
+        (
+            "familiarity_prior",
+            "low_familiarity",
+            "familiarity < 0.33",
+            familiarity < FAMILIARITY_LOW_MAX,
+        ),
+        (
+            "familiarity_prior",
+            "medium_familiarity",
+            "0.33 <= familiarity < 0.67",
+            (familiarity >= FAMILIARITY_LOW_MAX)
+            & (familiarity < FAMILIARITY_HIGH_MIN),
+        ),
+        (
+            "familiarity_prior",
+            "high_familiarity",
+            "familiarity >= 0.67",
+            familiarity >= FAMILIARITY_HIGH_MIN,
+        ),
+        (
+            "familiarity_prior",
+            "unknown_familiarity",
+            "No familiarity prior exported",
+            familiarity.isna(),
+        ),
+    ]
+
+
+def _equity_row(
+    run_meta: dict[str, Any],
+    *,
+    subgroup_type: str,
+    subgroup_tag: str,
+    subgroup_label: str,
+    subgroup: pd.DataFrame,
+    run_evacuation_rate: float,
+    run_mean_travel_s: float,
+) -> dict[str, Any]:
+    evacuated = subgroup["evacuated"]
+    travel = subgroup.loc[evacuated, "travel_time_s"]
+    exposure = subgroup["hazard_exposure"]
+    mean_travel = float(travel.mean()) if not travel.empty else 0.0
+    return {
+        **run_meta,
+        "subgroup_type": subgroup_type,
+        "subgroup_tag": subgroup_tag,
+        "subgroup_label": subgroup_label,
+        "agent_count": int(len(subgroup)),
+        "evacuated_count": int(evacuated.sum()),
+        "remaining_count": int((~evacuated).sum()),
+        "evacuation_rate": float(evacuated.mean()) if len(subgroup) else 0.0,
+        "run_evacuation_rate": run_evacuation_rate,
+        "evacuation_rate_gap_vs_run": (
+            float(evacuated.mean()) - run_evacuation_rate if len(subgroup) else 0.0
+        ),
+        "mean_travel_time_s": mean_travel,
+        "p95_travel_time_s": (
+            float(np.percentile(travel, 95)) if not travel.empty else 0.0
+        ),
+        "run_mean_travel_time_s": run_mean_travel_s,
+        "travel_time_gap_vs_run_s": mean_travel - run_mean_travel_s,
+        "equity_time_gap_s": abs(mean_travel - run_mean_travel_s),
+        "mean_hazard_exposure": float(exposure.mean()) if len(exposure) else 0.0,
+        "p95_hazard_exposure": (
+            float(np.percentile(exposure, 95)) if len(exposure) else 0.0
+        ),
+        "mean_impairment": float(subgroup["impairment"].mean()),
+        "mean_familiarity": (
+            float(subgroup["familiarity"].mean())
+            if subgroup["familiarity"].notna().any()
+            else 0.0
+        ),
+    }
+
+
+def _bool_series(series: pd.Series) -> pd.Series:
+    if pd.api.types.is_bool_dtype(series):
+        return series.fillna(False)
+    return series.fillna(False).astype(str).str.lower().isin({"1", "true", "yes"})
 
 
 def causal_delta_payload(
