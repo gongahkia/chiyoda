@@ -39,12 +39,6 @@ Conventions:
 
 ## P7 — Reproducibility, CI, performance
 
-### [ ] T7.4 Determinism tests
-- Scope: lock RNG paths; add a test that two runs with same seed and config produce byte-identical telemetry tables.
-- Files: `tests/test_determinism.py` (new).
-- Acceptance:
-  - Test passes for ≥3 baseline scenarios across Python 3.10–3.12.
-
 ---
 
 ## P8 — LLM layer hardening
