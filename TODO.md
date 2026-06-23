@@ -47,14 +47,6 @@ Conventions:
 
 ## P9 — Documentation and positioning
 
-### [ ] T9.1 Related-work table in paper outline
-- Scope: `docs/paper_outline_info_warfare.md` lists "related work anchors" but does not contrast with JuPedSim, Vadere, BDI-bombing crowd model, psychology-driven LLM panic predictor, LLM-emergency policy work.
-- Files: `docs/paper_outline_info_warfare.md`.
-- Acceptance:
-  - Side-by-side feature table (information layer, hostile channel, hazard model, validation, benchmark) vs ≥4 named systems.
-  - Each row cited.
-- Refs: JuPedSim, Vadere, Frontiers 2023 bombing BDI, arXiv 2505.16455, arXiv 2509.21868.
-
 ### [ ] T9.2 Threats-to-validity expansion
 - Scope: current TTV list is short. Expand to cover calibration provenance, hazard fidelity, LLM nondeterminism, hostile-channel construct validity.
 - Files: `docs/paper_outline_info_warfare.md`, `docs/causal_layer_assumptions.md`.
