@@ -27,14 +27,6 @@ Conventions:
 
 ## P4 — Standards & data ingestion
 
-### [ ] T4.1 First-class GTFS Pathways indoor importer
-- Scope: GeoJSON converter is "pragmatic, not standards-complete" (`docs/implementation_audit.md`). Promote GTFS Pathways indoor to first-class — full level/pathway/node coverage.
-- Files: new `chiyoda/environment/gtfs_pathways.py`, CLI `chiyoda convert-gtfs <dir> <out.yaml>`.
-- Acceptance:
-  - One real station feed converted (e.g., a published GTFS Pathways sample).
-  - Level/pathway IDs preserved in scenario metadata.
-- Refs: GTFS Pathways spec.
-
 ### [ ] T4.2 IFC import promoted from optional
 - Scope: optional IFC importer (commit `caa5658`) is the right primitive — wire to scenario validation, role inference, and viewer.
 - Files: `chiyoda/environment/layout.py`, IFC importer module.

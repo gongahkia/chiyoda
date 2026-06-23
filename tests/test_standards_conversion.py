@@ -6,6 +6,7 @@ import yaml
 from click.testing import CliRunner
 
 from chiyoda.cli import cli
+from chiyoda.environment.gtfs_pathways import strict_scenario_from_gtfs_pathways
 from chiyoda.scenarios.manager import ScenarioManager
 from chiyoda.scenarios.standards import strict_layout_from_geojson
 from chiyoda.scenarios.validation import validate_scenario_config
@@ -152,3 +153,58 @@ def test_convert_layout_cli_fetches_osm_bbox(monkeypatch, tmp_path):
     assert "node/20" in provenance["osm_objects"]
     assert "ODbL" in provenance["license"]
     assert payload["layout"]["floors"][0]["id"] == "0"
+
+
+def test_gtfs_pathways_sample_converts_and_preserves_ids():
+    payload = strict_scenario_from_gtfs_pathways(
+        "data/gtfs_pathways_samples/waterfront_pathways",
+        name="waterfront_pathways",
+        cell_size=2.0,
+    )
+    scenario = payload["scenario"]
+    result = validate_scenario_config(scenario)
+    metadata = scenario["metadata"]["gtfs_pathways"]
+
+    assert not result.has_errors
+    assert {floor["id"] for floor in scenario["layout"]["floors"]} == {
+        "surface",
+        "concourse",
+    }
+    assert {item["level_id"] for item in metadata["levels"]} == {
+        "surface",
+        "concourse",
+    }
+    assert {item["pathway_id"] for item in metadata["pathways"]} >= {
+        "stairsA",
+        "escalatorA",
+        "elevatorA",
+        "underground_walkway1",
+    }
+    assert {connector["id"] for connector in scenario["layout"]["connectors"]} == {
+        "stairsA",
+        "escalatorA",
+        "elevatorA",
+    }
+
+
+def test_convert_gtfs_cli_writes_strict_scenario(tmp_path):
+    output = tmp_path / "waterfront.yaml"
+
+    result = CliRunner().invoke(
+        cli,
+        [
+            "convert-gtfs",
+            "data/gtfs_pathways_samples/waterfront_pathways",
+            str(output),
+            "--name",
+            "waterfront_pathways",
+            "--cell-size",
+            "2",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = yaml.safe_load(output.read_text())["scenario"]
+    assert payload["metadata"]["gtfs_pathways"]["levels"][0]["level_id"] == "concourse"
+    assert payload["metadata"]["gtfs_pathways"]["pathways"][0]["pathway_id"]
+    assert payload["layout"]["connectors"]

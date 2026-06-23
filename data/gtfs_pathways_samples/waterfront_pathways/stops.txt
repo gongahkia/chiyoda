@@ -1,0 +1,10 @@
+stop_id,stop_name,stop_lat,stop_lon,location_type,parent_station,wheelchair_boarding,level_id
+12034,Waterfront Station,49.285687,-123.111773,1,,,surface
+90,Waterfront Station Stairs Entrance on Granville,49.285054,-123.114375,2,12034,2,surface
+91,Waterfront Station Escalator Entrance on Granville,49.285061,-123.114395,2,12034,2,surface
+92,Waterfront Station Elevator Entrance on Granville,49.285257,-123.114163,2,12034,1,surface
+95,Waterfront Station Granville Stair Landing,49.285169,-123.114198,3,12034,,concourse
+96,Waterfront Station Granville Escalator Landing,49.285183,-123.114222,3,12034,,concourse
+99,Elevator_concourse,49.285257,-123.114163,3,12034,,concourse
+97,Underground walkway turn,49.286253,-123.112660,3,12034,,concourse
+98,Underground walkway end,49.286106,-123.112428,3,12034,,concourse

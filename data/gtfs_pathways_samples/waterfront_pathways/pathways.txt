@@ -1,0 +1,8 @@
+pathway_id,from_stop_id,to_stop_id,pathway_mode,is_bidirectional,traversal_time,min_width
+stairsA,90,95,2,1,45,1.2
+escalatorA,96,91,4,0,35,1.0
+elevatorA,92,99,5,1,30,1.4
+underground_walkway1,99,96,1,1,20,1.5
+underground_walkway2,96,95,1,1,10,1.5
+underground_walkway3,95,97,1,1,40,1.5
+underground_walkway4,97,98,1,1,20,1.5

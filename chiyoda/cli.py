@@ -13,6 +13,7 @@ from chiyoda.analysis.trajectory_reference import (
     load_trajectory_table,
 )
 from chiyoda.analysis.viewer import export_viewer
+from chiyoda.environment.gtfs_pathways import strict_scenario_from_gtfs_pathways
 from chiyoda.information.route_choice_calibration import (
     fit_route_choice_priors,
     load_figshare_route_choice_records,
@@ -310,6 +311,28 @@ def convert_layout_command(
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(yaml.safe_dump(payload, sort_keys=False))
     click.echo(f"Exported strict scenario to {output}")
+
+
+@cli.command("convert-gtfs")
+@click.argument("feed_dir")
+@click.argument("output_file")
+@click.option("--name", default="gtfs_pathways_import", help="Scenario name")
+@click.option("--cell-size", default=1.0, type=float, help="Raster cell size")
+@click.option("--padding", default=1, type=int, help="Raster padding in cells")
+def convert_gtfs_command(feed_dir, output_file, name, cell_size, padding):
+    """Convert GTFS Pathways stops/levels/pathways into strict scenario YAML."""
+    import yaml
+
+    payload = strict_scenario_from_gtfs_pathways(
+        feed_dir,
+        name=name,
+        cell_size=cell_size,
+        padding=padding,
+    )
+    output = Path(output_file)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(yaml.safe_dump(payload, sort_keys=False))
+    click.echo(f"Exported GTFS Pathways scenario to {output}")
 
 
 @cli.command("calibrate-route-choice")
