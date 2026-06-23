@@ -1,0 +1,32 @@
+{
+  "algorithm": "PPO",
+  "backend": "stable-baselines3",
+  "trained_with_stable_baselines3": false,
+  "fallback": "deterministic_discrete_policy",
+  "fallback_reason": "CI artifact for environments without optional stable-baselines3/gymnasium dependencies",
+  "scenario_file": "scenarios/benchmark/transit_cbrn.yaml",
+  "total_timesteps": 0,
+  "seed": 42,
+  "actions": [
+    {
+      "policy": "none"
+    },
+    {
+      "policy": "global_broadcast",
+      "start_step": 0,
+      "interval_steps": 5,
+      "budget_per_interval": 1,
+      "message_radius": 8.0,
+      "credibility": 0.88
+    },
+    {
+      "policy": "density_aware",
+      "start_step": 0,
+      "interval_steps": 5,
+      "budget_per_interval": 1,
+      "message_radius": 8.0,
+      "credibility": 0.86
+    }
+  ],
+  "action_index": 1
+}

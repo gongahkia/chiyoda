@@ -20,6 +20,13 @@ from chiyoda.information.route_choice_calibration import (
     write_route_choice_fit,
 )
 from chiyoda.information.warfare import AttackerObjective
+from chiyoda.policies import (
+    DEFAULT_PPO_BASELINE,
+    evaluate_baseline,
+    oracle_policy_for_scenario,
+    policy_from_artifact,
+    train_ppo_baseline,
+)
 from chiyoda.scenarios.assertions import evaluate_scenario_assertions
 from chiyoda.scenarios.manager import ScenarioManager
 from chiyoda.scenarios.standards import (
@@ -440,6 +447,53 @@ def benchmark():
 def benchmark_submit_command(policy_path, suite, out_dir):
     """Run a benchmark submission and export leaderboard artifacts."""
     result = submit_policy(policy_path=policy_path, suite=suite, output_dir=out_dir)
+    click.echo(json.dumps(result["leaderboard"], indent=2, sort_keys=True))
+
+
+@cli.group("baseline")
+def baseline_group():
+    """Train and evaluate shipped baseline policies."""
+    pass
+
+
+@baseline_group.command("train")
+@click.option("--kind", type=click.Choice(["ppo"]), default="ppo")
+@click.option("--scenario", default="scenarios/benchmark/transit_cbrn.yaml")
+@click.option("--timesteps", default=256, type=int)
+@click.option("--seed", default=42, type=int)
+@click.option("-o", "--out", "out_dir", default="data/baselines")
+@click.option("--require-sb3", is_flag=True, help="Fail if stable-baselines3 is absent")
+def baseline_train_command(kind, scenario, timesteps, seed, out_dir, require_sb3):
+    """Train or materialize a baseline policy artifact."""
+    del kind
+    artifact = train_ppo_baseline(
+        scenario_file=scenario,
+        output_dir=out_dir,
+        total_timesteps=timesteps,
+        seed=seed,
+        require_sb3=require_sb3,
+    )
+    click.echo(json.dumps(artifact, indent=2, sort_keys=True))
+
+
+@baseline_group.command("eval")
+@click.option("--baseline", type=click.Choice(["oracle", "ppo"]), default="oracle")
+@click.option("--suite", default="v1")
+@click.option("--weights", default=str(DEFAULT_PPO_BASELINE))
+@click.option("-o", "--out", "out_dir", default="out/baseline_eval")
+def baseline_eval_command(baseline, suite, weights, out_dir):
+    """Evaluate a shipped baseline policy on a benchmark suite."""
+    if baseline == "oracle":
+        selector = oracle_policy_for_scenario
+    else:
+        policy = policy_from_artifact(weights)
+        selector = lambda scenario: policy
+    result = evaluate_baseline(
+        baseline=baseline,
+        suite=suite,
+        output_dir=out_dir,
+        policy_selector=selector,
+    )
     click.echo(json.dumps(result["leaderboard"], indent=2, sort_keys=True))
 
 
