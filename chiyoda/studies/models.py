@@ -7,6 +7,12 @@ from pathlib import Path
 import pandas as pd
 from pandas.errors import EmptyDataError
 
+from chiyoda.information.llm import (
+    LLM_AUDIT_CHAIN_HASH,
+    LLM_AUDIT_CHAIN_PREV_HASH,
+    with_llm_audit_chain,
+)
+
 TABLE_COLUMNS: dict[str, list[str]] = {
     "summary": [
         "study_name",
@@ -342,6 +348,8 @@ TABLE_COLUMNS: dict[str, list[str]] = {
         "raw_input_tokens",
         "raw_output_tokens",
         "raw_total_tokens",
+        LLM_AUDIT_CHAIN_PREV_HASH,
+        LLM_AUDIT_CHAIN_HASH,
     ],
 }
 
@@ -426,6 +434,9 @@ class StudyBundle:
         )
 
         tables = self.tables()
+        tables["llm_calls"] = with_llm_audit_chain(
+            _with_known_columns("llm_calls", tables["llm_calls"])
+        )
         for table_name, frame in tables.items():
             for table_format in table_formats:
                 _write_table(frame, tables_dir, table_name, table_format)

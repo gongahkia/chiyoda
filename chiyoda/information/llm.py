@@ -24,6 +24,10 @@ Point = tuple
 DEFAULT_OPENAI_MODEL = "gpt-5.5"
 DEFAULT_ANTHROPIC_MODEL = "claude-sonnet-4-5-20250929"
 DEFAULT_ANTHROPIC_VERSION = "2023-06-01"
+LLM_AUDIT_CHAIN_PREV_HASH = "audit_chain_prev_hash"
+LLM_AUDIT_CHAIN_HASH = "audit_chain_hash"
+LLM_AUDIT_GENESIS = "chiyoda_llm_calls_genesis_v1"
+LLM_AUDIT_CHAIN_COLUMNS = (LLM_AUDIT_CHAIN_PREV_HASH, LLM_AUDIT_CHAIN_HASH)
 ATTACK_TEXT_MARKERS = (
     ("aitm_interception", "intercepted"),
     ("aitm_interception", "agent-in-the-middle"),
@@ -183,6 +187,26 @@ class LLMGenerationRecord:
             ),
             judge_verdict=payload.get("judge_verdict"),
         )
+
+
+@dataclass(frozen=True)
+class LLMAuditVerification:
+    ok: bool
+    row_count: int
+    first_bad_row: int | None = None
+    reason: str = ""
+    expected: str = ""
+    actual: str = ""
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "ok": self.ok,
+            "row_count": self.row_count,
+            "first_bad_row": self.first_bad_row,
+            "reason": self.reason,
+            "expected": self.expected,
+            "actual": self.actual,
+        }
 
 
 @dataclass(frozen=True)
@@ -598,6 +622,67 @@ def attack_pattern_reasons(text: str) -> list[str]:
     return reasons
 
 
+def with_llm_audit_chain(frame) -> Any:
+    result = frame.copy()
+    result = result.drop(
+        columns=[
+            column
+            for column in LLM_AUDIT_CHAIN_COLUMNS
+            if column in result.columns
+        ]
+    )
+    previous = LLM_AUDIT_GENESIS
+    previous_hashes: list[str] = []
+    current_hashes: list[str] = []
+    for record in result.to_dict(orient="records"):
+        current = _llm_audit_row_hash(previous, record)
+        previous_hashes.append(previous)
+        current_hashes.append(current)
+        previous = current
+    result[LLM_AUDIT_CHAIN_PREV_HASH] = previous_hashes
+    result[LLM_AUDIT_CHAIN_HASH] = current_hashes
+    return result
+
+
+def verify_llm_audit_chain(frame) -> LLMAuditVerification:
+    row_count = int(len(frame))
+    missing = [
+        column for column in LLM_AUDIT_CHAIN_COLUMNS if column not in frame.columns
+    ]
+    if missing:
+        return LLMAuditVerification(
+            ok=row_count == 0,
+            row_count=row_count,
+            reason="missing_chain_columns",
+            expected=",".join(missing),
+        )
+    previous = LLM_AUDIT_GENESIS
+    for row_number, record in enumerate(frame.to_dict(orient="records")):
+        actual_previous = str(record.get(LLM_AUDIT_CHAIN_PREV_HASH, ""))
+        if actual_previous != previous:
+            return LLMAuditVerification(
+                ok=False,
+                row_count=row_count,
+                first_bad_row=row_number,
+                reason="previous_hash_mismatch",
+                expected=previous,
+                actual=actual_previous,
+            )
+        expected_hash = _llm_audit_row_hash(previous, record)
+        actual_hash = str(record.get(LLM_AUDIT_CHAIN_HASH, ""))
+        if actual_hash != expected_hash:
+            return LLMAuditVerification(
+                ok=False,
+                row_count=row_count,
+                first_bad_row=row_number,
+                reason="row_hash_mismatch",
+                expected=expected_hash,
+                actual=actual_hash,
+            )
+        previous = actual_hash
+    return LLMAuditVerification(ok=True, row_count=row_count)
+
+
 def validator_settings(profile: str) -> ValidatorSettings:
     if profile == "strict":
         return ValidatorSettings(profile=profile, min_confidence=0.5)
@@ -809,6 +894,50 @@ def _to_jsonable(value: Any) -> Any:
     if isinstance(value, dict):
         return {str(key): _to_jsonable(item) for key, item in value.items()}
     return value
+
+
+def _llm_audit_row_hash(previous_hash: str, record: dict[str, Any]) -> str:
+    payload = {
+        str(key): _canonical_llm_audit_value(value)
+        for key, value in record.items()
+        if key not in LLM_AUDIT_CHAIN_COLUMNS
+    }
+    text = json.dumps(
+        {"previous_hash": previous_hash, "row": payload},
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def _canonical_llm_audit_value(value: Any) -> Any:
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return value
+    if hasattr(value, "item"):
+        try:
+            return _canonical_llm_audit_value(value.item())
+        except (AttributeError, TypeError, ValueError):
+            pass
+    if isinstance(value, int):
+        return int(value)
+    if isinstance(value, float):
+        if value != value:
+            return None
+        if value.is_integer():
+            return int(value)
+        return float(value)
+    if isinstance(value, tuple):
+        return [_canonical_llm_audit_value(item) for item in value]
+    if isinstance(value, list):
+        return [_canonical_llm_audit_value(item) for item in value]
+    if isinstance(value, dict):
+        return {
+            str(key): _canonical_llm_audit_value(item)
+            for key, item in value.items()
+        }
+    return str(value) if value.__class__.__module__.startswith("pandas") else value
 
 
 def _extract_response_text(payload: dict[str, Any]) -> str:

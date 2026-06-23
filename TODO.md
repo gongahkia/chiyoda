@@ -43,13 +43,6 @@ Conventions:
 
 ## P8 — LLM layer hardening
 
-### [ ] T8.2 Replay audit completeness
-- Scope: `llm_calls` export exists. Add tamper-evident hashing (hash chain) per study.
-- Files: `chiyoda/information/llm.py`, study bundle writer.
-- Acceptance:
-  - Each `llm_calls` row contains a cryptographic chain link; a corrupted row breaks verification.
-  - CLI `chiyoda audit llm_calls <bundle>` reports verification result.
-
 ### [ ] T8.3 Provider-cost transparency
 - Scope: add a per-study cost report (tokens, USD estimate, provider, model). Already partly there (budget guard) — surface in reports.
 - Files: `chiyoda/analysis/reports.py`.

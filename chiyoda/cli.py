@@ -20,6 +20,7 @@ from chiyoda.information.route_choice_calibration import (
     write_normalized_records,
     write_route_choice_fit,
 )
+from chiyoda.information.llm import verify_llm_audit_chain
 from chiyoda.information.warfare import AttackerObjective
 from chiyoda.policies import (
     DEFAULT_PPO_BASELINE,
@@ -53,6 +54,33 @@ from chiyoda.studies import (
 def cli():
     """Chiyoda v3 — ITED crowd dynamics simulation and research toolkit."""
     pass
+
+
+@cli.group("audit")
+def audit_group():
+    """Audit exported study evidence."""
+    pass
+
+
+@audit_group.command("llm_calls")
+@click.argument("bundle")
+@click.option("--json", "json_output", is_flag=True, help="Emit JSON verdict")
+@click.pass_context
+def audit_llm_calls_command(ctx, bundle, json_output):
+    """Verify the llm_calls tamper-evident hash chain."""
+    study_bundle = StudyBundle.load(bundle)
+    result = verify_llm_audit_chain(study_bundle.llm_calls)
+    payload = result.to_dict()
+    if json_output:
+        click.echo(json.dumps(payload, indent=2, sort_keys=True))
+    else:
+        status = "OK" if result.ok else "ERROR"
+        detail = f" rows={result.row_count}"
+        if not result.ok:
+            detail += f" row={result.first_bad_row} reason={result.reason}"
+        click.echo(f"{status}: llm_calls audit{detail}")
+    if not result.ok:
+        ctx.exit(1)
 
 
 def _normalized_values(

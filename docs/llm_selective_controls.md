@@ -77,3 +77,4 @@ Study bundles include `tables/llm_calls.*` with one row per generated/replayed/b
 - `agent_decision`
 
 Rows include provider/model, cache key/status, validation status/reasons, fallback flag, prompt style, estimated tokens/USD, budget reason, and raw usage tokens when a provider response supplies them.
+Each exported row also includes `audit_chain_prev_hash` and `audit_chain_hash`; `chiyoda audit llm_calls <bundle>` recomputes the SHA-256 chain and reports the first corrupted row.
