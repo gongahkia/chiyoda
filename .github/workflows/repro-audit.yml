@@ -1,0 +1,25 @@
+name: reproducibility audit
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    paths:
+      - ".github/workflows/repro-audit.yml"
+      - "data/benchmark/**"
+      - "docs/benchmark/**"
+      - "docs/reproducibility_kit.md"
+      - "scenarios/benchmark/**"
+      - "scenarios/transit_shooter.yaml"
+      - "scripts/repro_audit.py"
+
+jobs:
+  hash-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: recompute reproducibility hashes
+        run: python scripts/repro_audit.py

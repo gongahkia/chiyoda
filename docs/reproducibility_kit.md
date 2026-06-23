@@ -95,12 +95,12 @@ Current local smoke leaderboard:
 Current SHA-256 hashes for core benchmark artifacts:
 
 ```text
-f39c6c2c3131eee6b13cc2af8a1f56812e77c7a5c8ab2027c47b4c5bf9068442  docs/benchmark/benchmark_spec_v1.json
+15c54b6567649a3130058afd361e24c16c3cb54e2714ba59633fee8da04fc948  docs/benchmark/benchmark_spec_v1.json
 21e9304bc09bf11a3015392c37c133318dee92e0e736b965dd7c4e90a2c19ea5  docs/benchmark/benchmark_spec_v1.schema.json
 3d0bcf2f114a6bb45467cf59e112849bae94f8e4036346d46fc53fa6bd3bcd71  data/benchmark/v1/reference_trajectories.parquet
 6b79684b522e4cd7411e348ab77e7a5466e3d6fb7cccb416e618173edb4a4724  scenarios/benchmark/transit_cbrn.yaml
 94b930be39baa0b2931f6f0c6be2e3494964f83d7d813bdf0a50d479528143b1  scenarios/transit_shooter.yaml
-98808bbd582b3795e43c6606d63e11972caa65abdfcb45f716457950aea0fb32  scenarios/benchmark/transit_mixed.yaml
+a3e2aa50cb2a17f327cd4634ef96be793079f42ad2ba624f2ca397c52466971f  scenarios/benchmark/transit_mixed.yaml
 ```
 
 Regenerate this block with:
@@ -113,6 +113,12 @@ shasum -a 256 \
   scenarios/benchmark/transit_cbrn.yaml \
   scenarios/transit_shooter.yaml \
   scenarios/benchmark/transit_mixed.yaml
+```
+
+Audit this block in CI with:
+
+```sh
+python scripts/repro_audit.py
 ```
 
 ## Replay Checks

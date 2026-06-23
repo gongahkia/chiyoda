@@ -39,12 +39,6 @@ Conventions:
 
 ## P7 — Reproducibility, CI, performance
 
-### [ ] T7.2 Reproducibility manifest hash audit on every release
-- Scope: `docs/reproducibility_kit.md` exists. Add CI step that recomputes manifest and fails if drift.
-- Files: `.github/workflows/`, `scripts/repro_audit.py` (new).
-- Acceptance:
-  - CI job on `main` recomputes scenario + benchmark hashes and posts a diff if mismatched.
-
 ### [ ] T7.3 Perf regression gating
 - Scope: `scripts/perf_regression_suite.py` exists. Wire it into CI with explicit thresholds.
 - Files: `.github/workflows/`, `docs/perf_baselines.md` (new).
