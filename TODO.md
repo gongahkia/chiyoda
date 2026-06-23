@@ -15,14 +15,6 @@ Conventions:
 
 ## P1 — Validation: drop the "not externally validated" caveat
 
-### [ ] T1.3 FDS / CFAST scalar field agreement study
-- Scope: import a published FDS smoke scenario field, run Chiyoda, report agreement on visibility and gas concentration profile vs FDS reference.
-- Files: `chiyoda/environment/hazards.py` (extend imported-field hooks), `scenarios/validation_fds_room_corridor.yaml`, `data/fds_reference/` (read-only), `docs/fds_agreement.md` (new).
-- Acceptance:
-  - Doc shows two RMSE / max-error metrics with explicit pass criteria.
-  - Doc labels remaining mismatches as `[Inference]` where root cause not measured.
-- Refs: NIST FDS user guide; existing `docs/hazard_field_import.md`.
-
 ### [ ] T1.4 Wuppertal expansion: density and TT-distribution agreement
 - Scope: current Wuppertal check is single-metric (`[Unverified]`). Add per-density-band travel-time distributions and KS-test against reference.
 - Files: `chiyoda/analysis/external_validation.py`, `scenarios/validation_wuppertal_bottleneck.yaml`.

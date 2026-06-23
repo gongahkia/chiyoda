@@ -469,6 +469,10 @@ class ImportedHazardField:
     origin: tuple[float, float] = (0.0, 0.0)
     cell_size: float = 1.0
     visibility_grid: np.ndarray | None = None
+    gas_concentration_grid: np.ndarray | None = None
+    visibility_m_grid: np.ndarray | None = None
+    obscuration_grid: np.ndarray | None = None
+    maximum_visibility_m: float = 30.0
     source: dict[str, Any] = field(default_factory=dict)
     base_z: float = 0.0
     height_aware: bool = False
@@ -511,21 +515,56 @@ class ImportedHazardField:
     def from_json(cls, path: str | Path, *, kind: str = "GAS") -> ImportedHazardField:
         source = Path(path)
         payload = json.loads(source.read_text())
-        intensity = _numeric_grid(
-            payload.get("intensity") or payload.get("intensity_grid")
+        gas_payload = _payload_value(
+            payload,
+            "gas_concentration",
+            "gas_concentration_grid",
+            "gas_concentration_kg_kg",
+            "soot_mass_fraction",
         )
-        visibility_payload = payload.get("visibility") or payload.get("visibility_grid")
+        intensity_payload = _payload_value(payload, "intensity", "intensity_grid")
+        gas_concentration = (
+            _numeric_grid(gas_payload) if gas_payload is not None else None
+        )
+        intensity = (
+            _numeric_grid(intensity_payload)
+            if intensity_payload is not None
+            else _normalized_grid(gas_concentration)
+        )
+        visibility_payload = _payload_value(payload, "visibility", "visibility_grid")
         visibility = (
             _numeric_grid(visibility_payload)
             if visibility_payload is not None
             else None
         )
-        if visibility is not None and visibility.shape != intensity.shape:
-            raise ValueError("Visibility grid must match intensity grid shape")
+        visibility_m_payload = _payload_value(
+            payload, "visibility_m", "visibility_m_grid", "visibility_distance_m"
+        )
+        visibility_m = (
+            _numeric_grid(visibility_m_payload)
+            if visibility_m_payload is not None
+            else None
+        )
+        obscuration_payload = _payload_value(
+            payload, "obscuration", "obscuration_grid", "obscuration_percent_m"
+        )
+        obscuration = (
+            _numeric_grid(obscuration_payload)
+            if obscuration_payload is not None
+            else None
+        )
+        _validate_optional_grid("visibility", visibility, intensity.shape)
+        _validate_optional_grid("gas concentration", gas_concentration, intensity.shape)
+        _validate_optional_grid("visibility_m", visibility_m, intensity.shape)
+        _validate_optional_grid("obscuration", obscuration, intensity.shape)
         return cls(
             kind=str(payload.get("kind", kind)),
             intensity_grid=intensity,
             visibility_grid=visibility,
+            gas_concentration_grid=gas_concentration,
+            visibility_m_grid=visibility_m,
+            obscuration_grid=obscuration,
+            maximum_visibility_m=float(payload.get("maximum_visibility_m", 30.0)),
             origin=tuple(float(v) for v in payload.get("origin", (0.0, 0.0))),
             cell_size=float(payload.get("cell_size", 1.0)),
             source=dict(payload.get("source", {})),
@@ -549,23 +588,79 @@ class ImportedHazardField:
         ys = sorted({int(row["y"]) for row in rows})
         x_index = {x: idx for idx, x in enumerate(xs)}
         y_index = {y: idx for idx, y in enumerate(ys)}
+        fieldnames = rows[0].keys()
+        gas_column = _first_column(
+            fieldnames,
+            (
+                "gas_concentration_kg_kg",
+                "gas_concentration",
+                "soot_mass_fraction",
+                "mass_fraction",
+            ),
+        )
+        visibility_m_column = _first_column(
+            fieldnames, ("visibility_m", "visibility_distance_m")
+        )
+        obscuration_column = _first_column(
+            fieldnames, ("obscuration_percent_m", "obscuration")
+        )
+        maximum_visibility_m = 30.0
         intensity = np.zeros((len(ys), len(xs)), dtype=float)
         visibility = np.ones((len(ys), len(xs)), dtype=float)
+        gas_concentration = (
+            np.zeros((len(ys), len(xs)), dtype=float) if gas_column else None
+        )
+        visibility_m = (
+            np.full((len(ys), len(xs)), maximum_visibility_m, dtype=float)
+            if visibility_m_column
+            else None
+        )
+        obscuration = (
+            np.zeros((len(ys), len(xs)), dtype=float) if obscuration_column else None
+        )
+        has_intensity = False
         has_visibility = False
         for row in rows:
             x = x_index[int(row["x"])]
             y = y_index[int(row["y"])]
-            intensity[y, x] = float(row.get("intensity", 0.0) or 0.0)
+            if row.get("intensity") not in (None, ""):
+                intensity[y, x] = float(row["intensity"])
+                has_intensity = True
             if row.get("visibility") not in (None, ""):
                 visibility[y, x] = float(row["visibility"])
                 has_visibility = True
+            if gas_concentration is not None and gas_column is not None:
+                gas_concentration[y, x] = float(row.get(gas_column, 0.0) or 0.0)
+            if visibility_m is not None and visibility_m_column is not None:
+                visibility_m[y, x] = float(
+                    row.get(visibility_m_column, maximum_visibility_m)
+                    or maximum_visibility_m
+                )
+            if obscuration is not None and obscuration_column is not None:
+                obscuration[y, x] = float(row.get(obscuration_column, 0.0) or 0.0)
+        if not has_intensity:
+            if gas_concentration is None:
+                raise ValueError("Hazard field CSV requires intensity or gas scalar")
+            intensity = _normalized_grid(gas_concentration)
+        if not has_visibility and visibility_m is not None:
+            visibility = np.clip(visibility_m / maximum_visibility_m, 0.0, 1.0)
+            has_visibility = True
         return cls(
             kind=kind,
             intensity_grid=intensity,
             visibility_grid=visibility if has_visibility else None,
+            gas_concentration_grid=gas_concentration,
+            visibility_m_grid=visibility_m,
+            obscuration_grid=obscuration,
+            maximum_visibility_m=maximum_visibility_m,
             origin=(float(min(xs)), float(min(ys))),
             cell_size=1.0,
-            source={"path": str(source)},
+            source={
+                "path": str(source),
+                "gas_column": gas_column,
+                "visibility_m_column": visibility_m_column,
+                "obscuration_column": obscuration_column,
+            },
         )
 
     def step(self, dt: float, simulation) -> None:
@@ -600,6 +695,50 @@ class ImportedHazardField:
             )
         )
 
+    def gas_concentration_at(self, point: np.ndarray) -> float:
+        if not self.active or self.gas_concentration_grid is None:
+            return 0.0
+        cell = self._cell_for_point(point)
+        if cell is None:
+            return 0.0
+        x, y = cell
+        return float(self.gas_concentration_grid[y, x]) * _height_factor(
+            float(_point3(point)[2]) - self.base_z, self
+        )
+
+    def visibility_m_at(self, point: np.ndarray) -> float:
+        maximum = max(float(self.maximum_visibility_m), 1e-6)
+        if not self.active:
+            return maximum
+        if self.visibility_m_grid is None:
+            return self.visibility_at(point) * maximum
+        cell = self._cell_for_point(point)
+        if cell is None:
+            return maximum
+        x, y = cell
+        raw = float(np.clip(self.visibility_m_grid[y, x], 0.0, maximum))
+        obscuration = maximum - raw
+        return float(
+            np.clip(
+                maximum
+                - obscuration
+                * _height_factor(float(_point3(point)[2]) - self.base_z, self),
+                0.0,
+                maximum,
+            )
+        )
+
+    def obscuration_at(self, point: np.ndarray) -> float:
+        if not self.active or self.obscuration_grid is None:
+            return 0.0
+        cell = self._cell_for_point(point)
+        if cell is None:
+            return 0.0
+        x, y = cell
+        return float(self.obscuration_grid[y, x]) * _height_factor(
+            float(_point3(point)[2]) - self.base_z, self
+        )
+
     def affects(self, point: np.ndarray) -> bool:
         return self.intensity_at(point) > 0.0
 
@@ -617,6 +756,22 @@ class ImportedHazardField:
             "field_shape": tuple(int(v) for v in self.intensity_grid.shape),
             "source": dict(self.source),
             "imported_field": True,
+            "max_gas_concentration": (
+                float(np.nanmax(self.gas_concentration_grid))
+                if self.gas_concentration_grid is not None
+                else 0.0
+            ),
+            "min_visibility_m": (
+                float(np.nanmin(self.visibility_m_grid))
+                if self.visibility_m_grid is not None
+                else self.maximum_visibility_m
+            ),
+            "max_obscuration_percent_m": (
+                float(np.nanmax(self.obscuration_grid))
+                if self.obscuration_grid is not None
+                else 0.0
+            ),
+            "maximum_visibility_m": self.maximum_visibility_m,
             "height_aware": self.height_aware,
             "layer_base_m": self.layer_base_m,
             "layer_top_m": self.layer_top_m,
@@ -642,6 +797,38 @@ def _numeric_grid(values: Any) -> np.ndarray:
     if grid.size == 0:
         raise ValueError("Hazard field grids must not be empty")
     return grid
+
+
+def _payload_value(payload: dict[str, Any], *keys: str) -> Any:
+    for key in keys:
+        if key in payload and payload[key] is not None:
+            return payload[key]
+    return None
+
+
+def _normalized_grid(values: np.ndarray | None) -> np.ndarray:
+    if values is None:
+        raise ValueError("Hazard field requires an intensity or gas scalar grid")
+    maximum = float(np.nanmax(values)) if values.size else 0.0
+    if maximum <= 0.0:
+        return np.zeros_like(values, dtype=float)
+    return np.clip(values / maximum, 0.0, 1.0)
+
+
+def _validate_optional_grid(
+    name: str, grid: np.ndarray | None, shape: tuple[int, int]
+) -> None:
+    if grid is not None and grid.shape != shape:
+        raise ValueError(f"{name} grid must match intensity grid shape")
+
+
+def _first_column(fieldnames: Any, candidates: tuple[str, ...]) -> str | None:
+    available = {str(name).lower(): str(name) for name in fieldnames}
+    for candidate in candidates:
+        match = available.get(candidate.lower())
+        if match is not None:
+            return match
+    return None
 
 
 def _point3(value: Any) -> np.ndarray:

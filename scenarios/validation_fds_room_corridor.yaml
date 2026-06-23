@@ -1,0 +1,42 @@
+scenario:
+  name: validation_fds_room_corridor
+  description: "Static FDS scalar import agreement harness using smoke_detector reference values."
+  metadata:
+    validation_scope: fds_scalar_import_agreement
+    external_reference: data/fds_reference/smoke_detector_reference.csv
+    fds_case: https://raw.githubusercontent.com/firemodels/fds/master/Verification/Detectors/smoke_detector.fds
+  layout:
+    cell_size: 1.0
+    floors:
+      - id: "0"
+        z: 0.0
+        text: |
+          XXXXXXXXXXXX
+          X@..E......X
+          XXXXXXXXXXXX
+  population:
+    total: 1
+    cohorts:
+      - name: fds_scalar_probe
+        count: 1
+        base_speed: 1.2
+        familiarity: 1.0
+        spawn_cells:
+          - {floor: "0", x: 1, y: 1}
+  hazards:
+    - type: SMOKE
+      field:
+        file: data/fds_reference/smoke_detector_reference.csv
+  information:
+    mode: perfect
+  behavior:
+    freeze_probability: 0.0
+  simulation:
+    max_steps: 80
+    dt: 0.2
+    random_seed: 42
+    density_slowdown_scale: 0.0
+    min_crowd_speed_factor: 1.0
+  assertions:
+    evacuated: {eq: 1}
+    remaining: {eq: 0}

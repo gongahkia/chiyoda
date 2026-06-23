@@ -32,8 +32,11 @@ JSON format:
 }
 ```
 
-CSV format requires `x`, `y`, and `intensity` columns, plus optional
-`visibility`. Imported fields affect:
+CSV format requires `x`, `y`, and either `intensity` or a gas scalar column
+(`gas_concentration_kg_kg`, `gas_concentration`, `soot_mass_fraction`, or
+`mass_fraction`). Optional columns: `visibility`, `visibility_m`,
+`visibility_distance_m`, `obscuration_percent_m`, and `obscuration`.
+Imported fields affect:
 
 - agent hazard exposure and physiology,
 - information visibility,
@@ -88,3 +91,7 @@ The imported field is treated as a static hazard for the run; agent
 hazard exposure, vision decay, and route hazard penalty all consult
 `intensity_at` against the grid rather than the stylized spreading
 `Hazard` model.
+
+For a sourced scalar-field agreement harness, see
+`data/fds_reference/smoke_detector_reference.csv`,
+`scenarios/validation_fds_room_corridor.yaml`, and `docs/fds_agreement.md`.
