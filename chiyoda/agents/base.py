@@ -99,6 +99,10 @@ class CognitiveAgent:
     # ITED: information
     beliefs: BeliefVector = field(default_factory=BeliefVector)
     belief_revision: BeliefRevisionModel = field(default_factory=BeliefRevisionModel)
+    _padm_receive_count: int = 0
+    _padm_understand_count: int = 0
+    _padm_personalize_count: int = 0
+    _padm_decide_count: int = 0
     familiarity: float = 0.5  # [0,1] how well agent knows the environment
     credibility: float = 0.5  # [0,1] how much other agents trust this one
     gossip_radius: float = 2.0
@@ -111,6 +115,7 @@ class CognitiveAgent:
     intention: str = INTENTION_EVACUATE
     rationality: float = 1.0  # effective rationality (base * physiology)
     base_rationality: float = 0.8
+    personalized_risk: float = 0.0
     explore_direction: np.ndarray | None = None  # random walk direction when exploring
     explore_steps_remaining: int = 0
 
@@ -157,8 +162,23 @@ class CognitiveAgent:
         self.vision_radius = self.effective_vision_radius()
         self.hazard_speed_factor = self.physiology.speed_factor
 
+    def padm_personalize(self, simulation) -> None:
+        """PADM personalize hook: bind interpreted threat to this agent."""
+        perceived = 0.0
+        if hasattr(self, "beliefs"):
+            perceived = self.beliefs.perceived_hazard_at(
+                tuple(float(v) for v in self.pos)
+            )
+        observed = float(getattr(self, "current_hazard_load", 0.0))
+        retained = float(getattr(self, "hazard_risk", 0.0))
+        self.personalized_risk = min(1.0, max(perceived, observed, retained))
+
     def update_intention(self, simulation) -> None:
         """BDI decision cycle: update intention based on beliefs and state."""
+        self.padm_decide(simulation)
+
+    def padm_decide(self, simulation) -> None:
+        """PADM decide hook: choose an intent from personalized beliefs."""
         if self.physiology.incapacitated:
             self.intention = INTENTION_FREEZE
             return

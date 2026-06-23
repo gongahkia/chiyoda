@@ -83,6 +83,10 @@ TABLE_COLUMNS: dict[str, list[str]] = {
         "belief_accuracy",
         "impairment",
         "decision_mode",
+        "padm_receive",
+        "padm_understand",
+        "padm_personalize",
+        "padm_decide",
     ],
     "agents": [
         "study_name",

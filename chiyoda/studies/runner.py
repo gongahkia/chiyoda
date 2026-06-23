@@ -674,6 +674,12 @@ def _collect_run_tables(
                     "belief_accuracy": float(getattr(agent, "belief_accuracy", 1.0)),
                     "impairment": float(getattr(agent, "impairment", 0.0)),
                     "decision_mode": str(getattr(agent, "decision_mode", "EVACUATE")),
+                    "padm_receive": int(getattr(agent, "padm_receive", 0)),
+                    "padm_understand": int(getattr(agent, "padm_understand", 0)),
+                    "padm_personalize": int(
+                        getattr(agent, "padm_personalize", 0)
+                    ),
+                    "padm_decide": int(getattr(agent, "padm_decide", 0)),
                 }
             )
 

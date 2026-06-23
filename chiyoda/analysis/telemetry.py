@@ -59,6 +59,10 @@ class AgentStepTelemetry:
     belief_accuracy: float = 1.0
     impairment: float = 0.0
     decision_mode: str = "EVACUATE"
+    padm_receive: int = 0
+    padm_understand: int = 0
+    padm_personalize: int = 0
+    padm_decide: int = 0
 
 
 @dataclass

@@ -38,6 +38,7 @@ from chiyoda.information.llm import (
     validate_generated_message,
     validator_settings,
 )
+from chiyoda.information.padm import PADMStageConfig
 from chiyoda.information.propagation import GossipModel
 
 __all__ = [
@@ -70,4 +71,5 @@ __all__ = [
     "load_openai_model",
     "validate_generated_message",
     "validator_settings",
+    "PADMStageConfig",
 ]

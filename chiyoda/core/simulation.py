@@ -28,6 +28,16 @@ from chiyoda.analysis.telemetry import (
 )
 from chiyoda.information.entropy import agent_entropy, belief_accuracy, global_entropy
 from chiyoda.information.field import InformationField
+from chiyoda.information.padm import (
+    PADM_DECIDE,
+    PADM_PERSONALIZE,
+    PADM_RECEIVE,
+    PADM_STAGES,
+    PADMStageConfig,
+    padm_counter_values,
+    padm_stage_enabled,
+    record_padm_stage,
+)
 from chiyoda.information.propagation import GossipConfig, GossipModel
 from chiyoda.information.warfare import evaluate_pending_provenance
 from chiyoda.navigation.connectors import ConnectorQueue, ConnectorQueueEvent
@@ -49,6 +59,7 @@ class SimulationConfig:
     observation_radius: float = 5.0
     gossip_radius: float = 2.0
     beacon_radius: float = 8.0
+    padm_enabled_stages: tuple[str, ...] = PADM_STAGES
 
 
 class Simulation:
@@ -89,6 +100,9 @@ class Simulation:
         self.exits = exits
         self.hazards = hazards or []
         self.config = config or SimulationConfig()
+        self.padm_stage_config = PADMStageConfig.from_enabled(
+            self.config.padm_enabled_stages
+        )
         self.acceleration = create_acceleration_backend(
             self.config.acceleration_backend
         )
@@ -471,7 +485,8 @@ class Simulation:
             effective_vision = (
                 getattr(agent, "vision_radius", self.config.observation_radius) * vis
             )
-            evaluate_pending_provenance(agent, self, effective_vision)
+            if padm_stage_enabled(self.padm_stage_config, PADM_RECEIVE):
+                evaluate_pending_provenance(agent, self, effective_vision)
             observation_batch.append(
                 (
                     agent,
@@ -480,38 +495,28 @@ class Simulation:
                 )
             )
 
-        self.info_field.observe_many(
-            [
-                (agent.beliefs, agent_pos, effective_vision)
-                for agent, agent_pos, effective_vision in observation_batch
-            ],
+        self.info_field.padm_receive(
+            observation_batch,
             exit_positions,
             self.hazards,
             self.current_step,
+            stage_config=self.padm_stage_config,
         )
 
-        for agent, agent_pos, _effective_vision in observation_batch:
-            # beacon broadcast
-            self.info_field.beacon_broadcast(
-                agent.beliefs,
-                agent_pos,
-            )
-
-        self.info_field.decay_beliefs_batch(
-            [
-                agent.beliefs
-                for agent, _agent_pos, _effective_vision in observation_batch
-            ],
+        self.info_field.padm_understand(
+            observation_batch,
             dt,
+            stage_config=self.padm_stage_config,
         )
 
-        for agent, _agent_pos, _effective_vision in observation_batch:
-            # update intention based on beliefs
-            if hasattr(agent, "update_intention"):
-                agent.update_intention(self)
+        self._padm_personalize(observation_batch)
+        self._padm_decide(observation_batch)
 
         # agent-to-agent gossip
-        if self.spatial_index is not None:
+        if (
+            self.spatial_index is not None
+            and padm_stage_enabled(self.padm_stage_config, PADM_RECEIVE)
+        ):
             for agent in active:
                 if not hasattr(agent, "beliefs"):
                     continue
@@ -563,6 +568,28 @@ class Simulation:
                                 "distance": dist,
                             }
                         )
+
+    def _padm_personalize(
+        self, observation_batch: list[tuple[Any, tuple[float, ...], float]]
+    ) -> None:
+        if not padm_stage_enabled(self.padm_stage_config, PADM_PERSONALIZE):
+            return
+        for agent, _agent_pos, _effective_vision in observation_batch:
+            record_padm_stage(agent, PADM_PERSONALIZE)
+            if hasattr(agent, "padm_personalize"):
+                agent.padm_personalize(self)
+
+    def _padm_decide(
+        self, observation_batch: list[tuple[Any, tuple[float, ...], float]]
+    ) -> None:
+        if not padm_stage_enabled(self.padm_stage_config, PADM_DECIDE):
+            return
+        for agent, _agent_pos, _effective_vision in observation_batch:
+            record_padm_stage(agent, PADM_DECIDE)
+            if hasattr(agent, "padm_decide"):
+                agent.padm_decide(self)
+            elif hasattr(agent, "update_intention"):
+                agent.update_intention(self)
 
     def _empty_bottleneck_metrics(self) -> dict[str, BottleneckStepTelemetry]:
         return {
@@ -666,6 +693,7 @@ class Simulation:
                 imp = agent.physiology.impairment_level
             if hasattr(agent, "intention"):
                 intention = agent.intention
+            padm_counts = padm_counter_values(agent)
 
             agents_tel.append(
                 AgentStepTelemetry(
@@ -694,6 +722,10 @@ class Simulation:
                     belief_accuracy=acc,
                     impairment=imp,
                     decision_mode=intention,
+                    padm_receive=padm_counts["padm_receive"],
+                    padm_understand=padm_counts["padm_understand"],
+                    padm_personalize=padm_counts["padm_personalize"],
+                    padm_decide=padm_counts["padm_decide"],
                 )
             )
 
@@ -1246,6 +1278,10 @@ class Simulation:
                     "belief_accuracy": a.belief_accuracy,
                     "impairment": a.impairment,
                     "decision_mode": a.decision_mode,
+                    "padm_receive": a.padm_receive,
+                    "padm_understand": a.padm_understand,
+                    "padm_personalize": a.padm_personalize,
+                    "padm_decide": a.padm_decide,
                 }
                 for a in latest.agents
             ],

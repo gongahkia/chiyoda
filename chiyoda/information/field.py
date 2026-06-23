@@ -17,6 +17,14 @@ from typing import Any
 
 import numpy as np
 
+from chiyoda.information.padm import (
+    PADM_RECEIVE,
+    PADM_UNDERSTAND,
+    PADMStageConfig,
+    padm_stage_enabled,
+    record_padm_stage,
+)
+
 
 @dataclass
 class ExitBelief:
@@ -241,6 +249,46 @@ class InformationField:
 
         for belief in beliefs:
             belief.last_update_step = current_step
+
+    def padm_receive(
+        self,
+        observations: list[tuple[Any, tuple[float, ...], float]],
+        exits: list[tuple],
+        hazards: list,
+        current_step: int,
+        *,
+        stage_config: PADMStageConfig | None = None,
+    ) -> None:
+        """PADM receive hook: environmental cues, signage, and PA inputs."""
+        if not observations or not padm_stage_enabled(stage_config, PADM_RECEIVE):
+            return
+        for agent, _agent_pos, _vision_radius in observations:
+            record_padm_stage(agent, PADM_RECEIVE)
+        self.observe_many(
+            [
+                (agent.beliefs, agent_pos, vision_radius)
+                for agent, agent_pos, vision_radius in observations
+            ],
+            exits,
+            hazards,
+            current_step,
+        )
+        for agent, agent_pos, _vision_radius in observations:
+            self.beacon_broadcast(agent.beliefs, agent_pos)
+
+    def padm_understand(
+        self,
+        observations: list[tuple[Any, tuple[float, ...], float]],
+        dt: float,
+        *,
+        stage_config: PADMStageConfig | None = None,
+    ) -> None:
+        """PADM understand hook: keep interpreted beliefs time-aware."""
+        if not observations or not padm_stage_enabled(stage_config, PADM_UNDERSTAND):
+            return
+        for agent, _agent_pos, _vision_radius in observations:
+            record_padm_stage(agent, PADM_UNDERSTAND)
+        self.decay_beliefs_batch([agent.beliefs for agent, _, _ in observations], dt)
 
     def _apply_hazard_observation(
         self,
