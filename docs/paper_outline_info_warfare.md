@@ -101,10 +101,15 @@ Interpretation for draft: these are smoke-scale benchmark outputs, not external 
 
 ## Threats To Validity
 
-- Stylized hazards are not CFD.
-- Smoke baseline scenarios are intentionally small.
-- LLM outputs are proposals and require validation/replay; they are not operational advice.
-- Current benchmark measures internal consistency and comparative policy behavior, not predictive station-scale evacuation accuracy.
+| Threat | Risk | Mitigation / status |
+|:--|:--|:--|
+| Calibration provenance | Route-choice, social-force, population, and homophily priors may mix measured, literature-derived, and generated values. | Codebase mitigation: calibration docs and artifacts record source files, checksums, fitted parameters, and `parameter_provenance`; report-facing station cases require `metadata.station_provenance` or `metadata.provenance_file`. |
+| Hazard fidelity | Stylized smoke/gas/shooter/wildfire/flood/quake fields may not match CFD, fire, hydrology, or security-event ground truth. | Codebase mitigation: imported hazard fields are supported and NIST FDS/CFAST are treated as external references. Unmitigated: benchmark hazard fields are not validated against high-fidelity event reconstructions. |
+| LLM nondeterminism | Live provider outputs, model revisions, and token accounting can change across runs. | Codebase mitigation: template/replay providers, cache keys, `llm_calls` exports, budget guard rows, validator/judge reasons, provider/model cost reports, and SHA-256 hash-chain audit for replay tables. |
+| Hostile-channel construct validity | Objectives such as authority confusion and social-proof poisoning are abstract operationalizations of misinformation. | Codebase mitigation: hostile events, recipients, credibility, objective, persona targeting, and belief effects are exported for audit. Unmitigated: objective weights and credibility decay are not calibrated to real adversarial messaging campaigns. |
+| Benchmark scale | Smoke baseline scenarios are intentionally small. | Codebase mitigation: Benchmark v1/v2/v3 manifests record seeds, hashes, policy knobs, and scoring; results are framed as comparative internal behavior, not station-scale prediction. |
+| Causal interpretation | Matched-seed deltas can be mistaken for external causal effects. | Codebase mitigation: `causal_delta.json` includes matched seeds, bootstrap intervals, leave-one-seed-out sensitivity, and assumptions documented in `docs/causal_layer_assumptions.md`. |
+| Operational use | LLM outputs could be read as emergency advice. | Codebase mitigation: generated text is treated as a bounded proposal, validated before use, replay-audited, and documented as non-operational advice. |
 
 ## Paper Figures
 

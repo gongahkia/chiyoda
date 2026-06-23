@@ -47,12 +47,6 @@ Conventions:
 
 ## P9 — Documentation and positioning
 
-### [ ] T9.2 Threats-to-validity expansion
-- Scope: current TTV list is short. Expand to cover calibration provenance, hazard fidelity, LLM nondeterminism, hostile-channel construct validity.
-- Files: `docs/paper_outline_info_warfare.md`, `docs/causal_layer_assumptions.md`.
-- Acceptance:
-  - Each threat names a mitigation in the codebase or an explicit "unmitigated" label.
-
 ### [ ] T9.3 Policy / standards engagement note
 - Scope: add a short doc framing Chiyoda's relevance to alerting authorities (FCC WEA rulemaking 2025, FEMA best practices, ICAO/UNDRR equivalents).
 - Files: new `docs/policy_engagement.md`.
