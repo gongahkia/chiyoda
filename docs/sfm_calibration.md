@@ -13,6 +13,8 @@ social_force_calibration:
   profile: yolov5_mdpi_2024
   parameters:
     base_vision_radius_m: 4.0
+    visual_range_m: 3.5
+    counter_flow_avoidance_strength: 0.9
 ```
 
 Available profiles live under `data/sfm_calibrations/`:
@@ -23,8 +25,13 @@ Available profiles live under `data/sfm_calibrations/`:
   <https://doi.org/10.3390/s24155011>
 
 The Physica A 2024 counterflow reference is tracked for the existing
-counterflow term and later model extensions:
+counterflow friction and lateral avoidance terms:
 <https://doi.org/10.1016/j.physa.2024.129762>
+
+Limited visual-range parameters (`visual_range_m`, `visual_field_degrees`, and
+`rear_repulsion_weight`) are opt-in overrides so legacy benchmark scores remain
+stable. They follow the asymmetric visual-range SFM reference:
+<https://doi.org/10.1016/j.physa.2023.128461>
 
 Sensitivity evidence for a fixed one-step baseline is stored in
 `data/sfm_calibrations/sensitivity_baseline.json`. It records the displacement

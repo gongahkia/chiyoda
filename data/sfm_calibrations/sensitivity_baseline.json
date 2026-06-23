@@ -96,6 +96,18 @@
       "provenance": "legacy Chiyoda default",
       "single_parameter_delta_m": 0.0
     },
+    "counter_flow_avoidance_range_m": {
+      "generic_value": 2.0,
+      "profile_value": 2.0,
+      "provenance": "Chiyoda local avoidance range; Physica A 2024 DOI 10.1016/j.physa.2024.129762 motivates counterflow collision-avoidance force",
+      "single_parameter_delta_m": 0.0
+    },
+    "counter_flow_avoidance_strength": {
+      "generic_value": 0.0,
+      "profile_value": 0.0,
+      "provenance": "legacy no-op default; Physica A 2024 DOI 10.1016/j.physa.2024.129762 motivates counterflow collision-avoidance force for override studies",
+      "single_parameter_delta_m": 0.0
+    },
     "counter_flow_friction": {
       "generic_value": 1.5,
       "profile_value": 1.5,
@@ -114,11 +126,29 @@
       "provenance": "legacy Chiyoda clamp",
       "single_parameter_delta_m": 0.0
     },
+    "rear_repulsion_weight": {
+      "generic_value": 1.0,
+      "profile_value": 1.0,
+      "provenance": "legacy no-op default; Physica A 2023 DOI 10.1016/j.physa.2023.128461 reports lambda = 0.1 for rear visual weighting in override studies",
+      "single_parameter_delta_m": 0.0
+    },
     "relaxation_time_s": {
       "generic_value": 0.5,
       "profile_value": 0.53,
       "provenance": "Sensors 2024 DOI 10.3390/s24155011 Table 7, tau_i",
       "single_parameter_delta_m": 0.0007892928911797653
+    },
+    "visual_field_degrees": {
+      "generic_value": 360.0,
+      "profile_value": 360.0,
+      "provenance": "legacy no-op default; Physica A 2023 DOI 10.1016/j.physa.2023.128461 motivates asymmetric visual range for override studies",
+      "single_parameter_delta_m": 0.0
+    },
+    "visual_range_m": {
+      "generic_value": 0.0,
+      "profile_value": 0.0,
+      "provenance": "legacy no-op default; Physica A 2023 DOI 10.1016/j.physa.2023.128461 reports limited visual-range SFM with R_cut = 4.5 m for override studies",
+      "single_parameter_delta_m": 0.0
     },
     "wall_distance_m": {
       "generic_value": 0.3,

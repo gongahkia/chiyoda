@@ -40,6 +40,11 @@ AGENT_INTERACTION_RADIUS = 3.0
 WALL_INTERACTION_RADIUS = 2.0
 MAX_SPEED_MULTIPLIER = 1.5
 BASE_VISION_RADIUS = 5.0
+VISUAL_RANGE = 0.0
+VISUAL_FIELD_DEGREES = 360.0
+REAR_REPULSION_WEIGHT = 1.0
+COUNTER_FLOW_AVOIDANCE_K = 0.0
+COUNTER_FLOW_AVOIDANCE_RANGE = 2.0
 _CALIBRATION_DIR = Path(__file__).resolve().parents[2] / "data" / "sfm_calibrations"
 
 
@@ -59,6 +64,11 @@ class SocialForceCalibration:
     wall_interaction_radius_m: float = WALL_INTERACTION_RADIUS
     max_speed_multiplier: float = MAX_SPEED_MULTIPLIER
     base_vision_radius_m: float = BASE_VISION_RADIUS
+    visual_range_m: float = VISUAL_RANGE
+    visual_field_degrees: float = VISUAL_FIELD_DEGREES
+    rear_repulsion_weight: float = REAR_REPULSION_WEIGHT
+    counter_flow_avoidance_strength: float = COUNTER_FLOW_AVOIDANCE_K
+    counter_flow_avoidance_range_m: float = COUNTER_FLOW_AVOIDANCE_RANGE
     provenance: Mapping[str, Any] | None = None
 
     def with_overrides(self, values: Mapping[str, Any]) -> SocialForceCalibration:
@@ -88,6 +98,15 @@ class SocialForceCalibration:
             "wall_interaction_radius_m": float(self.wall_interaction_radius_m),
             "max_speed_multiplier": float(self.max_speed_multiplier),
             "base_vision_radius_m": float(self.base_vision_radius_m),
+            "visual_range_m": float(self.visual_range_m),
+            "visual_field_degrees": float(self.visual_field_degrees),
+            "rear_repulsion_weight": float(self.rear_repulsion_weight),
+            "counter_flow_avoidance_strength": float(
+                self.counter_flow_avoidance_strength
+            ),
+            "counter_flow_avoidance_range_m": float(
+                self.counter_flow_avoidance_range_m
+            ),
         }
 
     def provenance_for(self, parameter: str) -> Any:
@@ -191,16 +210,31 @@ if NUMBA_AVAILABLE:
         agent_interaction_radius_m: float,
         wall_interaction_radius_m: float,
         max_speed_multiplier: float,
+        visual_range_m: float,
+        visual_field_cosine: float,
+        rear_repulsion_weight: float,
+        counter_flow_avoidance_strength: float,
+        counter_flow_avoidance_range_m: float,
     ) -> np.ndarray:
         dim = current_pos.shape[0]
         f_total = (desired_velocity - current_velocity) / relaxation_time_s
+        desired_speed = np.sqrt(np.sum(desired_velocity * desired_velocity))
 
         for idx in range(neighbors.shape[0]):
             delta = current_pos - neighbors[idx]
             dist = np.sqrt(np.sum(delta * delta)) + 1e-6
             if dist < agent_interaction_radius_m:
+                if visual_range_m > 0.0 and dist > visual_range_m:
+                    continue
+                visual_weight = 1.0
+                if desired_speed > 1e-6:
+                    to_neighbor = -delta / dist
+                    cos_angle = np.sum(desired_velocity * to_neighbor) / desired_speed
+                    if cos_angle < visual_field_cosine:
+                        visual_weight = rear_repulsion_weight
                 n_hat = delta / dist
                 f_total += (
+                    visual_weight *
                     agent_repulsion_strength
                     * np.exp((body_diameter_m - dist) / agent_repulsion_range_m)
                     * n_hat
@@ -208,16 +242,42 @@ if NUMBA_AVAILABLE:
                 if counter_flow and has_neighbor_velocities:
                     n_vel = neighbor_velocities[idx]
                     dot = np.sum(desired_velocity * n_vel)
-                    if dot < 0 and np.sqrt(np.sum(n_vel * n_vel)) > 0.1:
+                    n_speed = np.sqrt(np.sum(n_vel * n_vel))
+                    if dot < 0 and n_speed > 0.1:
                         tangent = np.zeros(dim)
                         tangent[0] = -n_hat[1]
                         tangent[1] = n_hat[0]
                         f_total += (
+                            visual_weight *
                             counter_flow_friction
                             * abs(dot)
                             * tangent
                             * np.sign(np.sum(tangent * desired_velocity))
                         )
+                        if (
+                            desired_speed > 1e-6
+                            and counter_flow_avoidance_strength > 0.0
+                            and counter_flow_avoidance_range_m > 1e-6
+                        ):
+                            lateral_axis = np.zeros(dim)
+                            lateral_axis[0] = -desired_velocity[1] / desired_speed
+                            lateral_axis[1] = desired_velocity[0] / desired_speed
+                            lateral_offset = np.sum(delta * lateral_axis)
+                            lateral_sign = 1.0
+                            if abs(lateral_offset) > 1e-6:
+                                lateral_sign = np.sign(lateral_offset)
+                            approach = min(1.0, -dot / (desired_speed * n_speed))
+                            f_total += (
+                                visual_weight
+                                * counter_flow_avoidance_strength
+                                * approach
+                                * np.exp(
+                                    (counter_flow_avoidance_range_m - dist)
+                                    / counter_flow_avoidance_range_m
+                                )
+                                * lateral_sign
+                                * lateral_axis
+                            )
 
         for idx in range(walls.shape[0]):
             delta = current_pos - walls[idx]
@@ -263,6 +323,9 @@ def social_force_step(
     """
     calibration = _coerce_calibration(parameters)
     params = calibration.to_parameters()
+    visual_field_cosine = float(
+        np.cos(np.deg2rad(params["visual_field_degrees"] * 0.5))
+    )
     if _social_force_step_njit is not None:
         dim = int(current_pos.shape[0])
         return _social_force_step_njit(
@@ -290,6 +353,11 @@ def social_force_step(
             params["agent_interaction_radius_m"],
             params["wall_interaction_radius_m"],
             params["max_speed_multiplier"],
+            params["visual_range_m"],
+            visual_field_cosine,
+            params["rear_repulsion_weight"],
+            params["counter_flow_avoidance_strength"],
+            params["counter_flow_avoidance_range_m"],
         )
 
     # driving force: tendency toward desired velocity
@@ -298,12 +366,22 @@ def social_force_step(
     # agent-agent repulsion (exponential)
     dim = int(current_pos.shape[0])
     f_agents = np.zeros(dim)
+    desired_speed = np.linalg.norm(desired_velocity)
     for i, n_pos in enumerate(neighbors):
         delta = current_pos - n_pos
         dist = np.linalg.norm(delta) + 1e-6
         if dist < params["agent_interaction_radius_m"]:
+            if params["visual_range_m"] > 0.0 and dist > params["visual_range_m"]:
+                continue
+            visual_weight = 1.0
+            if desired_speed > 1e-6:
+                to_neighbor = -delta / dist
+                cos_angle = float(np.dot(desired_velocity, to_neighbor) / desired_speed)
+                if cos_angle < visual_field_cosine:
+                    visual_weight = params["rear_repulsion_weight"]
             n_hat = delta / dist
             f_repel = (
+                visual_weight *
                 params["agent_repulsion_strength"]
                 * np.exp(
                     (params["body_diameter_m"] - dist)
@@ -321,17 +399,48 @@ def social_force_step(
             ):
                 n_vel = neighbor_velocities[i]
                 dot = np.dot(desired_velocity, n_vel)
-                if dot < 0 and np.linalg.norm(n_vel) > 0.1:  # opposing flow
+                n_speed = np.linalg.norm(n_vel)
+                if dot < 0 and n_speed > 0.1:  # opposing flow
                     tangent = np.zeros(dim)
                     tangent[0] = -n_hat[1]
                     tangent[1] = n_hat[0]
                     f_friction = (
+                        visual_weight *
                         params["counter_flow_friction"]
                         * abs(dot)
                         * tangent
                         * np.sign(np.dot(tangent, desired_velocity))
                     )
                     f_agents += f_friction
+                    if (
+                        desired_speed > 1e-6
+                        and params["counter_flow_avoidance_strength"] > 0.0
+                        and params["counter_flow_avoidance_range_m"] > 1e-6
+                    ):
+                        lateral_axis = np.zeros(dim)
+                        lateral_axis[0] = -desired_velocity[1] / desired_speed
+                        lateral_axis[1] = desired_velocity[0] / desired_speed
+                        lateral_offset = float(np.dot(delta, lateral_axis))
+                        lateral_sign = (
+                            np.sign(lateral_offset)
+                            if abs(lateral_offset) > 1e-6
+                            else 1.0
+                        )
+                        approach = min(1.0, -dot / (desired_speed * n_speed))
+                        f_agents += (
+                            visual_weight
+                            * params["counter_flow_avoidance_strength"]
+                            * approach
+                            * np.exp(
+                                (
+                                    params["counter_flow_avoidance_range_m"]
+                                    - dist
+                                )
+                                / params["counter_flow_avoidance_range_m"]
+                            )
+                            * lateral_sign
+                            * lateral_axis
+                        )
 
     # wall repulsion (simplified — uses wall positions if provided)
     f_walls = np.zeros(dim)

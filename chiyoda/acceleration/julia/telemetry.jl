@@ -6,6 +6,11 @@ const B_AGENT = 0.3
 const A_WALL = 5.0
 const B_WALL = 0.2
 const COUNTER_FLOW_K = 1.5
+const VISUAL_RANGE = 0.0
+const VISUAL_FIELD_COSINE = cos(180.0 * pi / 180.0)
+const REAR_REPULSION_WEIGHT = 1.0
+const COUNTER_FLOW_AVOIDANCE_K = 0.0
+const COUNTER_FLOW_AVOIDANCE_RANGE = 2.0
 
 function aggregate_step_grids(
     width::Int,
@@ -96,26 +101,59 @@ function social_force_steps(
         f_total = (
             desired_velocities[idx, :] - current_velocities[idx, :]
         ) ./ TAU
+        desired_speed = sqrt(sum(desired_velocities[idx, :] .^ 2))
 
         for n in 1:neighbor_counts[idx]
             delta = current_positions[idx, :] - neighbor_positions[idx, n, :]
             dist = sqrt(sum(delta .^ 2)) + 1e-6
             if dist < 3.0
+                if VISUAL_RANGE > 0.0 && dist > VISUAL_RANGE
+                    continue
+                end
+                visual_weight = 1.0
+                if desired_speed > 1e-6
+                    to_neighbor = -delta ./ dist
+                    cos_angle = sum(desired_velocities[idx, :] .* to_neighbor) / desired_speed
+                    if cos_angle < VISUAL_FIELD_COSINE
+                        visual_weight = REAR_REPULSION_WEIGHT
+                    end
+                end
                 n_hat = delta ./ dist
-                f_total .+= A_AGENT * exp((0.6 - dist) / B_AGENT) .* n_hat
+                f_total .+= visual_weight * A_AGENT * exp((0.6 - dist) / B_AGENT) .* n_hat
 
                 if counter_flow
                     n_vel = neighbor_velocities[idx, n, :]
                     dot_value = sum(desired_velocities[idx, :] .* n_vel)
-                    if dot_value < 0 && sqrt(sum(n_vel .^ 2)) > 0.1
+                    n_speed = sqrt(sum(n_vel .^ 2))
+                    if dot_value < 0 && n_speed > 0.1
                         tangent = zeros(Float64, dim)
                         tangent[1] = -n_hat[2]
                         tangent[2] = n_hat[1]
                         f_total .+= (
+                            visual_weight
+                            *
                             COUNTER_FLOW_K
                             * abs(dot_value)
                             * sign(sum(tangent .* desired_velocities[idx, :]))
                         ) .* tangent
+                        if desired_speed > 1e-6 && COUNTER_FLOW_AVOIDANCE_K > 0.0
+                            lateral_axis = zeros(Float64, dim)
+                            lateral_axis[1] = -desired_velocities[idx, 2] / desired_speed
+                            lateral_axis[2] = desired_velocities[idx, 1] / desired_speed
+                            lateral_offset = sum(delta .* lateral_axis)
+                            lateral_sign = 1.0
+                            if abs(lateral_offset) > 1e-6
+                                lateral_sign = sign(lateral_offset)
+                            end
+                            approach = min(1.0, -dot_value / (desired_speed * n_speed))
+                            f_total .+= (
+                                visual_weight
+                                * COUNTER_FLOW_AVOIDANCE_K
+                                * approach
+                                * exp((COUNTER_FLOW_AVOIDANCE_RANGE - dist) / COUNTER_FLOW_AVOIDANCE_RANGE)
+                                * lateral_sign
+                            ) .* lateral_axis
+                        end
                     end
                 end
             end

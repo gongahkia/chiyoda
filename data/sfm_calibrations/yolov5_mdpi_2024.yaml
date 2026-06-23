@@ -59,3 +59,23 @@ parameters:
     value: 5.0
     unit: "m"
     provenance: "legacy Chiyoda observation radius; Sensors 2024 calibrates density-map SFM parameters, not visual range"
+  visual_range_m:
+    value: 0.0
+    unit: "m"
+    provenance: "legacy no-op default; Physica A 2023 DOI 10.1016/j.physa.2023.128461 reports limited visual-range SFM with R_cut = 4.5 m for override studies"
+  visual_field_degrees:
+    value: 360.0
+    unit: "degrees"
+    provenance: "legacy no-op default; Physica A 2023 DOI 10.1016/j.physa.2023.128461 motivates asymmetric visual range for override studies"
+  rear_repulsion_weight:
+    value: 1.0
+    unit: "dimensionless"
+    provenance: "legacy no-op default; Physica A 2023 DOI 10.1016/j.physa.2023.128461 reports lambda = 0.1 for rear visual weighting in override studies"
+  counter_flow_avoidance_strength:
+    value: 0.0
+    unit: "m/s^2"
+    provenance: "legacy no-op default; Physica A 2024 DOI 10.1016/j.physa.2024.129762 motivates counterflow collision-avoidance force for override studies"
+  counter_flow_avoidance_range_m:
+    value: 2.0
+    unit: "m"
+    provenance: "Chiyoda local avoidance range; Physica A 2024 DOI 10.1016/j.physa.2024.129762 motivates counterflow collision-avoidance force"

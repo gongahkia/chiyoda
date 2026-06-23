@@ -31,14 +31,6 @@ Conventions:
 
 ## P5 — Calibration
 
-### [ ] T5.3 Counterflow + visual-range extensions to SFM
-- Scope: add counterflow avoidance and limited visual range terms (cited 2024 critiques of vanilla SFM).
-- Files: `chiyoda/navigation/` SFM module.
-- Acceptance:
-  - Unit test demonstrates lane formation in a corridor scenario.
-  - Visual range parameter overridable per scenario.
-- Refs: Physica A 2024 counterflow SFM; ScienceDirect S037843712300016X (visual range SFM).
-
 ---
 
 ## P6 — Telemetry, causality, and analysis

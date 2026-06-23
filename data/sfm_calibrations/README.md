@@ -15,3 +15,7 @@ remain explicit legacy defaults with their own provenance labels.
 The counterflow reference tracked for later SFM extensions is:
 
 <https://doi.org/10.1016/j.physa.2024.129762>
+
+The visual-range terms use the limited-visual-range SFM reference:
+
+<https://doi.org/10.1016/j.physa.2023.128461>
