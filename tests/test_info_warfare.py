@@ -2,11 +2,16 @@ from __future__ import annotations
 
 import json
 
+import pytest
 from click.testing import CliRunner
 
 from chiyoda.analysis.metrics import SimulationAnalytics
 from chiyoda.cli import cli
-from chiyoda.information.warfare import BeliefRevisionConfig, BeliefRevisionModel
+from chiyoda.information.warfare import (
+    BeliefRevisionConfig,
+    BeliefRevisionModel,
+    HostileChannelConfig,
+)
 from chiyoda.scenarios.manager import ScenarioManager
 from chiyoda.studies.runner import _materialize_variants, load_study_config
 from chiyoda.studies.schema import AdversarialStudyConfig, StudyConfig
@@ -14,7 +19,7 @@ from chiyoda.studies.schema import AdversarialStudyConfig, StudyConfig
 
 def _hostile_scenario() -> dict:
     return {
-        "name": "hostile_decoy_regression",
+        "name": "hostile_false_protective_action_regression",
         "layout": {
             "floors": [
                 {
@@ -36,9 +41,9 @@ def _hostile_scenario() -> dict:
         "simulation": {"max_steps": 3, "random_seed": 7},
         "hostile_channels": [
             {
-                "id": "decoy",
+                "id": "false_protective_action",
                 "channel_type": "gossip",
-                "objective": "decoy-exit",
+                "objective": "false-protective-action",
                 "budget": 1,
                 "plausibility": 0.8,
                 "claimed_exit": {"floor": "0", "x": 2, "y": 1},
@@ -136,7 +141,14 @@ scenario:
 
     result = CliRunner().invoke(
         cli,
-        ["red-team", str(scenario_file), "--budget", "1", "--objective", "decoy-exit"],
+        [
+            "red-team",
+            str(scenario_file),
+            "--budget",
+            "1",
+            "--objective",
+            "false-protective-action",
+        ],
     )
     payload = json.loads(result.output)
 
@@ -181,13 +193,20 @@ def test_llm_red_team_study_declares_template_and_replay_variants():
     variants = _materialize_variants(config)
     by_name = {variant.name: variant for variant in variants}
 
-    template = by_name["llm_template_decoy_exit"].scenario_overrides[
+    template = by_name["llm_template_false_protective_action"].scenario_overrides[
         "hostile_channels"
     ][0]
-    replay = by_name["llm_replay_decoy_exit"].scenario_overrides["hostile_channels"][0]
+    replay = by_name["llm_replay_false_protective_action"].scenario_overrides[
+        "hostile_channels"
+    ][0]
 
     assert template["llm_provider"] == "template"
     assert template["llm_store_cache"] is True
     assert replay["llm_provider"] == "replay"
     assert replay["llm_cache_mode"] == "replay_only"
     assert replay["llm_cache_path"] == template["llm_cache_path"]
+
+
+def test_old_hostile_objective_labels_are_invalid():
+    with pytest.raises(ValueError):
+        HostileChannelConfig.from_mapping({"objective": "decoy-exit"})

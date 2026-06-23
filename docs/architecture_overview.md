@@ -47,10 +47,10 @@ Hostile channels are bounded misinformation emitters. They can alter agent belie
 
 | Objective | Modeled effect |
 |:--|:--|
-| `decoy-exit` | false exit claim |
-| `panic-induce` | false or exaggerated hazard claim |
-| `responder-spoof` | exit claim under responder-like source id |
-| `gossip-poison` | peer-like false claim seeded through local communication |
+| `false-protective-action` | false exit claim |
+| `threat-amplification` | false or exaggerated hazard claim |
+| `authority-confusion` | exit claim under responder-like source id |
+| `social-proof-poisoning` | peer-like false claim seeded through local communication |
 
 Agents maintain source credibility through belief revision. Provenance records claim source, channel, time, objective, claim target, and observed outcome when available.
 

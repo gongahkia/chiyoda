@@ -33,9 +33,9 @@ scenario:
       diffusion_rate: 0.02
       visibility_reduction: 0.4
   hostile_channels:
-    - id: mixed_decoy
+    - id: mixed_false_protective_action
       channel_type: gossip
-      objective: decoy-exit
+      objective: false-protective-action
       budget: 2
       plausibility: 0.65
       claimed_exit: {floor: "0", x: 2, y: 2}

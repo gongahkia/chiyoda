@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
+import yaml
 from click.testing import CliRunner
 
 from chiyoda.cli import cli
@@ -99,3 +101,39 @@ scenario:
     assert result.exit_code == 1
     assert payload["ok"] is False
     assert any(issue["code"] == "start_unreachable" for issue in payload["issues"])
+
+
+def test_adversary_incident_taxonomy_has_cited_objectives():
+    payload = yaml.safe_load(Path("data/adversary_incidents.yaml").read_text())
+    objectives = payload["objectives"]
+
+    assert set(objectives) == {
+        "false-protective-action",
+        "threat-amplification",
+        "authority-confusion",
+        "social-proof-poisoning",
+    }
+    for objective in objectives.values():
+        incidents = objective["incidents"]
+        assert len(incidents) >= 2
+        assert all(
+            str(item["primary_url"]).startswith("https://") for item in incidents
+        )
+
+
+def test_validate_scenario_cross_references_hostile_objective_taxonomy():
+    result = validate_scenario_config(
+        {
+            "name": "invalid_hostile_objective",
+            "layout": _layout("XXXXXX\nX@..EX\nXXXXXX"),
+            "population": {"total": 1},
+            "hostile_channels": [{"objective": "decoy-exit"}],
+        }
+    )
+
+    assert result.has_errors
+    assert any(
+        issue.code == "unknown_hostile_objective"
+        and issue.source == "hostile_channels[0].objective"
+        for issue in result.issues
+    )

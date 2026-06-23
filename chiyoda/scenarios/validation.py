@@ -2,8 +2,11 @@ from __future__ import annotations
 
 from collections import deque
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
+
+import yaml
 
 from chiyoda.environment.layout import PERSON, RESPONDER_ENTRY, Layout
 from chiyoda.scenarios.generated_calibration import (
@@ -12,6 +15,10 @@ from chiyoda.scenarios.generated_calibration import (
 from chiyoda.scenarios.manager import ScenarioManager
 
 Cell = tuple
+DEFAULT_HOSTILE_OBJECTIVE = "false-protective-action"
+ADVERSARY_INCIDENTS_PATH = (
+    Path(__file__).resolve().parents[2] / "data" / "adversary_incidents.yaml"
+)
 
 
 @dataclass(frozen=True)
@@ -172,6 +179,8 @@ def validate_scenario_config(
             )
         )
 
+    _validate_hostile_objectives(sc, issues)
+
     unreachable = sorted(walkable - reachable)
     if exits and unreachable:
         issues.append(
@@ -198,6 +207,41 @@ def validate_scenario_config(
         paths=paths,
         issues=issues,
     )
+
+
+def _validate_hostile_objectives(
+    scenario: dict[str, Any], issues: list[ScenarioValidationIssue]
+) -> None:
+    valid_objectives = _adversary_objectives()
+    if not valid_objectives:
+        issues.append(
+            ScenarioValidationIssue(
+                "error",
+                "adversary_incidents_unavailable",
+                f"no adversary objectives loaded from {ADVERSARY_INCIDENTS_PATH}",
+            )
+        )
+        return
+    for index, channel in enumerate(scenario.get("hostile_channels", []) or []):
+        objective = str(channel.get("objective", DEFAULT_HOSTILE_OBJECTIVE))
+        if objective not in valid_objectives:
+            issues.append(
+                ScenarioValidationIssue(
+                    "error",
+                    "unknown_hostile_objective",
+                    f"hostile objective '{objective}' is not in adversary_incidents.yaml",
+                    source=f"hostile_channels[{index}].objective",
+                )
+            )
+
+
+@lru_cache(maxsize=1)
+def _adversary_objectives() -> frozenset[str]:
+    payload = yaml.safe_load(ADVERSARY_INCIDENTS_PATH.read_text()) or {}
+    objectives = payload.get("objectives", {})
+    if not isinstance(objectives, dict):
+        return frozenset()
+    return frozenset(str(key) for key in objectives)
 
 
 def _walkable_cells(layout: Layout) -> set[Cell]:

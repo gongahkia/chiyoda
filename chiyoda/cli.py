@@ -515,7 +515,7 @@ def compare_trajectory_reference_command(simulated, reference, out_file, group_c
 @click.option("--budget", default=10, type=int, help="Maximum hostile messages")
 @click.option(
     "--objective",
-    default=AttackerObjective.DECOY_EXIT.value,
+    default=AttackerObjective.FALSE_PROTECTIVE_ACTION.value,
     type=click.Choice([item.value for item in AttackerObjective]),
     help="Attacker objective",
 )

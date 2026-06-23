@@ -13,15 +13,6 @@ Conventions:
 
 ## P0 — Core novelty: ground the information layer
 
-### [ ] T0.4 Adversary taxonomy mapped to documented incidents
-- Scope: replace ad-hoc `decoy-exit`, `panic-induce`, `responder-spoof`, `gossip-poison` labels with a taxonomy keyed to real-world incidents.
-- Files: `chiyoda/information/warfare.py`, new `docs/adversary_taxonomy.md`, new `data/adversary_incidents.yaml`.
-- Acceptance:
-  - Each objective lists ≥2 cited incidents (Hawaii 2018 false-missile alert, Helene 2024 AI-generated imagery, Brazil RGS-2024 alert miscoding, etc.) with primary URL.
-  - YAML schema validates that any `hostile_channels[*].objective` cross-references an entry in `adversary_incidents.yaml`.
-  - Backwards-compat shim removed (do not preserve old labels — strict rename).
-- Refs: TAMAS (arXiv 2511.05269); AiTM (arXiv 2508.03125); Brazil disaster warning (ScienceDirect S2590061725000377).
-
 ### [ ] T0.5 Multi-agent / two-player MARL framing of hostile channel vs responder
 - Scope: extend `ChiyodaRLEnv` to expose a paired adversary policy interface. Default still single-agent; opt-in two-player via YAML.
 - Files: `chiyoda/environment/__init__.py` (and wherever `ChiyodaRLEnv` lives — `[Unverified]` exact path, locate via grep on `ChiyodaRLEnv`), `docs/rl_interface.md`.

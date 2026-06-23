@@ -20,7 +20,7 @@ Emergency communication is a control input, not a uniformly positive signal. In 
 
 1. Evacuation guidance is often evaluated by egress time or compliance.
 2. In coupled physical-information systems, guidance can synchronize agents into bottlenecks or unsafe routes.
-3. Hostile channels make this problem adversarial: decoy exits, responder spoofing, panic induction, and gossip poisoning can change route belief without changing ground truth.
+3. Hostile channels make this problem adversarial: false protective actions, threat amplification, authority confusion, and social-proof poisoning can change route belief without changing ground truth.
 4. Chiyoda contributes a small, replayable benchmark layer for evaluating communication under hazard pressure and misinformation.
 
 ## Related Work Anchors
@@ -36,7 +36,7 @@ Emergency communication is a control input, not a uniformly positive signal. In 
 - Beliefs: per-agent exit and hazard belief vectors with entropy, freshness, credibility, and source provenance.
 - Information flow: observation, gossip, signage/beacons, responder relay, adaptive interventions, hostile channels.
 - LLM layer: bounded generated messages and agent decisions with cache keys, validation, provider abstraction, budget guard, and `llm_calls` study export.
-- Adversary: hostile-channel objectives `decoy-exit`, `panic-induce`, `responder-spoof`, and `gossip-poison`.
+- Adversary: hostile-channel objectives `false-protective-action`, `threat-amplification`, `authority-confusion`, and `social-proof-poisoning`.
 
 ## Benchmark Introduction
 

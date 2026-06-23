@@ -40,9 +40,9 @@ def _persona_scenario() -> dict:
         "simulation": {"max_steps": 3, "random_seed": 13},
         "hostile_channels": [
             {
-                "id": "decoy_tourist_only",
+                "id": "false_protective_action_tourist_only",
                 "channel_type": "gossip",
-                "objective": "decoy-exit",
+                "objective": "false-protective-action",
                 "budget": 1,
                 "plausibility": 0.85,
                 "claimed_exit": {"floor": "0", "x": 2, "y": 1},
@@ -67,7 +67,7 @@ def _belief_vector(agent) -> np.ndarray:
     return np.array(extras or [0.0], dtype=float)
 
 
-def test_persona_targeted_decoy_only_affects_matched_cohort():
+def test_persona_targeted_false_protective_action_affects_matched_cohort():
     manager = ScenarioManager()
     targeted_sim = manager.build_simulation(_persona_scenario())
 

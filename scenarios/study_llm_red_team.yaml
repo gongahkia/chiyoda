@@ -17,15 +17,15 @@ study:
           max_steps: 40
         hostile_channels: []
 
-    - name: "deterministic_decoy_exit"
-      description: "Existing deterministic decoy-exit hostile channel."
+    - name: "deterministic_false_protective_action"
+      description: "Existing deterministic false-protective-action hostile channel."
       scenario_overrides:
         simulation:
           max_steps: 40
         hostile_channels:
-          - id: "deterministic_decoy"
+          - id: "deterministic_false_protective_action"
             channel_type: "gossip"
-            objective: "decoy-exit"
+            objective: "false-protective-action"
             budget: 2
             start_step: 2
             interval_steps: 10
@@ -34,15 +34,15 @@ study:
             target_persona:
               cohort: "tourists"
 
-    - name: "llm_template_decoy_exit"
-      description: "Template LLM provider chooses bounded decoy-exit claims and stores replay cache."
+    - name: "llm_template_false_protective_action"
+      description: "Template LLM provider chooses bounded false-protective-action claims and stores replay cache."
       scenario_overrides:
         simulation:
           max_steps: 40
         hostile_channels:
-          - id: "llm_template_decoy"
+          - id: "llm_template_false_protective_action"
             channel_type: "gossip"
-            objective: "decoy-exit"
+            objective: "false-protective-action"
             budget: 2
             start_step: 2
             interval_steps: 10
@@ -60,15 +60,15 @@ study:
             llm_max_calls_per_run: 2
             llm_max_estimated_tokens_per_run: 4000
 
-    - name: "llm_replay_decoy_exit"
+    - name: "llm_replay_false_protective_action"
       description: "Replay-only hostile claim generation using the template cache."
       scenario_overrides:
         simulation:
           max_steps: 40
         hostile_channels:
-          - id: "llm_replay_decoy"
+          - id: "llm_replay_false_protective_action"
             channel_type: "gossip"
-            objective: "decoy-exit"
+            objective: "false-protective-action"
             budget: 2
             start_step: 2
             interval_steps: 10

@@ -34,10 +34,10 @@ from chiyoda.information.llm import (
 
 
 class AttackerObjective(str, Enum):
-    DECOY_EXIT = "decoy-exit"
-    PANIC_INDUCE = "panic-induce"
-    RESPONDER_SPOOF = "responder-spoof"
-    GOSSIP_POISON = "gossip-poison"
+    FALSE_PROTECTIVE_ACTION = "false-protective-action"
+    THREAT_AMPLIFICATION = "threat-amplification"
+    AUTHORITY_CONFUSION = "authority-confusion"
+    SOCIAL_PROOF_POISONING = "social-proof-poisoning"
 
 
 @dataclass
@@ -199,7 +199,7 @@ class HostileChannelConfig:
 
     id: str = "hostile_channel"
     channel_type: str = "gossip"
-    objective: AttackerObjective = AttackerObjective.DECOY_EXIT
+    objective: AttackerObjective = AttackerObjective.FALSE_PROTECTIVE_ACTION
     budget: int = 1
     start_step: int = 0
     interval_steps: int = 1
@@ -227,7 +227,11 @@ class HostileChannelConfig:
     @classmethod
     def from_mapping(cls, payload: dict[str, Any]) -> HostileChannelConfig:
         objective = AttackerObjective(
-            str(payload.get("objective", AttackerObjective.DECOY_EXIT.value))
+            str(
+                payload.get(
+                    "objective", AttackerObjective.FALSE_PROTECTIVE_ACTION.value
+                )
+            )
         )
         llm_provider = payload.get("llm_provider")
         return cls(
@@ -514,7 +518,7 @@ class LLMHostileClaimGenerator:
                 ValidationResult(False, ["generator_abstained"]),
                 True,
             )
-        if self.config.objective == AttackerObjective.PANIC_INDUCE:
+        if self.config.objective == AttackerObjective.THREAT_AMPLIFICATION:
             if message.hazard_positions:
                 return (
                     {"exit": None, "hazard": tuple(message.hazard_positions[0])},
@@ -630,13 +634,13 @@ class HostileChannel:
         ]
         if not active:
             return []
-        if self.config.objective == AttackerObjective.GOSSIP_POISON:
+        if self.config.objective == AttackerObjective.SOCIAL_PROOF_POISONING:
             active.sort(
                 key=lambda item: getattr(item, "credibility", 0.5), reverse=True
             )
             return active
         if (
-            self.config.objective == AttackerObjective.PANIC_INDUCE
+            self.config.objective == AttackerObjective.THREAT_AMPLIFICATION
             and simulation.hazards
         ):
             hazard_pos = np.array(simulation.hazards[0].pos, dtype=float)
@@ -656,9 +660,9 @@ class HostileChannel:
 
     def _fallback_claim(self, simulation) -> dict[str, tuple | None]:
         if self.config.objective in {
-            AttackerObjective.DECOY_EXIT,
-            AttackerObjective.RESPONDER_SPOOF,
-            AttackerObjective.GOSSIP_POISON,
+            AttackerObjective.FALSE_PROTECTIVE_ACTION,
+            AttackerObjective.AUTHORITY_CONFUSION,
+            AttackerObjective.SOCIAL_PROOF_POISONING,
         }:
             claimed_exit = self.config.claimed_exit
             if claimed_exit is None:
@@ -670,9 +674,9 @@ class HostileChannel:
         return {"exit": None, "hazard": tuple(claimed_hazard)}
 
     def _source_id(self, agent) -> str:
-        if self.config.objective == AttackerObjective.RESPONDER_SPOOF:
+        if self.config.objective == AttackerObjective.AUTHORITY_CONFUSION:
             return "responder:spoofed"
-        if self.config.objective == AttackerObjective.GOSSIP_POISON:
+        if self.config.objective == AttackerObjective.SOCIAL_PROOF_POISONING:
             return f"agent:{agent.id}:poisoned"
         return self.config.source_id
 

@@ -11,18 +11,18 @@ physical layout, hazard physics, agent speed, or simulator ground truth.
 
 | Objective | Effect |
 |:--|:--|
-| `decoy-exit` | add a plausible false exit claim |
-| `panic-induce` | add a plausible false hazard claim and raise danger belief |
-| `responder-spoof` | send an exit claim under a spoofed responder source id |
-| `gossip-poison` | seed high-credibility peer-like false exit claims |
+| `false-protective-action` | add a plausible false exit claim |
+| `threat-amplification` | add a plausible false hazard claim and raise danger belief |
+| `authority-confusion` | send an exit claim under a spoofed responder source id |
+| `social-proof-poisoning` | seed high-credibility peer-like false exit claims |
 
 ## Scenario schema
 
 ```yaml
 hostile_channels:
-  - id: decoy
+  - id: false_protective_action
     channel_type: gossip
-    objective: decoy-exit
+    objective: false-protective-action
     budget: 4
     start_step: 0
     interval_steps: 5
@@ -62,7 +62,7 @@ pressure.
 ## Red-team CLI
 
 ```console
-$ python -m chiyoda.cli red-team scenarios/station_baseline.yaml --budget 8 --objective decoy-exit
+$ python -m chiyoda.cli red-team scenarios/station_baseline.yaml --budget 8 --objective false-protective-action
 ```
 
 The command injects or overrides the first hostile channel, runs the scenario,

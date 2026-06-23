@@ -137,9 +137,13 @@ def _hostile_convergence_bonus(scenario: dict[str, Any]) -> float:
             channel.get("plausibility", channel.get("credibility", 0.5))
         )
         budget = float(channel.get("budget", 1.0))
-        if objective in {"decoy-exit", "responder-spoof", "gossip-poison"}:
+        if objective in {
+            "false-protective-action",
+            "authority-confusion",
+            "social-proof-poisoning",
+        }:
             bonus += min(0.45, 0.12 * budget) * plausibility
-        elif objective == "panic-induce":
+        elif objective == "threat-amplification":
             bonus += min(0.3, 0.08 * budget) * plausibility
     return _clip(bonus)
 
