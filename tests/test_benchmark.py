@@ -28,7 +28,11 @@ def test_benchmark_spec_v1_schema_and_scenarios():
         "transit_cbrn",
         "transit_shooter",
         "transit_mixed",
+        "large_station_multifloor",
+        "open_air_event_funnel",
+        "mixed_indoor_outdoor_arena",
     }
+    assert len(spec.scenarios) >= 5
     assert "scenarios" in schema["required"]
 
 
@@ -103,7 +107,7 @@ def test_reference_trajectory_generation(tmp_path):
     frame = pd.read_parquet(output)
 
     assert not frame.empty
-    assert {"transit_cbrn", "transit_shooter", "transit_mixed"} <= set(
+    assert {scenario.name for scenario in benchmark_spec_v1().scenarios} <= set(
         frame["scenario"]
     )
 

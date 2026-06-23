@@ -1,0 +1,103 @@
+scenario:
+  name: benchmark_v1_large_station_multifloor
+  description: "Three-level station egress benchmark with smoke near a lower concourse transfer; stylized, not a reconstruction."
+  metadata:
+    benchmark_suite: v1
+    geometry_class: large_station_multifloor
+    reference_event: "King's Cross Underground fire, London, 1987-11-18"
+    reference_sources:
+      - "https://www.jesip.org.uk/downloads/kings-cross-underground-fire-fennell-report/"
+      - "https://hansard.parliament.uk/commons/1988-10-11/debates/b5c30cf1-85af-4380-9e48-a98bdb118d3f/KingSCrossFire%28FennellReport%29"
+    modeling_note: "Uses the published multi-level station-fire context only to bias geometry and transfer pressure."
+  layout:
+    cell_size: 1.0
+    floors:
+      - id: "0"
+        z: 0.0
+        text: |
+          XXXXXXXXXXXXXXX
+          X@..........S.X
+          X.....X.......X
+          X@............X
+          XXXXXXXXXXXXXXX
+      - id: "1"
+        z: 3.0
+        text: |
+          XXXXXXXXXXXXXXX
+          X....E........X
+          X.............X
+          X.............X
+          XXXXXXXXXXXXXXX
+      - id: "2"
+        z: 6.0
+        text: |
+          XXXXXXXXXXXXXXX
+          X.....E.......X
+          X.............X
+          X............@X
+          XXXXXXXXXXXXXXX
+    connectors:
+      - id: platform_stairs
+        type: stairs
+        from: {floor: "0", x: 5, y: 2}
+        to: {floor: "1", x: 5, y: 2}
+        bidirectional: true
+        width: 1.2
+        flow_rate: 1.1
+        queue_mode: fifo
+      - id: concourse_stairs
+        type: stairs
+        from: {floor: "1", x: 10, y: 2}
+        to: {floor: "2", x: 10, y: 2}
+        bidirectional: true
+        width: 1.2
+        flow_rate: 1.1
+        queue_mode: fifo
+  population:
+    total: 3
+    cohorts:
+      - name: lower_platform
+        count: 2
+        familiarity: 0.55
+        calmness: 0.72
+        spawn_cells:
+          - {floor: "0", x: 1, y: 1}
+          - {floor: "0", x: 1, y: 3}
+      - name: upper_concourse
+        count: 1
+        familiarity: 0.65
+        calmness: 0.78
+        spawn_cells:
+          - {floor: "2", x: 13, y: 3}
+  hazards:
+    - type: SMOKE
+      location: [11.5, 1.5, 0.0]
+      radius: 1.0
+      severity: 0.3
+      spread_rate: 0.01
+      diffusion_rate: 0.02
+      visibility_reduction: 0.3
+  interventions:
+    policy: global_broadcast
+    start_step: 0
+    interval_steps: 20
+    budget_per_interval: 1
+    message_type: station_evacuation
+    message_radius: 40.0
+    credibility: 0.86
+  information:
+    mode: asymmetric
+    observation_radius: 4.0
+    gossip_radius: 2.0
+    beacon_radius: 8.0
+  behavior:
+    freeze_probability: 0.0
+  simulation:
+    max_steps: 240
+    dt: 0.1
+    random_seed: 42
+    hazard_avoidance_weight: 1.2
+  assertions:
+    evacuated: {eq: 3}
+    remaining: {eq: 0}
+    no_impossible_floor_jumps: true

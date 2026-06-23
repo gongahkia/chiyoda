@@ -30,6 +30,18 @@
     {
       "name": "transit_mixed",
       "scenario_file": "scenarios/benchmark/transit_mixed.yaml"
+    },
+    {
+      "name": "large_station_multifloor",
+      "scenario_file": "scenarios/benchmark/v1/large_station_multifloor.yaml"
+    },
+    {
+      "name": "open_air_event_funnel",
+      "scenario_file": "scenarios/benchmark/v1/open_air_event_funnel.yaml"
+    },
+    {
+      "name": "mixed_indoor_outdoor_arena",
+      "scenario_file": "scenarios/benchmark/v1/mixed_indoor_outdoor_arena.yaml"
     }
   ]
 }

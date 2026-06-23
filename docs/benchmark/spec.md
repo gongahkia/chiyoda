@@ -1,10 +1,13 @@
 # Benchmark v1
 
-Benchmark v1 contains three canonical scenarios:
+Benchmark v1 contains six canonical scenarios:
 
 - `transit_cbrn`: compact gas-release evacuation.
 - `transit_shooter`: multi-floor active-shooter evacuation.
 - `transit_mixed`: smoke plus hostile misinformation.
+- `large_station_multifloor`: three-level station transfer under smoke pressure.
+- `open_air_event_funnel`: open-air event plaza egress through a constrained funnel.
+- `mixed_indoor_outdoor_arena`: indoor foyer to outdoor concourse egress with hostile misinformation.
 
 The composite score is `composite_v1`:
 

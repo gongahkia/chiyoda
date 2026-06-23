@@ -19,13 +19,6 @@ Conventions:
 
 ## P2 — Benchmark v1 → real leaderboard
 
-### [ ] T2.2 Add ≥5 scenarios per suite
-- Scope: v1 currently has 3 scenarios. Add at least 2 more per suite, biased toward published incident geometries.
-- Files: `scenarios/benchmark/v1/*.yaml`.
-- Acceptance:
-  - New scenarios: at least one large-station multi-floor (e.g., 3-floor terminus), one open-air outdoor, one mixed indoor/outdoor.
-  - All pass `validate-scenario` and `assert-scenario`.
-
 ### [ ] T2.3 Reference baselines beyond heuristics
 - Scope: ship at least one trained RL baseline (PPO via stable-baselines3) and one rule-based oracle, both reproducible from CLI.
 - Files: new `chiyoda/policies/ppo_baseline.py`, new `chiyoda/policies/oracle.py`, CLI subcommand `chiyoda baseline train|eval`.

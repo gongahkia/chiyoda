@@ -102,6 +102,18 @@ def benchmark_spec_v1() -> BenchmarkSpec:
             BenchmarkScenario(
                 "transit_mixed", "scenarios/benchmark/transit_mixed.yaml"
             ),
+            BenchmarkScenario(
+                "large_station_multifloor",
+                "scenarios/benchmark/v1/large_station_multifloor.yaml",
+            ),
+            BenchmarkScenario(
+                "open_air_event_funnel",
+                "scenarios/benchmark/v1/open_air_event_funnel.yaml",
+            ),
+            BenchmarkScenario(
+                "mixed_indoor_outdoor_arena",
+                "scenarios/benchmark/v1/mixed_indoor_outdoor_arena.yaml",
+            ),
         ],
     )
 

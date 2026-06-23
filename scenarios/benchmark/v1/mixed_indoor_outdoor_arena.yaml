@@ -1,0 +1,71 @@
+scenario:
+  name: benchmark_v1_mixed_indoor_outdoor_arena
+  description: "Mixed indoor foyer and outdoor concourse egress benchmark with hostile misinformation; stylized, not a reconstruction."
+  metadata:
+    benchmark_suite: v1
+    geometry_class: mixed_indoor_outdoor
+    reference_event: "Manchester Arena attack, 2017-05-22"
+    reference_sources:
+      - "https://www.gov.uk/government/publications/manchester-arena-inquiry-volume-1-security-for-the-arena"
+      - "https://assets.publishing.service.gov.uk/media/60cc659fe90e07438f7af765/CCS0321126370-002_MAI_Report_Volume_ONE_WebAccessible.pdf"
+    modeling_note: "Uses the published arena/foyer/security context only to bias indoor-to-outdoor egress and misinformation pressure."
+  layout:
+    cell_size: 1.0
+    floors:
+      - id: "0"
+        z: 0.0
+        text: |
+          XXXXXXXXXXXXXXXXXXXX
+          X@@..S.....X......EX
+          X.........XX.......X
+          X@@...............EX
+          X.........XX.......X
+          X.................EX
+          XXXXXXXXXXXXXXXXXXXX
+  population:
+    total: 4
+    cohorts:
+      - name: arena_public
+        count: 4
+        familiarity: 0.3
+        calmness: 0.66
+        spawn_cells:
+          - {floor: "0", x: 1, y: 1}
+          - {floor: "0", x: 2, y: 1}
+          - {floor: "0", x: 1, y: 3}
+          - {floor: "0", x: 2, y: 3}
+  hazards:
+    - type: SMOKE
+      location: [6.5, 2.5, 0.0]
+      radius: 1.2
+      severity: 0.32
+      spread_rate: 0.01
+      diffusion_rate: 0.02
+      visibility_reduction: 0.35
+  hostile_channels:
+    - id: arena_false_exit
+      channel_type: social
+      objective: false-protective-action
+      budget: 2
+      plausibility: 0.62
+      claimed_exit: {floor: "0", x: 2, y: 5}
+  interventions:
+    policy: global_broadcast
+    start_step: 0
+    interval_steps: 12
+    budget_per_interval: 1
+    message_type: venue_evacuation
+    message_radius: 40.0
+    credibility: 0.88
+  information:
+    mode: asymmetric
+    observation_radius: 4.0
+    gossip_radius: 2.5
+    beacon_radius: 9.0
+  behavior:
+    freeze_probability: 0.0
+  simulation:
+    max_steps: 180
+    dt: 0.1
+    random_seed: 42
+    hazard_avoidance_weight: 1.2
