@@ -41,6 +41,8 @@ Controls:
 - right-drag or shift-drag to pan,
 - scroll or pinch to zoom,
 - reset camera from the toolbar,
+- run a constrained browser-side simulation replay,
+- reset back to the exported Python replay,
 - toggle hazards, bottlenecks, messages, source floors, validation, and path
   usage,
 - use `floor gap` to flatten or vertically separate source GeoJSON levels,
@@ -80,8 +82,10 @@ separate source-floor overlays. Runtime `layout.floors` are also rendered at
 their stored `z` values, and exported telemetry includes per-agent floor IDs,
 per-floor path usage, hazards with `z`, and per-floor cell grids.
 
-The current viewer is static and local. Authoring exports a runnable raster
-`layout.floors` scenario; it does not edit the original GeoJSON/CAD source, run
-simulations in the browser, or replace trajectory-analysis tools. Authoring can
-paint any runtime floor and preserves existing connectors in exported YAML.
+The browser-side sim is a constrained local preview. It supports one runtime
+floor, at most 200 replay-seeded agents, no LLM calls, and grid egress toward
+exit cells. Reference and benchmark runs still come from Python exports.
+Authoring exports a runnable raster `layout.floors` scenario; it does not edit
+the original GeoJSON/CAD source or replace trajectory-analysis tools. Authoring
+can paint any runtime floor and preserves existing connectors in exported YAML.
 Creating new connectors in the browser is not implemented.

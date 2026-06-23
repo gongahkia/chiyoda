@@ -10,6 +10,10 @@ import yaml
 
 from chiyoda.studies.models import StudyBundle
 
+_VIEWER_SIM_ASSET = (
+    Path(__file__).with_name("viewer_assets") / "js" / "sim" / "browser_sim.js"
+)
+
 
 def export_viewer(
     bundle: StudyBundle,
@@ -22,14 +26,18 @@ def export_viewer(
     payload = _viewer_payload(bundle, max_frames=max_frames)
     data_path = out / "viewer_data.json"
     index_path = out / "index.html"
+    sim_asset_path = out / "js" / "sim" / "browser_sim.js"
     data_path.write_text(json.dumps(_json_safe(payload), indent=2) + "\n")
     index_path.write_text(_viewer_html())
-    return [index_path, data_path]
+    sim_asset_path.parent.mkdir(parents=True, exist_ok=True)
+    sim_asset_path.write_text(_VIEWER_SIM_ASSET.read_text())
+    return [index_path, data_path, sim_asset_path]
 
 
 def _viewer_payload(bundle: StudyBundle, *, max_frames: int) -> dict[str, Any]:
     run_id = str(bundle.metadata.get("representative_run_id") or "")
     floors = _source_floors(bundle)
+    layout_floors = _layout_floors(bundle.metadata)
     agent_steps = bundle.agent_steps.copy()
     if run_id and "run_id" in agent_steps.columns:
         agent_steps = agent_steps[agent_steps["run_id"] == run_id]
@@ -56,6 +64,8 @@ def _viewer_payload(bundle: StudyBundle, *, max_frames: int) -> dict[str, Any]:
                         "y": float(row.y),
                         "z": float(getattr(row, "z", 0.0)),
                         "floor_id": str(getattr(row, "floor_id", "0")),
+                        "cell_x": int(getattr(row, "cell_x", math.floor(row.x))),
+                        "cell_y": int(getattr(row, "cell_y", math.floor(row.y))),
                         "speed": float(getattr(row, "speed", 0.0)),
                         "entropy": float(getattr(row, "entropy", 0.0)),
                         "state": str(getattr(row, "state", "")),
@@ -78,8 +88,9 @@ def _viewer_payload(bundle: StudyBundle, *, max_frames: int) -> dict[str, Any]:
         },
         "layout": _layout_cells(str(bundle.metadata.get("layout_text", ""))),
         "layout_grid": _layout_grid(str(bundle.metadata.get("layout_text", ""))),
-        "layout_floors": _layout_floors(bundle.metadata),
+        "layout_floors": layout_floors,
         "layout_connectors": bundle.metadata.get("layout_connectors", []),
+        "browser_sim": _browser_sim_payload(layout_floors, frames),
         "floors": floors,
         "bottlenecks": bundle.metadata.get("bottleneck_zones", []),
         "path_usage": _path_usage_cells(bundle.cells, run_id=run_id),
@@ -87,6 +98,30 @@ def _viewer_payload(bundle: StudyBundle, *, max_frames: int) -> dict[str, Any]:
         "interventions": _table_rows(bundle.interventions, run_id=run_id),
         "llm_decisions": _table_rows(bundle.llm_decisions, run_id=run_id),
         "frames": frames,
+    }
+
+
+def _browser_sim_payload(
+    layout_floors: list[dict[str, Any]], frames: list[dict[str, Any]]
+) -> dict[str, Any]:
+    initial_agents = len(frames[0]["agents"]) if frames else 0
+    floor_count = len(layout_floors)
+    has_exit = any(
+        token == "E"
+        for floor in layout_floors[:1]
+        for row in floor.get("grid", [])
+        for token in row
+    )
+    enabled = floor_count == 1 and 0 < initial_agents <= 200 and has_exit
+    return {
+        "enabled": enabled,
+        "scope": "single_floor_200_agents_no_llm",
+        "duration_s": 60,
+        "target_steps_per_second": 10,
+        "agent_limit": 200,
+        "initial_agent_count": initial_agents,
+        "floor_count": floor_count,
+        "has_exit": has_exit,
     }
 
 
@@ -358,6 +393,9 @@ def _viewer_html() -> str:
     <input id="scrub" type="range" min="0" max="0" value="0">
     <span class="metric" id="step">step 0</span>
     <button id="resetCamera">Reset camera</button>
+    <button id="browserSim">Run browser sim</button>
+    <button id="resetReplay">Reset replay</button>
+    <span class="metric" id="simStatus">browser sim idle</span>
     <label><input id="sourceFloors" type="checkbox" checked> source floors</label>
     <label><input id="hazards" type="checkbox" checked> hazards</label>
     <label><input id="bottlenecks" type="checkbox" checked> bottlenecks</label>
@@ -392,6 +430,7 @@ def _viewer_html() -> str:
 <script type="module">
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import { browserSimSupport, runBrowserSimulation } from "./js/sim/browser_sim.js";
 
 const data = await fetch("./viewer_data.json").then(r => r.json());
 const canvas = document.querySelector("#scene");
@@ -420,7 +459,7 @@ const activeFloorSelect = document.querySelector("#activeFloor");
 const editorFloors = runtimeFloors.map(floor => ({ id: floor.id, z: floor.z, grid: floor.grid.map(row => row.slice()) }));
 const editorGrid = editorFloors[0]?.grid || normalizeLayoutGrid(data.layout_grid && data.layout_grid.length ? data.layout_grid : layoutGridFromCells());
 populateActiveFloorSelect();
-window.chiyodaViewer = { camera, controls, renderer, scene, data, editorGrid, editorFloors, runtimeConnectors };
+window.chiyodaViewer = { camera, controls, renderer, scene, data, editorGrid, editorFloors, runtimeConnectors, browserSimSupport, runBrowserSimulation };
 
 const root = new THREE.Group();
 scene.add(root);
@@ -719,15 +758,17 @@ for (const event of data.interventions || []) {
 }
 
 const frames = data.frames || [];
+let playbackFrames = frames;
 const scrub = document.querySelector("#scrub");
 const stepLabel = document.querySelector("#step");
-scrub.max = Math.max(0, frames.length - 1);
+const simStatus = document.querySelector("#simStatus");
+scrub.max = Math.max(0, playbackFrames.length - 1);
 let frameIndex = 0;
 let playing = false;
 
 function drawFrame(index) {
   agentGroup.clear();
-  const frame = frames[index] || { step: 0, agents: [] };
+  const frame = playbackFrames[index] || { step: 0, agents: [] };
   for (const agent of frame.agents) {
     const entropy = Math.max(0, Math.min(1, Number(agent.entropy || 0)));
     const color = new THREE.Color().setHSL(0.58 - entropy * 0.45, 0.75, 0.55);
@@ -739,6 +780,15 @@ function drawFrame(index) {
     agentGroup.add(mesh);
   }
   stepLabel.textContent = `step ${frame.step} | agents ${frame.agents.length}`;
+}
+
+function setPlaybackFrames(nextFrames, statusText) {
+  playbackFrames = nextFrames && nextFrames.length ? nextFrames : [];
+  frameIndex = 0;
+  scrub.max = Math.max(0, playbackFrames.length - 1);
+  scrub.value = "0";
+  drawFrame(0);
+  simStatus.textContent = statusText;
 }
 
 document.querySelector("#play").addEventListener("click", event => {
@@ -766,6 +816,24 @@ document.querySelector("#resetCamera").addEventListener("click", () => {
   controls.target.set(width / 2, 0, height / 2);
   controls.update();
 });
+document.querySelector("#browserSim").addEventListener("click", () => {
+  const result = runBrowserSimulation(data, { durationS: 60, targetStepsPerSecond: 10, maxAgents: 200 });
+  window.chiyodaViewer.browserSimResult = result;
+  if (!result.ok) {
+    simStatus.textContent = result.reason;
+    return;
+  }
+  const summary = result.summary;
+  setPlaybackFrames(result.frames, `browser ${summary.evacuated}/${summary.initial_agents} | ${summary.sim_steps_per_second.toFixed(0)} steps/s`);
+});
+document.querySelector("#resetReplay").addEventListener("click", () => {
+  setPlaybackFrames(frames, "replay");
+});
+const browserSupport = browserSimSupport(data, { maxAgents: 200 });
+if (!browserSupport.ok) {
+  document.querySelector("#browserSim").disabled = true;
+  simStatus.textContent = browserSupport.reason;
+}
 authorMode.addEventListener("change", () => {
   if (authorMode.checked) {
     playing = false;
@@ -1218,8 +1286,8 @@ function resize() {
 function animate() {
   resize();
   controls.update();
-  if (playing && frames.length) {
-    frameIndex = (frameIndex + 1) % frames.length;
+  if (playing && playbackFrames.length) {
+    frameIndex = (frameIndex + 1) % playbackFrames.length;
     scrub.value = String(frameIndex);
     drawFrame(frameIndex);
   }

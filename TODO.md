@@ -23,14 +23,6 @@ Conventions:
 
 ## P3 — Authoring & ops surfaces (non-CLI users)
 
-### [ ] T3.1 In-browser sim loop (single-floor first)
-- Scope: port the core stepper to a WASM target or JS port for a constrained subset (single floor, ≤200 agents, no LLM). Goal: viewer becomes interactive, not replay-only.
-- Files: new `chiyoda/acceleration/wasm/` (or `viewer/js/sim/`), wiring in `chiyoda/analysis/viewer.py`, `docs/3d_viewer_simulation.md` (already exists — extend).
-- Acceptance:
-  - Viewer can run a 60s scenario locally in browser at ≥10 steps/s on a mid-range laptop. [Speculation] perf target — confirm with profiling.
-  - Round-trip parity: browser run vs CLI run match within 5% on egress count for ≥3 small scenarios.
-- Refs: web-based JuPedSim browser sim (Forschungszentrum Jülich).
-
 ### [ ] T3.2 Browser authoring of connectors and hostile channels
 - Scope: extend viewer author mode to create/edit connectors (stairs, ramps, escalators, elevators) and hostile-channel configs. Currently only raster floor painting works (`docs/implementation_audit.md`).
 - Files: `chiyoda/analysis/viewer.py`, viewer JS assets.

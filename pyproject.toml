@@ -33,6 +33,9 @@ chiyoda = "chiyoda.cli:main"
 include = ["chiyoda*"]
 exclude = ["tests*", "scripts*", "notebooks*"]
 
+[tool.setuptools.package-data]
+"chiyoda.analysis" = ["viewer_assets/js/sim/*.js"]
+
 [tool.setuptools.dynamic]
 version = { attr = "chiyoda.__version__.__version__" }
 dependencies = { file = ["requirements.txt"] }

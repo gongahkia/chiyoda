@@ -1,17 +1,15 @@
-# Browser-Side Simulation: Design Spike
+# Browser-Side Simulation
 
-Status: **DESIGN ONLY — no implementation has been started.**
+Status: **implemented for a constrained single-floor preview.**
 
-This document evaluates whether to port Chiyoda's runtime loop to the
-browser-side 3D viewer so users can iterate on edited scenarios without
-falling back to the Python CLI. The decision (`stop` vs `go`) lives at the
-bottom; do not start any JS implementation until that line is flipped to
-`go` in a separate PR.
+The viewer now exports `js/sim/browser_sim.js` and exposes a `Run browser sim`
+toolbar control. This is an interactive preview, not the canonical simulator.
+Reference, validation, and benchmark runs remain Python outputs.
 
 ## Motivation
 
-Today the viewer is read-only: it replays an exported run. After editing a
-scenario in author mode the user must:
+The viewer used to be read-only: it replayed an exported run. After editing a
+scenario in author mode, the user had to:
 
 1. Export the edited YAML.
 2. Re-run `chiyoda run` in a shell.
@@ -22,24 +20,39 @@ authoring.
 
 ## Scope
 
-The browser sim would cover *interactive iteration*, not benchmark or paper
-runs. Reference and reproducibility runs stay in Python.
+The browser sim covers interactive iteration only:
 
-## JS Port Surface
+- one runtime floor,
+- at most 200 replay-seeded agents,
+- 60 simulated seconds,
+- no LLM calls,
+- no multi-floor connectors,
+- no hazard physics parity guarantee.
 
-Estimated minimum surface to reach a useful interactive loop:
+The stepper uses the exported runtime floor grid, exit cells, and first replay
+frame. Agents follow a browser-computed grid distance field toward the nearest
+exit and disappear when they reach an exit cell.
+
+## Implementation Surface
+
+Implemented:
 
 | Subsystem | File(s) | Browser parity needed |
 |:--|:--|:--|
-| Cell graph and 4-neighbor walkability | `chiyoda/environment/layout.py` | Yes |
-| Pathfinding (belief-weighted A*) | `chiyoda/navigation/pathfinding.py` | Yes (single-floor first) |
-| Spatial index | `chiyoda/navigation/spatial_index.py` | Yes |
-| Social-force step | `chiyoda/navigation/social_force.py` | Yes (smaller crowds, ~1-2k agents) |
-| Belief updates and gossip | `chiyoda/information/field.py`, `propagation.py` | Yes (vectorize in JS) |
-| Bottleneck zone detection | `chiyoda/analysis/telemetry.py` | Optional (display only) |
-| Hazards: GAS/SMOKE/FIRE/CRUSH/SHOOTER | `chiyoda/environment/hazards.py` | Yes (stylized only) |
-| Multi-floor connectors | `chiyoda/navigation/connectors.py` | Optional, phase 2 |
-| Wildfire ember field, flood inundation, aftershocks | `chiyoda/environment/hazards.py` | Out of scope for v1 |
+| Browser stepper | `chiyoda/analysis/viewer_assets/js/sim/browser_sim.js` | Constrained preview only |
+| Viewer data export | `chiyoda/analysis/viewer.py` | Adds `browser_sim` metadata and agent cells |
+| Viewer controls | `chiyoda/analysis/viewer.py` | Run/reset browser replay |
+| Regression tests | `tests/test_viewer_export.py` | Node module, speed threshold, 3-scenario egress parity |
+
+Not implemented:
+
+| Subsystem | Status |
+|:--|:--|
+| Social-force parity | Out of scope for this preview. |
+| Belief updates and gossip | Out of scope. |
+| Hazard field evolution | Out of scope. |
+| Multi-floor connectors | T3.2/T3.3-adjacent future work. |
+| Browser-generated benchmark submissions | Not supported. |
 
 ## Stays in Python
 
@@ -52,32 +65,24 @@ Estimated minimum surface to reach a useful interactive loop:
 
 The browser is an interactive sandbox; canonical results come from Python.
 
-## Open Questions
+## Verification
 
-1. Determinism: do we promise bit-identical browser-vs-Python output for a
-   given seed? Probably not — JS floating point and RNG would diverge.
-   Better answer: the browser loop reports its own seed and is not used for
-   submissions.
-2. Crowd budget: target 1-2k agents at 30 fps on a mid-range laptop, or aim
-   higher with a WebGPU compute pass? Recommend starting CPU-only.
-3. State transfer: edited scenario can already be exported as strict
-   `layout.floors`. Reuse this as the JS input — no new schema.
-4. LLM in browser: out of scope. The browser loop runs without
-   intervention policies that require Python.
+Automated checks:
 
-## Recommended Decision Process
+- `tests/test_viewer_export.py::test_browser_sim_js_runs_exported_payload`
+  runs a 60-second browser sim through Node and asserts at least 10 simulated
+  steps/s.
+- `tests/test_viewer_export.py::test_browser_sim_matches_cli_egress_for_three_small_scenarios`
+  runs three generated single-floor Python scenarios, exports the viewer, runs
+  the JS sim, and checks browser-vs-CLI egress count within 5%.
 
-1. Land this design doc.
-2. Open a tracking issue with a 2-week timeboxed prototype targeting:
-   - load a strict scenario YAML in JS,
-   - run social-force + path-finding for 500 agents,
-   - render hazards and beliefs in the existing 3D viewer.
-3. Re-evaluate at the end of the timebox. If the prototype shows useful
-   interactive frame rates and acceptable behavioral drift from Python, flip
-   the decision below to `go`.
+Local measurement on this development machine for the one-agent fixture:
+`600` simulated steps for `60` simulated seconds, reporting about `1.6e6`
+simulated steps/s. This is not a cross-machine benchmark.
 
-## Decision
+## External Reference
 
-`stop` — do not start implementation. Reopen this section after a
-timeboxed prototype shows that the cost of duplicating six subsystems is
-justified.
+JuPedSim is maintained by Forschungszentrum Juelich; official docs are at
+<https://www.jupedsim.org/stable/>. I cannot verify a current public URL for
+the specific web-based JuPedSim browser demo from accessible sources, so this
+document cites only the verified official docs URL.
