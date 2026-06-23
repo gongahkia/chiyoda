@@ -10,6 +10,50 @@ from typing import Any
 
 import numpy as np
 
+CAUSAL_DELTA_METRICS = (
+    "agents_evacuated",
+    "mean_travel_time_s",
+    "mean_hazard_exposure",
+    "harmful_convergence_index",
+    "information_safety_efficiency",
+)
+
+
+def causal_delta_payload(
+    baseline_bundle,
+    treated_bundle,
+    *,
+    interventions: list[dict[str, Any]],
+    metrics: tuple[str, ...] = CAUSAL_DELTA_METRICS,
+    bootstrap_samples: int = 1000,
+    random_seed: int = 42,
+) -> dict[str, Any]:
+    from chiyoda.studies.causal import compare_bundles
+
+    frame = compare_bundles(
+        baseline_bundle,
+        treated_bundle,
+        metrics=metrics,
+        bootstrap_samples=bootstrap_samples,
+        random_seed=random_seed,
+    )
+    metric_rows = frame.to_dict(orient="records")
+    return {
+        "estimator": "matched_seed_ate",
+        "metrics": metric_rows,
+        "interventions": [
+            {
+                "intervention": intervention,
+                "metrics": metric_rows,
+            }
+            for intervention in interventions
+        ],
+        "assumptions": {
+            "document": "docs/causal_layer_assumptions.md",
+            "labels_required": True,
+        },
+    }
+
 
 class SimulationAnalytics:
     def calculate_performance_metrics(self, simulation) -> dict[str, Any]:

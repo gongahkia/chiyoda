@@ -12,7 +12,7 @@ import numpy as np
 import pandas as pd
 import yaml
 
-from chiyoda.analysis.metrics import SimulationAnalytics
+from chiyoda.analysis.metrics import SimulationAnalytics, causal_delta_payload
 from chiyoda.scenarios.manager import ScenarioManager
 from chiyoda.studies.models import ComparisonResult, StudyBundle
 from chiyoda.studies.schema import (
@@ -222,6 +222,63 @@ def run_study(study: str | Path | StudyConfig) -> StudyBundle:
     )
 
 
+def run_counterfactual_pair(
+    scenario_file: str | Path,
+    *,
+    seeds: Sequence[int] | None = None,
+    repetitions: int = 1,
+    jobs: int = 1,
+    bootstrap_samples: int = 1000,
+    random_seed: int = 42,
+) -> dict[str, Any]:
+    scenario_path = Path(scenario_file).resolve()
+    seed_list = list(seeds or [])
+    baseline = run_study(
+        StudyConfig(
+            name=f"{scenario_path.stem}_no_intervention",
+            scenario_file=str(scenario_path),
+            seeds=seed_list,
+            repetitions=repetitions,
+            jobs=jobs,
+            variants=[
+                StudyVariant(
+                    name="no_intervention",
+                    scenario_overrides={"interventions": {"policy": "none"}},
+                )
+            ],
+        )
+    )
+    treated = run_study(
+        StudyConfig(
+            name=f"{scenario_path.stem}_treated",
+            scenario_file=str(scenario_path),
+            seeds=seed_list,
+            repetitions=repetitions,
+            jobs=jobs,
+            variants=[StudyVariant(name="treated")],
+        )
+    )
+    scenario = ScenarioManager().load_config(str(scenario_path))
+    interventions = _intervention_descriptors(scenario.get("interventions"))
+    delta = causal_delta_payload(
+        baseline,
+        treated,
+        interventions=interventions,
+        bootstrap_samples=bootstrap_samples,
+        random_seed=random_seed,
+    )
+    delta["metadata"] = {
+        "scenario_file": str(scenario_path),
+        "baseline_study_name": baseline.metadata.get("study_name"),
+        "treated_study_name": treated.metadata.get("study_name"),
+        "baseline_variant": "no_intervention",
+        "treated_variant": "treated",
+        "bootstrap_samples": int(bootstrap_samples),
+        "random_seed": int(random_seed),
+    }
+    return {"baseline": baseline, "treated": treated, "causal_delta": delta}
+
+
 def compare_studies(
     baseline: str | Path | StudyBundle,
     variant: str | Path | StudyBundle,
@@ -350,6 +407,26 @@ def _materialize_variants(config: StudyConfig) -> list[StudyVariant]:
     if not variants:
         variants = [StudyVariant(name="baseline")]
     return variants
+
+
+def _intervention_descriptors(raw: Any) -> list[dict[str, Any]]:
+    if raw is None:
+        return [{"policy": "none"}]
+    if isinstance(raw, list):
+        return [_intervention_descriptor(item) for item in raw]
+    return [_intervention_descriptor(raw)]
+
+
+def _intervention_descriptor(raw: Any) -> dict[str, Any]:
+    if not isinstance(raw, dict):
+        return {"policy": str(raw)}
+    result = {
+        "policy": str(raw.get("policy", "unknown")),
+    }
+    for key in ("message_type", "interval_steps", "target", "budget_per_interval"):
+        if key in raw:
+            result[key] = raw[key]
+    return result
 
 
 def _resolve_seeds(config: StudyConfig, variant: StudyVariant) -> list[int]:

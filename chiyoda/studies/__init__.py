@@ -7,7 +7,12 @@ from .benchmark import (
 )
 from .causal import CounterfactualEstimator, compare_bundles
 from .models import ComparisonResult, StudyBundle
-from .runner import compare_studies, load_study_config, run_study
+from .runner import (
+    compare_studies,
+    load_study_config,
+    run_counterfactual_pair,
+    run_study,
+)
 from .schema import (
     ExportConfig,
     InterventionConfig,
@@ -31,6 +36,7 @@ __all__ = [
     "benchmark_spec_v1",
     "benchmark_score",
     "load_study_config",
+    "run_counterfactual_pair",
     "run_study",
     "submit_policy",
     "validate_submission_file",

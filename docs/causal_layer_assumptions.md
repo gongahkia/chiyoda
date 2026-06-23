@@ -1,8 +1,10 @@
 # Causal comparison assumptions
 
 `chiyoda.cli causal-compare` estimates matched-pair average treatment effects
-from two exported study bundles. Matching is by `seed`, so baseline and treated
-bundles must use the same seed set.
+from two exported study bundles. `chiyoda run --counterfactual` now creates a
+treated bundle, a matched no-intervention bundle, and `causal_delta.json` in one
+command. Matching is by `seed`, so baseline and treated bundles must use the
+same seed set.
 
 ## Estimand
 
@@ -16,12 +18,16 @@ Bootstrap confidence intervals resample matched seed-level differences.
 
 ## Required assumptions
 
-- SUTVA: one run's treatment does not change another run's outcome.
-- No interference within matched pair beyond the simulated treatment itself.
-- Exchangeability across seeds after matching.
-- Same scenario family and compatible metric definitions across bundles.
-- Deterministic seed assignment for each run. `StudyConfig.treatment_assignments`
-  can record explicit seed-to-condition labels in the exported manifest.
+- [Inference] SUTVA approximation: one run's treatment does not change another
+  run's outcome.
+- [Inference] No interference within matched pair beyond the simulated
+  treatment itself.
+- [Inference] Exchangeability across seeds after matching.
+- [Inference] Same scenario family and compatible metric definitions across
+  bundles.
+- [Inference] Deterministic seed assignment for each run.
+  `StudyConfig.treatment_assignments` can record explicit seed-to-condition
+  labels in the exported manifest.
 
 ## Robustness output
 

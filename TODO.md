@@ -35,13 +35,6 @@ Conventions:
 
 ## P6 — Telemetry, causality, and analysis
 
-### [ ] T6.1 Causal counterfactual export
-- Scope: HCI is reported as correlation. Add a counterfactual run pair per intervention (with vs without the message), and export the causal delta with CIs.
-- Files: `chiyoda/analysis/metrics.py`, `chiyoda/studies/`, `docs/causal_layer_assumptions.md`.
-- Acceptance:
-  - `chiyoda run --counterfactual` produces both runs and a `causal_delta.json` per intervention.
-  - Doc explicitly lists assumptions (no-interference, SUTVA approximation, etc.) and labels them `[Inference]`.
-
 ### [ ] T6.2 Per-step route-intent path usage
 - Scope: path-usage debug is aggregate max-per-cell (`implementation_audit.md`). Add per-step intent tensor; gate behind a CLI flag to control file size.
 - Files: `chiyoda/analysis/telemetry.py`, viewer overlay loader.

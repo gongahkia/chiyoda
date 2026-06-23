@@ -42,6 +42,7 @@ from chiyoda.studies import (
     compare_bundles,
     compare_studies,
     load_study_config,
+    run_counterfactual_pair,
     run_study,
     submit_policy,
     validate_submission_file,
@@ -142,8 +143,63 @@ def _export_bundle(
     default=False,
     help="Dump per-step telemetry to <out>/debug_steps.jsonl",
 )
-def run(scenario_file, out_dir, figure_formats, table_formats, profile, debug):
+@click.option(
+    "--counterfactual",
+    is_flag=True,
+    default=False,
+    help="Run treated and no-intervention matched bundles plus causal_delta.json",
+)
+@click.option(
+    "--counterfactual-repetitions",
+    default=1,
+    type=int,
+    help="Matched seed repetitions for --counterfactual",
+)
+@click.option(
+    "--counterfactual-bootstrap-samples",
+    default=1000,
+    type=int,
+    help="Bootstrap samples for --counterfactual causal intervals",
+)
+def run(
+    scenario_file,
+    out_dir,
+    figure_formats,
+    table_formats,
+    profile,
+    debug,
+    counterfactual,
+    counterfactual_repetitions,
+    counterfactual_bootstrap_samples,
+):
     """Run a single scenario and export a structured study bundle."""
+    if counterfactual:
+        result = run_counterfactual_pair(
+            scenario_file,
+            repetitions=int(counterfactual_repetitions),
+            bootstrap_samples=int(counterfactual_bootstrap_samples),
+        )
+        output_dir = Path(out_dir)
+        _export_bundle(
+            result["baseline"],
+            str(output_dir / "no_intervention"),
+            tuple(figure_formats),
+            tuple(table_formats),
+            profile,
+        )
+        _export_bundle(
+            result["treated"],
+            str(output_dir / "treated"),
+            tuple(figure_formats),
+            tuple(table_formats),
+            profile,
+        )
+        output_dir.mkdir(parents=True, exist_ok=True)
+        (output_dir / "causal_delta.json").write_text(
+            json.dumps(result["causal_delta"], indent=2, sort_keys=True) + "\n"
+        )
+        click.echo(f"Exported counterfactual study bundle to {out_dir}")
+        return
     bundle = run_study(scenario_file)
     _export_bundle(
         bundle, out_dir, tuple(figure_formats), tuple(table_formats), profile
