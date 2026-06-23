@@ -36,7 +36,13 @@ The script writes:
 
 - `bottleneck_flow_summary.csv`
 - `bottleneck_flow_comparison.csv`
+- `bottleneck_travel_time_ks.csv`
 - `reference_metadata.json`
+
+`bottleneck_travel_time_ks.csv` reports per-density-band travel-time
+two-sample KS statistics and p-values. Bands default to low `<1 ped/m^2`,
+medium `1-2 ped/m^2`, and high `>=2 ped/m^2`. The soft-fail threshold is
+`p < 0.01`; this marks the row but does not abort the script.
 
 Run the calibration sweep:
 

@@ -16,6 +16,12 @@ RIMEA_VALIDATION_CASES = tuple(
     Path(f"scenarios/validation_rimea_{case:02d}.yaml") for case in range(1, 11)
 )
 RIMEA_VALIDATION_SEEDS = (42, 43, 44, 45, 46)
+DEFAULT_DENSITY_BANDS = (
+    ("low", 0.0, 1.0),
+    ("medium", 1.0, 2.0),
+    ("high", 2.0, float("inf")),
+)
+KS_PVALUE_SOFT_FAIL_THRESHOLD = 0.01
 
 
 @dataclass(frozen=True)
@@ -167,6 +173,105 @@ def compare_bottleneck_flow(
     return pd.DataFrame(rows)
 
 
+def bottleneck_travel_times_by_density(
+    frame: pd.DataFrame,
+    *,
+    measurement_line: Sequence[Sequence[float]] = ((0.35, 0.0), (-0.35, 0.0)),
+    density_radius_m: float = 1.0,
+    density_bands: Sequence[
+        Sequence[object] | dict[str, object]
+    ] = DEFAULT_DENSITY_BANDS,
+) -> pd.DataFrame:
+    crossings = bottleneck_crossing_times(frame, measurement_line=measurement_line)
+    bands = _density_bands(density_bands)
+    columns = [
+        "agent_id",
+        "entry_time_s",
+        "crossing_time_s",
+        "travel_time_s",
+        "local_density_ped_m2",
+        "density_band",
+    ]
+    if crossings.empty:
+        return pd.DataFrame(columns=columns)
+
+    first_times = (
+        frame.groupby("agent_id", sort=False)["time_s"].min().astype(float).to_dict()
+    )
+    rows: list[dict[str, float | int | str]] = []
+    for crossing in crossings.itertuples(index=False):
+        agent_id = int(crossing.agent_id)
+        crossing_time = float(crossing.crossing_time_s)
+        entry_time = float(first_times.get(agent_id, crossing_time))
+        density = _local_density_at_time(
+            frame,
+            time_s=crossing_time,
+            center=(float(crossing.midpoint_x), float(crossing.midpoint_y)),
+            radius_m=density_radius_m,
+        )
+        rows.append(
+            {
+                "agent_id": agent_id,
+                "entry_time_s": entry_time,
+                "crossing_time_s": crossing_time,
+                "travel_time_s": crossing_time - entry_time,
+                "local_density_ped_m2": density,
+                "density_band": _density_band(density, bands),
+            }
+        )
+    return pd.DataFrame(rows, columns=columns)
+
+
+def compare_density_band_travel_times(
+    simulated: pd.DataFrame,
+    reference: pd.DataFrame,
+    *,
+    simulated_line: Sequence[Sequence[float]] = ((4.0, 6.0), (6.0, 6.0)),
+    reference_line: Sequence[Sequence[float]] = ((0.35, 0.0), (-0.35, 0.0)),
+    density_radius_m: float = 1.0,
+    density_bands: Sequence[
+        Sequence[object] | dict[str, object]
+    ] = DEFAULT_DENSITY_BANDS,
+    pvalue_threshold: float = KS_PVALUE_SOFT_FAIL_THRESHOLD,
+) -> pd.DataFrame:
+    bands = _density_bands(density_bands)
+    simulated_distribution = bottleneck_travel_times_by_density(
+        simulated,
+        measurement_line=simulated_line,
+        density_radius_m=density_radius_m,
+        density_bands=bands,
+    )
+    reference_distribution = bottleneck_travel_times_by_density(
+        reference,
+        measurement_line=reference_line,
+        density_radius_m=density_radius_m,
+        density_bands=bands,
+    )
+    rows: list[dict[str, float | int | str | bool]] = []
+    for name, lower, upper in bands:
+        sim_values = _band_values(simulated_distribution, name)
+        ref_values = _band_values(reference_distribution, name)
+        statistic, pvalue = _ks_2samp(sim_values, ref_values)
+        finite_pvalue = bool(np.isfinite(pvalue))
+        rows.append(
+            {
+                "density_band": name,
+                "density_min_ped_m2": lower,
+                "density_max_ped_m2": upper,
+                "simulated_count": int(len(sim_values)),
+                "reference_count": int(len(ref_values)),
+                "simulated_mean_travel_time_s": _mean(sim_values),
+                "reference_mean_travel_time_s": _mean(ref_values),
+                "ks_statistic": statistic,
+                "ks_pvalue": pvalue,
+                "pvalue_soft_fail_threshold": float(pvalue_threshold),
+                "soft_fail": bool(finite_pvalue and pvalue < pvalue_threshold),
+                "status": "ok" if finite_pvalue else "insufficient_samples",
+            }
+        )
+    return pd.DataFrame(rows)
+
+
 def run_rimea_validation_scenarios(
     scenario_files: Sequence[str | Path] = RIMEA_VALIDATION_CASES,
     *,
@@ -253,6 +358,98 @@ def _ci95(values: Iterable[float] | pd.Series) -> float:
     if len(series) < 2:
         return 0.0
     return float(1.96 * series.std(ddof=1) / sqrt(len(series)))
+
+
+def _density_bands(
+    bands: Sequence[Sequence[object] | dict[str, object]],
+) -> tuple[tuple[str, float, float], ...]:
+    parsed: list[tuple[str, float, float]] = []
+    for band in bands:
+        if isinstance(band, dict):
+            name = str(band["name"])
+            lower = float(band.get("min_ped_m2", band.get("min", 0.0)))
+            upper_value = band.get("max_ped_m2", band.get("max", float("inf")))
+            upper = float(upper_value) if upper_value is not None else float("inf")
+        else:
+            name = str(band[0])
+            lower = float(band[1])
+            upper = float(band[2])
+        parsed.append((name, lower, upper))
+    return tuple(parsed)
+
+
+def _density_band(
+    density: float, bands: Sequence[tuple[str, float, float]]
+) -> str:
+    for name, lower, upper in bands:
+        if lower <= density < upper:
+            return name
+    return "out_of_range"
+
+
+def _local_density_at_time(
+    frame: pd.DataFrame,
+    *,
+    time_s: float,
+    center: Sequence[float],
+    radius_m: float,
+) -> float:
+    if frame.empty:
+        return 0.0
+    radius = max(float(radius_m), 1e-9)
+    times = pd.to_numeric(frame["time_s"], errors="coerce").dropna().unique()
+    if len(times) == 0:
+        return 0.0
+    nearest = float(times[int(np.argmin(np.abs(times - float(time_s))))])
+    sample = frame[np.isclose(frame["time_s"].astype(float), nearest)]
+    if sample.empty:
+        return 0.0
+    positions = sample[["x", "y"]].to_numpy(dtype=float)
+    distances = np.linalg.norm(positions - np.array(center, dtype=float), axis=1)
+    return float(np.count_nonzero(distances <= radius) / (np.pi * radius * radius))
+
+
+def _band_values(distribution: pd.DataFrame, band: str) -> np.ndarray:
+    if distribution.empty:
+        return np.array([], dtype=float)
+    values = distribution.loc[
+        distribution["density_band"] == band, "travel_time_s"
+    ].to_numpy(dtype=float)
+    return values[np.isfinite(values)]
+
+
+def _ks_2samp(
+    sample_a: Sequence[float], sample_b: Sequence[float]
+) -> tuple[float, float]:
+    a = np.sort(np.array(sample_a, dtype=float))
+    b = np.sort(np.array(sample_b, dtype=float))
+    a = a[np.isfinite(a)]
+    b = b[np.isfinite(b)]
+    if len(a) < 2 or len(b) < 2:
+        return (float("nan"), float("nan"))
+    points = np.sort(np.concatenate([a, b]))
+    cdf_a = np.searchsorted(a, points, side="right") / len(a)
+    cdf_b = np.searchsorted(b, points, side="right") / len(b)
+    statistic = float(np.max(np.abs(cdf_a - cdf_b)))
+    effective_n = sqrt(len(a) * len(b) / (len(a) + len(b)))
+    scaled = (effective_n + 0.12 + 0.11 / max(effective_n, 1e-9)) * statistic
+    return (statistic, _kolmogorov_pvalue(scaled))
+
+
+def _kolmogorov_pvalue(value: float) -> float:
+    if not np.isfinite(value) or value < 0.0:
+        return float("nan")
+    total = 0.0
+    for index in range(1, 101):
+        term = (
+            2.0
+            * ((-1.0) ** (index - 1))
+            * np.exp(-2.0 * index * index * value * value)
+        )
+        total += term
+        if abs(term) < 1e-12:
+            break
+    return float(np.clip(total, 0.0, 1.0))
 
 
 def _rimea_case_id(path: Path) -> int:

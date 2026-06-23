@@ -6,7 +6,20 @@ description: 'Chiyoda bottleneck-flow validation scenario paired with the public
   '
 metadata:
   external_reference: data/external/wuppertal_bottleneck_2018/metadata.json
-  validation_scope: bottleneck_flow
+  validation_scope: bottleneck_flow_density_tt
+  travel_time_distribution:
+    density_radius_m: 1.0
+    ks_pvalue_soft_fail_threshold: 0.01
+    density_bands:
+    - name: low
+      min_ped_m2: 0.0
+      max_ped_m2: 1.0
+    - name: medium
+      min_ped_m2: 1.0
+      max_ped_m2: 2.0
+    - name: high
+      min_ped_m2: 2.0
+      max_ped_m2: null
 layout:
   cell_size: 1.0
   floors:

@@ -15,12 +15,6 @@ Conventions:
 
 ## P1 — Validation: drop the "not externally validated" caveat
 
-### [ ] T1.4 Wuppertal expansion: density and TT-distribution agreement
-- Scope: current Wuppertal check is single-metric (`[Unverified]`). Add per-density-band travel-time distributions and KS-test against reference.
-- Files: `chiyoda/analysis/external_validation.py`, `scenarios/validation_wuppertal_bottleneck.yaml`.
-- Acceptance:
-  - KS p-values reported; explicit fail threshold (e.g. p<0.01) wired into CI as a soft-fail metric.
-
 ---
 
 ## P2 — Benchmark v1 → real leaderboard

@@ -15,6 +15,7 @@ if str(ROOT) not in sys.path:
 
 from chiyoda.analysis.external_validation import (  # noqa: E402
     compare_bottleneck_flow,
+    compare_density_band_travel_times,
     load_petrack_trajectory,
     summarize_bottleneck_flow,
 )
@@ -87,6 +88,12 @@ def main() -> int:
         measurement_line=reference_line,
     )
     comparison = compare_bottleneck_flow(simulated_summary, reference_summary)
+    travel_time_ks = compare_density_band_travel_times(
+        simulated,
+        reference,
+        simulated_line=simulated_line,
+        reference_line=reference_line,
+    )
 
     summaries = pd.concat(
         [reference_summary.to_frame(), simulated_summary.to_frame()],
@@ -94,12 +101,14 @@ def main() -> int:
     )
     summaries.to_csv(out_dir / "bottleneck_flow_summary.csv", index=False)
     comparison.to_csv(out_dir / "bottleneck_flow_comparison.csv", index=False)
+    travel_time_ks.to_csv(out_dir / "bottleneck_travel_time_ks.csv", index=False)
     if DEFAULT_METADATA.exists():
         (out_dir / "reference_metadata.json").write_text(
             json.dumps(json.loads(DEFAULT_METADATA.read_text()), indent=2) + "\n"
         )
     print(f"wrote {out_dir / 'bottleneck_flow_summary.csv'}")
     print(f"wrote {out_dir / 'bottleneck_flow_comparison.csv'}")
+    print(f"wrote {out_dir / 'bottleneck_travel_time_ks.csv'}")
     return 0
 
 
