@@ -1,0 +1,63 @@
+name: perf regression
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/perf-regression.yml"
+      - "chiyoda/**"
+      - "requirements.txt"
+      - "scenarios/benchmark/**"
+      - "scripts/perf_regression_suite.py"
+
+jobs:
+  perf-regression:
+    runs-on: ubuntu-latest
+    steps:
+      - name: checkout base
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.base_ref }}
+          path: base
+      - name: checkout head
+        uses: actions/checkout@v4
+        with:
+          path: head
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: head/requirements.txt
+      - name: install head dependencies
+        working-directory: head
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e .
+      - name: run base perf
+        working-directory: base
+        run: |
+          python scripts/perf_regression_suite.py \
+            --label main \
+            --out ../out/perf/base \
+            --output-file ../out/perf/base.csv
+      - name: run head perf
+        working-directory: head
+        run: |
+          python scripts/perf_regression_suite.py \
+            --label pr \
+            --out ../out/perf/head \
+            --output-file ../out/perf/head.csv
+      - name: compare perf
+        working-directory: head
+        run: |
+          python scripts/perf_regression_suite.py compare \
+            --baseline ../out/perf/base.csv \
+            --current ../out/perf/head.csv \
+            --max-regression 0.10 \
+            --out ../out/perf/perf_delta.csv \
+            --summary ../out/perf/perf_delta.md
+      - name: upload perf artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: perf-regression
+          path: out/perf

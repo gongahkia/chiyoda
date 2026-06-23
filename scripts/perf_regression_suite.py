@@ -27,6 +27,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from chiyoda._logging import get_logger
 from chiyoda.scenarios.manager import ScenarioManager
 
 DEFAULT_SCENARIOS = [
@@ -34,6 +35,7 @@ DEFAULT_SCENARIOS = [
     "scenarios/benchmark/transit_cbrn_10k.yaml",
     "scenarios/benchmark/wildfire_wui.yaml",
 ]
+DEFAULT_MAX_REGRESSION = 0.10
 
 
 def _peak_rss_bytes() -> int:
@@ -45,7 +47,9 @@ def _peak_rss_bytes() -> int:
     return raw * 1024
 
 
-def _run_one(scenario_path: str, seed: int) -> dict[str, float | str | int]:
+def _run_one(
+    scenario_path: str, seed: int, *, label: str = ""
+) -> dict[str, float | str | int]:
     gc.collect()
     rss_before = _peak_rss_bytes()
     manager = ScenarioManager()
@@ -58,6 +62,7 @@ def _run_one(scenario_path: str, seed: int) -> dict[str, float | str | int]:
     elapsed = time.perf_counter() - start
     rss_after = _peak_rss_bytes()
     return {
+        "label": label,
         "scenario": scenario_path,
         "seed": seed,
         "elapsed_s": round(elapsed, 4),
@@ -69,7 +74,15 @@ def _run_one(scenario_path: str, seed: int) -> dict[str, float | str | int]:
     }
 
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> int:
+    argv = list(sys.argv[1:] if argv is None else argv)
+    if argv[:1] == ["compare"]:
+        return _compare_main(argv[1:])
+    return _run_main(argv)
+
+
+def _run_main(argv: list[str]) -> int:
+    get_logger().setLevel("WARNING")
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--scenario",
@@ -78,13 +91,15 @@ def main() -> None:
         help="Scenario path. Repeatable. Defaults to the smoke set if omitted.",
     )
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--label", default="")
     parser.add_argument(
         "--out",
         type=Path,
         default=Path("out/perf"),
         help="Output directory; receives perf_<utc>.csv",
     )
-    args = parser.parse_args()
+    parser.add_argument("--output-file", type=Path, default=None)
+    args = parser.parse_args(argv)
     scenarios = args.scenario or DEFAULT_SCENARIOS
     args.out.mkdir(parents=True, exist_ok=True)
     rows = []
@@ -94,6 +109,7 @@ def main() -> None:
                 {
                     "scenario": scenario,
                     "seed": args.seed,
+                    "label": args.label,
                     "elapsed_s": -1.0,
                     "rss_delta_mib": 0.0,
                     "evacuated": 0,
@@ -102,18 +118,130 @@ def main() -> None:
                 }
             )
             continue
-        rows.append(_run_one(scenario, args.seed))
+        rows.append(_run_one(scenario, args.seed, label=args.label))
 
     timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
-    csv_path = args.out / f"perf_{timestamp}.csv"
-    with csv_path.open("w", newline="") as handle:
+    csv_path = args.output_file or args.out / f"perf_{timestamp}.csv"
+    write_rows(csv_path, rows)
+    print(f"wrote {csv_path}")
+    return 0
+
+
+def _compare_main(argv: list[str]) -> int:
+    parser = argparse.ArgumentParser(description="Compare perf CSV files.")
+    parser.add_argument("--baseline", type=Path, required=True)
+    parser.add_argument("--current", type=Path, required=True)
+    parser.add_argument(
+        "--max-regression",
+        type=float,
+        default=DEFAULT_MAX_REGRESSION,
+        help="Allowed elapsed_s regression fraction, e.g. 0.10 for 10%%.",
+    )
+    parser.add_argument("--out", type=Path, default=Path("out/perf/perf_delta.csv"))
+    parser.add_argument(
+        "--summary", type=Path, default=Path("out/perf/perf_delta.md")
+    )
+    args = parser.parse_args(argv)
+    rows = compare_perf(args.baseline, args.current, args.max_regression)
+    write_rows(args.out, rows)
+    markdown = comparison_markdown(rows, args.max_regression)
+    args.summary.parent.mkdir(parents=True, exist_ok=True)
+    args.summary.write_text(markdown)
+    step_summary = os.environ.get("GITHUB_STEP_SUMMARY")
+    if step_summary:
+        with Path(step_summary).open("a") as handle:
+            handle.write(markdown)
+    print(markdown)
+    return 1 if any(row["status"] == "regression" for row in rows) else 0
+
+
+def compare_perf(
+    baseline_path: Path, current_path: Path, max_regression: float
+) -> list[dict[str, float | str | int]]:
+    baseline = _rows_by_key(read_rows(baseline_path))
+    current = read_rows(current_path)
+    rows: list[dict[str, float | str | int]] = []
+    for row in current:
+        key = (row["scenario"], row["seed"])
+        base = baseline.get(key)
+        if base is None:
+            rows.append(_comparison_row(row, None, max_regression, "missing_baseline"))
+            continue
+        rows.append(_comparison_row(row, base, max_regression, ""))
+    return rows
+
+
+def _comparison_row(
+    current: dict[str, str],
+    baseline: dict[str, str] | None,
+    max_regression: float,
+    status: str,
+) -> dict[str, float | str | int]:
+    current_elapsed = _float(current.get("elapsed_s"))
+    baseline_elapsed = _float(baseline.get("elapsed_s")) if baseline else 0.0
+    delta = current_elapsed - baseline_elapsed
+    delta_pct = delta / baseline_elapsed if baseline_elapsed > 0 else 0.0
+    if not status:
+        status = "regression" if delta_pct > max_regression else "ok"
+    return {
+        "scenario": current.get("scenario", ""),
+        "seed": int(_float(current.get("seed"))),
+        "baseline_elapsed_s": round(baseline_elapsed, 4),
+        "current_elapsed_s": round(current_elapsed, 4),
+        "elapsed_delta_s": round(delta, 4),
+        "elapsed_delta_pct": round(delta_pct * 100.0, 2),
+        "threshold_pct": round(max_regression * 100.0, 2),
+        "status": status,
+    }
+
+
+def comparison_markdown(
+    rows: list[dict[str, float | str | int]], max_regression: float
+) -> str:
+    lines = [
+        "### Perf regression delta",
+        "",
+        f"Threshold: `{max_regression * 100.0:.1f}%` elapsed-time regression.",
+        "",
+        "| scenario | seed | baseline s | current s | delta % | status |",
+        "|---|---:|---:|---:|---:|---|",
+    ]
+    for row in rows:
+        lines.append(
+            "| {scenario} | {seed} | {baseline_elapsed_s:.4f} | "
+            "{current_elapsed_s:.4f} | {elapsed_delta_pct:.2f} | {status} |".format(
+                **row
+            )
+        )
+    lines.append("")
+    return "\n".join(lines)
+
+
+def read_rows(path: Path) -> list[dict[str, str]]:
+    with path.open(newline="") as handle:
+        return list(csv.DictReader(handle))
+
+
+def write_rows(path: Path, rows: list[dict[str, object]]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", newline="") as handle:
         fieldnames = sorted({key for row in rows for key in row.keys()})
         writer = csv.DictWriter(handle, fieldnames=fieldnames)
         writer.writeheader()
         for row in rows:
             writer.writerow(row)
-    print(f"wrote {csv_path}")
+
+
+def _rows_by_key(rows: list[dict[str, str]]) -> dict[tuple[str, str], dict[str, str]]:
+    return {(row["scenario"], row["seed"]): row for row in rows}
+
+
+def _float(value: object) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return 0.0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

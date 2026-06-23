@@ -39,12 +39,6 @@ Conventions:
 
 ## P7 — Reproducibility, CI, performance
 
-### [ ] T7.3 Perf regression gating
-- Scope: `scripts/perf_regression_suite.py` exists. Wire it into CI with explicit thresholds.
-- Files: `.github/workflows/`, `docs/perf_baselines.md` (new).
-- Acceptance:
-  - CI publishes per-PR perf delta vs `main` baseline; >10% regression flags for review. [Speculation] threshold.
-
 ### [ ] T7.4 Determinism tests
 - Scope: lock RNG paths; add a test that two runs with same seed and config produce byte-identical telemetry tables.
 - Files: `tests/test_determinism.py` (new).
