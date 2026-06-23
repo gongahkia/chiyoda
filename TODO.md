@@ -23,14 +23,6 @@ Conventions:
 
 ## P3 — Authoring & ops surfaces (non-CLI users)
 
-### [ ] T3.4 Dispatcher / HITL panel
-- Scope: add a viewer panel for a human operator to author a message during a paused run, see projected belief / HCI / exposure deltas BEFORE committing.
-- Files: viewer JS, new `chiyoda/information/projection.py` (lightweight forward model for short horizon).
-- Acceptance:
-  - Operator workflow demoed in `docs/dispatcher_demo.md` (new) with screenshots.
-  - Projection runs in <500ms on baseline scenario. [Speculation] perf target.
-- Refs: AnyLogic metro DT crowd management case; InControl simulation DT.
-
 ### [ ] T3.5 Ops-shaped policy comparison brief
 - Scope: alongside research figures, emit a 1-page "policy brief" PDF/MD per comparison: time-to-clear, expected exposure, attacker-induced harm delta (with CI), recommended policy.
 - Files: `chiyoda/analysis/reports.py`, templates under `templates/`.

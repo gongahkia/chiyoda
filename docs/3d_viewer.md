@@ -43,6 +43,7 @@ Controls:
 - reset camera from the toolbar,
 - run a constrained browser-side simulation replay,
 - reset back to the exported Python replay,
+- project dispatcher message deltas before committing a marker,
 - toggle hazards, bottlenecks, messages, source floors, validation, and path
   usage,
 - use `floor gap` to flatten or vertically separate source GeoJSON levels,
@@ -54,6 +55,7 @@ Authoring:
 
 - enable `author`,
 - choose `paint`, `connector`, or `hostile`,
+- choose `dispatch` to click a target cell for the dispatcher panel,
 - choose the active `edit floor`,
 - choose a paint token, connector type/capacity, or hostile objective/target/credibility,
 - click or drag on the grid to paint cells,

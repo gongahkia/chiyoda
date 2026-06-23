@@ -407,6 +407,7 @@ def _viewer_html() -> str:
     input[type="range"] { width: min(55vw, 720px); }
     canvas { display: block; width: 100%; height: 100%; }
     .metric { color: #cfcfcf; min-width: 170px; }
+    .dispatch { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 6px 8px; background: #282828; border-radius: 4px; }
   </style>
 </head>
 <body>
@@ -419,6 +420,20 @@ def _viewer_html() -> str:
     <button id="browserSim">Run browser sim</button>
     <button id="resetReplay">Reset replay</button>
     <span class="metric" id="simStatus">browser sim idle</span>
+    <div class="dispatch" id="dispatcherPanel">
+      <select id="dispatchMessageType" aria-label="dispatch message type">
+        <option value="route_guidance">route</option>
+        <option value="avoid_hazard">avoid hazard</option>
+        <option value="shelter_hold">hold</option>
+        <option value="all_clear">all clear</option>
+      </select>
+      <label>radius <input id="dispatchRadius" type="number" min="0.1" step="0.5" value="8" style="width:4.5rem"></label>
+      <label>cred <input id="dispatchCredibility" type="number" min="0" max="1" step="0.05" value="0.90" style="width:4.5rem"></label>
+      <label>horizon <input id="dispatchHorizon" type="number" min="1" max="240" step="1" value="30" style="width:4.5rem"></label>
+      <button id="projectDispatch">Project</button>
+      <button id="commitDispatch" disabled>Commit marker</button>
+      <span class="metric" id="dispatchStatus">projection idle</span>
+    </div>
     <label><input id="sourceFloors" type="checkbox" checked> source floors</label>
     <label><input id="hazards" type="checkbox" checked> hazards</label>
     <label><input id="bottlenecks" type="checkbox" checked> bottlenecks</label>
@@ -433,6 +448,7 @@ def _viewer_html() -> str:
       <option value="paint">paint</option>
       <option value="connector">connector</option>
       <option value="hostile">hostile</option>
+      <option value="dispatch">dispatch</option>
     </select>
     <select id="paintToken" aria-label="paint token">
       <option value=".">floor</option>
@@ -502,16 +518,26 @@ const connectorCapacity = document.querySelector("#connectorCapacity");
 const hostileObjective = document.querySelector("#hostileObjective");
 const hostileTarget = document.querySelector("#hostileTarget");
 const hostileCredibility = document.querySelector("#hostileCredibility");
+const dispatchMessageType = document.querySelector("#dispatchMessageType");
+const dispatchRadius = document.querySelector("#dispatchRadius");
+const dispatchCredibility = document.querySelector("#dispatchCredibility");
+const dispatchHorizon = document.querySelector("#dispatchHorizon");
+const dispatchStatus = document.querySelector("#dispatchStatus");
+const projectDispatch = document.querySelector("#projectDispatch");
+const commitDispatch = document.querySelector("#commitDispatch");
 const editorStatus = document.querySelector("#editorStatus");
 const validationOverlay = document.querySelector("#validationOverlay");
 const runtimeFloors = normalizeRuntimeFloors(data.layout_floors || []);
 const runtimeConnectors = normalizeRuntimeConnectors(data.layout_connectors || []);
 const authoredHostileChannels = [];
+const authoredDispatchMessages = [];
+let dispatchTarget = null;
+let lastDispatchProjection = null;
 const activeFloorSelect = document.querySelector("#activeFloor");
 const editorFloors = runtimeFloors.map(floor => ({ id: floor.id, z: floor.z, grid: floor.grid.map(row => row.slice()) }));
 const editorGrid = editorFloors[0]?.grid || normalizeLayoutGrid(data.layout_grid && data.layout_grid.length ? data.layout_grid : layoutGridFromCells());
 populateActiveFloorSelect();
-window.chiyodaViewer = { camera, controls, renderer, scene, data, editorGrid, editorFloors, runtimeConnectors, authoredHostileChannels, browserSimSupport, runBrowserSimulation };
+window.chiyodaViewer = { camera, controls, renderer, scene, data, editorGrid, editorFloors, runtimeConnectors, authoredHostileChannels, authoredDispatchMessages, browserSimSupport, runBrowserSimulation };
 
 const root = new THREE.Group();
 scene.add(root);
@@ -522,10 +548,11 @@ const bottleneckGroup = new THREE.Group();
 const pathUsageGroup = new THREE.Group();
 const validationGroup = new THREE.Group();
 const messageGroup = new THREE.Group();
+const dispatchGroup = new THREE.Group();
 const hostileGroup = new THREE.Group();
 const connectorGroup = new THREE.Group();
 const sourceFloorGroup = new THREE.Group();
-scene.add(sourceFloorGroup, connectorGroup, hostileGroup, agentGroup, hazardGroup, bottleneckGroup, pathUsageGroup, validationGroup, messageGroup);
+scene.add(sourceFloorGroup, connectorGroup, hostileGroup, agentGroup, hazardGroup, bottleneckGroup, pathUsageGroup, validationGroup, messageGroup, dispatchGroup);
 
 function box(x, z, sx, sz, color, y = 0.05, h = 0.1) {
   const geo = new THREE.BoxGeometry(sx, h, sz);
@@ -788,6 +815,118 @@ function hostileClaimKey(channel) {
   return channel.objective === "threat-amplification" ? "claimed_hazard" : "claimed_exit";
 }
 
+function setDispatchTarget(cell) {
+  dispatchTarget = { floor: activeFloor().id, x: cell.x, y: cell.y, z: activeFloor().z };
+  commitDispatch.disabled = true;
+  updateDispatchStatus(`target ${dispatchTarget.floor}:${cell.x},${cell.y}`);
+}
+
+function currentDispatchTarget() {
+  if (dispatchTarget) return dispatchTarget;
+  const floor = activeFloor();
+  return { floor: floor.id, x: Math.floor(width / 2), y: Math.floor(height / 2), z: floor.z };
+}
+
+function projectDispatchMessage() {
+  const started = performance.now();
+  const frame = playbackFrames[frameIndex] || { agents: [] };
+  const agents = frame.agents || [];
+  const target = currentDispatchTarget();
+  const radius = Math.max(0.1, Number(dispatchRadius.value || 8));
+  const credibility = Math.max(0, Math.min(1, Number(dispatchCredibility.value || 0.9)));
+  const horizonSteps = Math.max(1, Math.round(Number(dispatchHorizon.value || 30)));
+  const horizonScale = Math.min(1, horizonSteps / 60);
+  const recipients = agents.filter(agent => distance3(agentPoint(agent), [target.x + 0.5, target.y + 0.5, target.z]) <= radius);
+  const pressure = recipients.map(agent => hazardPressure(agent, data.hazards || []));
+  const meanPressure = pressure.length ? pressure.reduce((sum, value) => sum + value, 0) / pressure.length : 0;
+  const recipientShare = recipients.length / Math.max(1, agents.length);
+  const uncertainty = recipients.length ? recipients.reduce((sum, agent) => sum + Number(agent.entropy || 0), 0) / recipients.length : 0;
+  const coeffs = dispatchCoefficients(dispatchMessageType.value, (data.hazards || []).length > 0);
+  const effect = credibility * horizonScale * recipientShare;
+  const result = {
+    target,
+    message_type: dispatchMessageType.value,
+    recipients: recipients.length,
+    affected_agents: recipients.length,
+    mean_belief_delta: round6(coeffs.belief * credibility * horizonScale * (0.5 + uncertainty)),
+    harmful_convergence_delta: round6(coeffs.hci * effect * (1 + meanPressure)),
+    exposure_delta: round6(coeffs.exposure * effect * (0.25 + meanPressure)),
+    latency_ms: Math.round((performance.now() - started) * 1000) / 1000,
+    horizon_steps: horizonSteps,
+  };
+  lastDispatchProjection = result;
+  commitDispatch.disabled = false;
+  updateDispatchStatus(`recipients ${result.recipients} | belief ${signed(result.mean_belief_delta)} | HCI ${signed(result.harmful_convergence_delta)} | exposure ${signed(result.exposure_delta)} | ${result.latency_ms.toFixed(2)}ms`);
+  return result;
+}
+
+function commitDispatchMarker() {
+  if (!lastDispatchProjection) return null;
+  const frame = playbackFrames[frameIndex] || { step: 0 };
+  const message = { ...lastDispatchProjection, step: Number(frame.step || 0) };
+  authoredDispatchMessages.push(message);
+  renderDispatchMarkers();
+  commitDispatch.disabled = true;
+  updateDispatchStatus(`committed ${message.message_type} @ ${message.target.floor}:${message.target.x},${message.target.y}`);
+  return message;
+}
+
+function renderDispatchMarkers() {
+  dispatchGroup.clear();
+  for (const message of authoredDispatchMessages) {
+    const target = message.target || {};
+    const color = message.exposure_delta <= 0 ? 0x56c7ff : 0xff8a4c;
+    const marker = new THREE.Mesh(
+      new THREE.SphereGeometry(0.28, 16, 12),
+      new THREE.MeshStandardMaterial({ color, emissive: 0x123344 })
+    );
+    marker.position.set(Number(target.x || 0) + 0.5, floorZ(target.floor || "0") + 0.72, Number(target.y || 0) + 0.5);
+    dispatchGroup.add(marker);
+  }
+}
+
+function dispatchCoefficients(messageType, hasHazard) {
+  if (messageType === "avoid_hazard") return { belief: 0.14, hci: -0.06, exposure: -0.22 };
+  if (messageType === "shelter_hold") return { belief: 0.05, hci: 0.05, exposure: 0.10 };
+  if (messageType === "all_clear") return { belief: 0.08, hci: hasHazard ? 0.02 : -0.02, exposure: hasHazard ? 0.08 : -0.03 };
+  return { belief: 0.18, hci: -0.10, exposure: -0.12 };
+}
+
+function hazardPressure(agent, hazards) {
+  const point = agentPoint(agent);
+  let pressure = 0;
+  for (const hazard of hazards) {
+    const radius = Math.max(0.1, Number(hazard.radius || 1));
+    const severity = Number(hazard.severity || 1);
+    const center = [Number(hazard.x || 0), Number(hazard.y || 0), Number(hazard.z || 0)];
+    pressure = Math.max(pressure, Math.max(0, 1 - (distance3(point, center) / radius)) * severity);
+  }
+  return pressure;
+}
+
+function agentPoint(agent) {
+  return [Number(agent.x || 0), Number(agent.y || 0), Number(agent.z || 0)];
+}
+
+function distance3(a, b) {
+  const dx = a[0] - b[0];
+  const dy = a[1] - b[1];
+  const dz = a[2] - b[2];
+  return Math.sqrt(dx * dx + dy * dy + dz * dz);
+}
+
+function round6(value) {
+  return Math.round(Number(value || 0) * 1000000) / 1000000;
+}
+
+function signed(value) {
+  return value >= 0 ? `+${value}` : String(value);
+}
+
+function updateDispatchStatus(text) {
+  dispatchStatus.textContent = text;
+}
+
 function renderSourceFloors() {
   sourceFloorGroup.clear();
   const floors = data.floors || [];
@@ -923,6 +1062,7 @@ validationOverlay.addEventListener("change", renderValidationOverlay);
 document.querySelector("#messages").addEventListener("change", event => {
   messageGroup.visible = event.target.checked;
   hostileGroup.visible = event.target.checked;
+  dispatchGroup.visible = event.target.checked;
 });
 document.querySelector("#connectors").addEventListener("change", event => connectorGroup.visible = event.target.checked);
 document.querySelector("#sourceFloors").addEventListener("change", event => sourceFloorGroup.visible = event.target.checked);
@@ -949,6 +1089,12 @@ document.querySelector("#browserSim").addEventListener("click", () => {
 document.querySelector("#resetReplay").addEventListener("click", () => {
   setPlaybackFrames(frames, "replay");
 });
+projectDispatch.addEventListener("click", () => {
+  playing = false;
+  document.querySelector("#play").textContent = "Play";
+  projectDispatchMessage();
+});
+commitDispatch.addEventListener("click", commitDispatchMarker);
 const browserSupport = browserSimSupport(data, { maxAgents: 200 });
 if (!browserSupport.ok) {
   document.querySelector("#browserSim").disabled = true;
@@ -976,6 +1122,9 @@ window.chiyodaViewer.validateEditorGrid = validateEditorGrid;
 window.chiyodaViewer.renderValidationOverlay = renderValidationOverlay;
 window.chiyodaViewer.addAuthoredConnector = addAuthoredConnector;
 window.chiyodaViewer.addHostileChannel = addHostileChannel;
+window.chiyodaViewer.projectDispatchMessage = projectDispatchMessage;
+window.chiyodaViewer.commitDispatchMarker = commitDispatchMarker;
+window.chiyodaViewer.setDispatchTarget = setDispatchTarget;
 
 function tokenLabel(token) {
   if (token === ".") return "floor";
@@ -990,6 +1139,7 @@ function tokenLabel(token) {
 function authorActionLabel() {
   if (authorTool.value === "connector") return `${connectorType.value} -> ${connectorToFloorSelect.value}`;
   if (authorTool.value === "hostile") return `${hostileObjective.value} -> ${hostileTarget.value}`;
+  if (authorTool.value === "dispatch") return `${dispatchMessageType.value} target`;
   return tokenLabel(paintToken.value);
 }
 
@@ -1466,6 +1616,8 @@ canvas.addEventListener("pointerdown", event => {
     } else if (tool === "hostile") {
       addHostileChannel(cell);
       renderValidationOverlay();
+    } else if (tool === "dispatch") {
+      setDispatchTarget(cell);
     }
     return;
   }

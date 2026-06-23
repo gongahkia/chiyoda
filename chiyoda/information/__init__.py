@@ -39,6 +39,12 @@ from chiyoda.information.llm import (
     validator_settings,
 )
 from chiyoda.information.padm import PADMStageConfig
+from chiyoda.information.projection import (
+    DispatchProjectionRequest,
+    DispatchProjectionResult,
+    project_dispatch_message,
+    project_from_viewer_frame,
+)
 from chiyoda.information.propagation import GossipModel
 
 __all__ = [
@@ -53,7 +59,11 @@ __all__ = [
     "InterventionEvent",
     "InterventionMessage",
     "InterventionPolicy",
+    "DispatchProjectionRequest",
+    "DispatchProjectionResult",
     "create_intervention_policy",
+    "project_dispatch_message",
+    "project_from_viewer_frame",
     "AnthropicMessagesGenerator",
     "GeneratedEvacuationMessage",
     "LLMBudgetGuard",

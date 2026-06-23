@@ -114,6 +114,10 @@ def test_export_viewer_writes_static_threejs_artifact(tmp_path):
     assert "hostileObjective" in html
     assert "authoredHostileChannels" in html
     assert "hostile_channels" in html
+    assert "dispatcherPanel" in html
+    assert "dispatchMessageType" in html
+    assert "projectDispatchMessage" in html
+    assert "commitDispatchMarker" in html
     assert "authorMode" in html
     assert "activeFloor" in html
     assert "runtimeConnectors" in html
