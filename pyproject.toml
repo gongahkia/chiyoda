@@ -34,7 +34,11 @@ include = ["chiyoda*"]
 exclude = ["tests*", "scripts*", "notebooks*"]
 
 [tool.setuptools.package-data]
-"chiyoda.analysis" = ["viewer_assets/js/sim/*.js"]
+"chiyoda.analysis" = [
+    "viewer_assets/js/sim/*.js",
+    "viewer_assets/img/*.png",
+    "viewer_assets/img/*.md",
+]
 
 [tool.setuptools.dynamic]
 version = { attr = "chiyoda.__version__.__version__" }

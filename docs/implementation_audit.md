@@ -26,7 +26,8 @@ the simulator is externally validated for station evacuation prediction.
 
 - The viewer replays exported trajectories and renders hazards, bottlenecks,
   messages, runtime floors, source-floor overlays, path-usage heat cells, and
-  validation overlays.
+  validation overlays. Its browser-side preview supports multi-floor connector
+  traversal but is not the reference simulation engine.
 - Author mode edits the primary raster floor and exports strict
   `layout.floors`; it does not edit the original GeoJSON/CAD source.
 - Exported viewer YAML should be checked with:

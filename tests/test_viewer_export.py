@@ -119,8 +119,14 @@ def test_export_viewer_writes_static_threejs_artifact(tmp_path):
     assert tmp_path / "index.html" in exported
     assert tmp_path / "viewer_data.json" in exported
     assert tmp_path / "js" / "sim" / "browser_sim.js" in exported
+    assert tmp_path / "img" / "opengameart_player_41.png" in exported
+    assert tmp_path / "img" / "README.md" in exported
+    assert (tmp_path / "img" / "opengameart_player_41.png").exists()
     assert "three.module.js" in html
     assert "OrbitControls" in html
+    assert "opengameart_player_41.png" in html
+    assert "THREE.SpriteMaterial" in html
+    assert "setTimeout" not in html
     assert "runBrowserSimulation" in html
     assert "browserSim" in html
     assert "simStatus" in html
@@ -327,6 +333,25 @@ def test_browser_sim_matches_cli_egress_for_three_small_scenarios(tmp_path):
             assert abs(summary["evacuated"] - cli_egress) / cli_egress <= 0.05
     finally:
         logger.disabled = was_disabled
+
+
+def test_browser_sim_supports_multifloor_connectors(tmp_path):
+    bundle = run_study("scenarios/validation_multifloor_connectors.yaml")
+    viewer_dir = tmp_path / "multifloor_viewer"
+    export_viewer(bundle, viewer_dir)
+
+    data = json.loads((viewer_dir / "viewer_data.json").read_text())
+    summary = _run_browser_sim(viewer_dir / "viewer_data.json")
+
+    assert data["browser_sim"]["enabled"] is True
+    assert data["browser_sim"]["scope"] == "multi_floor_200_agents_no_llm"
+    assert summary["floor_count"] == 3
+    assert summary["connector_count"] == 4
+    assert summary["evacuated"] == 4
+    assert summary["connector_usage"]["stairs_main"] >= 1
+    assert summary["connector_usage"]["ramp_main"] >= 1
+    assert summary["connector_usage"]["escalator_main"] >= 1
+    assert summary["connector_usage"]["elevator_main"] >= 1
 
 
 def _run_browser_sim(data_path):

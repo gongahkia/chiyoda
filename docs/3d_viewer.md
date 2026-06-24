@@ -91,9 +91,11 @@ separate source-floor overlays. Runtime `layout.floors` are also rendered at
 their stored `z` values, and exported telemetry includes per-agent floor IDs,
 per-floor path usage, hazards with `z`, and per-floor cell grids.
 
-The browser-side sim is a constrained local preview. It supports one runtime
-floor, at most 200 replay-seeded agents, no LLM calls, and grid egress toward
-exit cells. Reference and benchmark runs still come from Python exports.
+The browser-side sim is a constrained local preview. It supports runtime
+`layout.floors`, `layout.connectors`, at most 200 replay-seeded agents, no LLM
+calls, and grid egress toward exit cells. Connector traversal uses the viewer's
+client-side graph and capacity preview; reference and benchmark runs still come
+from Python exports.
 Authoring exports a runnable raster `layout.floors` scenario; it does not edit
 the original GeoJSON/CAD source or replace trajectory-analysis tools. It now
 adds a top-level source-origin block and RFC 6902-style `patch.ops` using RFC

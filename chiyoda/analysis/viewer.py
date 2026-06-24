@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import shutil
 from pathlib import Path
 from typing import Any
 
@@ -14,6 +15,10 @@ from chiyoda.studies.models import StudyBundle
 _VIEWER_SIM_ASSET = (
     Path(__file__).with_name("viewer_assets") / "js" / "sim" / "browser_sim.js"
 )
+_VIEWER_SPRITE_ASSET = (
+    Path(__file__).with_name("viewer_assets") / "img" / "opengameart_player_41.png"
+)
+_VIEWER_SPRITE_README = Path(__file__).with_name("viewer_assets") / "img" / "README.md"
 
 
 def export_viewer(
@@ -28,11 +33,16 @@ def export_viewer(
     data_path = out / "viewer_data.json"
     index_path = out / "index.html"
     sim_asset_path = out / "js" / "sim" / "browser_sim.js"
+    sprite_asset_path = out / "img" / _VIEWER_SPRITE_ASSET.name
+    sprite_readme_path = out / "img" / "README.md"
     data_path.write_text(json.dumps(_json_safe(payload), indent=2) + "\n")
     index_path.write_text(_viewer_html())
     sim_asset_path.parent.mkdir(parents=True, exist_ok=True)
     sim_asset_path.write_text(_VIEWER_SIM_ASSET.read_text())
-    return [index_path, data_path, sim_asset_path]
+    sprite_asset_path.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(_VIEWER_SPRITE_ASSET, sprite_asset_path)
+    sprite_readme_path.write_text(_VIEWER_SPRITE_README.read_text())
+    return [index_path, data_path, sim_asset_path, sprite_asset_path, sprite_readme_path]
 
 
 def _viewer_payload(bundle: StudyBundle, *, max_frames: int) -> dict[str, Any]:
@@ -174,14 +184,14 @@ def _browser_sim_payload(
     floor_count = len(layout_floors)
     has_exit = any(
         token == "E"
-        for floor in layout_floors[:1]
+        for floor in layout_floors
         for row in floor.get("grid", [])
         for token in row
     )
-    enabled = floor_count == 1 and 0 < initial_agents <= 200 and has_exit
+    enabled = floor_count > 0 and 0 < initial_agents <= 200 and has_exit
     return {
         "enabled": enabled,
-        "scope": "single_floor_200_agents_no_llm",
+        "scope": "multi_floor_200_agents_no_llm",
         "duration_s": 60,
         "target_steps_per_second": 10,
         "agent_limit": 200,
@@ -580,7 +590,8 @@ import { browserSimSupport, runBrowserSimulation } from "./js/sim/browser_sim.js
 
 const data = await fetch("./viewer_data.json").then(r => r.json());
 const canvas = document.querySelector("#scene");
-const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, preserveDrawingBuffer: true });
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: "high-performance" });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x111111);
 const width = Number(data.metadata.layout_width || 20);
@@ -1109,6 +1120,53 @@ const pathUsageToggle = document.querySelector("#pathUsage");
 scrub.max = Math.max(0, playbackFrames.length - 1);
 let frameIndex = 0;
 let playing = false;
+let lastPlaybackAt = 0;
+let canvasWidth = 0;
+let canvasHeight = 0;
+const playbackIntervalMs = 120;
+const agentSpriteTexture = new THREE.TextureLoader().load("./img/opengameart_player_41.png");
+agentSpriteTexture.colorSpace = THREE.SRGBColorSpace;
+agentSpriteTexture.magFilter = THREE.NearestFilter;
+agentSpriteTexture.minFilter = THREE.NearestFilter;
+agentSpriteTexture.repeat.set(0.25, 1 / 3);
+agentSpriteTexture.offset.set(0, 2 / 3);
+const agentSpriteMaterial = new THREE.SpriteMaterial({
+  map: agentSpriteTexture,
+  transparent: true,
+  alphaTest: 0.08,
+  depthWrite: false,
+});
+const agentSprites = [];
+const agentHaloGeometry = new THREE.CircleGeometry(0.28, 16);
+agentHaloGeometry.rotateX(-Math.PI / 2);
+const agentHaloMaterial = new THREE.MeshBasicMaterial({
+  transparent: true,
+  opacity: 0.55,
+  vertexColors: true,
+  side: THREE.DoubleSide,
+  depthWrite: false,
+});
+let agentHaloMesh = null;
+let agentHaloCapacity = 0;
+const agentMatrix = new THREE.Matrix4();
+const agentColor = new THREE.Color();
+
+function ensureAgentPool(count) {
+  while (agentSprites.length < count) {
+    const sprite = new THREE.Sprite(agentSpriteMaterial);
+    sprite.scale.set(0.42, 0.66, 1);
+    sprite.visible = false;
+    agentSprites.push(sprite);
+    agentGroup.add(sprite);
+  }
+  if (count > agentHaloCapacity) {
+    if (agentHaloMesh) agentGroup.remove(agentHaloMesh);
+    agentHaloCapacity = Math.max(count, 1);
+    agentHaloMesh = new THREE.InstancedMesh(agentHaloGeometry, agentHaloMaterial, agentHaloCapacity);
+    agentHaloMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    agentGroup.add(agentHaloMesh);
+  }
+}
 
 function updateRoutingStatus() {
   const routing = data.pathfinding || {};
@@ -1123,19 +1181,30 @@ function updateRoutingStatus() {
 updateRoutingStatus();
 
 function drawFrame(index) {
-  agentGroup.clear();
   const frame = playbackFrames[index] || { step: 0, agents: [] };
-  for (const agent of frame.agents) {
+  const agents = frame.agents || [];
+  ensureAgentPool(agents.length);
+  for (let i = 0; i < agents.length; i += 1) {
+    const agent = agents[i];
     const entropy = Math.max(0, Math.min(1, Number(agent.entropy || 0)));
-    const color = new THREE.Color().setHSL(0.58 - entropy * 0.45, 0.75, 0.55);
-    const mesh = new THREE.Mesh(
-      new THREE.SphereGeometry(0.18, 16, 12),
-      new THREE.MeshStandardMaterial({ color })
-    );
-    mesh.position.set(Number(agent.x), Number(agent.z || 0) + 0.32, Number(agent.y));
-    agentGroup.add(mesh);
+    agentColor.setHSL(0.58 - entropy * 0.45, 0.75, 0.55);
+    const x = Number(agent.x);
+    const y = Number(agent.z || 0);
+    const z = Number(agent.y);
+    const sprite = agentSprites[i];
+    sprite.position.set(x, y + 0.5, z);
+    sprite.visible = true;
+    agentMatrix.makeTranslation(x, y + 0.13, z);
+    agentHaloMesh.setMatrixAt(i, agentMatrix);
+    agentHaloMesh.setColorAt(i, agentColor);
   }
-  stepLabel.textContent = `step ${frame.step} | agents ${frame.agents.length}`;
+  for (let i = agents.length; i < agentSprites.length; i += 1) agentSprites[i].visible = false;
+  if (agentHaloMesh) {
+    agentHaloMesh.count = agents.length;
+    agentHaloMesh.instanceMatrix.needsUpdate = true;
+    if (agentHaloMesh.instanceColor) agentHaloMesh.instanceColor.needsUpdate = true;
+  }
+  stepLabel.textContent = `step ${frame.step} | agents ${agents.length}`;
 }
 
 function setPlaybackFrames(nextFrames, statusText) {
@@ -1786,21 +1855,25 @@ function rotateCamera(deltaTheta, deltaPhi) {
 
 function resize() {
   const { clientWidth, clientHeight } = canvas;
+  if (clientWidth === canvasWidth && clientHeight === canvasHeight) return;
+  canvasWidth = clientWidth;
+  canvasHeight = clientHeight;
   renderer.setSize(clientWidth, clientHeight, false);
   camera.aspect = clientWidth / Math.max(clientHeight, 1);
   camera.updateProjectionMatrix();
 }
 
-function animate() {
+function animate(now) {
   resize();
   controls.update();
-  if (playing && playbackFrames.length) {
+  if (playing && playbackFrames.length && now - lastPlaybackAt >= playbackIntervalMs) {
+    lastPlaybackAt = now;
     frameIndex = (frameIndex + 1) % playbackFrames.length;
     scrub.value = String(frameIndex);
     drawFrame(frameIndex);
   }
   renderer.render(scene, camera);
-  setTimeout(() => requestAnimationFrame(animate), playing ? 120 : 250);
+  requestAnimationFrame(animate);
 }
 
 updateEditorStatus(validationSummary(renderValidationOverlay()));
