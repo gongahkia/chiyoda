@@ -714,6 +714,11 @@ def _collect_run_tables(
                     int(step.occupancy_grid.max()) if step.occupancy_grid.size else 0
                 ),
                 "global_entropy": float(getattr(step, "global_entropy", 0.0)),
+                "dynamic_closed_cells": int(getattr(step, "dynamic_closed_cells", 0)),
+                "dynamic_closed_edges": int(getattr(step, "dynamic_closed_edges", 0)),
+                "dynamic_topology_revision": int(
+                    getattr(step, "dynamic_topology_revision", 0)
+                ),
                 "connector_flow": int(
                     sum(getattr(step, "connector_flow", {}).values())
                 ),
@@ -797,6 +802,15 @@ def _collect_run_tables(
                     "environment_speed_factor": float(
                         getattr(agent, "environment_speed_factor", 1.0)
                     ),
+                    "door_flow_speed_factor": float(
+                        getattr(agent, "door_flow_speed_factor", 1.0)
+                    ),
+                    "toxic_load": float(getattr(agent, "toxic_load", 0.0)),
+                    "smoke_fed": float(getattr(agent, "smoke_fed", 0.0)),
+                    "heat_load": float(getattr(agent, "heat_load", 0.0)),
+                    "flood_load": float(getattr(agent, "flood_load", 0.0)),
+                    "trauma_load": float(getattr(agent, "trauma_load", 0.0)),
+                    "crush_load": float(getattr(agent, "crush_load", 0.0)),
                     "entropy": float(getattr(agent, "entropy", 0.0)),
                     "belief_accuracy": float(getattr(agent, "belief_accuracy", 1.0)),
                     "impairment": float(getattr(agent, "impairment", 0.0)),
@@ -862,6 +876,11 @@ def _collect_run_tables(
                     "mean_dwell_s": float(metrics.mean_dwell_s),
                     "mean_speed": float(metrics.mean_speed),
                     "mean_density": float(metrics.mean_density),
+                    "capacity_per_s": float(getattr(metrics, "capacity_per_s", 0.0)),
+                    "demand": int(getattr(metrics, "demand", 0)),
+                    "flow_speed_factor": float(
+                        getattr(metrics, "flow_speed_factor", 1.0)
+                    ),
                 }
             )
 

@@ -146,6 +146,49 @@ class ScenarioManager:
             flood_min_speed_factor=float(
                 simulation_cfg.get("flood_min_speed_factor", 0.1)
             ),
+            dynamic_topology_enabled=bool(
+                simulation_cfg.get("dynamic_topology_enabled", True)
+            ),
+            dynamic_fire_block_intensity=float(
+                simulation_cfg.get("dynamic_fire_block_intensity", 0.8)
+            ),
+            dynamic_wildfire_block_intensity=float(
+                simulation_cfg.get("dynamic_wildfire_block_intensity", 0.75)
+            ),
+            dynamic_ember_block_intensity=float(
+                simulation_cfg.get("dynamic_ember_block_intensity", 0.8)
+            ),
+            dynamic_gas_block_intensity=float(
+                simulation_cfg.get("dynamic_gas_block_intensity", 1.1)
+            ),
+            dynamic_smoke_block_intensity=float(
+                simulation_cfg.get("dynamic_smoke_block_intensity", 1.1)
+            ),
+            dynamic_flood_block_depth_m=float(
+                simulation_cfg.get("dynamic_flood_block_depth_m", 1.2)
+            ),
+            dynamic_terrain_block_damage=float(
+                simulation_cfg.get("dynamic_terrain_block_damage", 0.85)
+            ),
+            visibility_replan_drop=float(
+                simulation_cfg.get("visibility_replan_drop", 0.35)
+            ),
+            flood_replan_depth_delta_m=float(
+                simulation_cfg.get("flood_replan_depth_delta_m", 0.2)
+            ),
+            hazard_replan_load_delta=float(
+                simulation_cfg.get("hazard_replan_load_delta", 0.3)
+            ),
+            door_flow_enabled=bool(simulation_cfg.get("door_flow_enabled", False)),
+            door_specific_flow_per_m_s=float(
+                simulation_cfg.get("door_specific_flow_per_m_s", 1.3)
+            ),
+            door_effective_width_loss_m=float(
+                simulation_cfg.get("door_effective_width_loss_m", 0.3)
+            ),
+            door_min_speed_factor=float(
+                simulation_cfg.get("door_min_speed_factor", 0.2)
+            ),
             acceleration_backend=str(
                 simulation_cfg.get("acceleration_backend", "auto")
             ),
@@ -225,6 +268,8 @@ class ScenarioManager:
             density_fn=spatial.density_penalty_fn(),
             hazard_fn=sim.hazard_penalty_at_cell,
             strategy=sim.config.pathfinding_strategy,
+            blocked_fn=sim.is_cell_closed,
+            edge_blocked_fn=sim.is_edge_closed,
         )
         sim.attach_navigation(navigator)
 

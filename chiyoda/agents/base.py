@@ -30,10 +30,40 @@ INTENTION_FIGHT = "FIGHT"  # active-shooter response: last-resort close engageme
 
 
 @dataclass
+class HazardDoseState:
+    toxic_load: float = 0.0
+    smoke_fed: float = 0.0
+    heat_load: float = 0.0
+    flood_load: float = 0.0
+    trauma_load: float = 0.0
+    crush_load: float = 0.0
+
+    def update(self, loads: dict[str, float], dt: float) -> None:
+        self.toxic_load += max(0.0, float(loads.get("toxic", 0.0))) * dt
+        self.smoke_fed += max(0.0, float(loads.get("smoke", 0.0))) * dt
+        self.heat_load += max(0.0, float(loads.get("heat", 0.0))) * dt
+        self.flood_load += max(0.0, float(loads.get("flood", 0.0))) * dt
+        self.trauma_load += max(0.0, float(loads.get("trauma", 0.0))) * dt
+        self.crush_load += max(0.0, float(loads.get("crush", 0.0))) * dt
+
+    def impairment(self) -> float:
+        components = [
+            self.toxic_load / 4.0,
+            self.smoke_fed / 10.0,
+            self.heat_load / 3.0,
+            self.flood_load / 4.0,
+            self.trauma_load / 2.0,
+            self.crush_load / 5.0,
+        ]
+        return min(1.0, max(components))
+
+
+@dataclass
 class PhysiologyState:
     """Tracks physiological effects of hazard exposure."""
 
     cumulative_exposure: float = 0.0
+    dose: HazardDoseState = field(default_factory=HazardDoseState)
     speed_factor: float = 1.0  # [0,1] multiplier on base speed
     vision_factor: float = 1.0  # [0,1] multiplier on observation radius
     rationality_factor: float = 1.0  # [0,1] multiplier on decision quality
@@ -58,6 +88,19 @@ class PhysiologyState:
 
         self.speed_factor = max(0.0, 1.0 - self.impairment_level * 0.8)
         self.vision_factor = max(0.1, 1.0 - self.impairment_level * 0.6)
+        self.rationality_factor = max(0.0, 1.0 - self.impairment_level * 0.5)
+
+    def update_from_dose(self, loads: dict[str, float], dt: float) -> None:
+        total_load = max(0.0, float(loads.get("total", 0.0)))
+        self.cumulative_exposure += total_load * dt
+        self.dose.update(loads, dt)
+        self.impairment_level = self.dose.impairment()
+        self.incapacitated = self.impairment_level >= 1.0
+        self.speed_factor = max(0.0, 1.0 - self.impairment_level * 0.8)
+        smoke_component = min(1.0, self.dose.smoke_fed / 10.0)
+        self.vision_factor = max(
+            0.1, 1.0 - max(self.impairment_level * 0.6, smoke_component * 0.8)
+        )
         self.rationality_factor = max(0.0, 1.0 - self.impairment_level * 0.5)
 
 
@@ -127,6 +170,13 @@ class CognitiveAgent:
     hazard_speed_factor: float = 1.0
     hazard_risk: float = 0.0
     environment_speed_factor: float = 1.0
+    door_flow_speed_factor: float = 1.0
+    toxic_load: float = 0.0
+    smoke_fed: float = 0.0
+    heat_load: float = 0.0
+    flood_load: float = 0.0
+    trauma_load: float = 0.0
+    crush_load: float = 0.0
 
     # ITED: observation
     base_vision_radius: float = 5.0
@@ -141,6 +191,7 @@ class CognitiveAgent:
             * self.crowd_speed_factor
             * self.physiology.speed_factor
             * self.environment_speed_factor
+            * self.door_flow_speed_factor
         )
 
     def is_released(self, simulation) -> bool:
@@ -164,6 +215,22 @@ class CognitiveAgent:
         self.rationality = self.base_rationality * self.physiology.rationality_factor
         self.vision_radius = self.effective_vision_radius()
         self.hazard_speed_factor = self.physiology.speed_factor
+
+    def update_hazard_dose(self, loads: dict[str, float], dt: float) -> None:
+        total = max(0.0, float(loads.get("total", 0.0)))
+        self.current_hazard_load = total
+        self.hazard_exposure += total * dt
+        self.hazard_risk = max(self.hazard_risk, total)
+        self.physiology.update_from_dose(loads, dt)
+        self.rationality = self.base_rationality * self.physiology.rationality_factor
+        self.vision_radius = self.effective_vision_radius()
+        self.hazard_speed_factor = self.physiology.speed_factor
+        self.toxic_load = self.physiology.dose.toxic_load
+        self.smoke_fed = self.physiology.dose.smoke_fed
+        self.heat_load = self.physiology.dose.heat_load
+        self.flood_load = self.physiology.dose.flood_load
+        self.trauma_load = self.physiology.dose.trauma_load
+        self.crush_load = self.physiology.dose.crush_load
 
     def padm_personalize(self, simulation) -> None:
         """PADM personalize hook: bind interpreted threat to this agent."""
@@ -296,9 +363,11 @@ class CognitiveAgent:
         if self.current_path and self.path_index < len(self.current_path):
             current_cell = simulation._grid_cell(self)
             next_cell = simulation.layout.cell(self.current_path[self.path_index])
-            if (
-                simulation.layout.connector_for_edge(current_cell, next_cell)
-                is not None
+            if simulation.layout.connector_for_edge(
+                current_cell, next_cell
+            ) is not None and not (
+                hasattr(simulation, "is_edge_closed")
+                and simulation.is_edge_closed(current_cell, next_cell)
             ):
                 return
 
@@ -342,9 +411,18 @@ class CognitiveAgent:
             self.local_density >= simulation.navigation_density_reroute_threshold
             and simulation.current_step > self.last_navigation_step
         )
+        external_replan_reason = (
+            simulation.agent_replan_reason(self)
+            if hasattr(simulation, "agent_replan_reason")
+            else None
+        )
 
         if not (
-            needs_path or self.target_exit is None or stale_path or congestion_trigger
+            needs_path
+            or self.target_exit is None
+            or stale_path
+            or congestion_trigger
+            or external_replan_reason
         ):
             return
 
@@ -374,6 +452,14 @@ class CognitiveAgent:
             self.path_index = 0
             self.target_exit = path[-1]
             self.last_navigation_step = simulation.current_step
+            self.last_navigation_topology_revision = getattr(
+                simulation, "dynamic_topology_revision", 0
+            )
+            self.last_navigation_belief_step = int(
+                getattr(self.beliefs, "last_update_step", -1)
+            )
+            if external_replan_reason and hasattr(simulation, "record_replan_event"):
+                simulation.record_replan_event(self, str(external_replan_reason))
 
     def _navigate_explore(self, simulation) -> None:
         """Random walk with wall-following when no exits are known."""
@@ -446,7 +532,7 @@ class CognitiveAgent:
                 parameters=getattr(simulation, "social_force_parameters", None),
             )
             new_pos = self.pos + adjusted
-            if simulation.layout.is_walkable(new_pos):
+            if _simulation_is_walkable(simulation, new_pos):
                 self.pos = new_pos
                 self.floor_id = simulation.layout.floor_for_z(float(self.pos[2]))
             else:
@@ -527,7 +613,7 @@ class CognitiveAgent:
             current_cell = simulation._grid_cell(self)
             next_cell = simulation.layout.cell(waypoint)
             vertical_edge = current_cell[0] != next_cell[0]
-            if vertical_edge or simulation.layout.is_walkable(new_pos):
+            if vertical_edge or _simulation_is_walkable(simulation, new_pos):
                 self.pos = new_pos
                 self.floor_id = simulation.layout.floor_for_z(float(self.pos[2]))
         else:
@@ -558,7 +644,7 @@ class CognitiveAgent:
                     parameters=getattr(simulation, "social_force_parameters", None),
                 )
                 new_pos = self.pos + adjusted
-                if simulation.layout.is_walkable(new_pos):
+                if _simulation_is_walkable(simulation, new_pos):
                     self.pos = new_pos
                     self.floor_id = simulation.layout.floor_for_z(float(self.pos[2]))
 
@@ -573,3 +659,9 @@ def _profile_similarity(left: dict[str, Any], right: dict[str, Any]) -> float:
         1 for key in keys if str(left[key]).lower() == str(right[key]).lower()
     )
     return float(matches / len(keys))
+
+
+def _simulation_is_walkable(simulation: Any, pos: Any) -> bool:
+    if hasattr(simulation, "is_walkable"):
+        return bool(simulation.is_walkable(pos))
+    return bool(simulation.layout.is_walkable(pos))

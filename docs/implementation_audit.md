@@ -14,11 +14,12 @@ the simulator is externally validated for station evacuation prediction.
   runnable scenarios should use explicit `layout.floors`.
 - Pathfinding uses a 4-neighbor NetworkX graph over non-wall cells plus typed
   inter-floor connector edges.
-- Agents route toward known exits with density, hazard, terrain-damage, and
-  flood-depth penalties.
+- Agents route toward known exits with density, hazard, terrain-damage,
+  flood-depth, dynamic cell-closure, and connector-edge closure penalties.
 - Hazards are stylized fields or imported scalar fields with 3D point distance;
   this is not CFD. Smoke visibility and flood depth now also feed local
-  movement-speed factors.
+  movement-speed factors. Hazard loads are also bucketed into toxic, smoke,
+  heat, flood, trauma, and crush dose state.
 - Study exports persist telemetry tables, metadata, figures, and a static
   Three.js viewer.
 - Runtime assertions can check evacuation counts, travel-time bounds,
@@ -111,9 +112,30 @@ These hazards expose the same `intensity_at(point)`, `to_dict()`, and
 exports, telemetry, viewer overlays, and assertion checks treat them
 uniformly.
 
+## Evacuation Mechanics Added Depth
+
+- Dynamic topology closure is enabled by default. Fire, wildfire, ember,
+  terrain damage, and flood depth can close walkable cells; closed cells and
+  closed connector edges are skipped by `SmartNavigator`.
+- Route replanning can trigger on blocked paths, topology revision changes,
+  new belief updates, smoke-visibility drops, flood-depth rises, and hazard-load
+  spikes. Replan events are exposed in live state.
+- Door/bottleneck calibration can apply an opt-in specific-flow speed limit via
+  `door_flow_enabled`. `door_specific_flow_per_m_s` defaults to `1.3`, with
+  effective width reduced by `door_effective_width_loss_m`. This follows common
+  doorway-flow engineering assumptions documented by NIST/SFPE references, but
+  remains a grid-scale approximation.
+- Bottleneck telemetry now records capacity, demand, and flow speed factor.
+- Step telemetry records dynamic closed-cell and closed-edge counts plus the
+  topology revision.
+- Agent telemetry records local visibility, flood depth, environment speed,
+  door-flow speed, and hazard-specific dose buckets.
+
 ## High-Impact Gaps
 
-- Static validation catches topology errors but not behavioral plausibility.
+- Static validation catches topology errors; falsification tests now assert
+  that unreachable spawns, blocked evacuation paths, and unsafe LLM guidance
+  fail explicitly.
 - Per-step route intent is now opt-in with `--per-step-intent`. It writes a
   sparse `intent_path_usage` table grouped by `(run_id, step, floor_id, x, y,
   intent)` and is loaded into the viewer payload as `intent_path_usage`.

@@ -5,7 +5,10 @@ import json
 from click.testing import CliRunner
 
 from chiyoda.cli import cli
-from chiyoda.scenarios.validation_evidence_audit import build_validation_evidence_audit
+from chiyoda.scenarios.validation_evidence_audit import (
+    build_validation_evidence_audit,
+    validation_evidence_audit_file,
+)
 
 
 def test_validation_evidence_audit_flags_required_missing_records():
@@ -95,3 +98,14 @@ scenario:
     assert payload["scenario"] == "validation_evidence_cli"
     assert payload["counts"]["operational_records"] == 1
     assert json.loads(result.output)["claim_support"] == "external_evidence_recorded"
+
+
+def test_station_scenarios_record_file_backed_validation_evidence():
+    baseline = validation_evidence_audit_file("scenarios/station_baseline.yaml")
+    sarin = validation_evidence_audit_file("scenarios/station_sarin.yaml")
+
+    assert baseline["ok"] is True
+    assert baseline["counts"]["existing_files"] >= 2
+    assert baseline["counts"]["operational_records"] >= 1
+    assert sarin["ok"] is True
+    assert sarin["counts"]["existing_files"] >= 2

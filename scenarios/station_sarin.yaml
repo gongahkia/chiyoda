@@ -3,6 +3,24 @@ scenario:
   metadata:
     info_safety_tags:
     - station_sarin
+    external_validation_evidence:
+    - type: trajectory
+      source: Snopkova et al. 2025 Scientific Data route-choice fixture
+      validation_use: route-choice prior calibration only; not station CBRN validation
+      scope: route-choice behavior reference
+      metrics:
+      - route_choice_fit
+      file: ../data/calibration/route_choice_2025/normalized_route_choice_records.csv
+      license: see data/calibration/route_choice_2025/figshare_article_27705402.json
+    - type: hazard_field
+      source: committed FDS smoke detector scalar reference fixture
+      validation_use: imported scalar preservation check only
+      scope: smoke scalar and visibility import
+      metrics:
+      - visibility_m
+      - gas_concentration
+      file: ../data/fds_reference/smoke_detector_reference.csv
+      license: local fixture
   layout:
     cell_size: 1.0
     floors:

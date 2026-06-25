@@ -54,7 +54,13 @@ class SmartNavigator:
     """Floor-aware grid graph navigator with vertical connector edges."""
 
     def __init__(
-        self, layout, density_fn=None, hazard_fn=None, strategy: str = "auto"
+        self,
+        layout,
+        density_fn=None,
+        hazard_fn=None,
+        strategy: str = "auto",
+        blocked_fn=None,
+        edge_blocked_fn=None,
     ) -> None:
         strategy = str(strategy or "auto").lower()
         if strategy not in PATHFINDING_STRATEGIES:
@@ -64,6 +70,8 @@ class SmartNavigator:
         self.graph = self._build_graph(layout)
         self.density_fn = density_fn
         self.hazard_fn = hazard_fn
+        self.blocked_fn = blocked_fn
+        self.edge_blocked_fn = edge_blocked_fn
         self.strategy = strategy
         self._path_cache: dict[tuple, list[Cell] | None] = {}
         self._weight_cache: dict[tuple, float] = {}
@@ -112,6 +120,8 @@ class SmartNavigator:
         return max(1.0, distance / max(connector.speed_multiplier, 1e-6))
 
     def _weight(self, u: Cell, v: Cell, attr: dict) -> float:
+        if self._blocked(u) or self._blocked(v) or self._edge_blocked(u, v):
+            return float("inf")
         cache_key = ("ground", u, v)
         cached = self._weight_cache.get(cache_key)
         if cached is not None:
@@ -129,6 +139,8 @@ class SmartNavigator:
     def _belief_weight(
         self, u: Cell, v: Cell, attr: dict, hazard_beliefs: list
     ) -> float:
+        if self._blocked(u) or self._blocked(v) or self._edge_blocked(u, v):
+            return float("inf")
         hazard_sig = self._hazard_signature(hazard_beliefs)
         cache_key = ("belief", u, v, hazard_sig)
         cached = self._weight_cache.get(cache_key)
@@ -160,7 +172,12 @@ class SmartNavigator:
         route_kind: str = "evacuation",
     ) -> list[Cell] | None:
         start_cell = self.layout.cell(start)
+        if self._blocked(start_cell):
+            return None
         goal_cells = [self.layout.cell(goal) for goal in goals]
+        goal_cells = [goal for goal in goal_cells if not self._blocked(goal)]
+        if not goal_cells:
+            return None
         hazard_sig = self._hazard_signature(hazard_beliefs)
         hazard_key = (hazard_beliefs is not None, hazard_sig)
         effective_strategy = self._effective_strategy(route_kind)
@@ -244,7 +261,12 @@ class SmartNavigator:
         best_len = float("inf")
         weight_fn = self._weight_fn(hazard_beliefs)
         for goal in goal_cells:
-            if goal not in self.graph or start_cell not in self.graph:
+            if (
+                goal not in self.graph
+                or start_cell not in self.graph
+                or self._blocked(goal)
+                or self._blocked(start_cell)
+            ):
                 continue
             try:
                 path = nx.astar_path(
@@ -255,7 +277,7 @@ class SmartNavigator:
                     weight=weight_fn,
                 )
                 length = self._path_cost(path, weight_fn)
-                if length < best_len:
+                if np.isfinite(length) and length < best_len:
                     best = path
                     best_len = length
             except nx.NetworkXNoPath:
@@ -268,19 +290,19 @@ class SmartNavigator:
         goal_cells: list[Cell],
         hazard_beliefs: list | None,
     ) -> list[Cell] | None:
-        if start_cell not in self.graph:
+        if start_cell not in self.graph or self._blocked(start_cell):
             return None
         weight_fn = self._weight_fn(hazard_beliefs)
         best_path: list[Cell] | None = None
         best_cost = float("inf")
         for goal in goal_cells:
-            if goal not in self.graph:
+            if goal not in self.graph or self._blocked(goal):
                 continue
             path = self._heap_astar_one(start_cell, goal, weight_fn)
             if path is None:
                 continue
             cost = self._path_cost(path, weight_fn)
-            if cost < best_cost:
+            if np.isfinite(cost) and cost < best_cost:
                 best_path = path
                 best_cost = cost
         return best_path
@@ -301,9 +323,15 @@ class SmartNavigator:
             closed.add(current)
             base = g_score[current]
             for neighbor, attr in self.graph[current].items():
-                if neighbor in closed:
+                if (
+                    neighbor in closed
+                    or self._blocked(neighbor)
+                    or self._edge_blocked(current, neighbor)
+                ):
                     continue
                 candidate = base + weight_fn(current, neighbor, attr)
+                if not np.isfinite(candidate):
+                    continue
                 if candidate >= g_score.get(neighbor, float("inf")):
                     continue
                 came_from[neighbor] = current
@@ -320,8 +348,14 @@ class SmartNavigator:
         hazard_beliefs: list | None,
         hazard_key: tuple,
     ) -> list[Cell] | None:
-        goals = tuple(sorted(goal for goal in goal_cells if goal in self.graph))
-        if start_cell not in self.graph or not goals:
+        goals = tuple(
+            sorted(
+                goal
+                for goal in goal_cells
+                if goal in self.graph and not self._blocked(goal)
+            )
+        )
+        if start_cell not in self.graph or self._blocked(start_cell) or not goals:
             return None
         cache_key = (goals, hazard_key)
         cached = self._reverse_cache.get(cache_key)
@@ -360,7 +394,15 @@ class SmartNavigator:
             if base > distance.get(current, float("inf")):
                 continue
             for predecessor, attr in self.graph.pred[current].items():
+                if (
+                    self._blocked(current)
+                    or self._blocked(predecessor)
+                    or self._edge_blocked(predecessor, current)
+                ):
+                    continue
                 candidate = base + weight_fn(predecessor, current, attr)
+                if not np.isfinite(candidate):
+                    continue
                 if candidate >= distance.get(predecessor, float("inf")):
                     continue
                 distance[predecessor] = candidate
@@ -393,6 +435,14 @@ class SmartNavigator:
             path.append(current)
         path.reverse()
         return path
+
+    def _blocked(self, cell: Cell) -> bool:
+        return bool(self.blocked_fn is not None and self.blocked_fn(cell))
+
+    def _edge_blocked(self, source: Cell, target: Cell) -> bool:
+        return bool(
+            self.edge_blocked_fn is not None and self.edge_blocked_fn(source, target)
+        )
 
     def _hazard_signature(self, hazard_beliefs: list | None) -> tuple:
         if hazard_beliefs is None:

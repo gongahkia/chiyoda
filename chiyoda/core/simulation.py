@@ -55,6 +55,21 @@ class SimulationConfig:
     flood_impassable_depth_m: float = 1.2
     flood_impassable_penalty: float = 100.0
     flood_min_speed_factor: float = 0.1
+    dynamic_topology_enabled: bool = True
+    dynamic_fire_block_intensity: float = 0.8
+    dynamic_wildfire_block_intensity: float = 0.75
+    dynamic_ember_block_intensity: float = 0.8
+    dynamic_gas_block_intensity: float = 1.1
+    dynamic_smoke_block_intensity: float = 1.1
+    dynamic_flood_block_depth_m: float = 1.2
+    dynamic_terrain_block_damage: float = 0.85
+    visibility_replan_drop: float = 0.35
+    flood_replan_depth_delta_m: float = 0.2
+    hazard_replan_load_delta: float = 0.3
+    door_flow_enabled: bool = False
+    door_specific_flow_per_m_s: float = 1.3
+    door_effective_width_loss_m: float = 0.3
+    door_min_speed_factor: float = 0.2
     acceleration_backend: str = "auto"
     pathfinding_strategy: str = "auto"
     density_slowdown_scale: float = 1.0
@@ -185,6 +200,13 @@ class Simulation:
         self.mode_switch_events: list[dict[str, Any]] = []
         self.terrain_damage_cells: dict[tuple[str, int, int], float] = {}
         self.aftershock_events: list[dict[str, Any]] = []
+        self.dynamic_closed_cells: set[tuple[str, int, int]] = set()
+        self.dynamic_closed_edges: set[
+            tuple[tuple[str, int, int], tuple[str, int, int]]
+        ] = set()
+        self.dynamic_topology_revision = 0
+        self.dynamic_topology_events: list[dict[str, Any]] = []
+        self.replan_events: list[dict[str, Any]] = []
 
         # ITED: information layer
         self.info_field = InformationField(
@@ -298,8 +320,20 @@ class Simulation:
                 ("hazard_speed_factor", 1.0),
                 ("hazard_risk", 0.0),
                 ("environment_speed_factor", 1.0),
+                ("door_flow_speed_factor", 1.0),
+                ("toxic_load", 0.0),
+                ("smoke_fed", 0.0),
+                ("heat_load", 0.0),
+                ("flood_load", 0.0),
+                ("trauma_load", 0.0),
+                ("crush_load", 0.0),
                 ("current_visibility", 1.0),
                 ("current_flood_depth_m", 0.0),
+                ("previous_visibility", 1.0),
+                ("previous_flood_depth_m", 0.0),
+                ("previous_hazard_load", 0.0),
+                ("last_navigation_topology_revision", -1),
+                ("last_navigation_belief_step", -1),
                 ("evacuated_via", None),
                 ("evacuation_mode", "pedestrian"),
                 ("mode_switch_step", None),
@@ -346,6 +380,17 @@ class Simulation:
                 depth = max(depth, float(hazard.depth_at(pos)))
         return depth
 
+    def is_cell_closed(self, cell: Any) -> bool:
+        return tuple(self.layout.cell(cell)) in self.dynamic_closed_cells
+
+    def is_edge_closed(self, source: Any, target: Any) -> bool:
+        edge = (tuple(self.layout.cell(source)), tuple(self.layout.cell(target)))
+        return edge in self.dynamic_closed_edges
+
+    def is_walkable(self, pos: Any, *, floor_id: str | None = None) -> bool:
+        cell = self.layout.cell(pos, floor_id=floor_id)
+        return self.layout.is_walkable(cell) and not self.is_cell_closed(cell)
+
     def shooter_pressure_for(self, agent) -> dict[str, Any] | None:
         hostiles = [
             hostile
@@ -369,6 +414,8 @@ class Simulation:
         return min(visible, key=lambda item: item["distance"])
 
     def hazard_penalty_at_cell(self, cell: tuple[int, int]) -> float:
+        if self.is_cell_closed(cell):
+            return float("inf")
         if any(
             self._hazard_requires_direct_sampling(hazard) for hazard in self.hazards
         ):
@@ -383,6 +430,73 @@ class Simulation:
         return self.config.hazard_avoidance_weight * (
             intensity + terrain_damage + flood_penalty
         )
+
+    def _update_dynamic_topology(self) -> None:
+        if not self.config.dynamic_topology_enabled:
+            return
+        closed: set[tuple[str, int, int]] = set()
+        for cell in self.layout.all_walkable_cells():
+            if self._cell_should_close(cell):
+                closed.add(tuple(self.layout.cell(cell)))
+        edges: set[tuple[tuple[str, int, int], tuple[str, int, int]]] = set()
+        for source, target, _connector in self.layout.connector_edges():
+            source_cell = tuple(self.layout.cell(source))
+            target_cell = tuple(self.layout.cell(target))
+            if source_cell in closed or target_cell in closed:
+                edges.add((source_cell, target_cell))
+        if closed == self.dynamic_closed_cells and edges == self.dynamic_closed_edges:
+            return
+        previous = self.dynamic_closed_cells
+        self.dynamic_closed_cells = closed
+        self.dynamic_closed_edges = edges
+        self.dynamic_topology_revision += 1
+        event = {
+            "step": int(self.current_step),
+            "time_s": float(self.time_s),
+            "revision": int(self.dynamic_topology_revision),
+            "closed_cells": int(len(closed)),
+            "closed_edges": int(len(edges)),
+            "opened_cells": int(len(previous - closed)),
+            "newly_closed_cells": int(len(closed - previous)),
+        }
+        self.dynamic_topology_events.append(event)
+        if self.navigator is not None and hasattr(self.navigator, "clear_cache"):
+            self.navigator.clear_cache()
+
+    def _cell_should_close(self, cell: Any) -> bool:
+        terrain_damage = self.terrain_damage_cells.get(
+            tuple(self.layout.cell(cell)), 0.0
+        )
+        if terrain_damage >= self.config.dynamic_terrain_block_damage:
+            return True
+        if self._cell_flood_depth(cell) >= self.config.dynamic_flood_block_depth_m:
+            return True
+        for hazard in self.hazards:
+            threshold = self._hazard_block_threshold(hazard)
+            if threshold is None:
+                continue
+            sample = (
+                self.layout.world_position(cell, height_offset=1.5)
+                if self._hazard_requires_direct_sampling(hazard)
+                else self.layout.world_position(cell)
+            )
+            if float(hazard.intensity_at(sample)) >= threshold:
+                return True
+        return False
+
+    def _hazard_block_threshold(self, hazard: Any) -> float | None:
+        kind = str(getattr(hazard, "kind", "")).upper()
+        thresholds = {
+            "FIRE": self.config.dynamic_fire_block_intensity,
+            "WILDFIRE": self.config.dynamic_wildfire_block_intensity,
+            "EMBER": self.config.dynamic_ember_block_intensity,
+            "GAS": self.config.dynamic_gas_block_intensity,
+            "SMOKE": self.config.dynamic_smoke_block_intensity,
+        }
+        value = thresholds.get(kind)
+        if value is None or value > 1.0:
+            return None
+        return float(value)
 
     def _cell_hazard_intensity(self, cell, *, height_offset: float) -> float:
         floor_point = self.layout.world_position(cell)
@@ -416,6 +530,38 @@ class Simulation:
             )
             intensity += float(hazard.intensity_at(sample))
         return intensity
+
+    def _agent_hazard_dose_loads(self, agent: Any) -> dict[str, float]:
+        loads = {
+            "toxic": 0.0,
+            "smoke": 0.0,
+            "heat": 0.0,
+            "flood": 0.0,
+            "trauma": 0.0,
+            "crush": 0.0,
+            "total": 0.0,
+        }
+        exposure_point = self._agent_exposure_point(agent)
+        floor_point = np.array(agent.pos, dtype=float)
+        for hazard in self.hazards:
+            kind = str(getattr(hazard, "kind", "")).upper()
+            sample = (
+                exposure_point
+                if hasattr(hazard, "intensity_grid")
+                or getattr(hazard, "height_aware", False)
+                else floor_point
+            )
+            intensity = max(0.0, float(hazard.intensity_at(sample)))
+            if kind == "FLOOD":
+                depth = self.flood_depth_at(floor_point)
+                threshold = max(
+                    float(getattr(hazard, "flood_depth_threshold_m", 0.6)), 1e-6
+                )
+                intensity = max(intensity, depth / threshold)
+            category = _hazard_dose_category(kind)
+            loads[category] += intensity
+            loads["total"] += intensity
+        return loads
 
     def _agent_sight_point(self, agent) -> np.ndarray:
         cell = self._grid_cell(agent)
@@ -455,6 +601,92 @@ class Simulation:
         agent.current_visibility = visibility
         agent.current_flood_depth_m = flood_depth
         return float(np.clip(min(visibility_factor, flood_factor), 0.0, 1.0))
+
+    def _door_flow_speed_factor(self, agent: Any) -> float:
+        if not self.config.door_flow_enabled:
+            return 1.0
+        zone_id = self.bottleneck_lookup.get(self._grid_cell(agent))
+        if zone_id is None:
+            return 1.0
+        zone = self.bottleneck_zone_map.get(zone_id)
+        if zone is None:
+            return 1.0
+        active = [
+            other
+            for other in self._active_agents()
+            if self.bottleneck_lookup.get(self._grid_cell(other)) == zone_id
+        ]
+        demand = max(1, len(active))
+        capacity_per_s = self._door_capacity_per_s(zone)
+        if demand <= 1:
+            return 1.0
+        return max(float(self.config.door_min_speed_factor), capacity_per_s / demand)
+
+    def _door_capacity_per_s(self, zone: Any) -> float:
+        width = max(float(self.layout.cell_size), 1e-6)
+        effective_width = max(
+            0.1, width - float(self.config.door_effective_width_loss_m)
+        )
+        return float(self.config.door_specific_flow_per_m_s) * effective_width
+
+    def agent_replan_reason(self, agent: Any) -> str | None:
+        if self._agent_path_blocked(agent):
+            return "blocked_path"
+        last_topology = int(getattr(agent, "last_navigation_topology_revision", -1))
+        if last_topology >= 0 and last_topology < int(self.dynamic_topology_revision):
+            return "topology_changed"
+        visibility_drop = float(getattr(agent, "previous_visibility", 1.0)) - float(
+            getattr(agent, "current_visibility", 1.0)
+        )
+        if visibility_drop >= float(self.config.visibility_replan_drop):
+            return "visibility_drop"
+        flood_rise = float(getattr(agent, "current_flood_depth_m", 0.0)) - float(
+            getattr(agent, "previous_flood_depth_m", 0.0)
+        )
+        if flood_rise >= float(self.config.flood_replan_depth_delta_m):
+            return "flood_depth_rise"
+        hazard_rise = float(getattr(agent, "current_hazard_load", 0.0)) - float(
+            getattr(agent, "previous_hazard_load", 0.0)
+        )
+        if hazard_rise >= float(self.config.hazard_replan_load_delta):
+            return "hazard_spike"
+        last_belief = int(getattr(agent, "last_navigation_belief_step", -1))
+        if (
+            last_belief >= 0
+            and int(getattr(agent.beliefs, "last_update_step", -1)) > last_belief
+        ):
+            return "belief_update"
+        return None
+
+    def _agent_path_blocked(self, agent: Any) -> bool:
+        path = list(getattr(agent, "current_path", []) or [])
+        if not path:
+            return False
+        remaining = path[int(getattr(agent, "path_index", 0)) :]
+        cells = [self.layout.cell(cell) for cell in remaining]
+        if any(self.is_cell_closed(cell) for cell in cells):
+            return True
+        for source, target in zip(cells[:-1], cells[1:], strict=False):
+            if self.is_edge_closed(source, target):
+                return True
+        current = self._grid_cell(agent)
+        if cells and self.is_edge_closed(current, cells[0]):
+            return True
+        return False
+
+    def record_replan_event(self, agent: Any, reason: str) -> None:
+        self.replan_events.append(
+            {
+                "step": int(self.current_step),
+                "time_s": float(self.time_s),
+                "agent_id": int(agent.id),
+                "reason": reason,
+                "topology_revision": int(self.dynamic_topology_revision),
+                "visibility": float(getattr(agent, "current_visibility", 1.0)),
+                "flood_depth_m": float(getattr(agent, "current_flood_depth_m", 0.0)),
+                "hazard_load": float(getattr(agent, "current_hazard_load", 0.0)),
+            }
+        )
 
     def _update_spatial_index(self) -> None:
         if self.spatial_index is not None:
@@ -503,9 +735,17 @@ class Simulation:
                 agent.current_hazard_load = 0.0
                 agent.hazard_speed_factor = 1.0
                 agent.environment_speed_factor = 1.0
+                agent.door_flow_speed_factor = 1.0
                 agent.current_visibility = 1.0
                 agent.current_flood_depth_m = 0.0
                 continue
+            agent.previous_visibility = float(getattr(agent, "current_visibility", 1.0))
+            agent.previous_flood_depth_m = float(
+                getattr(agent, "current_flood_depth_m", 0.0)
+            )
+            agent.previous_hazard_load = float(
+                getattr(agent, "current_hazard_load", 0.0)
+            )
             if self.spatial_index is None:
                 agent.local_density = 0.0
             else:
@@ -518,13 +758,18 @@ class Simulation:
             )
             agent.current_hazard_load = float(hazard_loads[active_lookup[agent.id]])
             # ITED: use physiology model if available
-            if hasattr(agent, "update_physiology"):
+            if hasattr(agent, "update_hazard_dose"):
+                agent.update_hazard_dose(
+                    self._agent_hazard_dose_loads(agent), self.config.dt
+                )
+            elif hasattr(agent, "update_physiology"):
                 agent.update_physiology(agent.current_hazard_load, self.config.dt)
             else:
                 agent.hazard_speed_factor = max(
                     0.45, 1.0 - (agent.current_hazard_load * 0.35)
                 )
             agent.environment_speed_factor = self._environment_speed_factor(agent)
+            agent.door_flow_speed_factor = self._door_flow_speed_factor(agent)
 
     def _step_information(self) -> None:
         """ITED: information propagation step."""
@@ -781,6 +1026,15 @@ class Simulation:
                     environment_speed_factor=float(
                         getattr(agent, "environment_speed_factor", 1.0)
                     ),
+                    door_flow_speed_factor=float(
+                        getattr(agent, "door_flow_speed_factor", 1.0)
+                    ),
+                    toxic_load=float(getattr(agent, "toxic_load", 0.0)),
+                    smoke_fed=float(getattr(agent, "smoke_fed", 0.0)),
+                    heat_load=float(getattr(agent, "heat_load", 0.0)),
+                    flood_load=float(getattr(agent, "flood_load", 0.0)),
+                    trauma_load=float(getattr(agent, "trauma_load", 0.0)),
+                    crush_load=float(getattr(agent, "crush_load", 0.0)),
                     trail=tuple(self.agent_traces.get(agent.id, [])[-8:]),
                     entropy=h_agent,
                     belief_accuracy=acc,
@@ -822,6 +1076,9 @@ class Simulation:
                         mean_dwell_s=m.mean_dwell_s,
                         mean_speed=m.mean_speed,
                         mean_density=m.mean_density,
+                        capacity_per_s=m.capacity_per_s,
+                        demand=m.demand,
+                        flow_speed_factor=m.flow_speed_factor,
                     )
                     for zid, m in bottleneck_metrics.items()
                 },
@@ -848,6 +1105,9 @@ class Simulation:
                     key: int(value["capacity_used"])
                     for key, value in connector_telemetry.items()
                 },
+                dynamic_closed_cells=len(self.dynamic_closed_cells),
+                dynamic_closed_edges=len(self.dynamic_closed_edges),
+                dynamic_topology_revision=int(self.dynamic_topology_revision),
             )
         )
 
@@ -886,6 +1146,13 @@ class Simulation:
             metrics[zone.zone_id].mean_density = (
                 float(np.mean([a.local_density for a in za])) if za else 0.0
             )
+            metrics[zone.zone_id].capacity_per_s = self._door_capacity_per_s(zone)
+            metrics[zone.zone_id].demand = len(za)
+            metrics[zone.zone_id].flow_speed_factor = (
+                float(np.mean([getattr(a, "door_flow_speed_factor", 1.0) for a in za]))
+                if za
+                else 1.0
+            )
             samples = self.bottleneck_dwell_samples[zone.zone_id]
             metrics[zone.zone_id].mean_dwell_s = (
                 float(np.mean(samples)) if samples else 0.0
@@ -904,6 +1171,7 @@ class Simulation:
             random.seed(self.config.random_seed)
             np.random.seed(self.config.random_seed)
         self.setup_information()
+        self._update_dynamic_topology()
         self._update_spatial_index()
         self._refresh_agent_context()
         self._seed_bottleneck_membership()
@@ -935,6 +1203,7 @@ class Simulation:
         # evolve hazards
         for hz in self.hazards:
             hz.step(dt, self)
+        self._update_dynamic_topology()
 
         self._update_spatial_index()
         self._refresh_agent_context()
@@ -1340,6 +1609,13 @@ class Simulation:
                     "visibility": a.visibility,
                     "flood_depth_m": a.flood_depth_m,
                     "environment_speed_factor": a.environment_speed_factor,
+                    "door_flow_speed_factor": a.door_flow_speed_factor,
+                    "toxic_load": a.toxic_load,
+                    "smoke_fed": a.smoke_fed,
+                    "heat_load": a.heat_load,
+                    "flood_load": a.flood_load,
+                    "trauma_load": a.trauma_load,
+                    "crush_load": a.crush_load,
                     "trail": list(a.trail),
                     "entropy": a.entropy,
                     "belief_accuracy": a.belief_accuracy,
@@ -1382,6 +1658,11 @@ class Simulation:
             "acceleration_backend": self.acceleration.name,
             "requested_acceleration_backend": self.acceleration.requested_backend,
             "pathfinding": self.pathfinding_stats(),
+            "dynamic_closed_cells": len(self.dynamic_closed_cells),
+            "dynamic_closed_edges": len(self.dynamic_closed_edges),
+            "dynamic_topology_revision": int(self.dynamic_topology_revision),
+            "dynamic_topology_events": list(self.dynamic_topology_events),
+            "replan_events": list(self.replan_events),
         }
 
     def pathfinding_stats(self) -> dict[str, Any]:
@@ -1406,3 +1687,19 @@ def _point3(value) -> np.ndarray:
             [float(value[0]), float(value[1]), float(value[2])], dtype=float
         )
     return np.array([float(value[0]), float(value[1]), 0.0], dtype=float)
+
+
+def _hazard_dose_category(kind: str) -> str:
+    if kind in {"GAS"}:
+        return "toxic"
+    if kind in {"SMOKE"}:
+        return "smoke"
+    if kind in {"FIRE", "WILDFIRE", "EMBER"}:
+        return "heat"
+    if kind in {"FLOOD"}:
+        return "flood"
+    if kind in {"SHOOTER", "EARTHQUAKE", "AFTERSHOCK"}:
+        return "trauma"
+    if kind in {"CRUSH"}:
+        return "crush"
+    return "toxic"

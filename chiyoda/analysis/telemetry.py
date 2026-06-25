@@ -33,6 +33,9 @@ class BottleneckStepTelemetry:
     mean_dwell_s: float = 0.0
     mean_speed: float = 0.0
     mean_density: float = 0.0
+    capacity_per_s: float = 0.0
+    demand: int = 0
+    flow_speed_factor: float = 1.0
 
 
 @dataclass
@@ -56,6 +59,13 @@ class AgentStepTelemetry:
     visibility: float = 1.0
     flood_depth_m: float = 0.0
     environment_speed_factor: float = 1.0
+    door_flow_speed_factor: float = 1.0
+    toxic_load: float = 0.0
+    smoke_fed: float = 0.0
+    heat_load: float = 0.0
+    flood_load: float = 0.0
+    trauma_load: float = 0.0
+    crush_load: float = 0.0
     trail: tuple[tuple[float, ...], ...] = field(default_factory=tuple)
     # ITED fields
     entropy: float = 0.0
@@ -93,6 +103,9 @@ class StepTelemetry:
     connector_capacity: dict[str, int] = field(default_factory=dict)
     connector_queue_length: dict[str, int] = field(default_factory=dict)
     connector_capacity_used: dict[str, int] = field(default_factory=dict)
+    dynamic_closed_cells: int = 0
+    dynamic_closed_edges: int = 0
+    dynamic_topology_revision: int = 0
 
 
 def _walkable_neighbors(layout, cell: Cell) -> list[Cell]:

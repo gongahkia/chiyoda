@@ -3,6 +3,23 @@ scenario:
   metadata:
     info_safety_tags:
     - station_baseline
+    external_validation_evidence:
+    - type: trajectory
+      source: Snopkova et al. 2025 Scientific Data route-choice fixture
+      validation_use: route-choice prior calibration only; not station evacuation certification
+      scope: route-choice behavior reference
+      metrics:
+      - route_choice_fit
+      file: ../data/calibration/route_choice_2025/normalized_route_choice_records.csv
+      license: see data/calibration/route_choice_2025/figshare_article_27705402.json
+    - type: reference
+      source: Wuppertal bottleneck experiment reference fixture
+      validation_use: bottleneck-flow diagnostic only
+      scope: single-bottleneck pedestrian flow
+      metrics:
+      - specific_flow
+      file: ../data/external/wuppertal_bottleneck_2018/040_c_56_h-.txt
+      license: see data/external/wuppertal_bottleneck_2018/metadata.json
   layout:
     cell_size: 1.0
     floors:

@@ -4,6 +4,10 @@ Runtime assertions live under the scenario-level `assertions` key. They run
 after a scenario simulation and are intended for regression tests, not
 statistical validation.
 
+The falsification suite in `tests/test_falsification_suite.py` keeps negative
+cases explicit: unreachable starts, hazard-closed evacuation paths, and unsafe
+LLM guidance must fail validation/assertion gates.
+
 Run them with:
 
 ```sh
