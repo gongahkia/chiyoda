@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 
 import click
 
@@ -14,13 +15,13 @@ from chiyoda.analysis.trajectory_reference import (
 )
 from chiyoda.analysis.viewer import export_viewer
 from chiyoda.environment.gtfs_pathways import strict_scenario_from_gtfs_pathways
+from chiyoda.information.llm import verify_llm_audit_chain
 from chiyoda.information.route_choice_calibration import (
     fit_route_choice_priors,
     load_figshare_route_choice_records,
     write_normalized_records,
     write_route_choice_fit,
 )
-from chiyoda.information.llm import verify_llm_audit_chain
 from chiyoda.information.warfare import AttackerObjective
 from chiyoda.policies import (
     DEFAULT_PPO_BASELINE,
@@ -29,9 +30,9 @@ from chiyoda.policies import (
     policy_from_artifact,
     train_ppo_baseline,
 )
+from chiyoda.scenarios import strict_scenario_from_ifc
 from chiyoda.scenarios.assertions import evaluate_scenario_assertions
 from chiyoda.scenarios.manager import ScenarioManager
-from chiyoda.scenarios import strict_scenario_from_ifc
 from chiyoda.scenarios.standards import (
     OVERPASS_URL,
     strict_scenario_from_geojson,
@@ -658,7 +659,10 @@ def baseline_eval_command(baseline, suite, weights, out_dir):
         selector = oracle_policy_for_scenario
     else:
         policy = policy_from_artifact(weights)
-        selector = lambda scenario: policy
+
+        def selector(scenario: dict[str, Any]) -> dict[str, Any]:
+            return policy
+
     result = evaluate_baseline(
         baseline=baseline,
         suite=suite,

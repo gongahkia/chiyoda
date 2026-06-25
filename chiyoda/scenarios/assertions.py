@@ -125,9 +125,7 @@ def evaluate_scenario_assertions(
                 _check_count(
                     f"cohort_exit_usage.{cohort}.{exit_ref}",
                     int(
-                        observed_cohort_usage.get(str(cohort), {}).get(
-                            str(exit_ref), 0
-                        )
+                        observed_cohort_usage.get(str(cohort), {}).get(str(exit_ref), 0)
                     ),
                     expected,
                     issues,

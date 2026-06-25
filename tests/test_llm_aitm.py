@@ -27,7 +27,9 @@ def test_validator_rejects_aitm_intercepted_message():
         message,
         known_exits=[("0", 2, 1)],
         known_hazards=[
-            HazardSnapshot(position=(3.0, 1.0, 0.0), kind="SMOKE", radius=1.0, severity=0.5)
+            HazardSnapshot(
+                position=(3.0, 1.0, 0.0), kind="SMOKE", radius=1.0, severity=0.5
+            )
         ],
         base_radius=8.0,
         max_radius=20.0,

@@ -1,10 +1,9 @@
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from time import perf_counter
 from typing import Any
-
-import math
 
 
 @dataclass(frozen=True)
@@ -54,14 +53,20 @@ def project_dispatch_message(
     ]
     affected = len(recipients)
     if not agents or not recipients:
-        return DispatchProjectionResult(0, affected, 0.0, 0.0, 0.0, _elapsed(started), int(request.horizon_steps))
+        return DispatchProjectionResult(
+            0, affected, 0.0, 0.0, 0.0, _elapsed(started), int(request.horizon_steps)
+        )
 
     pressure = [_hazard_pressure(agent, hazards) for agent in recipients]
     mean_pressure = sum(pressure) / max(1, len(pressure))
     recipient_share = len(recipients) / max(1, len(agents))
-    uncertainty = sum(float(agent.get("entropy", 0.0) or 0.0) for agent in recipients) / max(1, len(recipients))
+    uncertainty = sum(
+        float(agent.get("entropy", 0.0) or 0.0) for agent in recipients
+    ) / max(1, len(recipients))
     kind = str(request.message_type or "route_guidance")
-    belief_factor, hci_factor, exposure_factor = _message_coefficients(kind, bool(hazards))
+    belief_factor, hci_factor, exposure_factor = _message_coefficients(
+        kind, bool(hazards)
+    )
     effect = credibility * horizon_scale * recipient_share
     belief_delta = belief_factor * credibility * horizon_scale * (0.5 + uncertainty)
     hci_delta = hci_factor * effect * (1.0 + mean_pressure)
@@ -86,7 +91,9 @@ def project_from_viewer_frame(
     return project_dispatch_message(agents, hazards, request)
 
 
-def _message_coefficients(message_type: str, has_hazard: bool) -> tuple[float, float, float]:
+def _message_coefficients(
+    message_type: str, has_hazard: bool
+) -> tuple[float, float, float]:
     if message_type == "avoid_hazard":
         return 0.14, -0.06, -0.22
     if message_type == "shelter_hold":
@@ -115,16 +122,14 @@ def _hazard_pressure(agent: dict[str, Any], hazards: list[dict[str, Any]]) -> fl
             float(hazard.get("y", 0.0) or 0.0),
             float(hazard.get("z", 0.0) or 0.0),
         )
-        pressure = max(pressure, max(0.0, 1.0 - (_distance(point, center) / radius)) * severity)
+        pressure = max(
+            pressure, max(0.0, 1.0 - (_distance(point, center) / radius)) * severity
+        )
     return pressure
 
 
 def _distance(a: tuple[float, float, float], b: tuple[float, float, float]) -> float:
-    return math.sqrt(
-        ((a[0] - b[0]) ** 2)
-        + ((a[1] - b[1]) ** 2)
-        + ((a[2] - b[2]) ** 2)
-    )
+    return math.sqrt(((a[0] - b[0]) ** 2) + ((a[1] - b[1]) ** 2) + ((a[2] - b[2]) ** 2))
 
 
 def _elapsed(started: float) -> float:

@@ -15,7 +15,6 @@ from chiyoda.policies import (
 )
 from chiyoda.scenarios.manager import ScenarioManager
 
-
 DOC_PATH = Path("docs/benchmark/baselines.md")
 PPO_ARTIFACT = Path("data/baselines/ppo_smoke_discrete_policy.json")
 

@@ -48,12 +48,11 @@ simulation:
     assert result.exit_code == 0, result.output
     frame = pd.read_csv(output_dir / "tables" / "intent_path_usage.csv")
     assert not frame.empty
-    assert {"step", "floor_id", "x", "y", "intent", "count"}.issubset(
-        frame.columns
+    assert {"step", "floor_id", "x", "y", "intent", "count"}.issubset(frame.columns)
+    assert (
+        frame["count"].sum()
+        <= pd.read_csv(output_dir / "tables" / "agent_steps.csv").shape[0]
     )
-    assert frame["count"].sum() <= pd.read_csv(
-        output_dir / "tables" / "agent_steps.csv"
-    ).shape[0]
 
 
 def test_viewer_payload_loads_intent_path_usage(tmp_path):

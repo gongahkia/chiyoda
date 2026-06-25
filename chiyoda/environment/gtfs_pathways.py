@@ -56,7 +56,9 @@ def strict_layout_from_gtfs_pathways(
         for stop_id in (row.get("from_stop_id"), row.get("to_stop_id"))
         if stop_id
     }
-    nodes = [stops_by_id[stop_id] for stop_id in referenced_ids if stop_id in stops_by_id]
+    nodes = [
+        stops_by_id[stop_id] for stop_id in referenced_ids if stop_id in stops_by_id
+    ]
     if not nodes:
         raise ValueError("pathways.txt did not reference known stops")
 
@@ -155,7 +157,12 @@ def strict_layout_from_gtfs_pathways(
             for row in pathways
         ],
     }
-    return {"cell_size": cell_size, "origin": [0.0, 0.0], "floors": floors, "connectors": connectors}, metadata
+    return {
+        "cell_size": cell_size,
+        "origin": [0.0, 0.0],
+        "floors": floors,
+        "connectors": connectors,
+    }, metadata
 
 
 def _read_table(path: Path) -> list[dict[str, str]]:
@@ -167,7 +174,9 @@ def _node_level(node: dict[str, str]) -> str:
     return str(node.get("level_id") or "0")
 
 
-def _level_rows(levels: list[dict[str, str]], nodes: list[dict[str, str]]) -> list[dict[str, Any]]:
+def _level_rows(
+    levels: list[dict[str, str]], nodes: list[dict[str, str]]
+) -> list[dict[str, Any]]:
     if levels:
         rows = [
             {
@@ -217,7 +226,9 @@ def _bounds(points) -> tuple[float, float, float, float]:
     return min(xs), min(ys), max(xs), max(ys)
 
 
-def _point_to_cell(point: tuple[float, float], *, cell_size: float, padding: int) -> tuple[int, int]:
+def _point_to_cell(
+    point: tuple[float, float], *, cell_size: float, padding: int
+) -> tuple[int, int]:
     return (
         int(math.floor(point[0] / cell_size)) + padding,
         int(math.floor(point[1] / cell_size)) + padding,
@@ -230,7 +241,9 @@ def _mark_cell(grid: list[list[str]], cell: tuple[int, int], token: str) -> None
         grid[y][x] = token
 
 
-def _mark_line(grid: list[list[str]], start: tuple[int, int], end: tuple[int, int]) -> None:
+def _mark_line(
+    grid: list[list[str]], start: tuple[int, int], end: tuple[int, int]
+) -> None:
     x0, y0 = start
     x1, y1 = end
     dx = abs(x1 - x0)

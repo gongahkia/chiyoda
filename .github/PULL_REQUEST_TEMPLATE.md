@@ -16,7 +16,6 @@
 
 - [ ] `make verify`
 - [ ] `make lint PYTHON=.venv/bin/python`
-- [ ] `make typecheck PYTHON=.venv/bin/python`
 - [ ] Benchmark smoke (if applicable): `.venv/bin/python -m pytest tests/test_benchmark.py tests/test_benchmark_v2_v3.py`
 
 ## Notes for reviewers

@@ -54,7 +54,9 @@ def train_ppo_baseline(
         from stable_baselines3 import PPO
     except Exception as exc:
         if require_sb3:
-            raise RuntimeError("stable-baselines3 is required for PPO training") from exc
+            raise RuntimeError(
+                "stable-baselines3 is required for PPO training"
+            ) from exc
         artifact = _fallback_artifact(
             scenario_file=scenario_file,
             seed=seed,
@@ -86,7 +88,9 @@ def train_ppo_baseline(
     return artifact | {"path": str(metadata_path)}
 
 
-def load_discrete_policy_artifact(path: str | Path = DEFAULT_PPO_BASELINE) -> dict[str, Any]:
+def load_discrete_policy_artifact(
+    path: str | Path = DEFAULT_PPO_BASELINE,
+) -> dict[str, Any]:
     source = Path(path)
     if not source.exists():
         raise FileNotFoundError(source)
@@ -126,7 +130,13 @@ class DiscreteInterventionEnv(_GymEnv):
         observation, reward, terminated, truncated, info = self.env.step(
             self.actions[int(action) % len(self.actions)]
         )
-        return observation.astype(np.float32), float(reward), terminated, truncated, info
+        return (
+            observation.astype(np.float32),
+            float(reward),
+            terminated,
+            truncated,
+            info,
+        )
 
     def close(self) -> None:
         self.env.close()

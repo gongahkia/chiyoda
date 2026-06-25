@@ -11,8 +11,8 @@ import pytest
 
 from chiyoda.analysis.viewer import export_viewer
 from chiyoda.scenarios.validation import validate_scenario_file
-from chiyoda.studies.runner import run_study
 from chiyoda.studies.models import StudyBundle
+from chiyoda.studies.runner import run_study
 
 
 def _bundle() -> StudyBundle:

@@ -42,7 +42,13 @@ def export_viewer(
     sprite_asset_path.parent.mkdir(parents=True, exist_ok=True)
     shutil.copyfile(_VIEWER_SPRITE_ASSET, sprite_asset_path)
     sprite_readme_path.write_text(_VIEWER_SPRITE_README.read_text())
-    return [index_path, data_path, sim_asset_path, sprite_asset_path, sprite_readme_path]
+    return [
+        index_path,
+        data_path,
+        sim_asset_path,
+        sprite_asset_path,
+        sprite_readme_path,
+    ]
 
 
 def _viewer_payload(bundle: StudyBundle, *, max_frames: int) -> dict[str, Any]:
@@ -318,9 +324,7 @@ def _source_ifc_floors(bundle: StudyBundle) -> list[dict[str, Any]]:
                 "ifc_type": str(element.get("ifc_type", "")),
                 "geometry": {
                     "type": "Polygon",
-                    "coordinates": [
-                        [[x0, y0], [x1, y0], [x1, y1], [x0, y1], [x0, y0]]
-                    ],
+                    "coordinates": [[[x0, y0], [x1, y0], [x1, y1], [x0, y1], [x0, y0]]],
                 },
             }
         )

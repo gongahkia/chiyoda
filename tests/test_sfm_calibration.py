@@ -12,7 +12,6 @@ from chiyoda.navigation.social_force import (
 )
 from chiyoda.scenarios.manager import ScenarioManager
 
-
 SENSITIVITY_PATH = Path("data/sfm_calibrations/sensitivity_baseline.json")
 
 
@@ -23,7 +22,9 @@ def _scenario() -> dict:
             "profile": "yolov5_mdpi_2024",
             "parameters": {"base_vision_radius_m": 4.0},
         },
-        "layout": {"floors": [{"id": "0", "z": 0.0, "text": "XXXXXX\nX@..EX\nXXXXXX\n"}]},
+        "layout": {
+            "floors": [{"id": "0", "z": 0.0, "text": "XXXXXX\nX@..EX\nXXXXXX\n"}]
+        },
         "population": {"total": 1},
         "simulation": {"max_steps": 1, "random_seed": 7},
     }
@@ -69,9 +70,7 @@ def test_social_force_profiles_load_from_yaml_with_provenance():
     assert yolov5.relaxation_time_s == pytest.approx(0.53)
     assert yolov5.agent_repulsion_strength == pytest.approx(10.25)
     assert yolov5.agent_repulsion_range_m == pytest.approx(0.28)
-    assert "10.3390/s24155011" in str(
-        yolov5.provenance_for("agent_repulsion_strength")
-    )
+    assert "10.3390/s24155011" in str(yolov5.provenance_for("agent_repulsion_strength"))
     assert override.base_vision_radius_m == pytest.approx(4.25)
 
 

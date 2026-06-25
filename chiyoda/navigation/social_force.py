@@ -234,8 +234,8 @@ if NUMBA_AVAILABLE:
                         visual_weight = rear_repulsion_weight
                 n_hat = delta / dist
                 f_total += (
-                    visual_weight *
-                    agent_repulsion_strength
+                    visual_weight
+                    * agent_repulsion_strength
                     * np.exp((body_diameter_m - dist) / agent_repulsion_range_m)
                     * n_hat
                 )
@@ -248,8 +248,8 @@ if NUMBA_AVAILABLE:
                         tangent[0] = -n_hat[1]
                         tangent[1] = n_hat[0]
                         f_total += (
-                            visual_weight *
-                            counter_flow_friction
+                            visual_weight
+                            * counter_flow_friction
                             * abs(dot)
                             * tangent
                             * np.sign(np.sum(tangent * desired_velocity))
@@ -292,8 +292,7 @@ if NUMBA_AVAILABLE:
 
         new_velocity = current_velocity + f_total * dt
         max_speed = max(
-            np.sqrt(np.sum(desired_velocity * desired_velocity))
-            * max_speed_multiplier,
+            np.sqrt(np.sum(desired_velocity * desired_velocity)) * max_speed_multiplier,
             0.5,
         )
         speed = np.sqrt(np.sum(new_velocity * new_velocity))
@@ -381,8 +380,8 @@ def social_force_step(
                     visual_weight = params["rear_repulsion_weight"]
             n_hat = delta / dist
             f_repel = (
-                visual_weight *
-                params["agent_repulsion_strength"]
+                visual_weight
+                * params["agent_repulsion_strength"]
                 * np.exp(
                     (params["body_diameter_m"] - dist)
                     / params["agent_repulsion_range_m"]
@@ -405,8 +404,8 @@ def social_force_step(
                     tangent[0] = -n_hat[1]
                     tangent[1] = n_hat[0]
                     f_friction = (
-                        visual_weight *
-                        params["counter_flow_friction"]
+                        visual_weight
+                        * params["counter_flow_friction"]
                         * abs(dot)
                         * tangent
                         * np.sign(np.dot(tangent, desired_velocity))
@@ -432,10 +431,7 @@ def social_force_step(
                             * params["counter_flow_avoidance_strength"]
                             * approach
                             * np.exp(
-                                (
-                                    params["counter_flow_avoidance_range_m"]
-                                    - dist
-                                )
+                                (params["counter_flow_avoidance_range_m"] - dist)
                                 / params["counter_flow_avoidance_range_m"]
                             )
                             * lateral_sign

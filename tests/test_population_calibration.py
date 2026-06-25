@@ -11,7 +11,6 @@ from chiyoda.information.route_choice_calibration import (
 )
 from scripts.run_population_calibration import run
 
-
 DATA_DIR = Path("data/calibration/population_mta_2024")
 FEED = DATA_DIR / "times_sq_2024_12_31_hourly.csv"
 FIT = DATA_DIR / "fit_parameters.json"
@@ -42,12 +41,8 @@ def test_population_demand_fit_reports_residuals_and_scenario_population():
     assert fit.metrics["mean_absolute_residual_ridership"] == pytest.approx(
         99.86006944444449
     )
-    assert fit.metrics["rmse_residual_ridership"] == pytest.approx(
-        112.59463320471644
-    )
-    assert sum(
-        cohort["count"] for cohort in fit.scenario_population["cohorts"]
-    ) == 240
+    assert fit.metrics["rmse_residual_ridership"] == pytest.approx(112.59463320471644)
+    assert sum(cohort["count"] for cohort in fit.scenario_population["cohorts"]) == 240
     assert fit.hourly_profile[15]["calibrated_agents"] == 16
     assert fit.hourly_profile[15]["observed_ridership"] == pytest.approx(5997.0)
 

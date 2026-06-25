@@ -12,12 +12,12 @@ from chiyoda.scenarios.generated_calibration import (
     apply_generated_population_calibration,
     validate_generated_population_calibration,
 )
-from chiyoda.scenarios.manager import ScenarioManager
 from chiyoda.scenarios.ifc_import import (
     strict_layout_and_metadata_from_ifc,
     strict_layout_from_ifc,
     strict_scenario_from_ifc,
 )
+from chiyoda.scenarios.manager import ScenarioManager
 from chiyoda.scenarios.patching import (
     apply_exported_patch_file,
     apply_json_patch,

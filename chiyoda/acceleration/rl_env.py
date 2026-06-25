@@ -293,9 +293,7 @@ class ChiyodaParallelRLEnv(_ParallelEnv):
         )
         return self._agent_observations(observation), infos
 
-    def step(
-        self, actions: dict[str, Any] | None
-    ) -> tuple[
+    def step(self, actions: dict[str, Any] | None) -> tuple[
         dict[str, np.ndarray],
         dict[str, float],
         dict[str, bool],
@@ -417,9 +415,7 @@ class ChiyodaParallelRLEnv(_ParallelEnv):
         self._last_shared_observation = observation
         return observation.copy()
 
-    def _agent_observations(
-        self, observation: np.ndarray
-    ) -> dict[str, np.ndarray]:
+    def _agent_observations(self, observation: np.ndarray) -> dict[str, np.ndarray]:
         return {agent: observation.copy() for agent in self.agents}
 
     def _agent_infos(
@@ -518,7 +514,9 @@ class _ArrayObservationSpace:
         return array.shape == self.shape and np.isfinite(array).all()
 
 
-def _action_templates(value: Any, default: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _action_templates(
+    value: Any, default: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
     if not value:
         return deepcopy(default)
     return [deepcopy(item) for item in value]

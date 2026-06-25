@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import numpy as np
 
+from chiyoda.agents.base import INTENTION_EVACUATE, INTENTION_EXPLORE
 from chiyoda.agents.commuter import Commuter
-from chiyoda.agents.base import INTENTION_EXPLORE, INTENTION_EVACUATE
 from chiyoda.core.simulation import Simulation, SimulationConfig
 from chiyoda.environment.exits import Exit
 from chiyoda.environment.layout import Layout
@@ -28,9 +28,7 @@ def _sim(agent: Commuter, *, muted: str | None = None) -> Simulation:
     agent.pos = np.array(layout.world_position(("0", 1, 1)), dtype=float)
     config = SimulationConfig(max_steps=1, dt=0.1, random_seed=7)
     if muted is not None:
-        config.padm_enabled_stages = PADMStageConfig.with_muted(
-            muted
-        ).enabled_stages
+        config.padm_enabled_stages = PADMStageConfig.with_muted(muted).enabled_stages
     return Simulation(layout, [agent], [Exit(pos=exit_pos)], config=config)
 
 
@@ -61,9 +59,7 @@ def test_padm_understand_can_be_muted_independently():
     field = InformationField(4, 3, decay_rate=0.5)
     agent = _agent()
     agent.beliefs = BeliefVector(
-        exit_beliefs={
-            ("0", 2, 1): ExitBelief(position=("0", 2, 1), exists_prob=1.0)
-        }
+        exit_beliefs={("0", 2, 1): ExitBelief(position=("0", 2, 1), exists_prob=1.0)}
     )
     observations = [(agent, tuple(agent.pos), 2.0)]
 

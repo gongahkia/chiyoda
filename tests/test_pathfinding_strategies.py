@@ -14,11 +14,7 @@ def _cost(nav: SmartNavigator, path) -> float:
 
 def test_heap_astar_matches_networkx_astar_cost():
     layout = Layout.from_text(
-        "XXXXXXX\n"
-        "X@...EX\n"
-        "X.XXX.X\n"
-        "X.....X\n"
-        "XXXXXXX\n"
+        "XXXXXXX\n" "X@...EX\n" "X.XXX.X\n" "X.....X\n" "XXXXXXX\n"
     )
     goals = layout.exit_positions()
     baseline = SmartNavigator(layout, strategy="networkx_astar")
@@ -34,11 +30,7 @@ def test_heap_astar_matches_networkx_astar_cost():
 
 def test_reverse_dijkstra_matches_astar_for_shared_exits_and_caches():
     layout = Layout.from_text(
-        "XXXXXXXX\n"
-        "X@....EX\n"
-        "X......X\n"
-        "XE.....X\n"
-        "XXXXXXXX\n"
+        "XXXXXXXX\n" "X@....EX\n" "X......X\n" "XE.....X\n" "XXXXXXXX\n"
     )
     goals = layout.exit_positions()
     astar = SmartNavigator(layout, strategy="heap_astar")
@@ -58,12 +50,7 @@ def test_reverse_dijkstra_matches_astar_for_shared_exits_and_caches():
 
 
 def test_reverse_dijkstra_respects_hazard_penalty():
-    layout = Layout.from_text(
-        "XXXXXXX\n"
-        "X@...EX\n"
-        "X.....X\n"
-        "XXXXXXX\n"
-    )
+    layout = Layout.from_text("XXXXXXX\n" "X@...EX\n" "X.....X\n" "XXXXXXX\n")
 
     def hazard_fn(cell):
         return 10.0 if cell == ("0", 3, 1) else 0.0

@@ -97,4 +97,6 @@ def test_llm_calls_audit_cli_fails_on_corrupted_row(tmp_path):
     result = CliRunner().invoke(cli, ["audit", "llm_calls", str(tmp_path)])
 
     assert result.exit_code == 1
-    assert "ERROR: llm_calls audit rows=2 row=1 reason=row_hash_mismatch" in result.output
+    assert (
+        "ERROR: llm_calls audit rows=2 row=1 reason=row_hash_mismatch" in result.output
+    )

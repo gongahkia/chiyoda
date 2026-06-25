@@ -15,10 +15,7 @@ from chiyoda.information.route_choice_calibration import (
     write_population_calibration_fit,
 )
 
-
-DEFAULT_FEED = (
-    "data/calibration/population_mta_2024/times_sq_2024_12_31_hourly.csv"
-)
+DEFAULT_FEED = "data/calibration/population_mta_2024/times_sq_2024_12_31_hourly.csv"
 
 
 def calibrate(

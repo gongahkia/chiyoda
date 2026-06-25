@@ -632,9 +632,7 @@ def _validate_env_version(value: Any, issues: list[dict[str, str]]) -> None:
             _issue(issues, f"$.env_version.{field_name}", "must be a non-empty string")
 
 
-def _validate_score_block(
-    value: Any, path: str, issues: list[dict[str, str]]
-) -> None:
+def _validate_score_block(value: Any, path: str, issues: list[dict[str, str]]) -> None:
     if not isinstance(value, dict):
         _issue(issues, path, "must be an object")
         return

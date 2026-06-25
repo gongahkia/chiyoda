@@ -13,7 +13,9 @@ def _scenario(prior: str) -> dict:
     return {
         "scenario": {
             "name": f"prior_{prior}",
-            "layout": {"floors": [{"id": "0", "z": 0.0, "text": "XXXXX\nX@.EX\nXXXXX"}]},
+            "layout": {
+                "floors": [{"id": "0", "z": 0.0, "text": "XXXXX\nX@.EX\nXXXXX"}]
+            },
             "population": {"total": 1},
             "simulation": {"max_steps": 1, "dt": 1.0, "random_seed": 3},
             "behavior": {

@@ -626,9 +626,7 @@ def with_llm_audit_chain(frame) -> Any:
     result = frame.copy()
     result = result.drop(
         columns=[
-            column
-            for column in LLM_AUDIT_CHAIN_COLUMNS
-            if column in result.columns
+            column for column in LLM_AUDIT_CHAIN_COLUMNS if column in result.columns
         ]
     )
     previous = LLM_AUDIT_GENESIS
@@ -934,8 +932,7 @@ def _canonical_llm_audit_value(value: Any) -> Any:
         return [_canonical_llm_audit_value(item) for item in value]
     if isinstance(value, dict):
         return {
-            str(key): _canonical_llm_audit_value(item)
-            for key, item in value.items()
+            str(key): _canonical_llm_audit_value(item) for key, item in value.items()
         }
     return str(value) if value.__class__.__module__.startswith("pandas") else value
 

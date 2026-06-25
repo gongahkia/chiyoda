@@ -517,9 +517,8 @@ class Simulation:
         self._padm_decide(observation_batch)
 
         # agent-to-agent gossip
-        if (
-            self.spatial_index is not None
-            and padm_stage_enabled(self.padm_stage_config, PADM_RECEIVE)
+        if self.spatial_index is not None and padm_stage_enabled(
+            self.padm_stage_config, PADM_RECEIVE
         ):
             for agent in active:
                 if not hasattr(agent, "beliefs"):

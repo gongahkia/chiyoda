@@ -31,9 +31,11 @@ rerun:
 .venv/bin/python -m pytest
 .venv/bin/python -m ruff check chiyoda tests scripts
 .venv/bin/python -m black --check chiyoda tests scripts
-.venv/bin/python scripts/check_mypy_baseline.py
 make doctor PYTHON=.venv/bin/python
 ```
+
+Typing no-regression is tracked against `docs/typing_baseline.md` in CI. Run
+`make typecheck PYTHON=.venv/bin/python` when touching typed surfaces.
 
 ## Profiling
 

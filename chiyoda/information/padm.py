@@ -38,7 +38,9 @@ class PADMStageConfig:
         object.__setattr__(self, "enabled_stages", normalized)
 
     @classmethod
-    def from_enabled(cls, stages: tuple[str, ...] | list[str] | None) -> PADMStageConfig:
+    def from_enabled(
+        cls, stages: tuple[str, ...] | list[str] | None
+    ) -> PADMStageConfig:
         if stages is None:
             return cls()
         return cls(tuple(stages))

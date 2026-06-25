@@ -223,7 +223,9 @@ def _brief_metric(
 
 
 def _hci_metric(result: ComparisonResult) -> str:
-    metrics = set(result.metrics.get("metric", [])) if not result.metrics.empty else set()
+    metrics = (
+        set(result.metrics.get("metric", [])) if not result.metrics.empty else set()
+    )
     if "harmful_convergence_index_induced" in metrics:
         return "harmful_convergence_index_induced"
     if "harmful_convergence_index" in metrics:
@@ -304,10 +306,7 @@ def _llm_cost_sums(frame: pd.DataFrame) -> dict[str, object]:
         "raw_output_tokens",
         "raw_total_tokens",
     ]
-    values = {
-        column: int(frame[column].sum())
-        for column in integer_columns
-    }
+    values = {column: int(frame[column].sum()) for column in integer_columns}
     values["estimated_usd"] = float(frame["estimated_usd"].sum())
     return values
 

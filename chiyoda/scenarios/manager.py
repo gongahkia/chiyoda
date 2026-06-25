@@ -136,7 +136,9 @@ class ScenarioManager:
             acceleration_backend=str(
                 simulation_cfg.get("acceleration_backend", "auto")
             ),
-            pathfinding_strategy=str(simulation_cfg.get("pathfinding_strategy", "auto")),
+            pathfinding_strategy=str(
+                simulation_cfg.get("pathfinding_strategy", "auto")
+            ),
             density_slowdown_scale=float(
                 simulation_cfg.get("density_slowdown_scale", 1.0)
             ),
@@ -535,9 +537,7 @@ class ScenarioManager:
             base_speed = float(
                 cohort_cfg.get(
                     "base_speed",
-                    cohort_cfg.get(
-                        "base_speed_mps", sfm_calibration.desired_speed_mps
-                    ),
+                    cohort_cfg.get("base_speed_mps", sfm_calibration.desired_speed_mps),
                 )
             )
             base_speed *= float(cohort_cfg.get("base_speed_multiplier", 1.0))

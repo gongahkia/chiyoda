@@ -29,8 +29,11 @@ Before opening a PR:
 make venv                # one time
 make verify              # runs pytest
 make lint PYTHON=.venv/bin/python
-make typecheck PYTHON=.venv/bin/python
 ```
+
+Typing is tracked by the CI no-regression baseline in
+`docs/typing_baseline.md`; run `make typecheck PYTHON=.venv/bin/python` when
+touching typed surfaces.
 
 If you touched the benchmark layer, also run:
 

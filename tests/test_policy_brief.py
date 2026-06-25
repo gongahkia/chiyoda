@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import json
 
-from click.testing import CliRunner
 import pandas as pd
+from click.testing import CliRunner
 
 from chiyoda.analysis.reports import export_policy_brief
 from chiyoda.cli import cli
@@ -81,7 +81,9 @@ def _comparison_result() -> ComparisonResult:
     )
 
 
-def _study_bundle(name: str, total_time: float, exposure: float, harm: float) -> StudyBundle:
+def _study_bundle(
+    name: str, total_time: float, exposure: float, harm: float
+) -> StudyBundle:
     return StudyBundle(
         metadata={
             "study_name": name,

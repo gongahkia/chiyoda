@@ -65,9 +65,9 @@ def equity_subgroup_metrics(agents: pd.DataFrame) -> pd.DataFrame:
         if column not in frame.columns:
             frame[column] = default
 
-    frame["impairment"] = pd.to_numeric(
-        frame["impairment"], errors="coerce"
-    ).fillna(0.0)
+    frame["impairment"] = pd.to_numeric(frame["impairment"], errors="coerce").fillna(
+        0.0
+    )
     frame["familiarity"] = pd.to_numeric(frame["familiarity"], errors="coerce")
     frame["travel_time_s"] = pd.to_numeric(
         frame["travel_time_s"], errors="coerce"
@@ -127,8 +127,7 @@ def _equity_masks(frame: pd.DataFrame):
             "familiarity_prior",
             "medium_familiarity",
             "0.33 <= familiarity < 0.67",
-            (familiarity >= FAMILIARITY_LOW_MAX)
-            & (familiarity < FAMILIARITY_HIGH_MIN),
+            (familiarity >= FAMILIARITY_LOW_MAX) & (familiarity < FAMILIARITY_HIGH_MIN),
         ),
         (
             "familiarity_prior",

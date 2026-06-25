@@ -6,9 +6,9 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 
-from click.testing import CliRunner
 import pandas as pd
 import pytest
+from click.testing import CliRunner
 
 from chiyoda.analysis.viewer import export_viewer
 from chiyoda.cli import cli

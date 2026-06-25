@@ -138,9 +138,7 @@ def _compare_main(argv: list[str]) -> int:
         help="Allowed elapsed_s regression fraction, e.g. 0.10 for 10%%.",
     )
     parser.add_argument("--out", type=Path, default=Path("out/perf/perf_delta.csv"))
-    parser.add_argument(
-        "--summary", type=Path, default=Path("out/perf/perf_delta.md")
-    )
+    parser.add_argument("--summary", type=Path, default=Path("out/perf/perf_delta.md"))
     args = parser.parse_args(argv)
     rows = compare_perf(args.baseline, args.current, args.max_regression)
     write_rows(args.out, rows)

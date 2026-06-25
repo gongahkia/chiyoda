@@ -9,8 +9,8 @@ from typing import Any
 import pandas as pd
 
 from chiyoda.analysis.metrics import SimulationAnalytics
-from chiyoda.studies.benchmark import _leaderboard, _spec_for_suite, benchmark_score
 from chiyoda.scenarios.manager import ScenarioManager
+from chiyoda.studies.benchmark import _leaderboard, _spec_for_suite, benchmark_score
 
 PolicySelector = Callable[[dict[str, Any]], dict[str, Any]]
 

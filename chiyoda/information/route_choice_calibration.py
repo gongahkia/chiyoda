@@ -181,7 +181,9 @@ def load_mta_hourly_ridership(
     required = {"transit_timestamp", "station_complex", "ridership"}
     missing = required.difference(frame.columns)
     if missing:
-        raise ValueError(f"MTA hourly ridership feed missing columns: {sorted(missing)}")
+        raise ValueError(
+            f"MTA hourly ridership feed missing columns: {sorted(missing)}"
+        )
     if station_complex is not None:
         frame = frame[frame["station_complex"] == station_complex].copy()
     frame["transit_timestamp"] = pd.to_datetime(
@@ -280,9 +282,7 @@ def fit_population_demand_profile(
         },
         metrics={
             "mean_absolute_residual_ridership": float(np.mean(np.abs(residuals))),
-            "rmse_residual_ridership": float(
-                np.sqrt(np.mean(residuals * residuals))
-            ),
+            "rmse_residual_ridership": float(np.sqrt(np.mean(residuals * residuals))),
             "max_abs_residual_ridership": float(np.max(np.abs(residuals))),
             "total_residual_ridership": float(residuals.sum()),
         },

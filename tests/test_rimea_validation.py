@@ -11,9 +11,7 @@ from chiyoda.scenarios.assertions import evaluate_scenario_assertions
 from chiyoda.scenarios.manager import ScenarioManager
 from chiyoda.scenarios.validation import validate_scenario_file
 
-RIMEA_CASES = [
-    f"scenarios/validation_rimea_{case:02d}.yaml" for case in range(1, 11)
-]
+RIMEA_CASES = [f"scenarios/validation_rimea_{case:02d}.yaml" for case in range(1, 11)]
 
 
 def test_rimea_validation_scenarios_are_static_valid_and_assertable():

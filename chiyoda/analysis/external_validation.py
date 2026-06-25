@@ -11,7 +11,6 @@ import pandas as pd
 from chiyoda.scenarios.assertions import evaluate_scenario_assertions
 from chiyoda.scenarios.manager import ScenarioManager
 
-
 RIMEA_VALIDATION_CASES = tuple(
     Path(f"scenarios/validation_rimea_{case:02d}.yaml") for case in range(1, 11)
 )
@@ -378,9 +377,7 @@ def _density_bands(
     return tuple(parsed)
 
 
-def _density_band(
-    density: float, bands: Sequence[tuple[str, float, float]]
-) -> str:
+def _density_band(density: float, bands: Sequence[tuple[str, float, float]]) -> str:
     for name, lower, upper in bands:
         if lower <= density < upper:
             return name
@@ -442,9 +439,7 @@ def _kolmogorov_pvalue(value: float) -> float:
     total = 0.0
     for index in range(1, 101):
         term = (
-            2.0
-            * ((-1.0) ** (index - 1))
-            * np.exp(-2.0 * index * index * value * value)
+            2.0 * ((-1.0) ** (index - 1)) * np.exp(-2.0 * index * index * value * value)
         )
         total += term
         if abs(term) < 1e-12:

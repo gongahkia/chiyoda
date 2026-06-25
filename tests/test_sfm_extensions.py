@@ -129,7 +129,9 @@ def test_visual_range_parameters_are_overridable_per_scenario():
                 "counter_flow_avoidance_strength": 1.1,
             },
         },
-        "layout": {"floors": [{"id": "0", "z": 0.0, "text": "XXXXXX\nX@..EX\nXXXXXX\n"}]},
+        "layout": {
+            "floors": [{"id": "0", "z": 0.0, "text": "XXXXXX\nX@..EX\nXXXXXX\n"}]
+        },
         "population": {"total": 1},
         "simulation": {"max_steps": 1, "random_seed": 7},
     }
