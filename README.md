@@ -2,7 +2,7 @@
   <img src="./asset/logo/chiyoda.png" width="20%" alt="Chiyoda mascot"/>
 </p>
 
-<h1 align="center">Chiyoda</h1>
+<h1 align="center"><code>Chiyoda</code></h1>
 
 <h4 align="center">
     Entropy-guided information control for hazard-coupled pedestrian evacuation
