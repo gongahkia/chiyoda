@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import numpy as np
+import pytest
 
 from chiyoda.agents.commuter import Commuter
 from chiyoda.core.simulation import Simulation, SimulationConfig
@@ -40,6 +41,43 @@ def test_flood_hazard_evolves_inundation_field_and_route_penalty():
     assert hazard.intensity_at(np.array([2.5, 2.5, 0.0])) > 0.0
     assert sim.hazard_penalty_at_cell(("0", 2, 2)) > sim.hazard_penalty_at_cell(
         ("0", 4, 1)
+    )
+
+
+def test_flood_depth_slows_agents_and_adds_depth_route_penalty():
+    layout = Layout.from_text("XXXXX\n" "X@.EX\n" "XXXXX\n")
+    hazard = Hazard(
+        pos=(1.5, 1.5, 0.0),
+        kind="FLOOD",
+        radius=1.0,
+        severity=0.8,
+        flood_depth_threshold_m=0.4,
+    )
+    hazard.inundation_origin = (0.0, 0.0)
+    hazard.inundation_cell_size = 1.0
+    hazard.inundation_field[(1, 1)] = 0.6
+    agent = Commuter(id=0, pos=layout.world_position(("0", 1, 1)), floor_id="0")
+    sim = Simulation(
+        layout=layout,
+        agents=[agent],
+        exits=[Exit(pos=("0", 3, 1))],
+        hazards=[hazard],
+        config=SimulationConfig(
+            dt=1.0,
+            flood_wading_depth_m=0.3,
+            flood_impassable_depth_m=1.2,
+            flood_min_speed_factor=0.1,
+        ),
+    )
+
+    sim._ensure_bootstrapped()
+
+    assert sim.flood_depth_at(agent.pos) == pytest.approx(0.6)
+    assert agent.current_flood_depth_m == pytest.approx(0.6)
+    assert agent.environment_speed_factor == pytest.approx(0.5)
+    assert agent.speed() < agent.base_speed
+    assert sim.hazard_penalty_at_cell(("0", 1, 1)) > sim.hazard_penalty_at_cell(
+        ("0", 2, 1)
     )
 
 

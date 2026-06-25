@@ -792,6 +792,11 @@ def _collect_run_tables(
                     "evacuation_mode": getattr(agent, "evacuation_mode", "pedestrian"),
                     "hazard_exposure": float(agent.hazard_exposure),
                     "hazard_load": float(agent.hazard_load),
+                    "visibility": float(getattr(agent, "visibility", 1.0)),
+                    "flood_depth_m": float(getattr(agent, "flood_depth_m", 0.0)),
+                    "environment_speed_factor": float(
+                        getattr(agent, "environment_speed_factor", 1.0)
+                    ),
                     "entropy": float(getattr(agent, "entropy", 0.0)),
                     "belief_accuracy": float(getattr(agent, "belief_accuracy", 1.0)),
                     "impairment": float(getattr(agent, "impairment", 0.0)),

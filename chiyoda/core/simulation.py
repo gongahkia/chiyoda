@@ -50,6 +50,11 @@ class SimulationConfig:
     dt: float = 0.1
     random_seed: int | None = 42
     hazard_avoidance_weight: float = 1.25
+    min_visibility_speed_factor: float = 0.45
+    flood_wading_depth_m: float = 0.3
+    flood_impassable_depth_m: float = 1.2
+    flood_impassable_penalty: float = 100.0
+    flood_min_speed_factor: float = 0.1
     acceleration_backend: str = "auto"
     pathfinding_strategy: str = "auto"
     density_slowdown_scale: float = 1.0
@@ -292,6 +297,9 @@ class Simulation:
                 ("current_hazard_load", 0.0),
                 ("hazard_speed_factor", 1.0),
                 ("hazard_risk", 0.0),
+                ("environment_speed_factor", 1.0),
+                ("current_visibility", 1.0),
+                ("current_flood_depth_m", 0.0),
                 ("evacuated_via", None),
                 ("evacuation_mode", "pedestrian"),
                 ("mode_switch_step", None),
@@ -328,7 +336,15 @@ class Simulation:
         for hazard in self.hazards:
             if hasattr(hazard, "visibility_at"):
                 vis *= hazard.visibility_at(pos)
-        return vis
+        return float(np.clip(vis, 0.0, 1.0))
+
+    def flood_depth_at(self, point: Any) -> float:
+        pos = np.array(point, dtype=float)
+        depth = 0.0
+        for hazard in self.hazards:
+            if hasattr(hazard, "depth_at"):
+                depth = max(depth, float(hazard.depth_at(pos)))
+        return depth
 
     def shooter_pressure_for(self, agent) -> dict[str, Any] | None:
         hostiles = [
@@ -362,7 +378,11 @@ class Simulation:
         terrain_damage = self.terrain_damage_cells.get(
             tuple(self.layout.cell(cell)), 0.0
         )
-        return self.config.hazard_avoidance_weight * (intensity + terrain_damage)
+        flood_depth = self._cell_flood_depth(cell)
+        flood_penalty = self._flood_depth_route_penalty(flood_depth)
+        return self.config.hazard_avoidance_weight * (
+            intensity + terrain_damage + flood_penalty
+        )
 
     def _cell_hazard_intensity(self, cell, *, height_offset: float) -> float:
         floor_point = self.layout.world_position(cell)
@@ -403,6 +423,38 @@ class Simulation:
             getattr(agent, "eye_height_m", getattr(agent, "breathing_height_m", 1.5))
         )
         return self.layout.world_position(cell, height_offset=eye_height)
+
+    def _cell_flood_depth(self, cell: Any) -> float:
+        return self.flood_depth_at(self.layout.world_position(cell))
+
+    def _flood_depth_route_penalty(self, depth_m: float) -> float:
+        if depth_m <= 0.0:
+            return 0.0
+        wading_depth = max(float(self.config.flood_wading_depth_m), 1e-6)
+        penalty = depth_m / wading_depth
+        if depth_m >= float(self.config.flood_impassable_depth_m):
+            penalty += float(self.config.flood_impassable_penalty)
+        return penalty
+
+    def _environment_speed_factor(self, agent: Any) -> float:
+        visibility = self.visibility_at(self._agent_sight_point(agent))
+        flood_depth = self.flood_depth_at(agent.pos)
+        visibility_factor = (
+            1.0
+            if visibility >= 1.0
+            else max(float(self.config.min_visibility_speed_factor), visibility)
+        )
+        if flood_depth <= 0.0:
+            flood_factor = 1.0
+        else:
+            limit = max(float(self.config.flood_impassable_depth_m), 1e-6)
+            flood_factor = max(
+                float(self.config.flood_min_speed_factor),
+                1.0 - min(1.0, flood_depth / limit),
+            )
+        agent.current_visibility = visibility
+        agent.current_flood_depth_m = flood_depth
+        return float(np.clip(min(visibility_factor, flood_factor), 0.0, 1.0))
 
     def _update_spatial_index(self) -> None:
         if self.spatial_index is not None:
@@ -450,6 +502,9 @@ class Simulation:
                 agent.crowd_speed_factor = 1.0
                 agent.current_hazard_load = 0.0
                 agent.hazard_speed_factor = 1.0
+                agent.environment_speed_factor = 1.0
+                agent.current_visibility = 1.0
+                agent.current_flood_depth_m = 0.0
                 continue
             if self.spatial_index is None:
                 agent.local_density = 0.0
@@ -469,6 +524,7 @@ class Simulation:
                 agent.hazard_speed_factor = max(
                     0.45, 1.0 - (agent.current_hazard_load * 0.35)
                 )
+            agent.environment_speed_factor = self._environment_speed_factor(agent)
 
     def _step_information(self) -> None:
         """ITED: information propagation step."""
@@ -720,6 +776,11 @@ class Simulation:
                     evacuation_mode=getattr(agent, "evacuation_mode", "pedestrian"),
                     hazard_exposure=float(agent.hazard_exposure),
                     hazard_load=float(agent.current_hazard_load),
+                    visibility=float(getattr(agent, "current_visibility", 1.0)),
+                    flood_depth_m=float(getattr(agent, "current_flood_depth_m", 0.0)),
+                    environment_speed_factor=float(
+                        getattr(agent, "environment_speed_factor", 1.0)
+                    ),
                     trail=tuple(self.agent_traces.get(agent.id, [])[-8:]),
                     entropy=h_agent,
                     belief_accuracy=acc,
@@ -1276,6 +1337,9 @@ class Simulation:
                     "mobility_class": a.mobility_class,
                     "hazard_exposure": a.hazard_exposure,
                     "hazard_load": a.hazard_load,
+                    "visibility": a.visibility,
+                    "flood_depth_m": a.flood_depth_m,
+                    "environment_speed_factor": a.environment_speed_factor,
                     "trail": list(a.trail),
                     "entropy": a.entropy,
                     "belief_accuracy": a.belief_accuracy,

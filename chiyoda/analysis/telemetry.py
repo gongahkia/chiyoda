@@ -53,6 +53,9 @@ class AgentStepTelemetry:
     evacuation_mode: str
     hazard_exposure: float
     hazard_load: float
+    visibility: float = 1.0
+    flood_depth_m: float = 0.0
+    environment_speed_factor: float = 1.0
     trail: tuple[tuple[float, ...], ...] = field(default_factory=tuple)
     # ITED fields
     entropy: float = 0.0

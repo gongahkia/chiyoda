@@ -133,6 +133,19 @@ class ScenarioManager:
             hazard_avoidance_weight=float(
                 simulation_cfg.get("hazard_avoidance_weight", 1.25)
             ),
+            min_visibility_speed_factor=float(
+                simulation_cfg.get("min_visibility_speed_factor", 0.45)
+            ),
+            flood_wading_depth_m=float(simulation_cfg.get("flood_wading_depth_m", 0.3)),
+            flood_impassable_depth_m=float(
+                simulation_cfg.get("flood_impassable_depth_m", 1.2)
+            ),
+            flood_impassable_penalty=float(
+                simulation_cfg.get("flood_impassable_penalty", 100.0)
+            ),
+            flood_min_speed_factor=float(
+                simulation_cfg.get("flood_min_speed_factor", 0.1)
+            ),
             acceleration_backend=str(
                 simulation_cfg.get("acceleration_backend", "auto")
             ),

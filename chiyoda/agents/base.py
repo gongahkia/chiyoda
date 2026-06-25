@@ -126,6 +126,7 @@ class CognitiveAgent:
     current_hazard_load: float = 0.0
     hazard_speed_factor: float = 1.0
     hazard_risk: float = 0.0
+    environment_speed_factor: float = 1.0
 
     # ITED: observation
     base_vision_radius: float = 5.0
@@ -139,6 +140,7 @@ class CognitiveAgent:
             * self.speed_multiplier
             * self.crowd_speed_factor
             * self.physiology.speed_factor
+            * self.environment_speed_factor
         )
 
     def is_released(self, simulation) -> bool:

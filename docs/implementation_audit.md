@@ -14,9 +14,11 @@ the simulator is externally validated for station evacuation prediction.
   runnable scenarios should use explicit `layout.floors`.
 - Pathfinding uses a 4-neighbor NetworkX graph over non-wall cells plus typed
   inter-floor connector edges.
-- Agents route toward known exits with density and hazard penalties.
+- Agents route toward known exits with density, hazard, terrain-damage, and
+  flood-depth penalties.
 - Hazards are stylized fields or imported scalar fields with 3D point distance;
-  this is not CFD.
+  this is not CFD. Smoke visibility and flood depth now also feed local
+  movement-speed factors.
 - Study exports persist telemetry tables, metadata, figures, and a static
   Three.js viewer.
 - Runtime assertions can check evacuation counts, travel-time bounds,

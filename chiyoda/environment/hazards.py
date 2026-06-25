@@ -226,6 +226,11 @@ class Hazard:
             )
         return 1.0
 
+    def depth_at(self, point: np.ndarray) -> float:
+        if not self.active or self.kind.upper() != "FLOOD":
+            return 0.0
+        return self._inundation_depth_at(_point3(point))
+
     def affects(self, point: np.ndarray) -> bool:
         return np.linalg.norm(_point3(point) - _point3(self.pos)) <= self.radius
 

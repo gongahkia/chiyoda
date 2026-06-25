@@ -61,6 +61,35 @@ def test_imported_hazard_field_affects_exposure_visibility_and_route_penalty(tmp
     assert sim.hazard_penalty_at_cell((0, 0)) == pytest.approx(0.0)
 
 
+def test_imported_smoke_visibility_slows_agent_movement(tmp_path):
+    field_path = tmp_path / "smoke_field.json"
+    field_path.write_text(json.dumps(_hazard_field_payload()))
+    layout = Layout.from_text("XXXXX\n" "X@.EX\n" "XXXXX\n")
+
+    clear_agent = Commuter(id=0, pos=layout.world_position(("0", 1, 1)), floor_id="0")
+    smoke_agent = Commuter(id=0, pos=layout.world_position(("0", 1, 1)), floor_id="0")
+    clear = Simulation(
+        layout=layout,
+        agents=[clear_agent],
+        exits=[Exit(pos=("0", 3, 1))],
+        config=SimulationConfig(dt=1.0, max_steps=1, random_seed=9),
+    )
+    smoke = Simulation(
+        layout=layout,
+        agents=[smoke_agent],
+        exits=[Exit(pos=("0", 3, 1))],
+        hazards=[ImportedHazardField.from_file(field_path)],
+        config=SimulationConfig(dt=1.0, max_steps=1, random_seed=9),
+    )
+
+    clear._ensure_bootstrapped()
+    smoke._ensure_bootstrapped()
+
+    assert smoke_agent.current_visibility == pytest.approx(0.35)
+    assert smoke_agent.environment_speed_factor == pytest.approx(0.45)
+    assert smoke_agent.speed() < clear_agent.speed()
+
+
 def test_scenario_manager_loads_relative_imported_hazard_field(tmp_path):
     field_path = tmp_path / "gas_field.json"
     field_path.write_text(json.dumps(_hazard_field_payload() | {"kind": "GAS"}))
