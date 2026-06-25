@@ -15,8 +15,8 @@
 ## Test plan
 
 - [ ] `make verify`
-- [ ] `.venv/bin/python -m ruff check chiyoda tests scripts`
-- [ ] `.venv/bin/python -m black --check chiyoda tests scripts`
+- [ ] `make lint PYTHON=.venv/bin/python`
+- [ ] `make typecheck PYTHON=.venv/bin/python`
 - [ ] Benchmark smoke (if applicable): `.venv/bin/python -m pytest tests/test_benchmark.py tests/test_benchmark_v2_v3.py`
 
 ## Notes for reviewers

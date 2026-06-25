@@ -5,7 +5,7 @@ Use the repository-local virtual environment for reproducible Python checks:
 ```sh
 python3 -m venv .venv
 .venv/bin/python -m ensurepip --upgrade
-.venv/bin/python -m pip install -r requirements.txt pytest
+.venv/bin/python -m pip install -r requirements.txt -r requirements-dev.txt
 .venv/bin/python -m pytest
 ```
 
@@ -22,13 +22,16 @@ rerun:
 
 ```sh
 .venv/bin/python -m ensurepip --upgrade
-.venv/bin/python -m pip install -r requirements.txt pytest
+.venv/bin/python -m pip install -r requirements.txt -r requirements-dev.txt
 ```
 
 ## Expected Verification Commands
 
 ```sh
 .venv/bin/python -m pytest
+.venv/bin/python -m ruff check chiyoda tests scripts
+.venv/bin/python -m black --check chiyoda tests scripts
+.venv/bin/python scripts/check_mypy_baseline.py
 make doctor PYTHON=.venv/bin/python
 ```
 

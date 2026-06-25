@@ -28,8 +28,8 @@ Before opening a PR:
 ```sh
 make venv                # one time
 make verify              # runs pytest
-.venv/bin/python -m ruff check chiyoda tests scripts
-.venv/bin/python -m black --check chiyoda tests scripts
+make lint PYTHON=.venv/bin/python
+make typecheck PYTHON=.venv/bin/python
 ```
 
 If you touched the benchmark layer, also run:

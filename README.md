@@ -176,6 +176,8 @@ Important documentation:
   viewer export.
 * [`docs/implementation_audit.md`](./docs/implementation_audit.md) states the
   current runtime semantics and known viewer/modeling gaps.
+* [`docs/modeling_gaps.md`](./docs/modeling_gaps.md) summarizes current
+  modeling limitations and promotion checks for validation claims.
 * [`docs/scenario_assertions.md`](./docs/scenario_assertions.md) describes
   runtime assertion checks, toy calibration scenarios, and profiling scripts.
 * [`docs/pathfinding_strategies.md`](./docs/pathfinding_strategies.md) describes

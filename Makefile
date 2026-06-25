@@ -1,31 +1,38 @@
 PYTHON ?= python3
 VENV_PYTHON ?= .venv/bin/python
 
-.PHONY: all config venv test verify doctor precommit profile build dist-check
+.PHONY: all config venv test verify lint typecheck doctor precommit profile build dist-check
 
 all:config
 
-config:requirements.txt
+config: requirements.txt requirements-dev.txt
 	@echo "Installing requirements..."
-	@$(PYTHON) -m pip install -r requirements.txt pytest
+	@$(PYTHON) -m pip install -r requirements.txt -r requirements-dev.txt
 
-venv: requirements.txt
+venv: requirements.txt requirements-dev.txt
 	@echo "Creating/updating .venv..."
 	@python3 -m venv .venv
 	@$(VENV_PYTHON) -m ensurepip --upgrade
-	@$(VENV_PYTHON) -m pip install -r requirements.txt pytest
+	@$(VENV_PYTHON) -m pip install -r requirements.txt -r requirements-dev.txt
 
 test:
 	@$(PYTHON) -m pytest -m "not slow"
 
 verify: test
 
+lint:
+	@$(PYTHON) -m ruff check chiyoda tests scripts
+	@$(PYTHON) -m black --check chiyoda tests scripts
+
+typecheck:
+	@$(PYTHON) scripts/check_mypy_baseline.py
+
 doctor:
 	@$(PYTHON) -m pytest --version
 
 precommit:
 	@echo "installing precommit hooks..."
-	@$(PYTHON) -m pip install pre-commit
+	@$(PYTHON) -m pip install -r requirements-dev.txt
 	@pre-commit install
 	@pre-commit autoupdate
 	@pre-commit run --all-files
