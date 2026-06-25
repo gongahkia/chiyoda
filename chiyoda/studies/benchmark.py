@@ -17,7 +17,12 @@ import yaml
 
 from chiyoda import __version__
 from chiyoda.analysis.metrics import SimulationAnalytics
+from chiyoda.scenarios.assertions import evaluate_scenario_assertions
+from chiyoda.scenarios.calibration_audit import build_calibration_audit
+from chiyoda.scenarios.geometry_audit import build_geometry_audit
+from chiyoda.scenarios.hazard_audit import build_hazard_audit
 from chiyoda.scenarios.manager import ScenarioManager
+from chiyoda.scenarios.validation import validate_scenario_config
 
 
 @dataclass(frozen=True)
@@ -90,6 +95,7 @@ BENCHMARK_BOOTSTRAP_SEED = 90210
 OFFICIAL_MIN_SEEDS = 20
 SUBMISSION_SCHEMA_VERSION = "chiyoda-benchmark-submission-v1"
 _HASH_PATTERN = re.compile(r"^[0-9a-f]{16,64}$")
+_CLAIM_TIERS = {"smoke", "diagnostic", "benchmark_grade"}
 _SUBMISSION_REQUIRED_FIELDS = {
     "schema_version",
     "suite",
@@ -177,8 +183,12 @@ def load_policy(path: str | None) -> dict[str, Any]:
     if not source.exists():
         raise FileNotFoundError(source)
     if source.suffix.lower() == ".json":
-        return json.loads(source.read_text())
-    return yaml.safe_load(source.read_text()) or {}
+        payload = json.loads(source.read_text())
+    else:
+        payload = yaml.safe_load(source.read_text()) or {}
+    if not isinstance(payload, dict):
+        raise ValueError("benchmark policy must be a mapping")
+    return dict(payload)
 
 
 def submit_policy(
@@ -205,12 +215,14 @@ def submit_policy(
             metrics = analytics.calculate_performance_metrics(sim)
             metrics["equity_time_gap_s"] = _equity_time_gap(sim)
             metrics["benchmark_score"] = benchmark_score(metrics)
+            evidence = _run_validation_evidence(config, sim, manager)
             rows.append(
                 {
                     "suite": spec.suite,
                     "scenario": scenario.name,
                     "seed": seed,
                     "policy_hash": policy_hash,
+                    **evidence,
                     **metrics,
                 }
             )
@@ -279,7 +291,7 @@ def composite_v1_causal(
     }
 
 
-def _composite_v1_causal_bundles(*, treated, baseline) -> dict[str, float]:
+def _composite_v1_causal_bundles(*, treated: Any, baseline: Any) -> dict[str, float]:
     from dataclasses import replace
 
     from chiyoda.studies.causal import compare_bundles
@@ -451,6 +463,7 @@ def write_leaderboard_site(leaderboard: dict[str, Any], output_file: Path) -> Pa
         f"<td>{item.get('score_ci_low', item['mean_score']):.3f}-"
         f"{item.get('score_ci_high', item['mean_score']):.3f}</td>"
         f"<td>{item.get('tier', 'smoke')}</td>"
+        f"<td>{item.get('claim_tier', 'smoke')}</td>"
         f"<td>{item['run_count']}</td>"
         "</tr>"
         for item in leaderboard["entries"]
@@ -459,7 +472,7 @@ def write_leaderboard_site(leaderboard: dict[str, Any], output_file: Path) -> Pa
         '<!doctype html><html><head><meta charset="utf-8"><title>Chiyoda Benchmark</title></head>'
         "<body><h1>Chiyoda Benchmark v1</h1>"
         "<table><thead><tr><th>Policy</th><th>Score</th><th>95% CI</th>"
-        "<th>Tier</th><th>Runs</th></tr></thead>"
+        "<th>Tier</th><th>Claim</th><th>Runs</th></tr></thead>"
         f"<tbody>{rows}</tbody></table></body></html>\n"
     )
     return output_file
@@ -470,6 +483,7 @@ def _leaderboard(
 ) -> dict[str, Any]:
     score = _score_summary(frame, bootstrap_n=BENCHMARK_BOOTSTRAP_N)
     seeds_used = _seeds_used(frame)
+    claim = _claim_assessment(frame)
     return {
         "suite": suite,
         "entries": [
@@ -484,6 +498,9 @@ def _leaderboard(
                 "tier": (
                     "official" if len(seeds_used) >= OFFICIAL_MIN_SEEDS else "smoke"
                 ),
+                "claim_tier": claim["claim_tier"],
+                "claim_limitations": claim["claim_limitations"],
+                "validation_evidence": claim["validation_evidence"],
                 "official_min_seeds": OFFICIAL_MIN_SEEDS,
                 "run_count": int(len(frame)),
                 "scenario_breakdown": _scenario_breakdown(frame),
@@ -499,6 +516,7 @@ def _scenario_breakdown(frame: pd.DataFrame) -> list[dict[str, Any]]:
     for scenario, group in frame.groupby("scenario", sort=True):
         score = _score_summary(group, bootstrap_n=BENCHMARK_BOOTSTRAP_N)
         seeds_used = _seeds_used(group)
+        claim = _claim_assessment(group)
         rows.append(
             {
                 "scenario": str(scenario),
@@ -508,6 +526,9 @@ def _scenario_breakdown(frame: pd.DataFrame) -> list[dict[str, Any]]:
                 "seeds_used": seeds_used,
                 "seed_count": len(seeds_used),
                 "bootstrap_n": BENCHMARK_BOOTSTRAP_N,
+                "claim_tier": claim["claim_tier"],
+                "claim_limitations": claim["claim_limitations"],
+                "validation_evidence": claim["validation_evidence"],
                 "run_count": int(len(group)),
             }
         )
@@ -549,7 +570,108 @@ def _seeds_used(frame: pd.DataFrame) -> list[int]:
     return [int(seed) for seed in sorted(seeds)]
 
 
-def _equity_time_gap(simulation) -> float:
+def _run_validation_evidence(
+    config: dict[str, Any], simulation: Any, manager: Any
+) -> dict[str, Any]:
+    validation = validate_scenario_config(config, manager=manager)
+    calibration = build_calibration_audit(config)
+    geometry = build_geometry_audit(config, manager=manager)
+    hazard = build_hazard_audit(config)
+    assertions = evaluate_scenario_assertions(config, simulation)
+    return {
+        "scenario_validation_ok": not validation.has_errors,
+        "scenario_validation_issue_count": len(validation.issues),
+        "calibration_audit_ok": bool(calibration["ok"]),
+        "calibration_audit_issue_count": len(calibration["issues"]),
+        "generic_social_force_profile": bool(
+            calibration["social_force"]["generic_legacy"]
+        ),
+        "geometry_audit_ok": bool(geometry["ok"]),
+        "geometry_audit_issue_count": len(geometry["issues"]),
+        "hazard_audit_ok": bool(hazard["ok"]),
+        "hazard_audit_issue_count": len(hazard["issues"]),
+        "stylized_hazard_count": int(hazard["counts"]["stylized"]),
+        "imported_hazard_count": int(hazard["counts"]["imported_fields"]),
+        "runtime_assertions_present": bool(config.get("assertions")),
+        "runtime_assertions_ok": assertions.ok,
+        "runtime_assertion_issue_count": len(assertions.issues),
+    }
+
+
+def _claim_assessment(frame: pd.DataFrame) -> dict[str, Any]:
+    seeds_used = _seeds_used(frame)
+    evidence = {
+        "seed_count": len(seeds_used),
+        "official_min_seeds": OFFICIAL_MIN_SEEDS,
+        "scenario_validation_ok": _column_all_true(frame, "scenario_validation_ok"),
+        "calibration_audit_ok": _column_all_true(frame, "calibration_audit_ok"),
+        "generic_social_force_profile": _column_any_true(
+            frame, "generic_social_force_profile"
+        ),
+        "geometry_audit_ok": _column_all_true(frame, "geometry_audit_ok"),
+        "hazard_audit_ok": _column_all_true(frame, "hazard_audit_ok"),
+        "stylized_hazard_count": _column_int_sum(frame, "stylized_hazard_count"),
+        "imported_hazard_count": _column_int_sum(frame, "imported_hazard_count"),
+        "runtime_assertions_present": _column_all_true(
+            frame, "runtime_assertions_present"
+        ),
+        "runtime_assertions_ok": _column_all_true(frame, "runtime_assertions_ok"),
+    }
+    limitations: list[str] = []
+    if evidence["seed_count"] < OFFICIAL_MIN_SEEDS:
+        limitations.append(
+            f"seed_count {evidence['seed_count']} < official_min_seeds {OFFICIAL_MIN_SEEDS}"
+        )
+    if not evidence["scenario_validation_ok"]:
+        limitations.append(
+            "one or more scenario static validations failed or are missing"
+        )
+    if not evidence["calibration_audit_ok"]:
+        limitations.append("one or more calibration audits failed or are missing")
+    if evidence["generic_social_force_profile"]:
+        limitations.append("one or more scenarios use generic social-force defaults")
+    if not evidence["geometry_audit_ok"]:
+        limitations.append("one or more geometry audits failed or are missing")
+    if not evidence["hazard_audit_ok"]:
+        limitations.append("one or more hazard audits failed or are missing")
+    if evidence["stylized_hazard_count"] > 0:
+        limitations.append("one or more hazards use stylized built-in dynamics")
+    if not evidence["runtime_assertions_present"]:
+        limitations.append("one or more scenarios have no runtime assertions")
+    if not evidence["runtime_assertions_ok"]:
+        limitations.append("one or more runtime assertion checks failed or are missing")
+    if evidence["seed_count"] < OFFICIAL_MIN_SEEDS:
+        claim_tier = "smoke"
+    elif limitations:
+        claim_tier = "diagnostic"
+    else:
+        claim_tier = "benchmark_grade"
+    return {
+        "claim_tier": claim_tier,
+        "claim_limitations": limitations,
+        "validation_evidence": evidence,
+    }
+
+
+def _column_all_true(frame: pd.DataFrame, column: str) -> bool:
+    if frame.empty or column not in frame:
+        return False
+    return all(bool(value) for value in frame[column].fillna(False).tolist())
+
+
+def _column_any_true(frame: pd.DataFrame, column: str) -> bool:
+    if frame.empty or column not in frame:
+        return False
+    return any(bool(value) for value in frame[column].fillna(False).tolist())
+
+
+def _column_int_sum(frame: pd.DataFrame, column: str) -> int:
+    if frame.empty or column not in frame:
+        return 0
+    return int(pd.to_numeric(frame[column], errors="coerce").fillna(0).sum())
+
+
+def _equity_time_gap(simulation: Any) -> float:
     values = [float(agent.travel_time_s) for agent in simulation.completed_agents]
     if not values:
         return 0.0
@@ -652,6 +774,30 @@ def _validate_score_block(value: Any, path: str, issues: list[dict[str, str]]) -
     run_count = value.get("run_count")
     if not isinstance(run_count, int) or isinstance(run_count, bool) or run_count < 1:
         _issue(issues, f"{path}.run_count", "must be a positive integer")
+    _validate_claim_metadata(value, path, issues)
+
+
+def _validate_claim_metadata(
+    value: Any, path: str, issues: list[dict[str, str]]
+) -> None:
+    if not isinstance(value, dict):
+        return
+    claim_tier = value.get("claim_tier")
+    if claim_tier is not None and claim_tier not in _CLAIM_TIERS:
+        _issue(
+            issues,
+            f"{path}.claim_tier",
+            f"must be one of {sorted(_CLAIM_TIERS)}",
+        )
+    limitations = value.get("claim_limitations")
+    if limitations is not None and (
+        not isinstance(limitations, list)
+        or not all(isinstance(item, str) for item in limitations)
+    ):
+        _issue(issues, f"{path}.claim_limitations", "must be an array of strings")
+    evidence = value.get("validation_evidence")
+    if evidence is not None and not isinstance(evidence, dict):
+        _issue(issues, f"{path}.validation_evidence", "must be an object")
 
 
 def _validate_overall(value: Any, issues: list[dict[str, str]]) -> None:

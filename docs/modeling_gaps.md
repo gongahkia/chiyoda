@@ -6,17 +6,17 @@ Chiyoda is a research simulator for replayable evacuation and information-contro
 
 | Area | Gap | Current handling |
 |:--|:--|:--|
-| Real-station prediction | No station case is validated against drill, incident, or expert-coded operational evidence. | Report-facing station cases must record provenance and validation-use limits. |
-| Pedestrian dynamics | Social-force and bottleneck behavior are grid-scale approximations. The Wuppertal proxy still differs from the lab reference flow. | Juelich width checks and Wuppertal comparison are regression/diagnostic workflows, not certification. |
-| Hazard physics | Built-in gas, smoke, fire, flood, quake, shooter, wildfire, and ember fields are stylized. | External scalar hazard fields can be imported; default hazards remain stylized unless a scenario includes a reference field. |
+| Real-station prediction | No station case is validated against drill, incident, or expert-coded operational evidence. | Report-facing station cases must record provenance and validation-use limits; `geometry-audit` exposes topology, connector, reachability, and provenance evidence. |
+| Pedestrian dynamics | Social-force and bottleneck behavior are grid-scale approximations. The Wuppertal proxy still differs from the lab reference flow. | `calibration-audit` exposes SFM profile/provenance and cohort bounds; Juelich/Wuppertal checks remain diagnostic, not certification. |
+| Hazard physics | Built-in gas, smoke, fire, flood, quake, shooter, wildfire, and ember fields are stylized. | `hazard-audit` labels imported vs stylized hazards; benchmark claim tiers downgrade stylized hazards. |
 | Smoke/FDS agreement | The FDS check preserves imported scalar concentration and visibility values only. | It does not validate transient CFD transport or two-way coupling. |
-| Scenario validation | Static validation checks topology, starts, exits, and reachability. | It does not prove behavioral plausibility, calibration quality, hazard realism, or source-data completeness. |
+| Scenario validation | Static validation checks topology, starts, exits, and reachability. | Runtime assertions now cover behavioral, hazard, vertical-transport, and hostile/LLM metrics; they remain regression checks, not external validation. |
 | Geometry import | OSM/GTFS/GeoJSON conversion is pragmatic and raster-oriented. | It is not a standards-complete indoor mapper and cannot prove imported station topology is complete. |
-| Vertical transport | Stairs, ramps, and escalators are weighted graph edges; elevators are capacity/dwell/travel-time holds. | There is no physical elevator dispatch, door state, car position, or detailed queue discipline. |
-| Viewer preview | Browser-side authoring/preview is not the reference simulation engine. | Exported scenarios should be validated and rerun through `chiyoda.cli`. |
+| Vertical transport | Stairs, ramps, and escalators are weighted graph edges; elevators are capacity/dwell/travel-time holds. | Geometry audit flags under-specified elevators; runtime assertions cover aggregate elevator usage/queue/capacity metrics. |
+| Viewer preview | Browser-side authoring/preview is not the reference simulation engine. | Viewer exports include a QA block for empty layout/frame/agent regressions; exported scenarios should still be validated and rerun through `chiyoda.cli`. |
 | Information-safety metrics | HCI and static frontier checks are internal diagnostics. | They flag plausible harmful-convergence regimes; they do not predict exact field outcomes. |
 | Causal comparison | Matched-seed deltas inherit bias from priors and stylized hazards. | Bundles expose metadata, bootstrap intervals, and sensitivity outputs, but do not prove causal transport. |
-| Hostile channels and LLMs | Attacker objectives, plausibility, credibility decay, and generated messages are abstract controls. | Replay caches and audits make runs reproducible; empirical calibration remains scenario-specific. |
+| Hostile channels and LLMs | Attacker objectives, plausibility, credibility decay, and generated messages are abstract controls. | Taxonomy validation, runtime hostile/LLM assertions, replay caches, and LLM audit chains make behavior reproducible; empirical calibration remains scenario-specific. |
 
 ## Promotion Checklist
 

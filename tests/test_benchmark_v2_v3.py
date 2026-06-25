@@ -9,6 +9,7 @@ import pytest
 
 from chiyoda.studies.benchmark import (
     BenchmarkSpec,
+    _leaderboard,
     _spec_for_suite,
     benchmark_spec_v2,
     benchmark_spec_v3,
@@ -86,6 +87,26 @@ def test_submit_policy_accepts_non_v1_suite(monkeypatch, tmp_path):
         "write_leaderboard_site",
         lambda leaderboard, output_file: output_file,
     )
+    monkeypatch.setattr(
+        benchmark_module,
+        "_run_validation_evidence",
+        lambda config, sim, manager: {
+            "scenario_validation_ok": True,
+            "scenario_validation_issue_count": 0,
+            "calibration_audit_ok": True,
+            "calibration_audit_issue_count": 0,
+            "generic_social_force_profile": False,
+            "geometry_audit_ok": True,
+            "geometry_audit_issue_count": 0,
+            "hazard_audit_ok": True,
+            "hazard_audit_issue_count": 0,
+            "stylized_hazard_count": 0,
+            "imported_hazard_count": 1,
+            "runtime_assertions_present": True,
+            "runtime_assertions_ok": True,
+            "runtime_assertion_issue_count": 0,
+        },
+    )
 
     result = benchmark_module.submit_policy(
         policy_path=None, suite="v2", output_dir=tmp_path
@@ -96,10 +117,109 @@ def test_submit_policy_accepts_non_v1_suite(monkeypatch, tmp_path):
     assert entry["run_count"] == 4
     assert entry["seeds_used"] == [42, 137]
     assert entry["tier"] == "smoke"
+    assert entry["claim_tier"] == "smoke"
     assert entry["bootstrap_n"] == 1000
     assert len(entry["scenario_breakdown"]) == 2
     assert result["manifest"]["suite"] == "v2"
     assert (tmp_path / "benchmark_runs.csv").exists()
+
+
+def test_leaderboard_claim_tier_requires_seeds_and_validation_evidence():
+    frame = pd.DataFrame(
+        {
+            "scenario": ["a"] * 20,
+            "seed": list(range(20)),
+            "benchmark_score": [1.0] * 20,
+            "scenario_validation_ok": [True] * 20,
+            "calibration_audit_ok": [True] * 20,
+            "generic_social_force_profile": [False] * 20,
+            "geometry_audit_ok": [True] * 20,
+            "hazard_audit_ok": [True] * 20,
+            "stylized_hazard_count": [0] * 20,
+            "imported_hazard_count": [1] * 20,
+            "runtime_assertions_present": [True] * 20,
+            "runtime_assertions_ok": [True] * 20,
+        }
+    )
+
+    entry = _leaderboard(frame, "abc123abc123abcd")["entries"][0]
+
+    assert entry["tier"] == "official"
+    assert entry["claim_tier"] == "benchmark_grade"
+    assert entry["claim_limitations"] == []
+
+
+def test_leaderboard_claim_tier_downgrades_missing_assertions():
+    frame = pd.DataFrame(
+        {
+            "scenario": ["a"] * 20,
+            "seed": list(range(20)),
+            "benchmark_score": [1.0] * 20,
+            "scenario_validation_ok": [True] * 20,
+            "calibration_audit_ok": [True] * 20,
+            "generic_social_force_profile": [False] * 20,
+            "geometry_audit_ok": [True] * 20,
+            "hazard_audit_ok": [True] * 20,
+            "stylized_hazard_count": [0] * 20,
+            "imported_hazard_count": [1] * 20,
+            "runtime_assertions_present": [False] * 20,
+            "runtime_assertions_ok": [True] * 20,
+        }
+    )
+
+    entry = _leaderboard(frame, "abc123abc123abcd")["entries"][0]
+
+    assert entry["tier"] == "official"
+    assert entry["claim_tier"] == "diagnostic"
+    assert "runtime assertions" in " ".join(entry["claim_limitations"])
+
+
+def test_leaderboard_claim_tier_downgrades_stylized_hazards():
+    frame = pd.DataFrame(
+        {
+            "scenario": ["a"] * 20,
+            "seed": list(range(20)),
+            "benchmark_score": [1.0] * 20,
+            "scenario_validation_ok": [True] * 20,
+            "calibration_audit_ok": [True] * 20,
+            "generic_social_force_profile": [False] * 20,
+            "geometry_audit_ok": [True] * 20,
+            "hazard_audit_ok": [True] * 20,
+            "stylized_hazard_count": [1] * 20,
+            "imported_hazard_count": [0] * 20,
+            "runtime_assertions_present": [True] * 20,
+            "runtime_assertions_ok": [True] * 20,
+        }
+    )
+
+    entry = _leaderboard(frame, "abc123abc123abcd")["entries"][0]
+
+    assert entry["claim_tier"] == "diagnostic"
+    assert "stylized" in " ".join(entry["claim_limitations"])
+
+
+def test_leaderboard_claim_tier_downgrades_generic_social_force():
+    frame = pd.DataFrame(
+        {
+            "scenario": ["a"] * 20,
+            "seed": list(range(20)),
+            "benchmark_score": [1.0] * 20,
+            "scenario_validation_ok": [True] * 20,
+            "calibration_audit_ok": [True] * 20,
+            "generic_social_force_profile": [True] * 20,
+            "geometry_audit_ok": [True] * 20,
+            "hazard_audit_ok": [True] * 20,
+            "stylized_hazard_count": [0] * 20,
+            "imported_hazard_count": [1] * 20,
+            "runtime_assertions_present": [True] * 20,
+            "runtime_assertions_ok": [True] * 20,
+        }
+    )
+
+    entry = _leaderboard(frame, "abc123abc123abcd")["entries"][0]
+
+    assert entry["claim_tier"] == "diagnostic"
+    assert "generic social-force" in " ".join(entry["claim_limitations"])
 
 
 def test_benchmark_spec_artifacts_exist():

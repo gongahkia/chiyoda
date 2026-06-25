@@ -12,6 +12,7 @@ from chiyoda.information.warfare import (
     BeliefRevisionModel,
     HostileChannelConfig,
 )
+from chiyoda.scenarios.assertions import evaluate_scenario_assertions
 from chiyoda.scenarios.manager import ScenarioManager
 from chiyoda.studies.runner import _materialize_variants, load_study_config
 from chiyoda.studies.schema import AdversarialStudyConfig, StudyConfig
@@ -172,9 +173,17 @@ def test_llm_hostile_channel_uses_template_cache_and_audit(tmp_path):
             "llm_max_calls_per_run": 1,
         }
     )
+    scenario["assertions"] = {
+        "hostile_llm": {
+            "llm_call_count": {"eq": 1},
+            "llm_accepted_count": {"eq": 1},
+            "llm_fallback_count": {"eq": 0},
+        }
+    }
 
     simulation = ScenarioManager().build_simulation(scenario)
     simulation.run()
+    assertions = evaluate_scenario_assertions(scenario, simulation)
 
     assert len(simulation.hostile_channel_events) == 1
     event = simulation.hostile_channel_events[0]
@@ -186,6 +195,7 @@ def test_llm_hostile_channel_uses_template_cache_and_audit(tmp_path):
     assert audit["cache_status"] == "miss"
     assert audit["validation_status"] == "accepted"
     assert audit["prompt_style"] == "hostile_red_team"
+    assert assertions.ok
 
 
 def test_llm_red_team_study_declares_template_and_replay_variants():

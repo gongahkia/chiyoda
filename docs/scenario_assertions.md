@@ -26,6 +26,24 @@ Supported checks:
 - `no_impossible_floor_jumps: true`.
 - `impossible_floor_jumps`: integer or `{eq,min,max}`.
 - `exit_floors`: list of floor IDs that must receive at least one evacuation.
+- `behavioral_plausibility`: scalar runtime bounds for density, speed,
+  occupancy, bottleneck dwell, stuck-agent steps, exit imbalance, and
+  evacuation completion.
+- `hazard_plausibility`: scalar runtime bounds for hazard count, imported vs
+  stylized hazards, hazard severity/radius, imported field scalars, and agent
+  hazard load/exposure.
+- `vertical_transport`: aggregate connector/elevator counts, usage, queue, and
+  capacity-used metrics.
+- `hostile_llm`: aggregate hostile-channel events, recipients, LLM call
+  validation status, cache hits/misses, budget blocks, and fallback counts.
+
+Audit commands:
+
+```sh
+.venv/bin/python -m chiyoda.cli geometry-audit scenarios/validation_multifloor_connectors.yaml --json
+.venv/bin/python -m chiyoda.cli hazard-audit scenarios/validation_fds_room_corridor.yaml --json
+.venv/bin/python -m chiyoda.cli calibration-audit scenarios/validation_multifloor_connectors.yaml --json
+```
 
 Regression scenarios:
 

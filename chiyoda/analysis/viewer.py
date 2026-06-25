@@ -92,7 +92,7 @@ def _viewer_payload(bundle: StudyBundle, *, max_frames: int) -> dict[str, Any]:
                 )
             frames.append({"step": int(step), "agents": agents})
 
-    return {
+    payload = {
         "metadata": {
             "study_name": bundle.metadata.get("study_name"),
             "scenario_name": bundle.metadata.get("scenario_name"),
@@ -129,6 +129,8 @@ def _viewer_payload(bundle: StudyBundle, *, max_frames: int) -> dict[str, Any]:
         "llm_decisions": _table_rows(bundle.llm_decisions, run_id=run_id),
         "frames": frames,
     }
+    payload["qa"] = _viewer_qa(payload)
+    return payload
 
 
 def _pathfinding_payload(metadata: dict[str, Any]) -> dict[str, Any]:
@@ -204,6 +206,48 @@ def _browser_sim_payload(
         "initial_agent_count": initial_agents,
         "floor_count": floor_count,
         "has_exit": has_exit,
+    }
+
+
+def _viewer_qa(payload: dict[str, Any]) -> dict[str, Any]:
+    floors = payload.get("layout_floors", []) or []
+    frames = payload.get("frames", []) or []
+    exit_count = sum(
+        1
+        for floor in floors
+        for row in floor.get("grid", [])
+        for token in row
+        if token == "E"
+    )
+    cell_count = sum(
+        len(row) for floor in floors for row in floor.get("grid", []) if row
+    )
+    agent_samples = sum(len(frame.get("agents", [])) for frame in frames)
+    warnings: list[str] = []
+    if not floors:
+        warnings.append("no_layout_floors")
+    if cell_count == 0:
+        warnings.append("no_layout_cells")
+    if exit_count == 0:
+        warnings.append("no_exit_cells")
+    if not frames:
+        warnings.append("no_frames")
+    if agent_samples == 0:
+        warnings.append("no_agent_samples")
+    return {
+        "ok": not warnings,
+        "warnings": warnings,
+        "layout_floor_count": len(floors),
+        "layout_cell_count": cell_count,
+        "exit_count": exit_count,
+        "frame_count": len(frames),
+        "agent_sample_count": agent_samples,
+        "connector_count": len(payload.get("layout_connectors", []) or []),
+        "hazard_sample_count": len(payload.get("hazards", []) or []),
+        "path_usage_cell_count": len(payload.get("path_usage", []) or []),
+        "browser_sim_enabled": bool(
+            (payload.get("browser_sim", {}) or {}).get("enabled")
+        ),
     }
 
 

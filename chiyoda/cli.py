@@ -32,6 +32,9 @@ from chiyoda.policies import (
 )
 from chiyoda.scenarios import strict_scenario_from_ifc
 from chiyoda.scenarios.assertions import evaluate_scenario_assertions
+from chiyoda.scenarios.calibration_audit import calibration_audit_file
+from chiyoda.scenarios.geometry_audit import geometry_audit_file
+from chiyoda.scenarios.hazard_audit import hazard_audit_file
 from chiyoda.scenarios.manager import ScenarioManager
 from chiyoda.scenarios.standards import (
     OVERPASS_URL,
@@ -313,6 +316,125 @@ def validate_scenario_command(ctx, scenario_file, json_output):
                 f"{issue.severity.upper()} {issue.code}:{cell}{source} {issue.message}"
             )
     if result.has_errors:
+        ctx.exit(1)
+
+
+@cli.command("geometry-audit")
+@click.argument("scenario_file")
+@click.option(
+    "-o",
+    "--output",
+    "output_file",
+    type=click.Path(dir_okay=False, path_type=Path),
+    help="Write the audit JSON artifact to this path",
+)
+@click.option("--json", "json_output", is_flag=True, help="Emit audit JSON")
+@click.pass_context
+def geometry_audit_command(ctx, scenario_file, output_file, json_output):
+    """Audit scenario geometry, topology, connectors, and station provenance."""
+    audit = geometry_audit_file(scenario_file)
+    payload = json.dumps(audit, indent=2, sort_keys=True)
+    if output_file is not None:
+        output_file.parent.mkdir(parents=True, exist_ok=True)
+        output_file.write_text(payload)
+    if json_output:
+        click.echo(payload)
+    else:
+        status = "OK" if audit["ok"] else "ERROR"
+        counts = audit["counts"]
+        click.echo(
+            f"{status}: {scenario_file} floors={counts['floors']} "
+            f"walkable={counts['walkable_cells']} exits={counts['exit_cells']} "
+            f"connectors={counts['connectors']} "
+            f"unreachable={counts['unreachable_walkable_cells']}"
+        )
+        if output_file is not None:
+            click.echo(f"Wrote geometry audit to {output_file}")
+        for issue in audit["issues"]:
+            source = f" source={issue['source']}" if issue.get("source") else ""
+            click.echo(
+                f"{issue['severity'].upper()} {issue['code']}:{source} {issue['message']}"
+            )
+    if not audit["ok"]:
+        ctx.exit(1)
+
+
+@cli.command("hazard-audit")
+@click.argument("scenario_file")
+@click.option(
+    "-o",
+    "--output",
+    "output_file",
+    type=click.Path(dir_okay=False, path_type=Path),
+    help="Write the audit JSON artifact to this path",
+)
+@click.option("--json", "json_output", is_flag=True, help="Emit audit JSON")
+@click.pass_context
+def hazard_audit_command(ctx, scenario_file, output_file, json_output):
+    """Audit scenario hazard fields and external-reference evidence."""
+    audit = hazard_audit_file(scenario_file)
+    payload = json.dumps(audit, indent=2, sort_keys=True)
+    if output_file is not None:
+        output_file.parent.mkdir(parents=True, exist_ok=True)
+        output_file.write_text(payload)
+    if json_output:
+        click.echo(payload)
+    else:
+        status = "OK" if audit["ok"] else "ERROR"
+        counts = audit["counts"]
+        click.echo(
+            f"{status}: {scenario_file} hazards={counts['hazards']} "
+            f"imported={counts['imported_fields']} stylized={counts['stylized']} "
+            f"external_reference={counts['with_external_reference']}"
+        )
+        if output_file is not None:
+            click.echo(f"Wrote hazard audit to {output_file}")
+        for issue in audit["issues"]:
+            source = f" source={issue['source']}" if issue.get("source") else ""
+            click.echo(
+                f"{issue['severity'].upper()} {issue['code']}:{source} {issue['message']}"
+            )
+    if not audit["ok"]:
+        ctx.exit(1)
+
+
+@cli.command("calibration-audit")
+@click.argument("scenario_file")
+@click.option(
+    "-o",
+    "--output",
+    "output_file",
+    type=click.Path(dir_okay=False, path_type=Path),
+    help="Write the audit JSON artifact to this path",
+)
+@click.option("--json", "json_output", is_flag=True, help="Emit audit JSON")
+@click.pass_context
+def calibration_audit_command(ctx, scenario_file, output_file, json_output):
+    """Audit pedestrian calibration profiles, provenance, and cohort bounds."""
+    audit = calibration_audit_file(scenario_file)
+    payload = json.dumps(audit, indent=2, sort_keys=True)
+    if output_file is not None:
+        output_file.parent.mkdir(parents=True, exist_ok=True)
+        output_file.write_text(payload)
+    if json_output:
+        click.echo(payload)
+    else:
+        status = "OK" if audit["ok"] else "ERROR"
+        sfm = audit["social_force"]
+        population = audit["population"]
+        click.echo(
+            f"{status}: {scenario_file} sfm={sfm['profile']} "
+            f"cohorts={population['cohort_count']} "
+            f"parameter_provenance={population['cohort_parameter_provenance_count']}"
+        )
+        if output_file is not None:
+            click.echo(f"Wrote calibration audit to {output_file}")
+        for issue in audit["issues"]:
+            source = f" source={issue['source']}" if issue.get("source") else ""
+            click.echo(
+                f"{issue['severity'].upper()} {issue['code']}:{source} {issue['message']}"
+            )
+    if not audit["ok"]:
         ctx.exit(1)
 
 

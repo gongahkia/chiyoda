@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from typing import Any
 
@@ -33,7 +34,7 @@ class ScenarioAssertionResult:
 
 
 def evaluate_scenario_assertions(
-    scenario: dict[str, Any], simulation
+    scenario: dict[str, Any], simulation: Any
 ) -> ScenarioAssertionResult:
     config = scenario.get("assertions", {}) or {}
     issues: list[ScenarioAssertionIssue] = []
@@ -207,6 +208,42 @@ def evaluate_scenario_assertions(
                 issues,
             )
 
+    behavioral = config.get("behavioral_plausibility")
+    if behavioral is not None:
+        _check_metric_rules(
+            "behavioral_plausibility",
+            _behavioral_plausibility_metrics(simulation),
+            behavioral,
+            issues,
+        )
+
+    hazard = config.get("hazard_plausibility")
+    if hazard is not None:
+        _check_metric_rules(
+            "hazard_plausibility",
+            _hazard_plausibility_metrics(simulation),
+            hazard,
+            issues,
+        )
+
+    vertical = config.get("vertical_transport")
+    if vertical is not None:
+        _check_metric_rules(
+            "vertical_transport",
+            _vertical_transport_metrics(simulation),
+            vertical,
+            issues,
+        )
+
+    hostile_llm = config.get("hostile_llm")
+    if hostile_llm is not None:
+        _check_metric_rules(
+            "hostile_llm",
+            _hostile_llm_metrics(simulation),
+            hostile_llm,
+            issues,
+        )
+
     latest = (
         simulation.step_history[-1] if getattr(simulation, "step_history", []) else None
     )
@@ -299,7 +336,334 @@ def _check_connector_map(
         )
 
 
-def _exit_usage(simulation) -> dict[str, int]:
+def _check_metric_rules(
+    prefix: str,
+    observed: dict[str, float],
+    expected: Any,
+    issues: list[ScenarioAssertionIssue],
+) -> None:
+    for metric, rule in (expected or {}).items():
+        name = f"{prefix}.{metric}"
+        value = observed.get(str(metric))
+        if value is None or not math.isfinite(value):
+            issues.append(
+                ScenarioAssertionIssue(
+                    f"missing_assertion_metric:{name}",
+                    f"{name} was not available",
+                    observed=value,
+                    expected=rule,
+                )
+            )
+            continue
+        if isinstance(rule, dict):
+            if "eq" in rule and value != float(rule["eq"]):
+                issues.append(_issue(name, value, rule))
+            _check_range(name, value, rule.get("min"), rule.get("max"), issues)
+        elif value != float(rule):
+            issues.append(_issue(name, value, rule))
+
+
+def _behavioral_plausibility_metrics(simulation: Any) -> dict[str, float]:
+    steps = list(getattr(simulation, "step_history", []) or [])
+    metrics: dict[str, float] = {
+        "completed_agents": float(len(getattr(simulation, "completed_agents", []))),
+        "evacuation_completion_fraction": _evacuation_completion_fraction(simulation),
+        "exit_imbalance": _exit_imbalance(simulation),
+        "stuck_agent_steps": 0.0,
+        "peak_cell_occupancy": 0.0,
+        "mean_density": 0.0,
+        "max_mean_density": 0.0,
+        "mean_agent_speed_mps": 0.0,
+        "max_agent_speed_mps": 0.0,
+        "mean_local_density": 0.0,
+        "max_local_density": 0.0,
+        "max_bottleneck_queue_length": 0.0,
+        "mean_bottleneck_dwell_s": 0.0,
+        "max_bottleneck_dwell_s": 0.0,
+    }
+    if not steps:
+        return metrics
+
+    densities: list[float] = []
+    speeds: list[float] = []
+    local_densities: list[float] = []
+    bottleneck_dwell: list[float] = []
+    for step in steps:
+        metrics["peak_cell_occupancy"] = max(
+            metrics["peak_cell_occupancy"], _step_peak_occupancy(step)
+        )
+        densities.append(float(getattr(step, "mean_density", 0.0)))
+        for agent in getattr(step, "agents", []) or []:
+            speed = float(getattr(agent, "speed", 0.0))
+            density = float(getattr(agent, "local_density", 0.0))
+            speeds.append(speed)
+            local_densities.append(density)
+            if speed <= 0.05:
+                metrics["stuck_agent_steps"] += 1.0
+        for bottleneck in (getattr(step, "bottlenecks", {}) or {}).values():
+            metrics["max_bottleneck_queue_length"] = max(
+                metrics["max_bottleneck_queue_length"],
+                float(getattr(bottleneck, "queue_length", 0)),
+            )
+
+    for samples in (getattr(simulation, "bottleneck_dwell_samples", {}) or {}).values():
+        bottleneck_dwell.extend(float(value) for value in samples)
+
+    metrics["mean_density"] = _mean(densities)
+    metrics["max_mean_density"] = max(densities) if densities else 0.0
+    metrics["mean_agent_speed_mps"] = _mean(speeds)
+    metrics["max_agent_speed_mps"] = max(speeds) if speeds else 0.0
+    metrics["mean_local_density"] = _mean(local_densities)
+    metrics["max_local_density"] = max(local_densities) if local_densities else 0.0
+    metrics["mean_bottleneck_dwell_s"] = _mean(bottleneck_dwell)
+    metrics["max_bottleneck_dwell_s"] = (
+        max(bottleneck_dwell) if bottleneck_dwell else 0.0
+    )
+    return metrics
+
+
+def _hazard_plausibility_metrics(simulation: Any) -> dict[str, float]:
+    hazards = list(getattr(simulation, "hazards", []) or [])
+    snapshots = [
+        hazard.snapshot()
+        for hazard in hazards
+        if hasattr(hazard, "snapshot") and callable(hazard.snapshot)
+    ]
+    imported = [
+        snapshot
+        for snapshot in snapshots
+        if bool(snapshot.get("imported_field", False))
+    ]
+    loads: list[float] = []
+    exposures: list[float] = []
+    for step in getattr(simulation, "step_history", []) or []:
+        for agent in getattr(step, "agents", []) or []:
+            loads.append(float(getattr(agent, "hazard_load", 0.0)))
+            exposures.append(float(getattr(agent, "hazard_exposure", 0.0)))
+    if not loads:
+        loads = [
+            float(getattr(agent, "current_hazard_load", 0.0))
+            for agent in getattr(simulation, "agents", [])
+        ]
+    if not exposures:
+        exposures = [
+            float(getattr(agent, "hazard_exposure", 0.0))
+            for agent in getattr(simulation, "agents", [])
+        ]
+    return {
+        "hazard_count": float(len(hazards)),
+        "imported_hazard_count": float(len(imported)),
+        "stylized_hazard_count": float(len(hazards) - len(imported)),
+        "max_hazard_radius_m": max(
+            (float(snapshot.get("radius", 0.0)) for snapshot in snapshots),
+            default=0.0,
+        ),
+        "max_hazard_severity": max(
+            (float(snapshot.get("severity", 0.0)) for snapshot in snapshots),
+            default=0.0,
+        ),
+        "max_imported_gas_concentration": max(
+            (
+                float(snapshot.get("max_gas_concentration", 0.0))
+                for snapshot in imported
+            ),
+            default=0.0,
+        ),
+        "min_imported_visibility_m": min(
+            (float(snapshot.get("min_visibility_m", 0.0)) for snapshot in imported),
+            default=0.0,
+        ),
+        "max_obscuration_percent_m": max(
+            (
+                float(snapshot.get("max_obscuration_percent_m", 0.0))
+                for snapshot in imported
+            ),
+            default=0.0,
+        ),
+        "mean_agent_hazard_load": _mean(loads),
+        "max_agent_hazard_load": max(loads) if loads else 0.0,
+        "mean_agent_hazard_exposure": _mean(exposures),
+        "max_agent_hazard_exposure": max(exposures) if exposures else 0.0,
+    }
+
+
+def _vertical_transport_metrics(simulation: Any) -> dict[str, float]:
+    connectors = list(
+        getattr(getattr(simulation, "layout", None), "connectors", []) or []
+    )
+    vertical = [
+        connector
+        for connector in connectors
+        if str(getattr(connector, "type", "")).lower()
+        in {"stairs", "ramp", "elevator", "escalator"}
+    ]
+    elevators = [
+        connector
+        for connector in connectors
+        if str(getattr(connector, "type", "")).lower() == "elevator"
+    ]
+    usage = {
+        str(key): int(value)
+        for key, value in (
+            getattr(simulation, "connector_usage_cumulative", {}) or {}
+        ).items()
+    }
+    metrics = {
+        "connector_count": float(len(connectors)),
+        "vertical_connector_count": float(len(vertical)),
+        "elevator_count": float(len(elevators)),
+        "vertical_connector_usage": float(
+            sum(
+                usage.get(str(getattr(connector, "id", "")), 0)
+                for connector in vertical
+            )
+        ),
+        "elevator_usage": float(
+            sum(
+                usage.get(str(getattr(connector, "id", "")), 0)
+                for connector in elevators
+            )
+        ),
+        "max_connector_queue_length": 0.0,
+        "max_connector_capacity_used": 0.0,
+        "max_elevator_queue_length": 0.0,
+        "max_elevator_capacity_used": 0.0,
+    }
+    elevator_ids = {str(getattr(connector, "id", "")) for connector in elevators}
+    for step in getattr(simulation, "step_history", []) or []:
+        queue = getattr(step, "connector_queue_length", {}) or {}
+        used = getattr(step, "connector_capacity_used", {}) or {}
+        for connector_id, value in queue.items():
+            queue_value = float(value)
+            metrics["max_connector_queue_length"] = max(
+                metrics["max_connector_queue_length"], queue_value
+            )
+            if str(connector_id) in elevator_ids:
+                metrics["max_elevator_queue_length"] = max(
+                    metrics["max_elevator_queue_length"], queue_value
+                )
+        for connector_id, value in used.items():
+            used_value = float(value)
+            metrics["max_connector_capacity_used"] = max(
+                metrics["max_connector_capacity_used"], used_value
+            )
+            if str(connector_id) in elevator_ids:
+                metrics["max_elevator_capacity_used"] = max(
+                    metrics["max_elevator_capacity_used"], used_value
+                )
+    return metrics
+
+
+def _hostile_llm_metrics(simulation: Any) -> dict[str, float]:
+    hostile_events = list(getattr(simulation, "hostile_channel_events", []) or [])
+    llm_calls = list(getattr(simulation, "llm_call_audit", []) or [])
+    decision_events = list(getattr(simulation, "agent_decision_events", []) or [])
+    return {
+        "hostile_channel_count": float(
+            len(getattr(simulation, "hostile_channels", []) or [])
+        ),
+        "hostile_channel_event_count": float(len(hostile_events)),
+        "hostile_channel_recipients": float(
+            sum(int(getattr(event, "recipients", 0)) for event in hostile_events)
+        ),
+        "mean_hostile_credibility": _mean(
+            [float(getattr(event, "credibility", 0.0)) for event in hostile_events]
+        ),
+        "llm_call_count": float(len(llm_calls)),
+        "llm_accepted_count": _llm_status_count(llm_calls, "accepted"),
+        "llm_rejected_count": _llm_status_count(llm_calls, "rejected"),
+        "llm_fallback_count": float(
+            sum(1 for call in llm_calls if bool(call.get("used_fallback", False)))
+        ),
+        "llm_cache_hit_count": float(
+            sum(1 for call in llm_calls if str(call.get("cache_status", "")) == "hit")
+        ),
+        "llm_cache_miss_count": float(
+            sum(1 for call in llm_calls if str(call.get("cache_status", "")) == "miss")
+        ),
+        "llm_budget_blocked_count": float(
+            sum(
+                1
+                for call in llm_calls
+                if str(call.get("cache_status", "")) == "budget_exceeded"
+                or str(call.get("provider", "")) == "budget_guard"
+            )
+        ),
+        "agent_llm_decision_count": float(len(decision_events)),
+        "agent_llm_accepted_count": float(
+            sum(
+                1
+                for event in decision_events
+                if str(getattr(event, "validation_status", "")) == "accepted"
+            )
+        ),
+        "agent_llm_rejected_count": float(
+            sum(
+                1
+                for event in decision_events
+                if str(getattr(event, "validation_status", "")) == "rejected"
+            )
+        ),
+        "agent_llm_fallback_count": float(
+            sum(
+                1
+                for event in decision_events
+                if bool(getattr(event, "used_fallback", False))
+            )
+        ),
+    }
+
+
+def _llm_status_count(calls: list[dict[str, Any]], status: str) -> float:
+    return float(
+        sum(1 for call in calls if str(call.get("validation_status", "")) == status)
+    )
+
+
+def _step_peak_occupancy(step: Any) -> float:
+    peaks: list[float] = []
+    grid = getattr(step, "occupancy_grid", None)
+    if grid is not None:
+        peaks.append(float(grid.max()))
+    for grids in (getattr(step, "floor_grids", {}) or {}).values():
+        floor_grid = grids.get("occupancy_grid") if isinstance(grids, dict) else None
+        if floor_grid is not None:
+            peaks.append(float(floor_grid.max()))
+    return max(peaks) if peaks else 0.0
+
+
+def _evacuation_completion_fraction(simulation: Any) -> float:
+    evacuatable = [
+        agent
+        for agent in getattr(simulation, "agents", [])
+        if not getattr(agent, "is_responder", False)
+        and not getattr(agent, "is_hostile", False)
+    ]
+    if not evacuatable:
+        return 1.0
+    evacuated = sum(
+        1 for agent in evacuatable if getattr(agent, "has_evacuated", False)
+    )
+    return float(evacuated / len(evacuatable))
+
+
+def _exit_imbalance(simulation: Any) -> float:
+    counts = [
+        int(value)
+        for value in (getattr(simulation, "exit_flow_cumulative", {}) or {}).values()
+    ]
+    total = sum(counts)
+    if total <= 0 or len(counts) < 2:
+        return 0.0
+    shares = [count / total for count in counts]
+    return float(max(shares) - min(shares))
+
+
+def _mean(values: list[float]) -> float:
+    return float(sum(values) / len(values)) if values else 0.0
+
+
+def _exit_usage(simulation: Any) -> dict[str, int]:
     aliases: dict[str, int] = {}
     label_to_cell = {label: cell for cell, label in simulation.exit_labels.items()}
     for label, count in getattr(simulation, "exit_flow_cumulative", {}).items():
@@ -309,7 +673,7 @@ def _exit_usage(simulation) -> dict[str, int]:
     return aliases
 
 
-def _cohort_exit_usage(simulation) -> dict[str, dict[str, int]]:
+def _cohort_exit_usage(simulation: Any) -> dict[str, dict[str, int]]:
     label_to_cell = {label: cell for cell, label in simulation.exit_labels.items()}
     usage: dict[str, dict[str, int]] = {}
     for agent in simulation.completed_agents:

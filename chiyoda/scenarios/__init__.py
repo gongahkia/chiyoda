@@ -1,5 +1,9 @@
 """Scenario configuration and loading."""
 
+from chiyoda.scenarios.calibration_audit import (
+    build_calibration_audit,
+    calibration_audit_file,
+)
 from chiyoda.scenarios.generated_calibration import (
     AnthropicPopulationCalibrationGenerator,
     GeneratedPopulationCalibration,
@@ -12,6 +16,8 @@ from chiyoda.scenarios.generated_calibration import (
     apply_generated_population_calibration,
     validate_generated_population_calibration,
 )
+from chiyoda.scenarios.geometry_audit import build_geometry_audit, geometry_audit_file
+from chiyoda.scenarios.hazard_audit import build_hazard_audit, hazard_audit_file
 from chiyoda.scenarios.ifc_import import (
     strict_layout_and_metadata_from_ifc,
     strict_layout_from_ifc,
@@ -46,8 +52,14 @@ __all__ = [
     "apply_exported_patch_file",
     "apply_generated_population_calibration",
     "apply_json_patch",
+    "build_geometry_audit",
+    "build_calibration_audit",
+    "build_hazard_audit",
+    "calibration_audit_file",
     "canonical_scenario_bytes",
     "exported_scenario_body",
+    "geometry_audit_file",
+    "hazard_audit_file",
     "strict_layout_and_metadata_from_ifc",
     "strict_layout_from_ifc",
     "strict_scenario_from_ifc",

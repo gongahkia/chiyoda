@@ -171,6 +171,23 @@ def test_export_viewer_writes_static_threejs_artifact(tmp_path):
     assert data["layout_grid"] == [["X", "X", "X"], ["X", "E", "X"], ["X", "@", "X"]]
     assert data["layout_floors"][0]["id"] == "0"
     assert data["layout_connectors"][0]["id"] == "stairs_a"
+    assert data["qa"]["ok"] is True
+    assert data["qa"]["layout_floor_count"] == 1
+    assert data["qa"]["frame_count"] == 1
+    assert data["qa"]["agent_sample_count"] == 1
+    assert data["qa"]["exit_count"] == 1
+
+
+def test_export_viewer_qa_flags_empty_replay(tmp_path):
+    bundle = _bundle()
+    bundle.agent_steps = pd.DataFrame()
+
+    export_viewer(bundle, tmp_path)
+    data = json.loads((tmp_path / "viewer_data.json").read_text())
+
+    assert data["qa"]["ok"] is False
+    assert "no_frames" in data["qa"]["warnings"]
+    assert "no_agent_samples" in data["qa"]["warnings"]
 
 
 def test_viewer_authored_connector_and_hostile_yaml_round_trips(tmp_path):
