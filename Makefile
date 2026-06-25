@@ -1,7 +1,7 @@
 PYTHON ?= python3
 VENV_PYTHON ?= .venv/bin/python
 
-.PHONY: all config venv test verify lint typecheck doctor precommit profile build dist-check
+.PHONY: all config venv test verify lint typecheck scenario-audit viewer-visual-qa doctor precommit profile build dist-check
 
 all:config
 
@@ -26,6 +26,12 @@ lint:
 
 typecheck:
 	@$(PYTHON) scripts/check_mypy_baseline.py
+
+scenario-audit:
+	@$(PYTHON) scripts/audit_scenarios.py
+
+viewer-visual-qa:
+	@$(PYTHON) scripts/verify_viewer_visual.py out/viewer --screenshot out/viewer_visual_qa.png
 
 doctor:
 	@$(PYTHON) -m pytest --version

@@ -14,7 +14,7 @@ from chiyoda.scenarios.generated_calibration import (
 )
 from chiyoda.scenarios.manager import ScenarioManager
 
-Cell = tuple
+Cell = tuple[str, int, int]
 DEFAULT_HOSTILE_OBJECTIVE = "false-protective-action"
 ADVERSARY_INCIDENTS_PATH = (
     Path(__file__).resolve().parents[2] / "data" / "adversary_incidents.yaml"
@@ -109,7 +109,7 @@ def validate_scenario_config(
         )
 
     for start in starts:
-        cell = tuple(start["cell"])
+        cell = _coerce_cell(start["cell"])
         source = str(start["source"])
         label = str(start["label"])
         if not _in_bounds(layout, cell):
@@ -333,6 +333,11 @@ def _parse_cell(value: Any, layout: Layout) -> Cell | None:
         return None
 
 
+def _coerce_cell(value: Any) -> Cell:
+    floor_id, x, y = value
+    return (str(floor_id), int(x), int(y))
+
+
 def _in_bounds(layout: Layout, cell: Cell) -> bool:
     floor_id, x, y = layout.cell(cell)
     floor = layout.floors.get(floor_id)
@@ -345,7 +350,7 @@ def _in_bounds(layout: Layout, cell: Cell) -> bool:
 
 def _neighbors(layout: Layout, cell: Cell) -> list[Cell]:
     floor_id, x, y = layout.cell(cell)
-    neighbors = [
+    neighbors: list[Cell] = [
         (floor_id, x + 1, y),
         (floor_id, x - 1, y),
         (floor_id, x, y + 1),
@@ -360,7 +365,9 @@ def _neighbors(layout: Layout, cell: Cell) -> list[Cell]:
 def _path_to_exit(start: Cell, parent: dict[Cell, Cell | None]) -> list[Cell]:
     path = [start]
     current = start
-    while parent.get(current) is not None:
-        current = parent[current]  # type: ignore[assignment]
+    next_cell = parent.get(current)
+    while next_cell is not None:
+        current = next_cell
         path.append(current)
+        next_cell = parent.get(current)
     return path

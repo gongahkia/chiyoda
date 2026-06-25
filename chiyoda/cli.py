@@ -42,6 +42,7 @@ from chiyoda.scenarios.standards import (
     strict_scenario_from_osm_bbox,
 )
 from chiyoda.scenarios.validation import validate_scenario_file
+from chiyoda.scenarios.validation_evidence_audit import validation_evidence_audit_file
 from chiyoda.studies import (
     StudyBundle,
     compare_bundles,
@@ -429,6 +430,45 @@ def calibration_audit_command(ctx, scenario_file, output_file, json_output):
         )
         if output_file is not None:
             click.echo(f"Wrote calibration audit to {output_file}")
+        for issue in audit["issues"]:
+            source = f" source={issue['source']}" if issue.get("source") else ""
+            click.echo(
+                f"{issue['severity'].upper()} {issue['code']}:{source} {issue['message']}"
+            )
+    if not audit["ok"]:
+        ctx.exit(1)
+
+
+@cli.command("validation-evidence-audit")
+@click.argument("scenario_file")
+@click.option(
+    "-o",
+    "--output",
+    "output_file",
+    type=click.Path(dir_okay=False, path_type=Path),
+    help="Write the audit JSON artifact to this path",
+)
+@click.option("--json", "json_output", is_flag=True, help="Emit audit JSON")
+@click.pass_context
+def validation_evidence_audit_command(ctx, scenario_file, output_file, json_output):
+    """Audit external validation evidence records and claim support."""
+    audit = validation_evidence_audit_file(scenario_file)
+    payload = json.dumps(audit, indent=2, sort_keys=True)
+    if output_file is not None:
+        output_file.parent.mkdir(parents=True, exist_ok=True)
+        output_file.write_text(payload)
+    if json_output:
+        click.echo(payload)
+    else:
+        status = "OK" if audit["ok"] else "ERROR"
+        counts = audit["counts"]
+        click.echo(
+            f"{status}: {scenario_file} evidence={counts['evidence_records']} "
+            f"operational={counts['operational_records']} "
+            f"support={audit['claim_support']}"
+        )
+        if output_file is not None:
+            click.echo(f"Wrote validation evidence audit to {output_file}")
         for issue in audit["issues"]:
             source = f" source={issue['source']}" if issue.get("source") else ""
             click.echo(

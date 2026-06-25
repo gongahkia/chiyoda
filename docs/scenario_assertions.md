@@ -43,6 +43,14 @@ Audit commands:
 .venv/bin/python -m chiyoda.cli geometry-audit scenarios/validation_multifloor_connectors.yaml --json
 .venv/bin/python -m chiyoda.cli hazard-audit scenarios/validation_fds_room_corridor.yaml --json
 .venv/bin/python -m chiyoda.cli calibration-audit scenarios/validation_multifloor_connectors.yaml --json
+.venv/bin/python -m chiyoda.cli validation-evidence-audit scenarios/station_sarin.yaml --json
+.venv/bin/python scripts/audit_scenarios.py
+```
+
+Viewer visual QA is opt-in because it requires Playwright/Chromium:
+
+```sh
+CHIYODA_RUN_VIEWER_VISUAL=1 .venv/bin/python -m pytest tests/test_viewer_export.py::test_viewer_visual_qa_playwright_nonblank_canvas
 ```
 
 Regression scenarios:

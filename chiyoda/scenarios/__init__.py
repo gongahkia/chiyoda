@@ -36,6 +36,10 @@ from chiyoda.scenarios.validation import (
     validate_scenario_config,
     validate_scenario_file,
 )
+from chiyoda.scenarios.validation_evidence_audit import (
+    build_validation_evidence_audit,
+    validation_evidence_audit_file,
+)
 
 __all__ = [
     "GeneratedPopulationCalibration",
@@ -55,6 +59,7 @@ __all__ = [
     "build_geometry_audit",
     "build_calibration_audit",
     "build_hazard_audit",
+    "build_validation_evidence_audit",
     "calibration_audit_file",
     "canonical_scenario_bytes",
     "exported_scenario_body",
@@ -64,6 +69,7 @@ __all__ = [
     "strict_layout_from_ifc",
     "strict_scenario_from_ifc",
     "validate_scenario_config",
+    "validation_evidence_audit_file",
     "validate_scenario_file",
     "validate_generated_population_calibration",
 ]

@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import os
 import shutil
 import subprocess
 
@@ -13,6 +14,7 @@ from chiyoda.analysis.viewer import export_viewer
 from chiyoda.scenarios.validation import validate_scenario_file
 from chiyoda.studies.models import StudyBundle
 from chiyoda.studies.runner import run_study
+from scripts.verify_viewer_visual import verify_viewer_visual
 
 
 def _bundle() -> StudyBundle:
@@ -369,6 +371,22 @@ def test_browser_sim_supports_multifloor_connectors(tmp_path):
     assert summary["connector_usage"]["ramp_main"] >= 1
     assert summary["connector_usage"]["escalator_main"] >= 1
     assert summary["connector_usage"]["elevator_main"] >= 1
+
+
+def test_viewer_visual_qa_playwright_nonblank_canvas(tmp_path):
+    if os.environ.get("CHIYODA_RUN_VIEWER_VISUAL") != "1":
+        pytest.skip("set CHIYODA_RUN_VIEWER_VISUAL=1 to run Playwright visual QA")
+    export_viewer(_bundle(), tmp_path)
+
+    payload = verify_viewer_visual(
+        tmp_path,
+        screenshot=tmp_path / "viewer_visual_qa.png",
+        timeout_ms=60000,
+    )
+
+    assert payload["ok"] is True, payload
+    assert (tmp_path / "viewer_visual_qa.png").exists()
+    assert payload["canvas"]["nonblank_samples"] > 10
 
 
 def _run_browser_sim(data_path):

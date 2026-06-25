@@ -5,7 +5,7 @@ import json
 import math
 import shutil
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pandas as pd
 import yaml
@@ -315,9 +315,9 @@ def _source_floors(bundle: StudyBundle) -> list[dict[str, Any]]:
     except Exception:
         return []
 
-    origin_x = float(bundle.metadata.get("layout_origin_x", 0.0) or 0.0)
-    origin_y = float(bundle.metadata.get("layout_origin_y", 0.0) or 0.0)
-    cell_size = float(bundle.metadata.get("layout_cell_size", 1.0) or 1.0)
+    origin_x = _float_value(bundle.metadata.get("layout_origin_x"), 0.0)
+    origin_y = _float_value(bundle.metadata.get("layout_origin_y"), 0.0)
+    cell_size = _float_value(bundle.metadata.get("layout_cell_size"), 1.0)
     by_level: dict[str, list[dict[str, Any]]] = {}
     for feature in geojson.get("features", []):
         if not isinstance(feature, dict):
@@ -325,6 +325,8 @@ def _source_floors(bundle: StudyBundle) -> list[dict[str, Any]]:
         properties = dict(feature.get("properties", {}) or {})
         level = str(properties.get("level", properties.get("level_id", "unassigned")))
         geometry = feature.get("geometry", {}) or {}
+        if not isinstance(geometry, dict):
+            continue
         converted = _viewer_geometry(
             geometry, origin_x=origin_x, origin_y=origin_y, cell_size=cell_size
         )
@@ -352,6 +354,8 @@ def _source_ifc_floors(bundle: StudyBundle) -> list[dict[str, Any]]:
         if not isinstance(element, dict):
             continue
         span = element.get("cell_span", {}) or {}
+        if not isinstance(span, dict):
+            continue
         try:
             x0 = float(span["x0"])
             y0 = float(span["y0"])
@@ -387,6 +391,8 @@ def _viewer_geometry(
 ) -> dict[str, Any] | None:
     kind = geometry.get("type")
     coords = geometry.get("coordinates")
+    if coords is None:
+        return None
     if kind == "Point":
         return {
             "type": kind,
@@ -472,7 +478,7 @@ def _table_rows(frame: pd.DataFrame, *, run_id: str) -> list[dict[str, Any]]:
     current = frame.copy()
     if run_id and "run_id" in current.columns:
         current = current[current["run_id"] == run_id]
-    return current.to_dict(orient="records")
+    return cast(list[dict[str, Any]], current.to_dict(orient="records"))
 
 
 def _path_usage_cells(frame: pd.DataFrame, *, run_id: str) -> list[dict[str, Any]]:
@@ -500,7 +506,18 @@ def _path_usage_cells(frame: pd.DataFrame, *, run_id: str) -> list[dict[str, Any
         )
         grouped = grouped.merge(z_by_cell, how="left")
     grouped = grouped[grouped["path_usage"] > 0]
-    return grouped.to_dict(orient="records")
+    return cast(list[dict[str, Any]], grouped.to_dict(orient="records"))
+
+
+def _float_value(value: object, fallback: float) -> float:
+    if value is None:
+        return fallback
+    if not isinstance(value, str | int | float):
+        return fallback
+    try:
+        return float(value)
+    except ValueError:
+        return fallback
 
 
 def _sample_values(values: list[int], max_count: int) -> list[int]:

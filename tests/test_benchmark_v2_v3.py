@@ -53,7 +53,10 @@ def test_benchmark_spec_v2_v3_seed_reproducibility():
     assert benchmark_spec_v3().seeds == [42, 137]
 
 
-def test_submit_policy_accepts_non_v1_suite(monkeypatch, tmp_path):
+@pytest.mark.parametrize("suite", ["v1", "v2", "v3"])
+def test_submit_policy_writes_claim_metadata_for_all_suites(
+    monkeypatch, tmp_path, suite
+):
     import chiyoda.studies.benchmark as benchmark_module
 
     class StubSimulation:
@@ -102,6 +105,9 @@ def test_submit_policy_accepts_non_v1_suite(monkeypatch, tmp_path):
             "hazard_audit_issue_count": 0,
             "stylized_hazard_count": 0,
             "imported_hazard_count": 1,
+            "external_validation_evidence_ok": True,
+            "external_validation_evidence_count": 1,
+            "operational_validation_evidence_count": 1,
             "runtime_assertions_present": True,
             "runtime_assertions_ok": True,
             "runtime_assertion_issue_count": 0,
@@ -109,19 +115,34 @@ def test_submit_policy_accepts_non_v1_suite(monkeypatch, tmp_path):
     )
 
     result = benchmark_module.submit_policy(
-        policy_path=None, suite="v2", output_dir=tmp_path
+        policy_path=None, suite=suite, output_dir=tmp_path
     )
+    spec = _spec_for_suite(suite)
 
-    assert result["leaderboard"]["suite"] == "v2"
+    assert result["leaderboard"]["suite"] == suite
     entry = result["leaderboard"]["entries"][0]
-    assert entry["run_count"] == 4
+    assert entry["run_count"] == len(spec.scenarios) * len(spec.seeds)
     assert entry["seeds_used"] == [42, 137]
     assert entry["tier"] == "smoke"
     assert entry["claim_tier"] == "smoke"
+    assert "claim_limitations" in entry
+    assert entry["validation_evidence"]["operational_validation_evidence_count"] == len(
+        spec.scenarios
+    ) * len(spec.seeds)
     assert entry["bootstrap_n"] == 1000
-    assert len(entry["scenario_breakdown"]) == 2
-    assert result["manifest"]["suite"] == "v2"
-    assert (tmp_path / "benchmark_runs.csv").exists()
+    assert len(entry["scenario_breakdown"]) == len(spec.scenarios)
+    for scenario_entry in entry["scenario_breakdown"]:
+        assert "claim_tier" in scenario_entry
+        assert "claim_limitations" in scenario_entry
+        assert "validation_evidence" in scenario_entry
+    assert result["manifest"]["suite"] == suite
+    runs = pd.read_csv(tmp_path / "benchmark_runs.csv")
+    for column in (
+        "external_validation_evidence_ok",
+        "external_validation_evidence_count",
+        "operational_validation_evidence_count",
+    ):
+        assert column in runs.columns
 
 
 def test_leaderboard_claim_tier_requires_seeds_and_validation_evidence():
@@ -137,6 +158,9 @@ def test_leaderboard_claim_tier_requires_seeds_and_validation_evidence():
             "hazard_audit_ok": [True] * 20,
             "stylized_hazard_count": [0] * 20,
             "imported_hazard_count": [1] * 20,
+            "external_validation_evidence_ok": [True] * 20,
+            "external_validation_evidence_count": [1] * 20,
+            "operational_validation_evidence_count": [1] * 20,
             "runtime_assertions_present": [True] * 20,
             "runtime_assertions_ok": [True] * 20,
         }
@@ -162,6 +186,9 @@ def test_leaderboard_claim_tier_downgrades_missing_assertions():
             "hazard_audit_ok": [True] * 20,
             "stylized_hazard_count": [0] * 20,
             "imported_hazard_count": [1] * 20,
+            "external_validation_evidence_ok": [True] * 20,
+            "external_validation_evidence_count": [1] * 20,
+            "operational_validation_evidence_count": [1] * 20,
             "runtime_assertions_present": [False] * 20,
             "runtime_assertions_ok": [True] * 20,
         }
@@ -187,6 +214,9 @@ def test_leaderboard_claim_tier_downgrades_stylized_hazards():
             "hazard_audit_ok": [True] * 20,
             "stylized_hazard_count": [1] * 20,
             "imported_hazard_count": [0] * 20,
+            "external_validation_evidence_ok": [True] * 20,
+            "external_validation_evidence_count": [1] * 20,
+            "operational_validation_evidence_count": [1] * 20,
             "runtime_assertions_present": [True] * 20,
             "runtime_assertions_ok": [True] * 20,
         }
@@ -211,6 +241,9 @@ def test_leaderboard_claim_tier_downgrades_generic_social_force():
             "hazard_audit_ok": [True] * 20,
             "stylized_hazard_count": [0] * 20,
             "imported_hazard_count": [1] * 20,
+            "external_validation_evidence_ok": [True] * 20,
+            "external_validation_evidence_count": [1] * 20,
+            "operational_validation_evidence_count": [1] * 20,
             "runtime_assertions_present": [True] * 20,
             "runtime_assertions_ok": [True] * 20,
         }
@@ -220,6 +253,33 @@ def test_leaderboard_claim_tier_downgrades_generic_social_force():
 
     assert entry["claim_tier"] == "diagnostic"
     assert "generic social-force" in " ".join(entry["claim_limitations"])
+
+
+def test_leaderboard_claim_tier_downgrades_missing_operational_evidence():
+    frame = pd.DataFrame(
+        {
+            "scenario": ["a"] * 20,
+            "seed": list(range(20)),
+            "benchmark_score": [1.0] * 20,
+            "scenario_validation_ok": [True] * 20,
+            "calibration_audit_ok": [True] * 20,
+            "generic_social_force_profile": [False] * 20,
+            "geometry_audit_ok": [True] * 20,
+            "hazard_audit_ok": [True] * 20,
+            "stylized_hazard_count": [0] * 20,
+            "imported_hazard_count": [1] * 20,
+            "external_validation_evidence_ok": [True] * 20,
+            "external_validation_evidence_count": [0] * 20,
+            "operational_validation_evidence_count": [0] * 20,
+            "runtime_assertions_present": [True] * 20,
+            "runtime_assertions_ok": [True] * 20,
+        }
+    )
+
+    entry = _leaderboard(frame, "abc123abc123abcd")["entries"][0]
+
+    assert entry["claim_tier"] == "diagnostic"
+    assert "external validation evidence" in " ".join(entry["claim_limitations"])
 
 
 def test_benchmark_spec_artifacts_exist():

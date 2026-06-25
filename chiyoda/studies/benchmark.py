@@ -23,6 +23,7 @@ from chiyoda.scenarios.geometry_audit import build_geometry_audit
 from chiyoda.scenarios.hazard_audit import build_hazard_audit
 from chiyoda.scenarios.manager import ScenarioManager
 from chiyoda.scenarios.validation import validate_scenario_config
+from chiyoda.scenarios.validation_evidence_audit import build_validation_evidence_audit
 
 
 @dataclass(frozen=True)
@@ -577,6 +578,7 @@ def _run_validation_evidence(
     calibration = build_calibration_audit(config)
     geometry = build_geometry_audit(config, manager=manager)
     hazard = build_hazard_audit(config)
+    validation_evidence = build_validation_evidence_audit(config)
     assertions = evaluate_scenario_assertions(config, simulation)
     return {
         "scenario_validation_ok": not validation.has_errors,
@@ -592,6 +594,13 @@ def _run_validation_evidence(
         "hazard_audit_issue_count": len(hazard["issues"]),
         "stylized_hazard_count": int(hazard["counts"]["stylized"]),
         "imported_hazard_count": int(hazard["counts"]["imported_fields"]),
+        "external_validation_evidence_ok": bool(validation_evidence["ok"]),
+        "external_validation_evidence_count": int(
+            validation_evidence["counts"]["evidence_records"]
+        ),
+        "operational_validation_evidence_count": int(
+            validation_evidence["counts"]["operational_records"]
+        ),
         "runtime_assertions_present": bool(config.get("assertions")),
         "runtime_assertions_ok": assertions.ok,
         "runtime_assertion_issue_count": len(assertions.issues),
@@ -612,6 +621,15 @@ def _claim_assessment(frame: pd.DataFrame) -> dict[str, Any]:
         "hazard_audit_ok": _column_all_true(frame, "hazard_audit_ok"),
         "stylized_hazard_count": _column_int_sum(frame, "stylized_hazard_count"),
         "imported_hazard_count": _column_int_sum(frame, "imported_hazard_count"),
+        "external_validation_evidence_ok": _column_all_true(
+            frame, "external_validation_evidence_ok"
+        ),
+        "external_validation_evidence_count": _column_int_sum(
+            frame, "external_validation_evidence_count"
+        ),
+        "operational_validation_evidence_count": _column_int_sum(
+            frame, "operational_validation_evidence_count"
+        ),
         "runtime_assertions_present": _column_all_true(
             frame, "runtime_assertions_present"
         ),
@@ -636,6 +654,14 @@ def _claim_assessment(frame: pd.DataFrame) -> dict[str, Any]:
         limitations.append("one or more hazard audits failed or are missing")
     if evidence["stylized_hazard_count"] > 0:
         limitations.append("one or more hazards use stylized built-in dynamics")
+    if not evidence["external_validation_evidence_ok"]:
+        limitations.append(
+            "one or more external validation evidence audits failed or are missing"
+        )
+    if evidence["operational_validation_evidence_count"] == 0:
+        limitations.append(
+            "no drill, incident, trajectory, or expert-coded external validation evidence recorded"
+        )
     if not evidence["runtime_assertions_present"]:
         limitations.append("one or more scenarios have no runtime assertions")
     if not evidence["runtime_assertions_ok"]:
