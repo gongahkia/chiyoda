@@ -122,10 +122,14 @@ def _sample_canvas_region(screenshot: Path) -> dict[str, Any]:
     for index, (red, green, blue, alpha) in enumerate(flat_pixels):
         if index % stride:
             continue
-        if alpha > 0:
+        red_i = int(red)
+        green_i = int(green)
+        blue_i = int(blue)
+        alpha_i = int(alpha)
+        if alpha_i > 0:
             alpha_samples += 1
-        if alpha > 0 and (
-            abs(red - 17) > 3 or abs(green - 17) > 3 or abs(blue - 17) > 3
+        if alpha_i > 0 and (
+            abs(red_i - 17) > 3 or abs(green_i - 17) > 3 or abs(blue_i - 17) > 3
         ):
             nonblank_samples += 1
     return {
