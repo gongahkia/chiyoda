@@ -41,7 +41,7 @@ python -m chiyoda.cli baseline eval --baseline ppo --suite v1 --weights data/bas
 
 | baseline | suite | tier | policy_hash | mean_score | score_ci_low | score_ci_high | seeds_used | run_count |
 |:--|:--|:--|:--|--:|--:|--:|:--|--:|
-| oracle | v1 | smoke | b0a3488299198abd | 52.85097950336007 | 52.214936465864405 | 53.48702254085574 | 42,137 | 12 |
-| ppo | v1 | smoke | b89108b3ba529d21 | 52.84903090161444 | 52.19625116777514 | 53.50181063545375 | 42,137 | 12 |
+| oracle | v1 | smoke | b0a3488299198abd | 61.43212632231305 | 60.84469044042436 | 62.01956220420175 | 42,137 | 12 |
+| ppo | v1 | smoke | b89108b3ba529d21 | 61.425413431588616 | 60.8207211403823 | 62.030105722794936 | 42,137 | 12 |
 
 `tests/test_baselines.py` reruns the eval path and checks these documented scores.
