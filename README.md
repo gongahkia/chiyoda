@@ -20,6 +20,7 @@
 * [Capabilities](#capabilities)
 * [Usage](#usage)
 * [Benchmarks](#benchmarks)
+* [Paper](#paper)
 * [Citation](#citation)
 * [Research](#research)
 * [Reference](#reference)
@@ -85,6 +86,10 @@ Run `Chiyoda`'s Benchmark with the below command.
 ```console
 $ python -m chiyoda.cli benchmark submit --suite v1 -o out/benchmark_submission
 ```
+
+## Paper
+
+You can find my paper *Chiyoda: Entropy-Guided Information Control for Hazard-Coupled Pedestrian Evacuation*, published on Zenodo [here](https://zenodo.org/records/19905070).
 
 ## Citation
 
