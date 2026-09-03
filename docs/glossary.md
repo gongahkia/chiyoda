@@ -1,6 +1,6 @@
 # Glossary
 
-This glossary defines Chiyoda terms used in `docs/paper_outline_info_warfare.md` and `docs/architecture_overview.md`.
+This glossary defines Chiyoda terms used in `docs/architecture_overview.md`.
 
 | Term | Definition |
 |:--|:--|

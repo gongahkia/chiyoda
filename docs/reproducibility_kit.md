@@ -66,7 +66,7 @@ out/benchmark_submission_smoke/reproducibility_manifest.json
 docs/benchmark/index.html
 ```
 
-Current local smoke manifest:
+Reference smoke configuration:
 
 ```json
 {
@@ -79,7 +79,7 @@ Current local smoke manifest:
 }
 ```
 
-Current local smoke leaderboard:
+Reference smoke leaderboard:
 
 ```json
 {

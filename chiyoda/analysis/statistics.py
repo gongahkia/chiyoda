@@ -1,7 +1,7 @@
 """
-Statistical rigor module for ITED research publications.
+Statistical comparison utilities for ITED simulation studies.
 
-Provides tools for evaluating simulation results with academic rigor:
+Provides tools for evaluating simulation variants:
 - Bootstrap confidence intervals
 - Mann-Whitney U non-parametric significance testing
 - Cohen's d effect sizes

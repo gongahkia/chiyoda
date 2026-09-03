@@ -22,9 +22,3 @@ jobs:
         run: python -m pytest tests/test_benchmark.py tests/test_benchmark_v2_v3.py
       - name: benchmark submit smoke
         run: python -m chiyoda.cli benchmark submit --suite v1 -o out/benchmark_submission_ci
-      - name: upload benchmark smoke artifacts
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: benchmark-submission-ci
-          path: out/benchmark_submission_ci
