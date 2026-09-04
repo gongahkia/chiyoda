@@ -59,6 +59,8 @@ $ cargo run -p chiyoda -- experiment run examples/experiments/uncalibrated-inter
 $ cargo run -p chiyoda -- experiment verify out/experiment
 $ cargo run -p chiyoda -- layout osm my-layout-catalog.json -o out/layout-observations.json
 $ cargo run -p chiyoda -- layout verify-osm my-layout-catalog.json out/layout-observations.json
+$ cargo run -p chiyoda -- layout project-osm my-layout-catalog.json out/layout-observations.json --origin-latitude 1.300000 --origin-longitude 103.800000 -o out/layout-local-reference.json
+$ cargo run -p chiyoda -- layout verify-projection my-layout-catalog.json out/layout-observations.json out/layout-local-reference.json
 $ cargo run -p chiyoda -- replay out/example/run.json
 $ cargo run -p chiyoda-replay -- out/example/run.json
 ```

@@ -2,9 +2,10 @@
 
 Chiyoda can inspect a content-locked OpenStreetMap (OSM) XML extract as a
 starting inventory for scenario authoring. It does not import a station, create
-Chiyoda source, project latitude/longitude into metres, or infer floors,
-connectivity, capacities, obstacles, demand, destinations, or accessibility.
-Those would be unsafe guesses from an incomplete public map.
+Chiyoda source, or infer floors, connectivity, capacities, obstacles, demand,
+destinations, or accessibility. It can additionally make an explicit,
+reproducible local east/north projection for authoring reference; that still
+does not establish facility geometry or convert a map into a scenario.
 
 The command is useful when the novelty of a structural experiment depends on a
 real public layout source but the simulator is intentionally uncalibrated. It
@@ -105,3 +106,49 @@ author the scenario in the following order:
 The output status is always `source_observation_only`. It cannot be passed to a
 calibration adapter or empirical benchmark workflow and does not validate the
 reference runtime against the mapped facility.
+
+## Derive a local coordinate reference
+
+After reviewing the OSM observation report and deliberately choosing an anchor
+in the same WGS84 coordinate reference, derive a separate local-reference
+artifact:
+
+```console
+$ cargo run -p chiyoda -- layout project-osm my-layout-catalog.json \
+    out/station-layout-observations.json \
+    --origin-latitude 1.300000 --origin-longitude 103.800000 \
+    -o out/station-layout-local-reference.json
+$ cargo run -p chiyoda -- layout verify-projection my-layout-catalog.json \
+    out/station-layout-observations.json \
+    out/station-layout-local-reference.json
+```
+
+`layout project-osm` first rebuilds and verifies the source-observation report
+from the content-locked XML. It then converts the report's WGS84 geographic
+coordinates at ellipsoidal height `0 m` to Earth-centred, Earth-fixed (ECEF)
+coordinates and into an East/North/Up tangent plane at the supplied origin.
+It persists only the East and North values, rounded to one micrometre for
+reproducible artifact verification. The transformation is the geographic to
+topocentric sequence identified by PROJ as EPSG:9837; its WGS84 ellipsoid
+constants are the NGA-published semi-major axis `6378137.0 m` and inverse
+flattening `298.257223563`. See PROJ's [geocentric-to-topocentric
+conversion](https://proj.org/en/stable/operations/conversions/topocentric.html)
+and the [NGA WGS84 definition](https://earth-info.nga.mil/GandG/wgs84/gravitymod/egm2008/index.html).
+
+The origin is an authored transformation parameter, not automatically selected
+from the source. Its `0 m` ellipsoidal height is a calculation convention, not
+a surveyed ground or floor height. The output intentionally has no vertical
+coordinate, and its metre precision is not an accuracy claim.
+
+Point observations become local points. OSM ways remain source bounds: the
+artifact projects the four geographic bounding-box corners and records their
+local envelope. It does **not** assert an OSM way is a line, polygon, corridor,
+walkable area, or obstacle. `layout verify-projection` rebuilds the locked
+observation report and then reconstructs the projection using the persisted
+origin, so it detects a changed source report, map extract, origin, or derived
+coordinate.
+
+This provides a reproducible reference frame for independent authoring. Before
+using any value in `.chy`, still survey or verify the facility and author its
+local geometry, elevations, connectivity, widths, accessibility, capacities,
+demand, destinations, and behavioral assumptions explicitly.

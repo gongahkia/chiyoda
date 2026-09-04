@@ -33,8 +33,10 @@ pub use experiment::{
 };
 pub use formatter::format_scenario;
 pub use layout::{
-    OpenStreetMapLayoutReport, OsmInspectionLimits, OsmLayoutError, inspect_openstreetmap_layout,
-    verify_openstreetmap_layout_report,
+    GeographicPoint, OpenStreetMapLayoutReport, OpenStreetMapLocalProjectionReport,
+    OsmInspectionLimits, OsmLayoutError, inspect_openstreetmap_layout,
+    project_openstreetmap_layout_report, verify_openstreetmap_layout_report,
+    verify_openstreetmap_local_projection_report,
 };
 pub use model::{CanonicalScenario, Scenario};
 pub use parser::{ParseError, parse};

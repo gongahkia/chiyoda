@@ -3,7 +3,9 @@
 //! OpenStreetMap is useful for discovering publicly mapped station features,
 //! but its geographic coordinates and incomplete tags cannot be converted into
 //! a Chiyoda scenario without author review. This module intentionally emits a
-//! source observation report, never metres, elevation, capacity, or DSL source.
+//! source observation report, and can derive an explicitly anchored local
+//! east/north reference artifact. Neither artifact creates elevation, capacity,
+//! geometry, or DSL source.
 
 use crate::{
     EvidenceCatalog, EvidencePurpose, calibration::verify_catalog_files, evidence::validate_catalog,
@@ -24,6 +26,13 @@ use xml::{
 
 const OSM_LICENSE: &str = "ODbL-1.0";
 const REQUIRED_OSM_ATTRIBUTION: &str = "OpenStreetMap contributors";
+const WGS84_SEMI_MAJOR_AXIS_M: f64 = 6_378_137.0;
+const WGS84_INVERSE_FLATTENING: f64 = 298.257_223_563;
+const LOCAL_PROJECTION_METHOD: &str =
+    "WGS84 geodetic to ECEF followed by ENU topocentric conversion (EPSG:9837)";
+const LOCAL_PROJECTION_REFERENCE: &str =
+    "https://proj.org/en/stable/operations/conversions/topocentric.html";
+const LOCAL_PROJECTION_PRECISION_M: f64 = 1_000_000.0;
 const RELEVANT_TAG_KEYS: &[&str] = &[
     "building",
     "building:part",
@@ -120,6 +129,20 @@ pub enum OsmLayoutError {
         "layout observation report does not match reconstruction from its catalog and locked source"
     )]
     ReportMismatch,
+    #[error("local projection origin has an invalid `{field}` value: `{value}`")]
+    InvalidProjectionOrigin { field: &'static str, value: f64 },
+    #[error("layout observation has an invalid `{field}` value: `{value}`")]
+    InvalidObservedCoordinate { field: &'static str, value: f64 },
+    #[error("local projection produced a non-finite `{axis}` coordinate")]
+    NonFiniteProjection { axis: &'static str },
+    #[error("OSM geographic bounds span {span_degrees} degrees of longitude and are ambiguous at the antimeridian")]
+    AmbiguousBoundsLongitudeSpan { span_degrees: f64 },
+    #[error("cannot serialize layout observation report for projection provenance: {0}")]
+    ProjectionSerialization(serde_json::Error),
+    #[error(
+        "local coordinate projection does not match reconstruction from its source-observation report"
+    )]
+    ProjectionMismatch,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -186,6 +209,75 @@ pub struct OpenStreetMapLayoutReport {
     pub inspection_limits: OsmInspectionLimitsReport,
     pub counts: OsmLayoutCounts,
     pub features: Vec<OsmFeatureObservation>,
+    pub status: String,
+    pub claim_boundary: String,
+    pub required_authoring: Vec<String>,
+}
+
+/// A deliberately chosen local topocentric frame. `east_m` and `north_m` are
+/// derived from WGS84 coordinates at ellipsoidal height zero; neither is a
+/// surveyed facility coordinate or a physical elevation measurement.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct LocalTangentPlane {
+    pub method: String,
+    pub origin: GeographicPoint,
+    pub origin_ellipsoidal_height_m: f64,
+    pub output_axes: String,
+    pub output_precision_m: f64,
+    pub reference: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct LocalMetrePoint {
+    pub east_m: f64,
+    pub north_m: f64,
+}
+
+/// The four local points made by projecting a geographic OSM bounding box's
+/// corners. It is intentionally not a projected bounding envelope, path,
+/// polygon, or walkable boundary.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct LocalMetreBoundsCornerReference {
+    pub source_bounds: GeographicBounds,
+    pub southwest: LocalMetrePoint,
+    pub southeast: LocalMetrePoint,
+    pub northwest: LocalMetrePoint,
+    pub northeast: LocalMetrePoint,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum ProjectedOsmFeatureGeometry {
+    Point {
+        coordinate: LocalMetrePoint,
+    },
+    BoundsCorners {
+        corners: LocalMetreBoundsCornerReference,
+        referenced_node_count: u64,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ProjectedOsmFeatureObservation {
+    pub object_type: String,
+    pub object_id: i64,
+    pub categories: Vec<String>,
+    pub relevant_tags: BTreeMap<String, String>,
+    pub geometry: ProjectedOsmFeatureGeometry,
+}
+
+/// A reproducible, uncalibrated local-coordinate reference derived from one
+/// verified OSM source-observation report. It is deliberately not Chiyoda DSL
+/// geometry and contains no vertical coordinate.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct OpenStreetMapLocalProjectionReport {
+    pub schema_version: String,
+    pub adapter_version: String,
+    pub source_observation_report_sha256: String,
+    pub source: OpenStreetMapLayoutSource,
+    pub coordinate_reference: LocalTangentPlane,
+    pub counts: OsmLayoutCounts,
+    pub features: Vec<ProjectedOsmFeatureObservation>,
     pub status: String,
     pub claim_boundary: String,
     pub required_authoring: Vec<String>,
@@ -324,6 +416,271 @@ pub fn verify_openstreetmap_layout_report(
         return Err(OsmLayoutError::ReportMismatch);
     }
     Ok(())
+}
+
+/// Derive an explicitly anchored local east/north reference from a source
+/// observation report. This is the EPSG:9837 sequence: WGS84 geographic
+/// coordinates at ellipsoidal height zero are converted to ECEF, then to a
+/// local ENU frame at the supplied origin. Values are rounded to a micrometre
+/// for a reproducible artifact; the precision is not a survey-accuracy claim.
+pub fn project_openstreetmap_layout_report(
+    report: &OpenStreetMapLayoutReport,
+    origin: GeographicPoint,
+) -> Result<OpenStreetMapLocalProjectionReport, OsmLayoutError> {
+    validate_projection_origin(origin)?;
+    let source_observation_report_sha256 =
+        sha256_bytes(&serde_json::to_vec(report).map_err(OsmLayoutError::ProjectionSerialization)?);
+    let coordinate_reference = LocalTangentPlane {
+        method: LOCAL_PROJECTION_METHOD.to_owned(),
+        origin,
+        origin_ellipsoidal_height_m: 0.0,
+        output_axes: "east_m and north_m in a local tangent plane; no vertical output".to_owned(),
+        output_precision_m: 1.0 / LOCAL_PROJECTION_PRECISION_M,
+        reference: LOCAL_PROJECTION_REFERENCE.to_owned(),
+    };
+    let features = report
+        .features
+        .iter()
+        .map(|feature| project_feature(feature, origin))
+        .collect::<Result<Vec<_>, _>>()?;
+
+    Ok(OpenStreetMapLocalProjectionReport {
+        schema_version: "0.1".to_owned(),
+        adapter_version: env!("CARGO_PKG_VERSION").to_owned(),
+        source_observation_report_sha256,
+        source: report.source.clone(),
+        coordinate_reference,
+        counts: report.counts.clone(),
+        features,
+        status: "source_projection_only".to_owned(),
+        claim_boundary: "This report applies one explicitly chosen local WGS84 tangent-plane transformation to a verified map observation. It is not a survey, does not establish map completeness, legal access, indoor connectivity, exact facility geometry, elevation, widths, capacities, accessibility, demand, route choice, runtime validity, or any operational or safety outcome.".to_owned(),
+        required_authoring: vec![
+            "Confirm the source extract, ODbL obligations, and the stated OpenStreetMap attribution before reuse or publication.".to_owned(),
+            "Review whether the chosen tangent-plane origin and the source coordinate reference are suitable for the intended local authoring task.".to_owned(),
+            "Treat projected point coordinates as an authoring reference only; survey or otherwise verify every modeled boundary, obstacle, entrance, connector, elevation, width, direction, and accessibility property.".to_owned(),
+            "Do not treat projected way-bound corners as a walkable polygon, path, or projected extent. Author all scenario geometry, capacities, demand, releases, destinations, and behavioral assumptions explicitly, then run sensitivity studies for material best guesses.".to_owned(),
+        ],
+    })
+}
+
+/// Rebuild a projected reference from its source-observation report and the
+/// persisted origin. Callers that accept external artifacts must verify the
+/// source observation report against its catalog and locked XML first.
+pub fn verify_openstreetmap_local_projection_report(
+    report: &OpenStreetMapLayoutReport,
+    projection: &OpenStreetMapLocalProjectionReport,
+) -> Result<(), OsmLayoutError> {
+    let rebuilt =
+        project_openstreetmap_layout_report(report, projection.coordinate_reference.origin)?;
+    if projection != &rebuilt {
+        return Err(OsmLayoutError::ProjectionMismatch);
+    }
+    Ok(())
+}
+
+fn project_feature(
+    feature: &OsmFeatureObservation,
+    origin: GeographicPoint,
+) -> Result<ProjectedOsmFeatureObservation, OsmLayoutError> {
+    let geometry = match &feature.geometry {
+        OsmFeatureGeometry::Point { coordinate } => ProjectedOsmFeatureGeometry::Point {
+            coordinate: project_point(*coordinate, origin)?,
+        },
+        OsmFeatureGeometry::Bounds {
+            bounds,
+            referenced_node_count,
+        } => ProjectedOsmFeatureGeometry::BoundsCorners {
+            corners: project_bounds_corners(*bounds, origin)?,
+            referenced_node_count: *referenced_node_count,
+        },
+    };
+    Ok(ProjectedOsmFeatureObservation {
+        object_type: feature.object_type.clone(),
+        object_id: feature.object_id,
+        categories: feature.categories.clone(),
+        relevant_tags: feature.relevant_tags.clone(),
+        geometry,
+    })
+}
+
+fn project_bounds_corners(
+    bounds: GeographicBounds,
+    origin: GeographicPoint,
+) -> Result<LocalMetreBoundsCornerReference, OsmLayoutError> {
+    validate_observed_point(
+        GeographicPoint {
+            latitude: bounds.minimum_latitude,
+            longitude: bounds.minimum_longitude,
+        },
+        "minimum",
+    )?;
+    validate_observed_point(
+        GeographicPoint {
+            latitude: bounds.maximum_latitude,
+            longitude: bounds.maximum_longitude,
+        },
+        "maximum",
+    )?;
+    if bounds.minimum_latitude > bounds.maximum_latitude {
+        return Err(OsmLayoutError::InvalidObservedCoordinate {
+            field: "bounds latitude order",
+            value: bounds.minimum_latitude,
+        });
+    }
+    if bounds.minimum_longitude > bounds.maximum_longitude {
+        return Err(OsmLayoutError::InvalidObservedCoordinate {
+            field: "bounds longitude order",
+            value: bounds.minimum_longitude,
+        });
+    }
+    let longitude_span = bounds.maximum_longitude - bounds.minimum_longitude;
+    if longitude_span > 180.0 {
+        return Err(OsmLayoutError::AmbiguousBoundsLongitudeSpan {
+            span_degrees: longitude_span,
+        });
+    }
+    let southwest = project_point(
+        GeographicPoint {
+            latitude: bounds.minimum_latitude,
+            longitude: bounds.minimum_longitude,
+        },
+        origin,
+    )?;
+    let southeast = project_point(
+        GeographicPoint {
+            latitude: bounds.minimum_latitude,
+            longitude: bounds.maximum_longitude,
+        },
+        origin,
+    )?;
+    let northwest = project_point(
+        GeographicPoint {
+            latitude: bounds.maximum_latitude,
+            longitude: bounds.minimum_longitude,
+        },
+        origin,
+    )?;
+    let northeast = project_point(
+        GeographicPoint {
+            latitude: bounds.maximum_latitude,
+            longitude: bounds.maximum_longitude,
+        },
+        origin,
+    )?;
+    Ok(LocalMetreBoundsCornerReference {
+        source_bounds: bounds,
+        southwest,
+        southeast,
+        northwest,
+        northeast,
+    })
+}
+
+fn project_point(
+    coordinate: GeographicPoint,
+    origin: GeographicPoint,
+) -> Result<LocalMetrePoint, OsmLayoutError> {
+    validate_observed_point(coordinate, "coordinate")?;
+    let (x, y, z) = geodetic_to_ecef(coordinate);
+    let (origin_x, origin_y, origin_z) = geodetic_to_ecef(origin);
+    let latitude = origin.latitude.to_radians();
+    let longitude = origin.longitude.to_radians();
+    let delta_x = x - origin_x;
+    let delta_y = y - origin_y;
+    let delta_z = z - origin_z;
+    let east = -longitude.sin() * delta_x + longitude.cos() * delta_y;
+    let north = -latitude.sin() * longitude.cos() * delta_x
+        - latitude.sin() * longitude.sin() * delta_y
+        + latitude.cos() * delta_z;
+    Ok(LocalMetrePoint {
+        east_m: quantize_projection_axis(east, "east")?,
+        north_m: quantize_projection_axis(north, "north")?,
+    })
+}
+
+fn geodetic_to_ecef(point: GeographicPoint) -> (f64, f64, f64) {
+    let latitude = point.latitude.to_radians();
+    let longitude = point.longitude.to_radians();
+    let flattening = 1.0 / WGS84_INVERSE_FLATTENING;
+    let eccentricity_squared = flattening * (2.0 - flattening);
+    let prime_vertical_radius =
+        WGS84_SEMI_MAJOR_AXIS_M / (1.0 - eccentricity_squared * latitude.sin().powi(2)).sqrt();
+    (
+        prime_vertical_radius * latitude.cos() * longitude.cos(),
+        prime_vertical_radius * latitude.cos() * longitude.sin(),
+        prime_vertical_radius * (1.0 - eccentricity_squared) * latitude.sin(),
+    )
+}
+
+fn quantize_projection_axis(value: f64, axis: &'static str) -> Result<f64, OsmLayoutError> {
+    if !value.is_finite() {
+        return Err(OsmLayoutError::NonFiniteProjection { axis });
+    }
+    let quantized = (value * LOCAL_PROJECTION_PRECISION_M).round() / LOCAL_PROJECTION_PRECISION_M;
+    if !quantized.is_finite() {
+        return Err(OsmLayoutError::NonFiniteProjection { axis });
+    }
+    Ok(if quantized == 0.0 { 0.0 } else { quantized })
+}
+
+fn validate_projection_origin(origin: GeographicPoint) -> Result<(), OsmLayoutError> {
+    validate_coordinate(origin.latitude, true).map_err(|value| {
+        OsmLayoutError::InvalidProjectionOrigin {
+            field: "latitude",
+            value,
+        }
+    })?;
+    validate_coordinate(origin.longitude, false).map_err(|value| {
+        OsmLayoutError::InvalidProjectionOrigin {
+            field: "longitude",
+            value,
+        }
+    })?;
+    Ok(())
+}
+
+fn validate_observed_point(
+    point: GeographicPoint,
+    prefix: &'static str,
+) -> Result<(), OsmLayoutError> {
+    validate_coordinate(point.latitude, true).map_err(|value| {
+        OsmLayoutError::InvalidObservedCoordinate {
+            field: if prefix == "coordinate" {
+                "coordinate latitude"
+            } else if prefix == "minimum" {
+                "minimum latitude"
+            } else {
+                "maximum latitude"
+            },
+            value,
+        }
+    })?;
+    validate_coordinate(point.longitude, false).map_err(|value| {
+        OsmLayoutError::InvalidObservedCoordinate {
+            field: if prefix == "coordinate" {
+                "coordinate longitude"
+            } else if prefix == "minimum" {
+                "minimum longitude"
+            } else {
+                "maximum longitude"
+            },
+            value,
+        }
+    })?;
+    Ok(())
+}
+
+fn validate_coordinate(value: f64, latitude: bool) -> Result<(), f64> {
+    let (minimum, maximum) = if latitude {
+        (-90.0, 90.0)
+    } else {
+        (-180.0, 180.0)
+    };
+    if value.is_finite() && (minimum..=maximum).contains(&value) {
+        Ok(())
+    } else {
+        Err(value)
+    }
 }
 
 fn report_limit(field: &'static str, value: u64) -> Result<usize, OsmLayoutError> {
@@ -775,8 +1132,10 @@ fn sha256_bytes(bytes: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        EvidenceCatalog, EvidencePurpose, OpenStreetMapLayoutReport, OsmInspectionLimits,
-        OsmLayoutError, inspect_openstreetmap_layout, verify_openstreetmap_layout_report,
+        EvidenceCatalog, EvidencePurpose, GeographicPoint, OpenStreetMapLayoutReport,
+        OsmInspectionLimits, OsmLayoutError, ProjectedOsmFeatureGeometry,
+        inspect_openstreetmap_layout, project_openstreetmap_layout_report,
+        verify_openstreetmap_layout_report, verify_openstreetmap_local_projection_report,
     };
     use crate::evidence::EvidenceFile;
     use sha2::{Digest, Sha256};
@@ -955,6 +1314,108 @@ mod tests {
         assert!(matches!(
             verify_openstreetmap_layout_report(&source_catalog, &directory.0, &altered),
             Err(OsmLayoutError::ReportMismatch)
+        ));
+    }
+
+    #[test]
+    fn local_projection_anchors_points_and_preserves_way_bounds_as_corner_references() {
+        let report = report_from_fixture(
+            br#"<osm version="0.6">
+  <node id="1" lat="1.3000" lon="103.8000"><tag k="railway" v="station"/></node>
+  <node id="2" lat="1.3001" lon="103.8000"><tag k="entrance" v="yes"/></node>
+  <node id="3" lat="1.3001" lon="103.8001"/>
+  <way id="9"><nd ref="1"/><nd ref="2"/><nd ref="3"/><tag k="highway" v="steps"/></way>
+</osm>"#,
+        );
+        let projection = project_openstreetmap_layout_report(
+            &report,
+            GeographicPoint {
+                latitude: 1.3,
+                longitude: 103.8,
+            },
+        )
+        .expect("projection succeeds");
+
+        assert_eq!(projection.status, "source_projection_only");
+        assert_eq!(projection.coordinate_reference.origin.latitude, 1.3);
+        assert_eq!(projection.coordinate_reference.origin.longitude, 103.8);
+        assert_eq!(
+            projection.coordinate_reference.origin_ellipsoidal_height_m,
+            0.0
+        );
+        assert_eq!(
+            projection.coordinate_reference.output_precision_m,
+            0.000_001
+        );
+        assert!(projection.coordinate_reference.method.contains("EPSG:9837"));
+        assert_eq!(projection.source_observation_report_sha256.len(), 64);
+
+        let origin_feature = projection
+            .features
+            .iter()
+            .find(|feature| feature.object_id == 1)
+            .expect("origin feature exists");
+        let ProjectedOsmFeatureGeometry::Point { coordinate } = &origin_feature.geometry else {
+            panic!("station node must remain a point")
+        };
+        assert_eq!(coordinate.east_m, 0.0);
+        assert_eq!(coordinate.north_m, 0.0);
+
+        let way_feature = projection
+            .features
+            .iter()
+            .find(|feature| feature.object_id == 9)
+            .expect("way feature exists");
+        let ProjectedOsmFeatureGeometry::BoundsCorners {
+            corners,
+            referenced_node_count,
+        } = &way_feature.geometry
+        else {
+            panic!("way must remain transformed bounds corners")
+        };
+        assert_eq!(*referenced_node_count, 3);
+        assert_eq!(corners.southwest.east_m, 0.0);
+        assert_eq!(corners.southwest.north_m, 0.0);
+        assert!(corners.southeast.east_m > 10.0);
+        assert!(corners.northwest.north_m > 10.0);
+
+        verify_openstreetmap_local_projection_report(&report, &projection)
+            .expect("matching projection verifies");
+    }
+
+    #[test]
+    fn local_projection_rejects_invalid_origins_and_tampering() {
+        let report = report_from_fixture(
+            br#"<osm version="0.6"><node id="1" lat="1.3" lon="103.8"><tag k="entrance" v="yes"/></node></osm>"#,
+        );
+        let error = project_openstreetmap_layout_report(
+            &report,
+            GeographicPoint {
+                latitude: 91.0,
+                longitude: 103.8,
+            },
+        )
+        .expect_err("out-of-range projection origin must fail");
+        assert!(matches!(
+            error,
+            OsmLayoutError::InvalidProjectionOrigin {
+                field: "latitude",
+                ..
+            }
+        ));
+
+        let mut projection = project_openstreetmap_layout_report(
+            &report,
+            GeographicPoint {
+                latitude: 1.3,
+                longitude: 103.8,
+            },
+        )
+        .expect("projection succeeds");
+        projection.source_observation_report_sha256 = "tampered".to_owned();
+        assert!(matches!(
+            verify_openstreetmap_local_projection_report(&report, &projection),
+            Err(OsmLayoutError::ProjectionMismatch)
         ));
     }
 }

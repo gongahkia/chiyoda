@@ -1,12 +1,13 @@
 use anyhow::{Context, Result, bail};
 use chiyoda_core::{
-    BenchmarkManifest, CanonicalScenario, EvidenceCatalog, ExperimentManifest,
-    InformationDeliveryMetrics, OpenStreetMapLayoutReport, OsmInspectionLimits, RunBundle,
-    RunOptions, SensitivityFactor, SensitivityManifest, bundle_hash, calibrate_eindhoven_platform,
-    format_scenario, generator, inspect_openstreetmap_layout, parse, plan_sensitivity, run,
-    summarize_crowd_queue_reference, summarize_vru_trajectory_reference, validate,
+    BenchmarkManifest, CanonicalScenario, EvidenceCatalog, ExperimentManifest, GeographicPoint,
+    InformationDeliveryMetrics, OpenStreetMapLayoutReport, OpenStreetMapLocalProjectionReport,
+    OsmInspectionLimits, RunBundle, RunOptions, SensitivityFactor, SensitivityManifest,
+    bundle_hash, calibrate_eindhoven_platform, format_scenario, generator,
+    inspect_openstreetmap_layout, parse, plan_sensitivity, project_openstreetmap_layout_report,
+    run, summarize_crowd_queue_reference, summarize_vru_trajectory_reference, validate,
     validate_catalog, validate_experiment_manifest, validate_manifest, verify_catalog_files,
-    verify_openstreetmap_layout_report,
+    verify_openstreetmap_layout_report, verify_openstreetmap_local_projection_report,
 };
 use clap::{Parser, Subcommand, ValueEnum};
 use serde::{Deserialize, Serialize};
@@ -203,6 +204,34 @@ enum LayoutCommand {
         catalog: PathBuf,
         /// Existing source-observation JSON report to reconstruct and compare.
         report: PathBuf,
+        #[arg(long, default_value = "data/raw")]
+        data_root: PathBuf,
+    },
+    /// Derive an explicitly anchored local east/north reference from a verified OSM observation report.
+    ProjectOsm {
+        /// The `ODbL` source catalog used to generate the observation report.
+        catalog: PathBuf,
+        /// Existing source-observation JSON report to verify before projection.
+        report: PathBuf,
+        #[arg(long, default_value = "data/raw")]
+        data_root: PathBuf,
+        /// Reviewed WGS84 latitude for the local tangent-plane origin, in degrees.
+        #[arg(long)]
+        origin_latitude: f64,
+        /// Reviewed WGS84 longitude for the local tangent-plane origin, in degrees.
+        #[arg(long)]
+        origin_longitude: f64,
+        #[arg(short, long)]
+        output: PathBuf,
+    },
+    /// Verify a local-coordinate reference against its verified OSM observation report.
+    VerifyProjection {
+        /// The `ODbL` source catalog used to generate the observation report.
+        catalog: PathBuf,
+        /// Existing source-observation JSON report that anchors the projection.
+        report: PathBuf,
+        /// Existing local-coordinate reference JSON report to reconstruct and compare.
+        projection: PathBuf,
         #[arg(long, default_value = "data/raw")]
         data_root: PathBuf,
     },
@@ -830,6 +859,44 @@ fn handle_layout(command: LayoutCommand) -> Result<()> {
             println!(
                 "verified layout observation report: {}",
                 report.source.dataset_id
+            );
+        }
+        LayoutCommand::ProjectOsm {
+            catalog,
+            report,
+            data_root,
+            origin_latitude,
+            origin_longitude,
+            output,
+        } => {
+            let catalog: EvidenceCatalog = read_json(&catalog)?;
+            let report: OpenStreetMapLayoutReport = read_json(&report)?;
+            verify_openstreetmap_layout_report(&catalog, &data_root, &report)?;
+            let projection = project_openstreetmap_layout_report(
+                &report,
+                GeographicPoint {
+                    latitude: origin_latitude,
+                    longitude: origin_longitude,
+                },
+            )?;
+            write_json(&output, &projection)?;
+            println!("local-coordinate reference report: {}", output.display());
+            println!("status: {}", projection.status);
+        }
+        LayoutCommand::VerifyProjection {
+            catalog,
+            report,
+            projection,
+            data_root,
+        } => {
+            let catalog: EvidenceCatalog = read_json(&catalog)?;
+            let report: OpenStreetMapLayoutReport = read_json(&report)?;
+            let projection: OpenStreetMapLocalProjectionReport = read_json(&projection)?;
+            verify_openstreetmap_layout_report(&catalog, &data_root, &report)?;
+            verify_openstreetmap_local_projection_report(&report, &projection)?;
+            println!(
+                "verified local-coordinate reference report: {}",
+                projection.source.dataset_id
             );
         }
     }
@@ -2954,11 +3021,28 @@ mod tests {
         })
         .expect("layout command succeeds");
         handle_layout(LayoutCommand::VerifyOsm {
-            catalog: catalog_path,
+            catalog: catalog_path.clone(),
             report: output.clone(),
-            data_root,
+            data_root: data_root.clone(),
         })
         .expect("layout verification command succeeds");
+        let projection = directory.0.join("projection.json");
+        handle_layout(LayoutCommand::ProjectOsm {
+            catalog: catalog_path.clone(),
+            report: output.clone(),
+            data_root: data_root.clone(),
+            origin_latitude: 1.3,
+            origin_longitude: 103.8,
+            output: projection.clone(),
+        })
+        .expect("projection command succeeds");
+        handle_layout(LayoutCommand::VerifyProjection {
+            catalog: catalog_path,
+            report: output.clone(),
+            projection: projection.clone(),
+            data_root,
+        })
+        .expect("projection verification command succeeds");
 
         let report: serde_json::Value =
             serde_json::from_slice(&fs::read(output).expect("reading observation report"))
@@ -2968,6 +3052,18 @@ mod tests {
         assert_eq!(
             report["features"][0]["categories"],
             serde_json::json!(["entrance"])
+        );
+        let projection: serde_json::Value =
+            serde_json::from_slice(&fs::read(projection).expect("reading projection report"))
+                .expect("parsing projection report");
+        assert_eq!(projection["status"], "source_projection_only");
+        assert_eq!(
+            projection["coordinate_reference"]["origin"]["latitude"],
+            1.3
+        );
+        assert_eq!(
+            projection["features"][0]["geometry"]["coordinate"]["east_m"],
+            0.0
         );
     }
 
