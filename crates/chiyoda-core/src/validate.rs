@@ -132,7 +132,11 @@ pub fn validate(scenario: &Scenario) -> Result<(), Vec<ValidationError>> {
             &format!("{path}.at"),
             &mut errors,
         );
-        match scenario.exits.iter().find(|exit| exit.id == gate.destination) {
+        match scenario
+            .exits
+            .iter()
+            .find(|exit| exit.id == gate.destination)
+        {
             Some(exit) if exit.surface == gate.surface => {}
             Some(_) => errors.push(issue(
                 &format!("{path}.destination"),

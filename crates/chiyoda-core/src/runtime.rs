@@ -386,7 +386,8 @@ fn integrate(
     let mut lift_loads = current_lift_loads(agents);
     for gate in &scenario.gates {
         let token = gate_tokens.entry(gate.id.clone()).or_default();
-        *token = (*token + gate.service_rate_per_s * scenario.timestep_s).min(1.0);
+        *token = (*token + gate.service_rate_per_s * scenario.timestep_s)
+            .min(gate.service_rate_per_s.max(1.0));
     }
     for (index, agent) in agents.iter_mut().enumerate() {
         match &mut agent.motion {
@@ -416,11 +417,12 @@ fn integrate(
                 }
             }
             Motion::OnSurface => {
-                let (target, next_connector) =
+                let (target, next_connector, final_gate) =
                     if let Some(&connector_index) = agent.route.get(agent.route_cursor) {
                         (
                             scenario.connectors[connector_index].from(),
                             Some(connector_index),
+                            None,
                         )
                     } else {
                         let exit = scenario
@@ -428,7 +430,15 @@ fn integrate(
                             .iter()
                             .find(|exit| exit.id == agent.destination)
                             .expect("validated destination exists");
-                        (exit.at, None)
+                        let gate = scenario.gates.iter().find(|gate| {
+                            gate.surface == agent.surface
+                                && gate.destination == agent.destination
+                                && !agent.passed_gates.contains(&gate.id)
+                        });
+                        match gate {
+                            Some(gate) => (gate.at, None, Some(gate.id.clone())),
+                            None => (exit.at, None, None),
+                        }
                     };
                 let surface = scenario
                     .surfaces
@@ -448,13 +458,29 @@ fn integrate(
                 }
                 match next_connector {
                     None => {
-                        agent.motion = Motion::Evacuated { at_s: time_s };
-                        events.push(RunEvent {
-                            time_s,
-                            kind: "evacuated".to_owned(),
-                            subject: agent.id.clone(),
-                            detail: agent.destination.clone(),
-                        });
+                        if let Some(gate_id) = final_gate {
+                            let tokens = gate_tokens.entry(gate_id.clone()).or_default();
+                            if *tokens >= 1.0 {
+                                *tokens -= 1.0;
+                                agent.passed_gates.insert(gate_id.clone());
+                                events.push(RunEvent {
+                                    time_s,
+                                    kind: "gate_processed".to_owned(),
+                                    subject: agent.id.clone(),
+                                    detail: gate_id,
+                                });
+                            } else {
+                                queued_for_gate_agents.insert(agent.id.clone());
+                            }
+                        } else {
+                            agent.motion = Motion::Evacuated { at_s: time_s };
+                            events.push(RunEvent {
+                                time_s,
+                                kind: "evacuated".to_owned(),
+                                subject: agent.id.clone(),
+                                detail: agent.destination.clone(),
+                            });
+                        }
                     }
                     Some(connector_index) => {
                         let connector = &scenario.connectors[connector_index];
