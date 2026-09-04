@@ -1,0 +1,23 @@
+{
+  "schema_version": "0.1",
+  "purpose": "uncalibrated_reference",
+  "dataset_id": "eindhoven-centraal-layout-osm-2026",
+  "title": "OpenStreetMap Eindhoven Centraal station-area extract",
+  "landing_page": "https://www.openstreetmap.org/#map=18/51.4420/5.47975",
+  "license": "ODbL-1.0",
+  "redistributable": true,
+  "attribution": "© OpenStreetMap contributors",
+  "citation": "OpenStreetMap contributors (2026). Eindhoven Centraal station-area extract retrieved from the OpenStreetMap API v0.6 map endpoint.",
+  "files": [
+    {
+      "id": "eindhoven-centraal-station-area-osm-xml",
+      "source_url": "https://api.openstreetmap.org/api/0.6/map?bbox=5.4785%2C51.4405%2C5.4810%2C51.4435",
+      "local_path": "eindhoven-centraal-layout-osm-2026/eindhoven-centraal-station-area.osm",
+      "sha256": "bc3f2feb9274eaa77fc7563380540c8aaa70c86f92b70ca353052f8fb71ef3d3",
+      "size_bytes": 1772156,
+      "transformation": "Preserve the 2026-09-05 OpenStreetMap API v0.6 XML response unchanged. Inspect only recognized geographic source observations and, when explicitly anchored, derive an uncalibrated local east/north authoring reference."
+    }
+  ],
+  "supported_primitives": "Content-locked OpenStreetMap geographic observations of mapped station, entrance, pedestrian-way, step, elevator, platform, building, and indoor tags in one small Eindhoven Centraal station-area API extract.",
+  "exclusions": "No claim of extract completeness, exact facility geometry, elevations, connectivity, widths, capacity, accessibility, demand, behavior, calibration, runtime validity, operational outcome, or safety evidence."
+}

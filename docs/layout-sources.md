@@ -141,12 +141,13 @@ a surveyed ground or floor height. The output intentionally has no vertical
 coordinate, and its metre precision is not an accuracy claim.
 
 Point observations become local points. OSM ways remain source bounds: the
-artifact projects the four geographic bounding-box corners and records their
-local envelope. It does **not** assert an OSM way is a line, polygon, corridor,
-walkable area, or obstacle. `layout verify-projection` rebuilds the locked
-observation report and then reconstructs the projection using the persisted
-origin, so it detects a changed source report, map extract, origin, or derived
-coordinate.
+artifact projects the four geographic bounding-box corners as a corner
+reference. It does **not** assert an OSM way is a line, polygon, corridor,
+walkable area, obstacle, or even a projected extent; an antimeridian-ambiguous
+geographic bound is rejected rather than guessed. `layout verify-projection`
+rebuilds the locked observation report and then reconstructs the projection
+using the persisted origin, so it detects a changed source report, map extract,
+origin, or derived coordinate.
 
 This provides a reproducible reference frame for independent authoring. Before
 using any value in `.chy`, still survey or verify the facility and author its

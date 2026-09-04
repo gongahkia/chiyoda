@@ -118,14 +118,12 @@ The compiler enforces globally unique identifiers; positive geometry,
 durations, speeds, widths, rates, and capacities; in-surface coordinates;
 obstacle extents; unoccupied exit, connector, gate, every deterministic agent
 spawn (including the navigation radius clearance), and message coordinate; exit
-contracts; message truth labels against
 and connector references; gate destinations; availability- and capacity-state
-times and resource contracts; message truth labels against
-contracts; message truth labels against
-the claimed resource's authored physical state; an agent-height- and connector-eligibility-aware
-directed surface path from every agent group through every required waypoint
-stage and to every declared final exit candidate; message timing; and
-countermeasure references and ordering.
+times and resource contracts; message truth labels against the claimed
+resource's authored physical state; an agent-height- and connector-
+eligibility-aware directed surface path from every agent group through every
+required waypoint stage and to every declared final exit candidate; message
+timing; and countermeasure references and ordering.
 
 `countermeasure` is a correction of a declared falsehood, so it may only
 reference a `message` with `truth false` and may not precede that message. This

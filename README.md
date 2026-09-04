@@ -203,10 +203,11 @@ correct a truthful message. [The language reference](docs/language.md) and
 $ make verify
 ```
 
-`make verify` formats, lints, tests, and builds every workspace member. The
-CI workflow performs the same checks with a read-only token. Branch protection
-must be configured on the GitHub repository separately; repository files
-cannot enforce it.
+`make verify` formats, lints, tests, validates every checked-in evidence
+catalog, and builds every workspace member. It does not fetch raw data: source
+locks remain an explicit local acquisition step. The CI workflow performs the
+same checks with a read-only token. Branch protection must be configured on the
+GitHub repository separately; repository files cannot enforce it.
 
 ## Project structure
 

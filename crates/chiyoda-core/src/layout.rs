@@ -26,6 +26,9 @@ use xml::{
 
 const OSM_LICENSE: &str = "ODbL-1.0";
 const REQUIRED_OSM_ATTRIBUTION: &str = "OpenStreetMap contributors";
+const OSM_OBSERVATION_SCHEMA_VERSION: &str = "0.1";
+const OSM_OBSERVATION_STATUS: &str = "source_observation_only";
+const OSM_GEOGRAPHIC_COORDINATE_REFERENCE: &str = "WGS84 geographic latitude/longitude copied from the OSM XML; this adapter does not project coordinates into scenario metres or infer elevations.";
 const WGS84_SEMI_MAJOR_AXIS_M: f64 = 6_378_137.0;
 const WGS84_INVERSE_FLATTENING: f64 = 298.257_223_563;
 const LOCAL_PROJECTION_METHOD: &str =
@@ -135,7 +138,17 @@ pub enum OsmLayoutError {
     InvalidObservedCoordinate { field: &'static str, value: f64 },
     #[error("local projection produced a non-finite `{axis}` coordinate")]
     NonFiniteProjection { axis: &'static str },
-    #[error("OSM geographic bounds span {span_degrees} degrees of longitude and are ambiguous at the antimeridian")]
+    #[error(
+        "local projection requires an OSM source-observation report with `{field}` equal to `{expected}`, found `{actual}`"
+    )]
+    InvalidProjectionSourceReport {
+        field: &'static str,
+        expected: &'static str,
+        actual: String,
+    },
+    #[error(
+        "OSM geographic bounds span {span_degrees} degrees of longitude and are ambiguous at the antimeridian"
+    )]
     AmbiguousBoundsLongitudeSpan { span_degrees: f64 },
     #[error("cannot serialize layout observation report for projection provenance: {0}")]
     ProjectionSerialization(serde_json::Error),
@@ -364,7 +377,7 @@ pub fn inspect_openstreetmap_layout(
     let (counts, features) = inspect_osm_xml(&source_path, limits)?;
 
     Ok(OpenStreetMapLayoutReport {
-        schema_version: "0.1".to_owned(),
+        schema_version: OSM_OBSERVATION_SCHEMA_VERSION.to_owned(),
         adapter_version: env!("CARGO_PKG_VERSION").to_owned(),
         source: OpenStreetMapLayoutSource {
             catalog_sha256,
@@ -375,12 +388,11 @@ pub fn inspect_openstreetmap_layout(
             license: catalog.license.clone(),
             required_attribution: attribution.to_owned(),
         },
-        coordinate_reference: "WGS84 geographic latitude/longitude copied from the OSM XML; this adapter does not project coordinates into scenario metres or infer elevations."
-            .to_owned(),
+        coordinate_reference: OSM_GEOGRAPHIC_COORDINATE_REFERENCE.to_owned(),
         inspection_limits: limits.into(),
         counts,
         features,
-        status: "source_observation_only".to_owned(),
+        status: OSM_OBSERVATION_STATUS.to_owned(),
         claim_boundary: "This report preserves a content-locked public map observation. It does not establish map completeness, legal access, indoor connectivity, geometry, elevation, widths, capacities, accessibility, demand, route choice, runtime validity, or any operational or safety outcome.".to_owned(),
         required_authoring: vec![
             "Confirm the source extract, ODbL obligations, and the stated OpenStreetMap attribution before reuse or publication.".to_owned(),
@@ -427,6 +439,7 @@ pub fn project_openstreetmap_layout_report(
     report: &OpenStreetMapLayoutReport,
     origin: GeographicPoint,
 ) -> Result<OpenStreetMapLocalProjectionReport, OsmLayoutError> {
+    validate_projection_source_report(report)?;
     validate_projection_origin(origin)?;
     let source_observation_report_sha256 =
         sha256_bytes(&serde_json::to_vec(report).map_err(OsmLayoutError::ProjectionSerialization)?);
@@ -461,6 +474,49 @@ pub fn project_openstreetmap_layout_report(
             "Do not treat projected way-bound corners as a walkable polygon, path, or projected extent. Author all scenario geometry, capacities, demand, releases, destinations, and behavioral assumptions explicitly, then run sensitivity studies for material best guesses.".to_owned(),
         ],
     })
+}
+
+fn validate_projection_source_report(
+    report: &OpenStreetMapLayoutReport,
+) -> Result<(), OsmLayoutError> {
+    for (field, expected, actual) in [
+        (
+            "schema_version",
+            OSM_OBSERVATION_SCHEMA_VERSION,
+            report.schema_version.as_str(),
+        ),
+        ("status", OSM_OBSERVATION_STATUS, report.status.as_str()),
+        (
+            "coordinate_reference",
+            OSM_GEOGRAPHIC_COORDINATE_REFERENCE,
+            report.coordinate_reference.as_str(),
+        ),
+        (
+            "source.license",
+            OSM_LICENSE,
+            report.source.license.as_str(),
+        ),
+    ] {
+        if actual != expected {
+            return Err(OsmLayoutError::InvalidProjectionSourceReport {
+                field,
+                expected,
+                actual: actual.to_owned(),
+            });
+        }
+    }
+    if !report
+        .source
+        .required_attribution
+        .contains(REQUIRED_OSM_ATTRIBUTION)
+    {
+        return Err(OsmLayoutError::InvalidProjectionSourceReport {
+            field: "source.required_attribution",
+            expected: REQUIRED_OSM_ATTRIBUTION,
+            actual: report.source.required_attribution.clone(),
+        });
+    }
+    Ok(())
 }
 
 /// Rebuild a projected reference from its source-observation report and the
@@ -1337,15 +1393,17 @@ mod tests {
         .expect("projection succeeds");
 
         assert_eq!(projection.status, "source_projection_only");
-        assert_eq!(projection.coordinate_reference.origin.latitude, 1.3);
-        assert_eq!(projection.coordinate_reference.origin.longitude, 103.8);
-        assert_eq!(
-            projection.coordinate_reference.origin_ellipsoidal_height_m,
-            0.0
+        assert!((projection.coordinate_reference.origin.latitude - 1.3).abs() < f64::EPSILON);
+        assert!((projection.coordinate_reference.origin.longitude - 103.8).abs() < f64::EPSILON);
+        assert!(
+            projection
+                .coordinate_reference
+                .origin_ellipsoidal_height_m
+                .abs()
+                < f64::EPSILON
         );
-        assert_eq!(
-            projection.coordinate_reference.output_precision_m,
-            0.000_001
+        assert!(
+            (projection.coordinate_reference.output_precision_m - 0.000_001).abs() < f64::EPSILON
         );
         assert!(projection.coordinate_reference.method.contains("EPSG:9837"));
         assert_eq!(projection.source_observation_report_sha256.len(), 64);
@@ -1358,8 +1416,8 @@ mod tests {
         let ProjectedOsmFeatureGeometry::Point { coordinate } = &origin_feature.geometry else {
             panic!("station node must remain a point")
         };
-        assert_eq!(coordinate.east_m, 0.0);
-        assert_eq!(coordinate.north_m, 0.0);
+        assert!(coordinate.east_m.abs() < f64::EPSILON);
+        assert!(coordinate.north_m.abs() < f64::EPSILON);
 
         let way_feature = projection
             .features
@@ -1374,8 +1432,8 @@ mod tests {
             panic!("way must remain transformed bounds corners")
         };
         assert_eq!(*referenced_node_count, 3);
-        assert_eq!(corners.southwest.east_m, 0.0);
-        assert_eq!(corners.southwest.north_m, 0.0);
+        assert!(corners.southwest.east_m.abs() < f64::EPSILON);
+        assert!(corners.southwest.north_m.abs() < f64::EPSILON);
         assert!(corners.southeast.east_m > 10.0);
         assert!(corners.northwest.north_m > 10.0);
 
@@ -1388,6 +1446,24 @@ mod tests {
         let report = report_from_fixture(
             br#"<osm version="0.6"><node id="1" lat="1.3" lon="103.8"><tag k="entrance" v="yes"/></node></osm>"#,
         );
+        let mut wrong_reference = report.clone();
+        wrong_reference.coordinate_reference = "unverified coordinates".to_owned();
+        let error = project_openstreetmap_layout_report(
+            &wrong_reference,
+            GeographicPoint {
+                latitude: 1.3,
+                longitude: 103.8,
+            },
+        )
+        .expect_err("projection must reject an unverified coordinate reference");
+        assert!(matches!(
+            error,
+            OsmLayoutError::InvalidProjectionSourceReport {
+                field: "coordinate_reference",
+                ..
+            }
+        ));
+
         let error = project_openstreetmap_layout_report(
             &report,
             GeographicPoint {
@@ -1416,6 +1492,29 @@ mod tests {
         assert!(matches!(
             verify_openstreetmap_local_projection_report(&report, &projection),
             Err(OsmLayoutError::ProjectionMismatch)
+        ));
+    }
+
+    #[test]
+    fn local_projection_rejects_antimeridian_ambiguous_way_bounds() {
+        let report = report_from_fixture(
+            br#"<osm version="0.6">
+  <node id="1" lat="0" lon="-179.9"><tag k="railway" v="station"/></node>
+  <node id="2" lat="0" lon="179.9"/>
+  <way id="9"><nd ref="1"/><nd ref="2"/><tag k="highway" v="steps"/></way>
+</osm>"#,
+        );
+        let error = project_openstreetmap_layout_report(
+            &report,
+            GeographicPoint {
+                latitude: 0.0,
+                longitude: 180.0,
+            },
+        )
+        .expect_err("antimeridian-ambiguous source bounds must not be projected");
+        assert!(matches!(
+            error,
+            OsmLayoutError::AmbiguousBoundsLongitudeSpan { .. }
         ));
     }
 }

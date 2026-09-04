@@ -62,6 +62,39 @@ The command checks the report is JSON, verifies its declared byte hash, and
 copies its exact bytes. A URL or source checksum documents selection context; it
 does not transfer validity from a source to this scenario.
 
+### Retaining a local OSM reference
+
+An OSM local-coordinate reference can be retained in exactly the same way. Run
+both layout verifiers before computing the report hash, then declare the report
+as a source for the assumptions it informed:
+
+```console
+$ cargo run -p chiyoda -- layout verify-osm layout-catalog.json observations.json
+$ cargo run -p chiyoda -- layout verify-projection layout-catalog.json \
+    observations.json local-reference.json
+$ sha256sum local-reference.json
+```
+
+```json
+{
+  "id": "station_layout_reference",
+  "citation": "OpenStreetMap contributors (2026), reviewed station-area extract",
+  "url": "https://EXACT-OSM-EXTRACT-URL",
+  "applicability": "provides an attributed, explicitly anchored east/north reference for manual scenario authoring",
+  "limitation": "does not establish surveyed facility geometry, elevations, connectivity, capacity, accessibility, or runtime validity",
+  "source_sha256": "EXACT-64-CHARACTER-OSM-XML-SHA256",
+  "derived_report": {
+    "path": "local-reference.json",
+    "sha256": "EXACT-64-CHARACTER-LOCAL-REFERENCE-SHA256"
+  }
+}
+```
+
+`experiment run` snapshots and rechecks the local-reference byte hash, but it
+does not fetch or revalidate external OSM XML. The two layout commands above
+are therefore required before attaching a report; the experiment remains an
+uncalibrated structural artifact even when the report verified successfully.
+
 ## Run and verify
 
 ```console
