@@ -40,7 +40,9 @@ any remaining tie within an event class.
    offers alternative exits, the runtime compares feasible nominal route costs
    and chooses the shortest; ties resolve by final-exit declaration order and
    then connector declaration order. It re-evaluates that choice only at
-   initial routing or an existing reroute trigger.
+   initial routing or an existing reroute trigger. A controlled exit's cost
+   includes the walk to its selected gate and the subsequent walk to the exit,
+   but not its gate-service delay.
 4. Accrue gate, declared connector, and declared exit service tokens at their authored
    people-per-second rates. Each resource begins empty and stores at most one
    authored rate's worth of credit, with a one-person minimum for rates below

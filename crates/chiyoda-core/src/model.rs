@@ -471,6 +471,7 @@ pub struct Scenario {
     pub exits: Vec<Exit>,
     pub connectors: Vec<Connector>,
     pub connector_states: Vec<ConnectorStateChange>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub exit_states: Vec<ExitStateChange>,
     pub gates: Vec<Gate>,
     pub agents: Vec<AgentGroup>,

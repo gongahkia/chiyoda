@@ -49,7 +49,9 @@ creation and each existing reroute trigger, the runtime selects the candidate
 with the shortest currently feasible nominal route; source order breaks exact
 ties. An alternative must be a distinct declared exit and, like the primary
 exit, must be statically reachable after every required waypoint. This is a
-transparent routing rule, not an inferred exit-preference model.
+transparent routing rule, not an inferred exit-preference model. When an exit
+has a gate, its nominal route includes the walk to the selected gate and from
+that gate to the exit, but does not forecast gate service queues.
 Each `exclude` is a hard route constraint on one connector class. Omission
 permits all connector classes; it does not assign an inferred mobility,
 disability, or accessibility profile. Duplicate exclusions are rejected and

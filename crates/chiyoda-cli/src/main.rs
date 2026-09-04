@@ -7,6 +7,7 @@ use chiyoda_core::{
 use clap::{Parser, Subcommand, ValueEnum};
 use serde::{Deserialize, Serialize};
 use std::{
+    collections::BTreeMap,
     fs,
     path::{Path, PathBuf},
 };
@@ -148,6 +149,8 @@ struct SweepRun {
     bundle_hash: String,
     total_agents: u32,
     evacuated_agents: u32,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    evacuated_by_exit: BTreeMap<String, u32>,
     clearance_time_s: Option<f64>,
 }
 
@@ -324,6 +327,7 @@ fn run_sweep(first_seed: u64, count: u32, output: &Path, trace_every_steps: u32)
             bundle_hash: bundle.bundle_hash,
             total_agents: bundle.metrics.total_agents,
             evacuated_agents: bundle.metrics.evacuated_agents,
+            evacuated_by_exit: bundle.metrics.evacuated_by_exit.clone(),
             clearance_time_s: bundle.metrics.clearance_time_s,
         });
     }
@@ -391,6 +395,7 @@ fn verify_sweep(directory: &Path) -> Result<()> {
             || record.bundle_hash != bundle.bundle_hash
             || record.total_agents != bundle.metrics.total_agents
             || record.evacuated_agents != bundle.metrics.evacuated_agents
+            || record.evacuated_by_exit != bundle.metrics.evacuated_by_exit
             || record.clearance_time_s != bundle.metrics.clearance_time_s
         {
             bail!(

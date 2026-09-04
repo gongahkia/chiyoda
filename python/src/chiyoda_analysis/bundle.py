@@ -45,6 +45,15 @@ def summarize(bundle: dict[str, Any]) -> dict[str, Any]:
     scenario_body = scenario.get("scenario")
     if not isinstance(scenario_body, dict):
         raise BundleError("bundle scenario body is malformed")
+    evacuated_by_exit = metrics.get("evacuated_by_exit", {})
+    if not isinstance(evacuated_by_exit, dict) or any(
+        not isinstance(exit_id, str)
+        or not isinstance(count, int)
+        or isinstance(count, bool)
+        or count < 0
+        for exit_id, count in evacuated_by_exit.items()
+    ):
+        raise BundleError("metrics.evacuated_by_exit must map exit identifiers to counts")
     return {
         "bundle_hash": bundle.get("bundle_hash"),
         "scenario_hash": bundle.get("scenario_hash"),
@@ -52,6 +61,7 @@ def summarize(bundle: dict[str, Any]) -> dict[str, Any]:
         "runtime_version": bundle.get("runtime_version"),
         "frames": len(bundle.get("trace", [])),
         "events": len(bundle.get("events", [])),
+        "evacuated_by_exit": evacuated_by_exit,
         "metrics": metrics,
     }
 

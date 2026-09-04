@@ -57,10 +57,10 @@ The first replay command verifies a bundle hash and prints a summary. The
 second opens the native replay viewer; it requires an available Linux display
 server. `sweep` is an uncalibrated structural experiment: it generates and
 runs a contiguous seed range, writes one independently hash-verifiable bundle
-per seed, and records their summaries in `summary.json`. `verify-sweep`
-cross-checks that summary against every bundle and its canonical source. The
-output directory must be empty, and the workflow does not require a benchmark
-manifest or research data.
+per seed, and records their summaries in `summary.json`, including final-exit
+attribution counts. `verify-sweep` cross-checks that summary against every
+bundle and its canonical source. The output directory must be empty, and the
+workflow does not require a benchmark manifest or research data.
 
 ## Research data intake
 

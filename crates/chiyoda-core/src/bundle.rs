@@ -48,6 +48,12 @@ pub struct RunEvent {
 pub struct RunMetrics {
     pub total_agents: u32,
     pub evacuated_agents: u32,
+    /// Counts completed evacuations by the final exit selected at runtime.
+    ///
+    /// The omission rule keeps bundles made before exit attribution
+    /// hash-verifiable after deserialization.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub evacuated_by_exit: BTreeMap<String, u32>,
     pub clearance_time_s: Option<f64>,
     pub mean_exit_time_s: Option<f64>,
     pub queued_for_lift_agents: u32,

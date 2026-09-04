@@ -183,11 +183,20 @@ agents passengers count 1 on concourse at (1m, 1m, 0m) to primary speed 1m/s rad
 "#;
     let scenario = parse(source).expect("source parses");
     let bundle = run(&scenario, RunOptions::default()).expect("rerouted fallback runs");
+    let encoded = serde_json::to_value(&bundle).expect("bundle serializes to JSON");
+    assert!(encoded["scenario"]["scenario"].get("exit_states").is_some());
+    let round_trip: RunBundle = serde_json::from_value(encoded).expect("bundle deserializes");
+    assert!(round_trip.verifies_hash());
     assert!(bundle.events.iter().any(|event| {
         event.kind == "exit_state_changed"
             && event.subject == "primary"
             && event.detail == "closure: closed"
     }));
+    assert_eq!(
+        bundle.metrics.evacuated_by_exit.get("fallback"),
+        Some(&1),
+        "the metric must attribute the rerouted evacuation to its final exit"
+    );
     assert!(
         bundle
             .events
@@ -227,6 +236,29 @@ agents passengers count 1 on concourse at (1m, 1m, 0m) to street speed 1m/s radi
             .events
             .iter()
             .any(|event| event.kind == "evacuated" && event.detail == "street")
+    );
+}
+
+#[test]
+fn alternative_exit_selection_prices_the_gate_path_to_a_final_exit() {
+    let source = r#"
+scenario "gate-aware-exit-selection"
+seed 1
+duration 8s
+timestep 1s
+surface concourse at (0m, 0m, 0m) size (12m, 10m)
+exit primary on concourse at (2m, 1m, 0m) width 2m
+exit fallback on concourse at (5m, 1m, 0m) width 2m
+gate distant_gate on concourse at (9m, 1m, 0m) width 2m capacity 10/s to primary
+agents passengers count 1 on concourse at (1m, 1m, 0m) to primary speed 1m/s radius 0.3m height 1.7m alternative fallback
+"#;
+    let scenario = parse(source).expect("source parses");
+    let bundle = run(&scenario, RunOptions::default()).expect("run succeeds");
+    assert!(
+        bundle
+            .events
+            .iter()
+            .any(|event| event.kind == "evacuated" && event.detail == "fallback")
     );
 }
 
@@ -335,6 +367,11 @@ fn runtime_is_reproducible_and_information_recomputes_routes() {
 
     assert_eq!(first.bundle_hash, second.bundle_hash);
     assert!(first.verifies_hash());
+    let encoded = serde_json::to_value(&first).expect("bundle serializes to JSON");
+    assert!(
+        encoded["scenario"]["scenario"].get("exit_states").is_none(),
+        "an empty state collection must preserve the existing bundle encoding"
+    );
     let serialized = serde_json::to_string(&first).expect("bundle serializes");
     let round_trip: RunBundle = serde_json::from_str(&serialized).expect("bundle deserializes");
     assert!(round_trip.verifies_hash());

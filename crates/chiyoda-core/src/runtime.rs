@@ -88,6 +88,8 @@ struct Agent {
     destination: String,
     /// All declared final exits, in source order, for later rerouting.
     exit_candidates: Vec<String>,
+    /// The gate selected with the current final-exit plan, if that exit has one.
+    final_gate: Option<String>,
     via: Vec<String>,
     via_cursor: usize,
     speed_mps: f64,
@@ -130,6 +132,7 @@ struct RoutePlan {
 struct PlannedTarget {
     target: RouteTarget,
     plan: RoutePlan,
+    final_gate: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -497,12 +500,21 @@ pub fn run(scenario: &Scenario, options: RunOptions) -> Result<RunBundle, RunErr
         })
         .collect();
     let evacuated_agents = u32::try_from(exit_times.len()).expect("agent count fits u32");
+    let mut evacuated_by_exit = BTreeMap::new();
+    for agent in &agents {
+        if matches!(agent.motion, Motion::Evacuated { .. }) {
+            *evacuated_by_exit
+                .entry(agent.destination.clone())
+                .or_default() += 1;
+        }
+    }
     let clearance_time_s = exit_times.iter().copied().reduce(f64::max);
     let mean_exit_time_s =
         (!exit_times.is_empty()).then(|| exit_times.iter().sum::<f64>() / exit_times.len() as f64);
     let metrics = RunMetrics {
         total_agents: u32::try_from(agents.len()).expect("agent count fits u32"),
         evacuated_agents,
+        evacuated_by_exit,
         clearance_time_s,
         mean_exit_time_s,
         queued_for_lift_agents: u32::try_from(resources.queued_for_lift_agents.len())
@@ -551,17 +563,21 @@ fn spawn_agents(
                 closed_exits,
             );
             let waiting_for_route = planned.is_none();
-            let (route, destination) = match planned {
+            let (route, destination, final_gate) = match planned {
                 Some(planned) => {
                     let destination = if planned.target.is_exit {
                         planned.target.id
                     } else {
                         group.destination.clone()
                     };
-                    (planned.plan.connector_indices, destination)
+                    (
+                        planned.plan.connector_indices,
+                        destination,
+                        planned.final_gate,
+                    )
                 }
                 None if group_plan_becomes_available(scenario, route_start, group) => {
-                    (Vec::new(), group.destination.clone())
+                    (Vec::new(), group.destination.clone(), None)
                 }
                 None => {
                     return Err(RunError::NoRoute {
@@ -577,6 +593,7 @@ fn spawn_agents(
                 position,
                 destination,
                 exit_candidates: group.exit_candidates().map(str::to_owned).collect(),
+                final_gate,
                 via: group.via.clone(),
                 via_cursor: 0,
                 speed_mps: group.speed_mps,
@@ -667,7 +684,11 @@ fn plan_for_stage<'a>(
     if let Some(waypoint_id) = waypoint_id {
         let target = waypoint_target(scenario, waypoint_id)?;
         let plan = route_to_target_avoiding(scenario, start, &target, blocked_connectors)?;
-        return Some(PlannedTarget { target, plan });
+        return Some(PlannedTarget {
+            target,
+            plan,
+            final_gate: None,
+        });
     }
     select_exit_plan(
         scenario,
@@ -693,8 +714,16 @@ fn select_exit_plan<'a>(
                 return None;
             }
             let target = exit_target(scenario, destination)?;
-            let plan = route_to_target_avoiding(scenario, start, &target, blocked_connectors)?;
-            Some((index, PlannedTarget { target, plan }))
+            let (plan, final_gate) =
+                route_to_exit_target(scenario, start, &target, blocked_connectors)?;
+            Some((
+                index,
+                PlannedTarget {
+                    target,
+                    plan,
+                    final_gate,
+                },
+            ))
         })
         .min_by(|(left_index, left), (right_index, right)| {
             left.plan
@@ -703,6 +732,54 @@ fn select_exit_plan<'a>(
                 .then(left_index.cmp(right_index))
         })
         .map(|(_, planned)| planned)
+}
+
+fn route_to_exit_target(
+    scenario: &Scenario,
+    start: RouteStart<'_>,
+    exit: &RouteTarget,
+    blocked_connectors: &HashSet<String>,
+) -> Option<(RoutePlan, Option<String>)> {
+    let gates: Vec<_> = scenario
+        .gates
+        .iter()
+        .filter(|gate| gate.destination == exit.id)
+        .collect();
+    if gates.is_empty() {
+        return route_to_target_avoiding(scenario, start, exit, blocked_connectors)
+            .map(|plan| (plan, None));
+    }
+    gates
+        .into_iter()
+        .enumerate()
+        .filter_map(|(index, gate)| {
+            let gate_target = RouteTarget {
+                id: gate.id.clone(),
+                surface: gate.surface.clone(),
+                at: gate.at,
+                is_exit: false,
+                dwell_s: 0.0,
+            };
+            let mut plan =
+                route_to_target_avoiding(scenario, start, &gate_target, blocked_connectors)?;
+            let final_walk_s = walking_duration_s(
+                scenario,
+                &gate.surface,
+                gate.at,
+                exit.at,
+                start.radius_m,
+                start.walking_speed_mps,
+            )?;
+            plan.nominal_duration_s += final_walk_s;
+            Some((index, plan, gate.id.clone()))
+        })
+        .min_by(|(left_index, left_plan, _), (right_index, right_plan, _)| {
+            left_plan
+                .nominal_duration_s
+                .total_cmp(&right_plan.nominal_duration_s)
+                .then(left_index.cmp(right_index))
+        })
+        .map(|(_, plan, gate_id)| (plan, Some(gate_id)))
 }
 
 fn agent_target(scenario: &Scenario, agent: &Agent) -> Option<RouteTarget> {
@@ -1242,6 +1319,7 @@ fn reroute(
         if planned.target.is_exit {
             agent.destination.clone_from(&planned.target.id);
         }
+        agent.final_gate = planned.final_gate;
         agent.route = planned.plan.connector_indices;
         agent.route_cursor = 0;
         agent.waiting_connector = None;
@@ -1398,11 +1476,13 @@ fn integrate(
                         let target =
                             agent_target(scenario, agent).expect("validated journey target exists");
                         if target.is_exit {
-                            let gate = scenario.gates.iter().find(|gate| {
-                                gate.surface == agent.surface
-                                    && gate.destination == agent.destination
-                                    && !agent.passed_gates.contains(&gate.id)
-                            });
+                            let gate = agent
+                                .final_gate
+                                .as_deref()
+                                .filter(|gate_id| !agent.passed_gates.contains(*gate_id))
+                                .and_then(|gate_id| {
+                                    scenario.gates.iter().find(|gate| gate.id == gate_id)
+                                });
                             match gate {
                                 Some(gate) => (gate.at, None, Some(gate.id.clone()), None),
                                 None => (target.at, None, None, None),
@@ -1451,6 +1531,7 @@ fn integrate(
                                 if planned.target.is_exit {
                                     agent.destination.clone_from(&planned.target.id);
                                 }
+                                agent.final_gate = planned.final_gate;
                                 agent.route = planned.plan.connector_indices;
                                 agent.route_cursor = 0;
                                 events.push(RunEvent {
