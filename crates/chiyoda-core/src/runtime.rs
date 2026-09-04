@@ -1,6 +1,9 @@
 use crate::{
     bundle::{AgentSnapshot, AgentState, RunBundle, RunEvent, RunMetrics, TraceFrame},
-    model::{CanonicalScenario, Point3, Scenario, Surface},
+    model::{
+        CanonicalScenario, ConnectorKind, NAVIGATION_CLEARANCE_EPSILON_M, Obstacle, Point3,
+        Scenario, Surface,
+    },
     validate,
 };
 use std::{
@@ -54,6 +57,13 @@ impl std::error::Error for RunError {}
 
 #[derive(Debug, Clone)]
 enum Motion {
+    WaitingToDepart {
+        release_at_s: f64,
+    },
+    WaitingAtWaypoint {
+        until_s: f64,
+        waypoint_id: String,
+    },
     OnSurface,
     Transit {
         connector_index: usize,
@@ -74,18 +84,73 @@ struct Agent {
     group: String,
     surface: String,
     position: Point3,
+    /// The final exit selected by the most recent route computation.
     destination: String,
+    /// All declared final exits, in source order, for later rerouting.
+    exit_candidates: Vec<String>,
+    via: Vec<String>,
+    via_cursor: usize,
     speed_mps: f64,
     radius_m: f64,
+    height_m: f64,
+    excluded_connector_kinds: Vec<ConnectorKind>,
     route: Vec<usize>,
     route_cursor: usize,
     motion: Motion,
     beliefs: BTreeMap<String, f64>,
     blocked_connectors: HashSet<String>,
     passed_gates: HashSet<String>,
+    waiting_connector: Option<ConnectorWait>,
+    waiting_for_route: bool,
+    waiting_for_exit: bool,
+}
+
+#[derive(Debug, Clone, Copy)]
+enum ConnectorWait {
+    Lift,
+    Capacity,
+}
+
+#[derive(Debug, Clone)]
+struct RouteTarget {
+    id: String,
+    surface: String,
+    at: Point3,
+    is_exit: bool,
+    dwell_s: f64,
+}
+
+#[derive(Debug, Clone)]
+struct RoutePlan {
+    connector_indices: Vec<usize>,
+    nominal_duration_s: f64,
+}
+
+#[derive(Debug, Clone)]
+struct PlannedTarget {
+    target: RouteTarget,
+    plan: RoutePlan,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct RouteStart<'a> {
+    surface: &'a str,
+    position: Point3,
+    walking_speed_mps: f64,
+    radius_m: f64,
+    height_m: f64,
+    excluded_connector_kinds: &'a [ConnectorKind],
+}
+
+impl RouteStart<'_> {
+    fn allows_connector(self, connector: &crate::model::Connector) -> bool {
+        connector.supports_height(self.height_m)
+            && !self.excluded_connector_kinds.contains(&connector.kind())
+    }
 }
 
 const SPATIAL_CELL_M: f64 = 1.0;
+const NAVIGATION_EPSILON_M: f64 = NAVIGATION_CLEARANCE_EPSILON_M;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 struct CellKey {
@@ -96,25 +161,215 @@ struct CellKey {
 
 #[derive(Debug)]
 struct SpatialSnapshot {
-    positions: Vec<(String, Point3, f64)>,
+    positions: Vec<Option<(String, Point3, f64)>>,
     cells: HashMap<CellKey, Vec<usize>>,
     max_radius_m: f64,
+}
+
+#[derive(Debug)]
+struct RuntimeResources {
+    queued_for_lift_agents: HashSet<String>,
+    queued_for_connector_agents: HashSet<String>,
+    queued_for_gate_agents: HashSet<String>,
+    queued_for_exit_agents: HashSet<String>,
+    closed_connectors: HashSet<String>,
+    connector_tokens: HashMap<usize, f64>,
+    gate_tokens: HashMap<String, f64>,
+    exit_tokens: HashMap<String, f64>,
+}
+
+impl RuntimeResources {
+    fn for_scenario(scenario: &Scenario) -> Self {
+        Self {
+            queued_for_lift_agents: HashSet::new(),
+            queued_for_connector_agents: HashSet::new(),
+            queued_for_gate_agents: HashSet::new(),
+            queued_for_exit_agents: HashSet::new(),
+            closed_connectors: closed_connectors_at(scenario, 0.0),
+            connector_tokens: scenario
+                .connectors
+                .iter()
+                .enumerate()
+                .filter_map(|(index, connector)| {
+                    connector.service_rate_per_s().map(|_| (index, 0.0))
+                })
+                .collect(),
+            gate_tokens: scenario
+                .gates
+                .iter()
+                .map(|gate| (gate.id.clone(), 0.0))
+                .collect(),
+            exit_tokens: scenario
+                .exits
+                .iter()
+                .filter_map(|exit| exit.capacity_per_s.map(|_| (exit.id.clone(), 0.0)))
+                .collect(),
+        }
+    }
+}
+
+fn closed_connectors_at(scenario: &Scenario, time_s: f64) -> HashSet<String> {
+    scenario
+        .connectors
+        .iter()
+        .filter(|connector| !scenario.connector_open_at(connector.id(), time_s))
+        .map(|connector| connector.id().to_owned())
+        .collect()
+}
+
+fn initial_connector_state_events(scenario: &Scenario) -> Vec<RunEvent> {
+    scenario
+        .connector_states
+        .iter()
+        .filter(|change| change.at_s == 0.0)
+        .map(connector_state_event)
+        .collect()
+}
+
+enum ScheduledEvent<'a> {
+    ConnectorState(&'a crate::model::ConnectorStateChange),
+    Message(&'a crate::model::Message),
+    Countermeasure(&'a crate::model::Countermeasure),
+}
+
+fn apply_scheduled_events(
+    scenario: &Scenario,
+    agents: &mut [Agent],
+    time_s: f64,
+    events: &mut Vec<RunEvent>,
+    resources: &mut RuntimeResources,
+) {
+    let previous_time = time_s - scenario.timestep_s;
+    let is_scheduled = |at_s: f64| previous_time < at_s && at_s <= time_s;
+    let mut scheduled = Vec::new();
+    scheduled.extend(
+        scenario
+            .connector_states
+            .iter()
+            .enumerate()
+            .filter(|(_, change)| 0.0 < change.at_s && is_scheduled(change.at_s))
+            .map(|(index, change)| {
+                (
+                    change.at_s,
+                    0_u8,
+                    index,
+                    ScheduledEvent::ConnectorState(change),
+                )
+            }),
+    );
+    scheduled.extend(
+        scenario
+            .messages
+            .iter()
+            .enumerate()
+            .filter(|(_, message)| is_scheduled(message.at_s))
+            .map(|(index, message)| (message.at_s, 1_u8, index, ScheduledEvent::Message(message))),
+    );
+    scheduled.extend(
+        scenario
+            .countermeasures
+            .iter()
+            .enumerate()
+            .filter(|(_, countermeasure)| is_scheduled(countermeasure.at_s))
+            .map(|(index, countermeasure)| {
+                (
+                    countermeasure.at_s,
+                    2_u8,
+                    index,
+                    ScheduledEvent::Countermeasure(countermeasure),
+                )
+            }),
+    );
+    scheduled.sort_by(|left, right| {
+        left.0
+            .total_cmp(&right.0)
+            .then(left.1.cmp(&right.1))
+            .then(left.2.cmp(&right.2))
+    });
+    for (_, _, _, event) in scheduled {
+        match event {
+            ScheduledEvent::ConnectorState(change) => {
+                apply_connector_state_change(scenario, agents, change, events, resources);
+            }
+            ScheduledEvent::Message(message) => {
+                deliver_message(
+                    scenario,
+                    agents,
+                    message,
+                    events,
+                    &resources.closed_connectors,
+                );
+            }
+            ScheduledEvent::Countermeasure(countermeasure) => {
+                deliver_countermeasure(
+                    scenario,
+                    agents,
+                    countermeasure,
+                    events,
+                    &resources.closed_connectors,
+                );
+            }
+        }
+    }
+}
+
+fn apply_connector_state_change(
+    scenario: &Scenario,
+    agents: &mut [Agent],
+    change: &crate::model::ConnectorStateChange,
+    events: &mut Vec<RunEvent>,
+    resources: &mut RuntimeResources,
+) {
+    if change.open {
+        resources.closed_connectors.remove(&change.connector);
+    } else {
+        resources.closed_connectors.insert(change.connector.clone());
+    }
+    events.push(connector_state_event(change));
+    for agent in agents.iter_mut() {
+        reroute(
+            scenario,
+            agent,
+            change.at_s,
+            events,
+            &resources.closed_connectors,
+        );
+    }
+}
+
+fn connector_state_event(change: &crate::model::ConnectorStateChange) -> RunEvent {
+    RunEvent {
+        time_s: change.at_s,
+        kind: "connector_state_changed".to_owned(),
+        subject: change.connector.clone(),
+        detail: format!(
+            "{}: {}",
+            change.id,
+            if change.open { "open" } else { "closed" }
+        ),
+    }
 }
 
 impl SpatialSnapshot {
     fn from_agents(agents: &[Agent]) -> Self {
         let positions: Vec<_> = agents
             .iter()
-            .map(|agent| (agent.surface.clone(), agent.position, agent.radius_m))
+            .map(|agent| {
+                matches!(agent.motion, Motion::OnSurface)
+                    .then(|| (agent.surface.clone(), agent.position, agent.radius_m))
+            })
             .collect();
         let max_radius_m = positions
             .iter()
-            .map(|(_, _, radius)| *radius)
+            .filter_map(|position| position.as_ref().map(|(_, _, radius)| *radius))
             .fold(0.0_f64, f64::max);
         let mut cells: HashMap<CellKey, Vec<usize>> = HashMap::new();
-        for (index, (surface, position, _)) in positions.iter().enumerate() {
+        for (index, position) in positions.iter().enumerate() {
+            let Some((surface, point, _)) = position else {
+                continue;
+            };
             cells
-                .entry(cell_key(surface, *position))
+                .entry(cell_key(surface, *point))
                 .or_default()
                 .push(index);
         }
@@ -140,36 +395,16 @@ pub fn run(scenario: &Scenario, options: RunOptions) -> Result<RunBundle, RunErr
         ));
     }
     let canonical = CanonicalScenario::from(scenario.clone());
-    let mut agents = spawn_agents(scenario)?;
+    let mut resources = RuntimeResources::for_scenario(scenario);
+    let mut agents = spawn_agents(scenario, &resources.closed_connectors)?;
     let step_count = (scenario.duration_s / scenario.timestep_s).ceil() as u64;
     let mut trace = vec![snapshot(0, 0.0, &agents)];
-    let mut events = Vec::new();
-    let mut queued_for_lift_agents = HashSet::new();
-    let mut queued_for_gate_agents = HashSet::new();
-    let mut gate_tokens: HashMap<String, f64> = scenario
-        .gates
-        .iter()
-        .map(|gate| (gate.id.clone(), 0.0))
-        .collect();
+    let mut events = initial_connector_state_events(scenario);
 
     for step in 1..=step_count {
         let time_s = (step as f64) * scenario.timestep_s;
-        apply_information(
-            scenario,
-            &mut agents,
-            time_s,
-            scenario.timestep_s,
-            &mut events,
-        );
-        integrate(
-            scenario,
-            &mut agents,
-            time_s,
-            &mut events,
-            &mut queued_for_lift_agents,
-            &mut queued_for_gate_agents,
-            &mut gate_tokens,
-        );
+        apply_scheduled_events(scenario, &mut agents, time_s, &mut events, &mut resources);
+        integrate(scenario, &mut agents, time_s, &mut events, &mut resources);
         if step % u64::from(options.trace_every_steps) == 0 || step == step_count {
             trace.push(snapshot(step, time_s, &agents));
         }
@@ -179,7 +414,10 @@ pub fn run(scenario: &Scenario, options: RunOptions) -> Result<RunBundle, RunErr
         .iter()
         .filter_map(|agent| match agent.motion {
             Motion::Evacuated { at_s } => Some(at_s),
-            Motion::OnSurface | Motion::Transit { .. } => None,
+            Motion::WaitingToDepart { .. }
+            | Motion::WaitingAtWaypoint { .. }
+            | Motion::OnSurface
+            | Motion::Transit { .. } => None,
         })
         .collect();
     let evacuated_agents = u32::try_from(exit_times.len()).expect("agent count fits u32");
@@ -191,9 +429,13 @@ pub fn run(scenario: &Scenario, options: RunOptions) -> Result<RunBundle, RunErr
         evacuated_agents,
         clearance_time_s,
         mean_exit_time_s,
-        queued_for_lift_agents: u32::try_from(queued_for_lift_agents.len())
+        queued_for_lift_agents: u32::try_from(resources.queued_for_lift_agents.len())
             .expect("agent count fits u32"),
-        queued_for_gate_agents: u32::try_from(queued_for_gate_agents.len())
+        queued_for_connector_agents: u32::try_from(resources.queued_for_connector_agents.len())
+            .expect("agent count fits u32"),
+        queued_for_gate_agents: u32::try_from(resources.queued_for_gate_agents.len())
+            .expect("agent count fits u32"),
+        queued_for_exit_agents: u32::try_from(resources.queued_for_exit_agents.len())
             .expect("agent count fits u32"),
     };
     let options = BTreeMap::from([
@@ -203,93 +445,216 @@ pub fn run(scenario: &Scenario, options: RunOptions) -> Result<RunBundle, RunErr
         ),
         (
             "integration".to_owned(),
-            "deterministic-euler-0.1".to_owned(),
+            "deterministic-euler-0.14".to_owned(),
         ),
     ]);
     Ok(RunBundle::new(canonical, options, trace, events, metrics))
 }
 
-fn spawn_agents(scenario: &Scenario) -> Result<Vec<Agent>, RunError> {
+fn spawn_agents(
+    scenario: &Scenario,
+    closed_connectors: &HashSet<String>,
+) -> Result<Vec<Agent>, RunError> {
     let mut agents = Vec::new();
     for group in &scenario.agents {
-        let route = route_to_exit(
-            scenario,
-            &group.surface,
-            group.at,
-            group.speed_mps,
-            &group.destination,
-        )
-        .ok_or_else(|| {
-                RunError::NoRoute {
-                    agent_group: group.id.clone(),
-                    destination: group.destination.clone(),
+        for (ordinal, position) in group.spawn_positions().enumerate() {
+            let route_start = RouteStart {
+                surface: &group.surface,
+                position,
+                walking_speed_mps: group.speed_mps,
+                radius_m: group.radius_m,
+                height_m: group.height_m,
+                excluded_connector_kinds: &group.excluded_connector_kinds,
+            };
+            let planned = group_plan(scenario, route_start, group, closed_connectors);
+            let waiting_for_route = planned.is_none();
+            let (route, destination) = match planned {
+                Some(planned) => {
+                    let destination = planned
+                        .target
+                        .is_exit
+                        .then_some(planned.target.id)
+                        .unwrap_or_else(|| group.destination.clone());
+                    (planned.plan.connector_indices, destination)
                 }
-            })?;
-        let columns = grid_columns(group.count);
-        let spacing = group.radius_m * 2.1;
-        for ordinal in 0..group.count {
-            let column = ordinal % columns;
-            let row = ordinal / columns;
+                None if group_plan_becomes_available(scenario, route_start, group) => {
+                    (Vec::new(), group.destination.clone())
+                }
+                None => {
+                    return Err(RunError::NoRoute {
+                        agent_group: group.id.clone(),
+                        destination: group.destination.clone(),
+                    });
+                }
+            };
             agents.push(Agent {
                 id: format!("{}:{ordinal}", group.id),
                 group: group.id.clone(),
                 surface: group.surface.clone(),
-                position: Point3 {
-                    x_m: group.at.x_m + f64::from(column) * spacing,
-                    y_m: group.at.y_m + f64::from(row) * spacing,
-                    z_m: group.at.z_m,
-                },
-                destination: group.destination.clone(),
+                position,
+                destination,
+                exit_candidates: group.exit_candidates().map(str::to_owned).collect(),
+                via: group.via.clone(),
+                via_cursor: 0,
                 speed_mps: group.speed_mps,
                 radius_m: group.radius_m,
-                route: route.clone(),
+                height_m: group.height_m,
+                excluded_connector_kinds: group.excluded_connector_kinds.clone(),
+                route,
                 route_cursor: 0,
-                motion: Motion::OnSurface,
+                motion: if group.release_at_s == 0.0 {
+                    Motion::OnSurface
+                } else {
+                    Motion::WaitingToDepart {
+                        release_at_s: group.release_at_s,
+                    }
+                },
                 beliefs: BTreeMap::new(),
                 blocked_connectors: HashSet::new(),
                 passed_gates: HashSet::new(),
+                waiting_connector: None,
+                waiting_for_route,
+                waiting_for_exit: false,
             });
         }
     }
     Ok(agents)
 }
 
-fn grid_columns(count: u32) -> u32 {
-    let mut columns = 1_u32;
-    while columns.saturating_mul(columns) < count {
-        columns += 1;
-    }
-    columns
+fn group_plan_becomes_available(
+    scenario: &Scenario,
+    start: RouteStart<'_>,
+    group: &crate::model::AgentGroup,
+) -> bool {
+    scenario
+        .connector_states
+        .iter()
+        .filter(|change| change.at_s > 0.0)
+        .any(|change| {
+            let closed_connectors = closed_connectors_at(scenario, change.at_s);
+            group_plan(scenario, start, group, &closed_connectors).is_some()
+        })
 }
 
-fn route_to_exit(
+fn group_plan(
     scenario: &Scenario,
-    start_surface: &str,
-    start: Point3,
-    walking_speed_mps: f64,
-    exit_id: &str,
-) -> Option<Vec<usize>> {
-    route_to_exit_avoiding(
+    start: RouteStart<'_>,
+    group: &crate::model::AgentGroup,
+    blocked_connectors: &HashSet<String>,
+) -> Option<PlannedTarget> {
+    plan_for_stage(
         scenario,
-        start_surface,
         start,
-        walking_speed_mps,
-        exit_id,
-        &HashSet::new(),
+        group.via.first().map(String::as_str),
+        group.exit_candidates(),
+        blocked_connectors,
     )
 }
 
-fn route_to_exit_avoiding(
+fn agent_plan(
     scenario: &Scenario,
-    start_surface: &str,
-    start: Point3,
-    walking_speed_mps: f64,
-    exit_id: &str,
+    start: RouteStart<'_>,
+    agent: &Agent,
     blocked_connectors: &HashSet<String>,
-) -> Option<Vec<usize>> {
+) -> Option<PlannedTarget> {
+    plan_for_stage(
+        scenario,
+        start,
+        agent.via.get(agent.via_cursor).map(String::as_str),
+        agent.exit_candidates.iter().map(String::as_str),
+        blocked_connectors,
+    )
+}
+
+fn plan_for_stage<'a>(
+    scenario: &Scenario,
+    start: RouteStart<'_>,
+    waypoint_id: Option<&str>,
+    destinations: impl IntoIterator<Item = &'a str>,
+    blocked_connectors: &HashSet<String>,
+) -> Option<PlannedTarget> {
+    if let Some(waypoint_id) = waypoint_id {
+        let target = waypoint_target(scenario, waypoint_id)?;
+        let plan = route_to_target_avoiding(scenario, start, &target, blocked_connectors)?;
+        return Some(PlannedTarget { target, plan });
+    }
+    select_exit_plan(scenario, start, destinations, blocked_connectors)
+}
+
+fn select_exit_plan<'a>(
+    scenario: &Scenario,
+    start: RouteStart<'_>,
+    destinations: impl IntoIterator<Item = &'a str>,
+    blocked_connectors: &HashSet<String>,
+) -> Option<PlannedTarget> {
+    destinations
+        .into_iter()
+        .enumerate()
+        .filter_map(|(index, destination)| {
+            let target = exit_target(scenario, destination)?;
+            let plan = route_to_target_avoiding(scenario, start, &target, blocked_connectors)?;
+            Some((index, PlannedTarget { target, plan }))
+        })
+        .min_by(|(left_index, left), (right_index, right)| {
+            left.plan
+                .nominal_duration_s
+                .total_cmp(&right.plan.nominal_duration_s)
+                .then(left_index.cmp(right_index))
+        })
+        .map(|(_, planned)| planned)
+}
+
+fn agent_target(scenario: &Scenario, agent: &Agent) -> Option<RouteTarget> {
+    if let Some(waypoint_id) = agent.via.get(agent.via_cursor) {
+        return waypoint_target(scenario, waypoint_id);
+    }
+    exit_target(scenario, &agent.destination)
+}
+
+fn waypoint_target(scenario: &Scenario, waypoint_id: &str) -> Option<RouteTarget> {
+    let waypoint = scenario
+        .waypoints
+        .iter()
+        .find(|waypoint| waypoint.id == waypoint_id)?;
+    Some(RouteTarget {
+        id: waypoint.id.clone(),
+        surface: waypoint.surface.clone(),
+        at: waypoint.at,
+        is_exit: false,
+        dwell_s: waypoint.dwell_s,
+    })
+}
+
+fn exit_target(scenario: &Scenario, exit_id: &str) -> Option<RouteTarget> {
     let exit = scenario.exits.iter().find(|exit| exit.id == exit_id)?;
-    if start_surface == exit.surface {
-        return Some(Vec::new());
+    Some(RouteTarget {
+        id: exit.id.clone(),
+        surface: exit.surface.clone(),
+        at: exit.at,
+        is_exit: true,
+        dwell_s: 0.0,
+    })
+}
+
+fn route_to_target_avoiding(
+    scenario: &Scenario,
+    start: RouteStart<'_>,
+    target: &RouteTarget,
+    blocked_connectors: &HashSet<String>,
+) -> Option<RoutePlan> {
+    if start.surface == target.surface {
+        return walking_duration_s(
+            scenario,
+            start.surface,
+            start.position,
+            target.at,
+            start.radius_m,
+            start.walking_speed_mps,
+        )
+        .map(|nominal_duration_s| RoutePlan {
+            connector_indices: Vec::new(),
+            nominal_duration_s,
+        });
     }
 
     // Connector nodes retain the arrival point needed to price the following
@@ -301,14 +666,23 @@ fn route_to_exit_avoiding(
     let mut settled = vec![false; connector_count];
     for (index, connector) in scenario.connectors.iter().enumerate() {
         if blocked_connectors.contains(connector.id())
-            || connector.from_surface() != start_surface
+            || !start.allows_connector(connector)
+            || connector.from_surface() != start.surface
         {
             continue;
         }
-        durations[index] = Some(
-            start.distance(connector.from()) / walking_speed_mps
-                + connector.traversal_duration_s(walking_speed_mps),
-        );
+        let Some(walking_duration) = walking_duration_s(
+            scenario,
+            start.surface,
+            start.position,
+            connector.from(),
+            start.radius_m,
+            start.walking_speed_mps,
+        ) else {
+            continue;
+        };
+        durations[index] =
+            Some(walking_duration + connector.traversal_duration_s(start.walking_speed_mps));
     }
 
     while let Some(current) = next_unsettled(&durations, &settled) {
@@ -319,13 +693,24 @@ fn route_to_exit_avoiding(
         for (next, connector) in scenario.connectors.iter().enumerate() {
             if settled[next]
                 || blocked_connectors.contains(connector.id())
+                || !start.allows_connector(connector)
                 || connector.from_surface() != surface
             {
                 continue;
             }
+            let Some(walking_duration) = walking_duration_s(
+                scenario,
+                surface,
+                arrival,
+                connector.from(),
+                start.radius_m,
+                start.walking_speed_mps,
+            ) else {
+                continue;
+            };
             let candidate = duration
-                + arrival.distance(connector.from()) / walking_speed_mps
-                + connector.traversal_duration_s(walking_speed_mps);
+                + walking_duration
+                + connector.traversal_duration_s(start.walking_speed_mps);
             if durations[next].is_none_or(|current_duration| candidate < current_duration) {
                 durations[next] = Some(candidate);
                 previous[next] = Some(current);
@@ -333,25 +718,31 @@ fn route_to_exit_avoiding(
         }
     }
 
-    let terminal = scenario
+    let (terminal, nominal_duration_s) = scenario
         .connectors
         .iter()
         .enumerate()
-        .filter(|(_, connector)| connector.to_surface() == exit.surface)
+        .filter(|(_, connector)| connector.to_surface() == target.surface)
         .filter_map(|(index, connector)| {
-            durations[index].map(|duration| {
-                (
-                    index,
-                    duration + connector.to().distance(exit.at) / walking_speed_mps,
-                )
-            })
+            durations[index]
+                .zip(walking_duration_s(
+                    scenario,
+                    connector.to_surface(),
+                    connector.to(),
+                    target.at,
+                    start.radius_m,
+                    start.walking_speed_mps,
+                ))
+                .map(|(duration, walking_duration)| (index, duration + walking_duration))
         })
-        .min_by(|(left_index, left_duration), (right_index, right_duration)| {
-            left_duration
-                .total_cmp(right_duration)
-                .then(left_index.cmp(right_index))
-        })?
-        .0;
+        .min_by(
+            |(left_index, left_duration), (right_index, right_duration)| {
+                left_duration
+                    .total_cmp(right_duration)
+                    .then(left_index.cmp(right_index))
+            },
+        )?
+        ;
     let mut route = vec![terminal];
     let mut cursor = terminal;
     while let Some(parent) = previous[cursor] {
@@ -359,131 +750,384 @@ fn route_to_exit_avoiding(
         cursor = parent;
     }
     route.reverse();
-    Some(route)
+    Some(RoutePlan {
+        connector_indices: route,
+        nominal_duration_s,
+    })
 }
 
 fn next_unsettled(durations: &[Option<f64>], settled: &[bool]) -> Option<usize> {
-    let mut next = None;
+    let mut next: Option<usize> = None;
     for (index, duration) in durations.iter().enumerate() {
         if settled[index] || duration.is_none() {
             continue;
         }
-        if next.is_none_or(|current| duration.expect("checked") < durations[current].expect("checked")) {
+        if next
+            .is_none_or(|current| duration.expect("checked") < durations[current].expect("checked"))
+        {
             next = Some(index);
         }
     }
     next
 }
 
-fn apply_information(
+#[derive(Debug, Clone, Copy)]
+struct InflatedObstacle {
+    min_x: f64,
+    max_x: f64,
+    min_y: f64,
+    max_y: f64,
+}
+
+impl InflatedObstacle {
+    fn from_obstacle(obstacle: &Obstacle, radius_m: f64) -> Self {
+        let clearance_m = radius_m + NAVIGATION_EPSILON_M;
+        Self {
+            min_x: obstacle.at.x_m - clearance_m,
+            max_x: obstacle.at.x_m + obstacle.width_m + clearance_m,
+            min_y: obstacle.at.y_m - clearance_m,
+            max_y: obstacle.at.y_m + obstacle.depth_m + clearance_m,
+        }
+    }
+
+    fn contains(self, point: Point3) -> bool {
+        point.x_m >= self.min_x
+            && point.x_m <= self.max_x
+            && point.y_m >= self.min_y
+            && point.y_m <= self.max_y
+    }
+
+    fn corners(self, z_m: f64) -> [Point3; 4] {
+        let outer = NAVIGATION_EPSILON_M;
+        [
+            Point3 {
+                x_m: self.min_x - outer,
+                y_m: self.min_y - outer,
+                z_m,
+            },
+            Point3 {
+                x_m: self.min_x - outer,
+                y_m: self.max_y + outer,
+                z_m,
+            },
+            Point3 {
+                x_m: self.max_x + outer,
+                y_m: self.min_y - outer,
+                z_m,
+            },
+            Point3 {
+                x_m: self.max_x + outer,
+                y_m: self.max_y + outer,
+                z_m,
+            },
+        ]
+    }
+}
+
+fn walking_duration_s(
+    scenario: &Scenario,
+    surface_id: &str,
+    start: Point3,
+    target: Point3,
+    radius_m: f64,
+    walking_speed_mps: f64,
+) -> Option<f64> {
+    let surface = scenario
+        .surfaces
+        .iter()
+        .find(|surface| surface.id == surface_id)?;
+    let path =
+        shortest_walk_path_on_surface(surface, &scenario.obstacles, start, target, radius_m)?;
+    Some(
+        path.windows(2)
+            .map(|segment| segment[0].distance(segment[1]))
+            .sum::<f64>()
+            / walking_speed_mps,
+    )
+}
+
+/// Compute a deterministic Euclidean shortest path in a rectangular surface
+/// with rectangular no-go zones. Obstacles are expanded by the agent radius,
+/// then a visibility graph over their clearance corners is solved exactly.
+fn shortest_walk_path_on_surface(
+    surface: &Surface,
+    obstacles: &[Obstacle],
+    start: Point3,
+    target: Point3,
+    radius_m: f64,
+) -> Option<Vec<Point3>> {
+    if !surface.contains(start) || !surface.contains(target) {
+        return None;
+    }
+    if start.distance(target) <= NAVIGATION_EPSILON_M {
+        return Some(vec![start]);
+    }
+    let obstacles: Vec<_> = obstacles
+        .iter()
+        .filter(|obstacle| obstacle.surface == surface.id)
+        .map(|obstacle| InflatedObstacle::from_obstacle(obstacle, radius_m))
+        .collect();
+    if obstacles
+        .iter()
+        .any(|obstacle| obstacle.contains(start) || obstacle.contains(target))
+    {
+        return None;
+    }
+
+    let mut nodes = vec![start, target];
+    for obstacle in &obstacles {
+        for corner in obstacle.corners(surface.origin.z_m) {
+            if surface.contains(corner) {
+                nodes.push(corner);
+            }
+        }
+    }
+
+    let mut distances = vec![None; nodes.len()];
+    let mut previous = vec![None; nodes.len()];
+    let mut settled = vec![false; nodes.len()];
+    distances[0] = Some(0.0);
+    while let Some(current) = next_unsettled(&distances, &settled) {
+        if current == 1 {
+            break;
+        }
+        settled[current] = true;
+        let duration = distances[current].expect("selected nodes have a distance");
+        for next in 0..nodes.len() {
+            if settled[next]
+                || next == current
+                || !segment_is_clear(nodes[current], nodes[next], &obstacles)
+            {
+                continue;
+            }
+            let candidate = duration + nodes[current].distance(nodes[next]);
+            if distances[next].is_none_or(|current_duration| candidate < current_duration) {
+                distances[next] = Some(candidate);
+                previous[next] = Some(current);
+            }
+        }
+    }
+    distances[1]?;
+    let mut path = vec![target];
+    let mut cursor = 1;
+    while cursor != 0 {
+        cursor = previous[cursor]?;
+        path.push(nodes[cursor]);
+    }
+    path.reverse();
+    Some(path)
+}
+
+fn segment_is_clear(start: Point3, end: Point3, obstacles: &[InflatedObstacle]) -> bool {
+    !obstacles
+        .iter()
+        .any(|obstacle| segment_intersects_obstacle(start, end, *obstacle))
+}
+
+fn segment_intersects_obstacle(start: Point3, end: Point3, obstacle: InflatedObstacle) -> bool {
+    let mut entry = 0.0_f64;
+    let mut exit = 1.0_f64;
+    for (start_coordinate, delta, minimum, maximum) in [
+        (
+            start.x_m,
+            end.x_m - start.x_m,
+            obstacle.min_x,
+            obstacle.max_x,
+        ),
+        (
+            start.y_m,
+            end.y_m - start.y_m,
+            obstacle.min_y,
+            obstacle.max_y,
+        ),
+    ] {
+        if delta.abs() <= NAVIGATION_EPSILON_M {
+            if start_coordinate < minimum || start_coordinate > maximum {
+                return false;
+            }
+            continue;
+        }
+        let first = (minimum - start_coordinate) / delta;
+        let second = (maximum - start_coordinate) / delta;
+        entry = entry.max(first.min(second));
+        exit = exit.min(first.max(second));
+        if entry > exit {
+            return false;
+        }
+    }
+    true
+}
+
+fn deliver_message(
     scenario: &Scenario,
     agents: &mut [Agent],
-    time_s: f64,
-    timestep_s: f64,
+    message: &crate::model::Message,
     events: &mut Vec<RunEvent>,
+    closed_connectors: &HashSet<String>,
 ) {
-    let previous_time = time_s - timestep_s;
-    for message in &scenario.messages {
-        if !(previous_time < message.at_s && message.at_s <= time_s) {
-            continue;
-        }
-        for agent in agents
-            .iter_mut()
-            .filter(|agent| agent.surface == message.surface)
-        {
-            if agent.position.distance(message.origin) <= message.reach_m {
-                agent.beliefs.insert(message.id.clone(), message.trust);
-                if message.trust >= 0.5 {
-                    apply_claim(agent, &message.claim);
-                    reroute_after_information(scenario, agent, message.at_s, events);
-                }
-                events.push(RunEvent {
-                    time_s: message.at_s,
-                    kind: "message_received".to_owned(),
-                    subject: agent.id.clone(),
-                    detail: format!(
-                        "{}: connector `{}` {} from {} (truthful={})",
-                        message.id,
-                        message.claim.connector(),
-                        if message.claim.is_open() {
-                            "open"
-                        } else {
-                            "closed"
-                        },
-                        message.source.as_str(),
-                        message.truthful
-                    ),
-                });
+    for agent in agents.iter_mut().filter(|agent| {
+        agent.surface == message.surface && matches!(agent.motion, Motion::OnSurface)
+    }) {
+        if agent.position.distance(message.origin) <= message.reach_m {
+            agent.beliefs.insert(message.id.clone(), message.trust);
+            let accepted =
+                accepts_information(scenario.seed, &agent.id, &message.id, message.trust);
+            if accepted {
+                apply_claim(agent, &message.claim);
+                reroute(scenario, agent, message.at_s, events, closed_connectors);
             }
+            events.push(RunEvent {
+                time_s: message.at_s,
+                kind: "message_received".to_owned(),
+                subject: agent.id.clone(),
+                detail: format!(
+                    "{}: connector `{}` {} from {} (truthful={}, accepted={accepted})",
+                    message.id,
+                    message.claim.connector(),
+                    if message.claim.is_open() {
+                        "open"
+                    } else {
+                        "closed"
+                    },
+                    message.source.as_str(),
+                    message.truthful
+                ),
+            });
         }
     }
-    for countermeasure in &scenario.countermeasures {
-        if !(previous_time < countermeasure.at_s && countermeasure.at_s <= time_s) {
-            continue;
-        }
-        for agent in agents
-            .iter_mut()
-            .filter(|agent| agent.surface == countermeasure.surface)
-        {
-            if agent.position.distance(countermeasure.origin) <= countermeasure.reach_m {
-                agent
-                    .beliefs
-                    .insert(countermeasure.corrects.clone(), countermeasure.trust);
-                if countermeasure.trust >= 0.5
-                    && let Some(message) = scenario
-                        .messages
-                        .iter()
-                        .find(|message| message.id == countermeasure.corrects)
-                {
-                    agent.blocked_connectors.remove(message.claim.connector());
-                    reroute_after_information(scenario, agent, countermeasure.at_s, events);
-                }
-                events.push(RunEvent {
-                    time_s: countermeasure.at_s,
-                    kind: "countermeasure_received".to_owned(),
-                    subject: agent.id.clone(),
-                    detail: format!(
-                        "{} corrected by {} via {}",
-                        countermeasure.corrects,
-                        countermeasure.id,
-                        countermeasure.source.as_str()
-                    ),
-                });
+}
+
+fn deliver_countermeasure(
+    scenario: &Scenario,
+    agents: &mut [Agent],
+    countermeasure: &crate::model::Countermeasure,
+    events: &mut Vec<RunEvent>,
+    closed_connectors: &HashSet<String>,
+) {
+    for agent in agents.iter_mut().filter(|agent| {
+        agent.surface == countermeasure.surface && matches!(agent.motion, Motion::OnSurface)
+    }) {
+        if agent.position.distance(countermeasure.origin) <= countermeasure.reach_m {
+            agent
+                .beliefs
+                .insert(countermeasure.corrects.clone(), countermeasure.trust);
+            let accepted = accepts_information(
+                scenario.seed,
+                &agent.id,
+                &countermeasure.id,
+                countermeasure.trust,
+            );
+            if accepted
+                && let Some(message) = scenario
+                    .messages
+                    .iter()
+                    .find(|message| message.id == countermeasure.corrects)
+            {
+                apply_connector_belief(
+                    agent,
+                    message.claim.connector(),
+                    !closed_connectors.contains(message.claim.connector()),
+                );
+                reroute(
+                    scenario,
+                    agent,
+                    countermeasure.at_s,
+                    events,
+                    closed_connectors,
+                );
             }
+            events.push(RunEvent {
+                time_s: countermeasure.at_s,
+                kind: "countermeasure_received".to_owned(),
+                subject: agent.id.clone(),
+                detail: format!(
+                    "{} corrected by {} via {}",
+                    countermeasure.corrects,
+                    countermeasure.id,
+                    countermeasure.source.as_str()
+                ),
+            });
         }
     }
+}
+
+fn accepts_information(seed: u64, agent_id: &str, intervention_id: &str, trust: f64) -> bool {
+    if trust <= 0.0 {
+        return false;
+    }
+    if trust >= 1.0 {
+        return true;
+    }
+    deterministic_unit_interval(seed, agent_id, intervention_id) < trust
+}
+
+fn deterministic_unit_interval(seed: u64, agent_id: &str, intervention_id: &str) -> f64 {
+    let mut state = seed ^ 0x9e37_79b9_7f4a_7c15;
+    for byte in agent_id
+        .bytes()
+        .chain(std::iter::once(0))
+        .chain(intervention_id.bytes())
+    {
+        state ^= u64::from(byte);
+        state = state.wrapping_mul(0x1000_0000_01b3);
+    }
+    let mixed = splitmix64(state);
+    let numerator = u32::try_from(mixed >> 40).expect("top 24 bits fit u32");
+    f64::from(numerator) / f64::from(1_u32 << 24)
+}
+
+fn splitmix64(mut value: u64) -> u64 {
+    value = value.wrapping_add(0x9e37_79b9_7f4a_7c15);
+    value = (value ^ (value >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
+    value = (value ^ (value >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
+    value ^ (value >> 31)
 }
 
 fn apply_claim(agent: &mut Agent, claim: &crate::model::Proposition) {
-    if claim.is_open() {
-        agent.blocked_connectors.remove(claim.connector());
+    apply_connector_belief(agent, claim.connector(), claim.is_open());
+}
+
+fn apply_connector_belief(agent: &mut Agent, connector: &str, open: bool) {
+    if open {
+        agent.blocked_connectors.remove(connector);
     } else {
-        agent
-            .blocked_connectors
-            .insert(claim.connector().to_owned());
+        agent.blocked_connectors.insert(connector.to_owned());
     }
 }
 
-fn reroute_after_information(
+fn reroute(
     scenario: &Scenario,
     agent: &mut Agent,
     time_s: f64,
     events: &mut Vec<RunEvent>,
+    closed_connectors: &HashSet<String>,
 ) {
     if !matches!(agent.motion, Motion::OnSurface) {
         return;
     }
-    if let Some(route) = route_to_exit_avoiding(
+    let blocked_connectors = effective_blocked_connectors(agent, closed_connectors);
+    if let Some(planned) = agent_plan(
         scenario,
-        &agent.surface,
-        agent.position,
-        agent.speed_mps,
-        &agent.destination,
-        &agent.blocked_connectors,
+        RouteStart {
+            surface: &agent.surface,
+            position: agent.position,
+            walking_speed_mps: agent.speed_mps,
+            radius_m: agent.radius_m,
+            height_m: agent.height_m,
+            excluded_connector_kinds: &agent.excluded_connector_kinds,
+        },
+        agent,
+        &blocked_connectors,
     ) {
-        agent.route = route;
+        if planned.target.is_exit {
+            agent.destination = planned.target.id.clone();
+        }
+        agent.route = planned.plan.connector_indices;
         agent.route_cursor = 0;
-        let mut blocked: Vec<_> = agent.blocked_connectors.iter().cloned().collect();
+        agent.waiting_connector = None;
+        agent.waiting_for_route = false;
+        agent.waiting_for_exit = false;
+        let mut blocked: Vec<_> = blocked_connectors.into_iter().collect();
         blocked.sort_unstable();
         events.push(RunEvent {
             time_s,
@@ -492,13 +1136,24 @@ fn reroute_after_information(
             detail: blocked.join(","),
         });
     } else {
+        agent.waiting_for_route = true;
         events.push(RunEvent {
             time_s,
             kind: "route_unavailable".to_owned(),
             subject: agent.id.clone(),
-            detail: "belief-constrained route does not reach the destination".to_owned(),
+            detail: "current physical and believed constraints do not reach the destination"
+                .to_owned(),
         });
     }
+}
+
+fn effective_blocked_connectors(
+    agent: &Agent,
+    closed_connectors: &HashSet<String>,
+) -> HashSet<String> {
+    let mut blocked_connectors = closed_connectors.clone();
+    blocked_connectors.extend(agent.blocked_connectors.iter().cloned());
+    blocked_connectors
 }
 
 #[allow(clippy::too_many_lines)] // this is the reference small-step transition relation
@@ -507,20 +1162,64 @@ fn integrate(
     agents: &mut [Agent],
     time_s: f64,
     events: &mut Vec<RunEvent>,
-    queued_for_lift_agents: &mut HashSet<String>,
-    queued_for_gate_agents: &mut HashSet<String>,
-    gate_tokens: &mut HashMap<String, f64>,
+    resources: &mut RuntimeResources,
 ) {
+    for agent in agents.iter_mut() {
+        match &agent.motion {
+            Motion::WaitingToDepart { release_at_s } if *release_at_s <= time_s => {
+                let release_at_s = *release_at_s;
+                agent.motion = Motion::OnSurface;
+                events.push(RunEvent {
+                    time_s: release_at_s,
+                    kind: "agent_released".to_owned(),
+                    subject: agent.id.clone(),
+                    detail: agent.group.clone(),
+                });
+            }
+            Motion::WaitingAtWaypoint {
+                until_s,
+                waypoint_id,
+            } if *until_s <= time_s => {
+                let until_s = *until_s;
+                let waypoint_id = waypoint_id.clone();
+                agent.motion = Motion::OnSurface;
+                events.push(RunEvent {
+                    time_s: until_s,
+                    kind: "waypoint_wait_ended".to_owned(),
+                    subject: agent.id.clone(),
+                    detail: waypoint_id,
+                });
+            }
+            _ => {}
+        }
+    }
     let spatial_snapshot = SpatialSnapshot::from_agents(agents);
     let mut lift_loads = current_lift_loads(agents);
+    for (index, connector) in scenario.connectors.iter().enumerate() {
+        let Some(service_rate_per_s) = connector.service_rate_per_s() else {
+            continue;
+        };
+        let token = resources.connector_tokens.entry(index).or_default();
+        *token =
+            (*token + service_rate_per_s * scenario.timestep_s).min(service_rate_per_s.max(1.0));
+    }
     for gate in &scenario.gates {
-        let token = gate_tokens.entry(gate.id.clone()).or_default();
+        let token = resources.gate_tokens.entry(gate.id.clone()).or_default();
         *token = (*token + gate.service_rate_per_s * scenario.timestep_s)
             .min(gate.service_rate_per_s.max(1.0));
     }
+    for exit in &scenario.exits {
+        let Some(capacity_per_s) = exit.capacity_per_s else {
+            continue;
+        };
+        let token = resources.exit_tokens.entry(exit.id.clone()).or_default();
+        *token = (*token + capacity_per_s * scenario.timestep_s).min(capacity_per_s.max(1.0));
+    }
     for (index, agent) in agents.iter_mut().enumerate() {
         match &mut agent.motion {
-            Motion::Evacuated { .. } => {}
+            Motion::WaitingToDepart { .. }
+            | Motion::WaitingAtWaypoint { .. }
+            | Motion::Evacuated { .. } => {}
             Motion::Transit {
                 connector_index,
                 elapsed_s,
@@ -547,30 +1246,48 @@ fn integrate(
                         subject: agent.id.clone(),
                         detail: connector_id,
                     });
+                    if agent.route[agent.route_cursor..].iter().any(|index| {
+                        resources
+                            .closed_connectors
+                            .contains(scenario.connectors[*index].id())
+                    }) {
+                        reroute(
+                            scenario,
+                            agent,
+                            time_s,
+                            events,
+                            &resources.closed_connectors,
+                        );
+                    }
                 }
             }
             Motion::OnSurface => {
-                let (target, next_connector, final_gate) =
+                if agent.waiting_for_route {
+                    continue;
+                }
+                let (target, next_connector, final_gate, reached_waypoint) =
                     if let Some(&connector_index) = agent.route.get(agent.route_cursor) {
                         (
                             scenario.connectors[connector_index].from(),
                             Some(connector_index),
                             None,
+                            None,
                         )
                     } else {
-                        let exit = scenario
-                            .exits
-                            .iter()
-                            .find(|exit| exit.id == agent.destination)
-                            .expect("validated destination exists");
-                        let gate = scenario.gates.iter().find(|gate| {
-                            gate.surface == agent.surface
-                                && gate.destination == agent.destination
-                                && !agent.passed_gates.contains(&gate.id)
-                        });
-                        match gate {
-                            Some(gate) => (gate.at, None, Some(gate.id.clone())),
-                            None => (exit.at, None, None),
+                        let target =
+                            agent_target(scenario, agent).expect("validated journey target exists");
+                        if target.is_exit {
+                            let gate = scenario.gates.iter().find(|gate| {
+                                gate.surface == agent.surface
+                                    && gate.destination == agent.destination
+                                    && !agent.passed_gates.contains(&gate.id)
+                            });
+                            match gate {
+                                Some(gate) => (gate.at, None, Some(gate.id.clone()), None),
+                                None => (target.at, None, None, None),
+                            }
+                        } else {
+                            (target.at, None, None, Some((target.id, target.dwell_s)))
                         }
                     };
                 let surface = scenario
@@ -585,14 +1302,69 @@ fn integrate(
                     &spatial_snapshot,
                     index,
                     surface,
+                    &scenario.obstacles,
                 );
                 if !reached {
                     continue;
                 }
                 match next_connector {
                     None => {
-                        if let Some(gate_id) = final_gate {
-                            let tokens = gate_tokens.entry(gate_id.clone()).or_default();
+                        if let Some((waypoint_id, dwell_s)) = reached_waypoint {
+                            agent.via_cursor += 1;
+                            let blocked_connectors =
+                                effective_blocked_connectors(agent, &resources.closed_connectors);
+                            if let Some(planned) = agent_plan(
+                                scenario,
+                                RouteStart {
+                                    surface: &agent.surface,
+                                    position: agent.position,
+                                    walking_speed_mps: agent.speed_mps,
+                                    radius_m: agent.radius_m,
+                                    height_m: agent.height_m,
+                                    excluded_connector_kinds: &agent.excluded_connector_kinds,
+                                },
+                                agent,
+                                &blocked_connectors,
+                            ) {
+                                if planned.target.is_exit {
+                                    agent.destination = planned.target.id.clone();
+                                }
+                                agent.route = planned.plan.connector_indices;
+                                agent.route_cursor = 0;
+                                events.push(RunEvent {
+                                    time_s,
+                                    kind: "waypoint_reached".to_owned(),
+                                    subject: agent.id.clone(),
+                                    detail: waypoint_id,
+                                });
+                                if dwell_s > 0.0 {
+                                    agent.motion = Motion::WaitingAtWaypoint {
+                                        until_s: time_s + dwell_s,
+                                        waypoint_id: agent
+                                            .via
+                                            .get(agent.via_cursor.saturating_sub(1))
+                                            .expect("reached waypoint remains in journey")
+                                            .clone(),
+                                    };
+                                    events.push(RunEvent {
+                                        time_s,
+                                        kind: "waypoint_wait_started".to_owned(),
+                                        subject: agent.id.clone(),
+                                        detail: format!("{dwell_s}s"),
+                                    });
+                                }
+                            } else {
+                                agent.waiting_for_route = true;
+                                events.push(RunEvent {
+                                    time_s,
+                                    kind: "route_unavailable".to_owned(),
+                                    subject: agent.id.clone(),
+                                    detail: "waypoint reached but destination is unavailable"
+                                        .to_owned(),
+                                });
+                            }
+                        } else if let Some(gate_id) = final_gate {
+                            let tokens = resources.gate_tokens.entry(gate_id.clone()).or_default();
                             if *tokens >= 1.0 {
                                 *tokens -= 1.0;
                                 agent.passed_gates.insert(gate_id.clone());
@@ -603,9 +1375,25 @@ fn integrate(
                                     detail: gate_id,
                                 });
                             } else {
-                                queued_for_gate_agents.insert(agent.id.clone());
+                                resources.queued_for_gate_agents.insert(agent.id.clone());
                             }
                         } else {
+                            let exit = scenario
+                                .exits
+                                .iter()
+                                .find(|exit| exit.id == agent.destination)
+                                .expect("validated exit exists");
+                            if exit.capacity_per_s.is_some() {
+                                let tokens =
+                                    resources.exit_tokens.entry(exit.id.clone()).or_default();
+                                if *tokens < 1.0 {
+                                    resources.queued_for_exit_agents.insert(agent.id.clone());
+                                    agent.waiting_for_exit = true;
+                                    continue;
+                                }
+                                *tokens -= 1.0;
+                            }
+                            agent.waiting_for_exit = false;
                             agent.motion = Motion::Evacuated { at_s: time_s };
                             events.push(RunEvent {
                                 time_s,
@@ -617,6 +1405,16 @@ fn integrate(
                     }
                     Some(connector_index) => {
                         let connector = &scenario.connectors[connector_index];
+                        if !connector.supports_height(agent.height_m)
+                            || agent.excluded_connector_kinds.contains(&connector.kind())
+                        {
+                            agent.waiting_for_route = true;
+                            continue;
+                        }
+                        if resources.closed_connectors.contains(connector.id()) {
+                            agent.waiting_for_route = true;
+                            continue;
+                        }
                         if connector.is_lift()
                             && lift_loads
                                 .get(&connector_index)
@@ -624,10 +1422,27 @@ fn integrate(
                                 .unwrap_or_default()
                                 >= connector.capacity().expect("lift has capacity")
                         {
-                            queued_for_lift_agents.insert(agent.id.clone());
+                            resources.queued_for_lift_agents.insert(agent.id.clone());
+                            agent.waiting_connector = Some(ConnectorWait::Lift);
                             continue;
                         }
+                        if connector.service_rate_per_s().is_some() {
+                            let tokens = resources
+                                .connector_tokens
+                                .entry(connector_index)
+                                .or_default();
+                            if *tokens < 1.0 {
+                                resources
+                                    .queued_for_connector_agents
+                                    .insert(agent.id.clone());
+                                agent.waiting_connector = Some(ConnectorWait::Capacity);
+                                continue;
+                            }
+                            *tokens -= 1.0;
+                        }
                         let duration_s = connector.traversal_duration_s(agent.speed_mps);
+                        agent.waiting_connector = None;
+                        agent.waiting_for_route = false;
                         if connector.is_lift() {
                             *lift_loads.entry(connector_index).or_insert(0) += 1;
                         }
@@ -673,21 +1488,29 @@ fn move_toward(
     spatial_snapshot: &SpatialSnapshot,
     own_index: usize,
     surface: &Surface,
+    obstacles: &[Obstacle],
 ) -> bool {
-    let dx = target.x_m - agent.position.x_m;
-    let dy = target.y_m - agent.position.y_m;
-    let dz = target.z_m - agent.position.z_m;
+    let Some(path) =
+        shortest_walk_path_on_surface(surface, obstacles, agent.position, target, agent.radius_m)
+    else {
+        return false;
+    };
+    let waypoint = path.get(1).copied().unwrap_or(target);
+    let dx = waypoint.x_m - agent.position.x_m;
+    let dy = waypoint.y_m - agent.position.y_m;
+    let dz = waypoint.z_m - agent.position.z_m;
     let distance = (dx.mul_add(dx, dy.mul_add(dy, dz * dz))).sqrt();
     let travel = agent.speed_mps * timestep_s;
     if distance <= travel {
-        agent.position = target;
-        return true;
+        agent.position = waypoint;
+        return path.len() <= 2;
     }
     let mut next = Point3 {
         x_m: agent.position.x_m + (dx / distance) * travel,
         y_m: agent.position.y_m + (dy / distance) * travel,
         z_m: agent.position.z_m + (dz / distance) * travel,
     };
+    let planned_next = next;
     let cell_range =
         ((agent.radius_m + spatial_snapshot.max_radius_m) / SPATIAL_CELL_M).ceil() as i64;
     let center = cell_key(&agent.surface, next);
@@ -705,7 +1528,9 @@ fn move_toward(
                 if *candidate == own_index {
                     continue;
                 }
-                let (_, position, radius) = &spatial_snapshot.positions[*candidate];
+                let Some((_, position, radius)) = &spatial_snapshot.positions[*candidate] else {
+                    continue;
+                };
                 let separation = next.distance(*position);
                 let minimum = agent.radius_m + radius;
                 if separation > 0.0 && separation < minimum {
@@ -723,8 +1548,19 @@ fn move_toward(
         .y_m
         .clamp(surface.origin.y_m, surface.origin.y_m + surface.depth_m);
     next.z_m = surface.origin.z_m;
+    if !point_is_clear(next, surface, obstacles, agent.radius_m) {
+        next = planned_next;
+    }
     agent.position = next;
     false
+}
+
+fn point_is_clear(point: Point3, surface: &Surface, obstacles: &[Obstacle], radius_m: f64) -> bool {
+    surface.contains(point)
+        && obstacles
+            .iter()
+            .filter(|obstacle| obstacle.surface == surface.id)
+            .all(|obstacle| !InflatedObstacle::from_obstacle(obstacle, radius_m).contains(point))
 }
 
 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
@@ -750,7 +1586,15 @@ fn snapshot(step: u64, time_s: f64, agents: &[Agent]) -> TraceFrame {
                 y_m: agent.position.y_m,
                 z_m: agent.position.z_m,
                 state: match &agent.motion {
-                    Motion::OnSurface => AgentState::Moving,
+                    Motion::WaitingToDepart { .. } => AgentState::WaitingToDepart,
+                    Motion::WaitingAtWaypoint { .. } => AgentState::WaitingAtWaypoint,
+                    Motion::OnSurface if agent.waiting_for_route => AgentState::WaitingForRoute,
+                    Motion::OnSurface if agent.waiting_for_exit => AgentState::WaitingForExit,
+                    Motion::OnSurface => match agent.waiting_connector {
+                        Some(ConnectorWait::Lift) => AgentState::WaitingForLift,
+                        Some(ConnectorWait::Capacity) => AgentState::WaitingForConnector,
+                        None => AgentState::Moving,
+                    },
                     Motion::Transit { .. } => AgentState::InTransit,
                     Motion::Evacuated { .. } => AgentState::Evacuated,
                 },

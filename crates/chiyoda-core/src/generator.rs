@@ -25,7 +25,7 @@ exit street on concourse at (40m, 8m, 0m) width 3m
 stair north_stair from platform at (24m, 8m, 6m) to concourse at (24m, 8m, 0m) width {stair_width_m}m
 lift accessible_lift from platform at (5m, 8m, 6m) to concourse at (5m, 8m, 0m) cabin 2m 2m capacity 8 cycle 12s
 gate fare_gate on concourse at (32m, 8m, 0m) width 2m capacity {gate_rate}/s to street
-agents passengers count {crowd} on platform at (8m, 8m, 6m) to street speed 1.2m/s radius 0.3m height 1.7m
+agents passengers count {crowd} on platform at (8m, 8m, 6m) to street speed 1.2m/s radius 0.3m height 1.7m release 0s
 message false_platform_exit source peer on platform at (16m, 8m, 6m) claim connector north_stair closed truth false time 20s reach 10m trust 0.7
 countermeasure staff_correction corrects false_platform_exit source staff on platform at (16m, 8m, 6m) time 35s reach 14m trust 0.9
 "#,

@@ -3,7 +3,7 @@
 use crate::model::{Connector, Proposition, Scenario};
 use std::fmt::Write;
 
-/// Render a typed scenario as canonical version-0.2 source.
+/// Render a typed scenario as canonical version-0.14 source.
 #[must_use]
 #[allow(clippy::too_many_lines)] // mirrors the complete declaration grammar in one reviewable serializer
 pub fn format_scenario(scenario: &Scenario) -> String {
@@ -26,14 +26,38 @@ pub fn format_scenario(scenario: &Scenario) -> String {
         )
         .expect("writing to a string cannot fail");
     }
+    for obstacle in &scenario.obstacles {
+        writeln!(
+            source,
+            "obstacle {} on {} at {} size ({}, {})",
+            obstacle.id,
+            obstacle.surface,
+            point(obstacle.at),
+            length(obstacle.width_m),
+            length(obstacle.depth_m),
+        )
+        .expect("writing to a string cannot fail");
+    }
+    for waypoint in &scenario.waypoints {
+        writeln!(
+            source,
+            "waypoint {} on {} at {} dwell {}",
+            waypoint.id,
+            waypoint.surface,
+            point(waypoint.at),
+            duration(waypoint.dwell_s),
+        )
+        .expect("writing to a string cannot fail");
+    }
     for exit in &scenario.exits {
         writeln!(
             source,
-            "exit {} on {} at {} width {}",
+            "exit {} on {} at {} width {}{}",
             exit.id,
             exit.surface,
             point(exit.at),
             length(exit.width_m),
+            connector_capacity(exit.capacity_per_s),
         )
         .expect("writing to a string cannot fail");
     }
@@ -46,12 +70,16 @@ pub fn format_scenario(scenario: &Scenario) -> String {
                 to_surface,
                 to,
                 width_m,
+                capacity_per_s,
+                clearance_height_m,
             } => writeln!(
                 source,
-                "stair {id} from {from_surface} at {} to {to_surface} at {} width {}",
+                "stair {id} from {from_surface} at {} to {to_surface} at {} width {}{}{}",
                 point(*from),
                 point(*to),
                 length(*width_m),
+                connector_capacity(*capacity_per_s),
+                connector_clearance(*clearance_height_m),
             ),
             Connector::Ramp {
                 id,
@@ -60,12 +88,16 @@ pub fn format_scenario(scenario: &Scenario) -> String {
                 to_surface,
                 to,
                 width_m,
+                capacity_per_s,
+                clearance_height_m,
             } => writeln!(
                 source,
-                "ramp {id} from {from_surface} at {} to {to_surface} at {} width {}",
+                "ramp {id} from {from_surface} at {} to {to_surface} at {} width {}{}{}",
                 point(*from),
                 point(*to),
                 length(*width_m),
+                connector_capacity(*capacity_per_s),
+                connector_clearance(*clearance_height_m),
             ),
             Connector::Escalator {
                 id,
@@ -75,13 +107,17 @@ pub fn format_scenario(scenario: &Scenario) -> String {
                 to,
                 width_m,
                 belt_speed_mps,
+                capacity_per_s,
+                clearance_height_m,
             } => writeln!(
                 source,
-                "escalator {id} from {from_surface} at {} to {to_surface} at {} width {} belt {}",
+                "escalator {id} from {from_surface} at {} to {to_surface} at {} width {} belt {}{}{}",
                 point(*from),
                 point(*to),
                 length(*width_m),
                 speed(*belt_speed_mps),
+                connector_capacity(*capacity_per_s),
+                connector_clearance(*clearance_height_m),
             ),
             Connector::Lift {
                 id,
@@ -93,16 +129,29 @@ pub fn format_scenario(scenario: &Scenario) -> String {
                 cabin_depth_m,
                 capacity,
                 cycle_s,
+                clearance_height_m,
             } => writeln!(
                 source,
-                "lift {id} from {from_surface} at {} to {to_surface} at {} cabin {} {} capacity {capacity} cycle {}",
+                "lift {id} from {from_surface} at {} to {to_surface} at {} cabin {} {} capacity {capacity} cycle {}{}",
                 point(*from),
                 point(*to),
                 length(*cabin_width_m),
                 length(*cabin_depth_m),
                 duration(*cycle_s),
+                connector_clearance(*clearance_height_m),
             ),
         }
+        .expect("writing to a string cannot fail");
+    }
+    for change in &scenario.connector_states {
+        writeln!(
+            source,
+            "connector-state {} connector {} {} time {}",
+            change.id,
+            change.connector,
+            if change.open { "open" } else { "closed" },
+            duration(change.at_s),
+        )
         .expect("writing to a string cannot fail");
     }
     for gate in &scenario.gates {
@@ -121,7 +170,7 @@ pub fn format_scenario(scenario: &Scenario) -> String {
     for group in &scenario.agents {
         writeln!(
             source,
-            "agents {} count {} on {} at {} to {} speed {} radius {} height {}",
+            "agents {} count {} on {} at {} to {} speed {} radius {} height {}{}{}{} release {}",
             group.id,
             group.count,
             group.surface,
@@ -130,6 +179,10 @@ pub fn format_scenario(scenario: &Scenario) -> String {
             speed(group.speed_mps),
             length(group.radius_m),
             length(group.height_m),
+            journey_waypoints(&group.via),
+            alternative_destinations(&group.alternative_destinations),
+            excluded_connector_kinds(&group.excluded_connector_kinds),
+            duration(group.release_at_s),
         )
         .expect("writing to a string cannot fail");
     }
@@ -197,6 +250,40 @@ fn duration(value: f64) -> String {
 
 fn speed(value: f64) -> String {
     format!("{}m/s", number(value))
+}
+
+fn connector_capacity(value: Option<f64>) -> String {
+    value.map_or_else(String::new, |value| {
+        format!(" capacity {}/s", number(value))
+    })
+}
+
+fn connector_clearance(value: Option<f64>) -> String {
+    value.map_or_else(String::new, |value| format!(" clearance {}", length(value)))
+}
+
+fn journey_waypoints(waypoints: &[String]) -> String {
+    let mut rendered = String::new();
+    for waypoint in waypoints {
+        write!(rendered, " via {waypoint}").expect("writing to a string cannot fail");
+    }
+    rendered
+}
+
+fn alternative_destinations(destinations: &[String]) -> String {
+    let mut rendered = String::new();
+    for destination in destinations {
+        write!(rendered, " alternative {destination}").expect("writing to a string cannot fail");
+    }
+    rendered
+}
+
+fn excluded_connector_kinds(kinds: &[crate::model::ConnectorKind]) -> String {
+    let mut rendered = String::new();
+    for kind in kinds {
+        write!(rendered, " exclude {}", kind.as_str()).expect("writing to a string cannot fail");
+    }
+    rendered
 }
 
 fn number(value: f64) -> String {

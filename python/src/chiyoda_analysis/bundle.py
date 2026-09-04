@@ -17,8 +17,8 @@ def load_bundle(path: str | Path, *, verify: bool = True) -> dict[str, Any]:
 
     The Rust reference runtime hashes compact JSON in declaration order with the
     `bundle_hash` field set to an empty string. Python's standard JSON decoder
-    preserves object order, allowing this reader to independently reproduce the
-    version-0.1 hash without importing the simulator.
+    preserves object order, allowing this reader to independently reproduce a
+    bundle hash without importing the simulator.
     """
 
     bundle_path = Path(path)
@@ -41,7 +41,7 @@ def summarize(bundle: dict[str, Any]) -> dict[str, Any]:
     metrics = bundle.get("metrics")
     scenario = bundle.get("scenario")
     if not isinstance(metrics, dict) or not isinstance(scenario, dict):
-        raise BundleError("bundle does not contain version-0.1 scenario and metrics objects")
+        raise BundleError("bundle does not contain versioned scenario and metrics objects")
     scenario_body = scenario.get("scenario")
     if not isinstance(scenario_body, dict):
         raise BundleError("bundle scenario body is malformed")
@@ -66,4 +66,3 @@ def _verify_hash(bundle: dict[str, Any]) -> None:
     actual = hashlib.sha256(payload).hexdigest()
     if actual != supplied:
         raise BundleError(f"bundle integrity check failed: expected {supplied}, calculated {actual}")
-

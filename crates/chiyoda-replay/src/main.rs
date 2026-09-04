@@ -8,6 +8,7 @@ const WIDTH: usize = 1_200;
 const HEIGHT: usize = 800;
 const BACKGROUND: u32 = 0x0010_141a;
 const MOVING: u32 = 0x0065_d1ff;
+const WAITING_TO_DEPART: u32 = 0x008a_94a6;
 const IN_TRANSIT: u32 = 0x00ff_c857;
 const EVACUATED: u32 = 0x004a_de80;
 
@@ -104,7 +105,13 @@ fn draw_frame(buffer: &mut [u32], bundle: &RunBundle, index: usize, extent: (f64
         let y = project(agent.y_m, extent.2, extent.3, HEIGHT);
         let color = match agent.state {
             AgentState::Moving => MOVING,
-            AgentState::WaitingForLift | AgentState::InTransit => IN_TRANSIT,
+            AgentState::WaitingToDepart
+            | AgentState::WaitingAtWaypoint
+            | AgentState::WaitingForRoute => WAITING_TO_DEPART,
+            AgentState::WaitingForLift
+            | AgentState::WaitingForConnector
+            | AgentState::WaitingForExit
+            | AgentState::InTransit => IN_TRANSIT,
             AgentState::Evacuated => EVACUATED,
         };
         for offset_y in -2..=2 {

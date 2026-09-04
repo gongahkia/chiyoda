@@ -19,7 +19,12 @@ pub struct AgentSnapshot {
 #[serde(rename_all = "snake_case")]
 pub enum AgentState {
     Moving,
+    WaitingToDepart,
+    WaitingAtWaypoint,
+    WaitingForRoute,
     WaitingForLift,
+    WaitingForConnector,
+    WaitingForExit,
     InTransit,
     Evacuated,
 }
@@ -46,7 +51,9 @@ pub struct RunMetrics {
     pub clearance_time_s: Option<f64>,
     pub mean_exit_time_s: Option<f64>,
     pub queued_for_lift_agents: u32,
+    pub queued_for_connector_agents: u32,
     pub queued_for_gate_agents: u32,
+    pub queued_for_exit_agents: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -79,7 +86,7 @@ impl RunBundle {
         metrics.mean_exit_time_s = metrics.mean_exit_time_s.map(canonical_number);
         let scenario_hash = canonical_hash(&scenario);
         let mut bundle = Self {
-            bundle_version: "0.1".to_owned(),
+            bundle_version: "0.14".to_owned(),
             runtime_version: RUNTIME_VERSION.to_owned(),
             scenario_hash,
             scenario,

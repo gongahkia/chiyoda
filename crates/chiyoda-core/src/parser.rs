@@ -1,6 +1,6 @@
 use crate::model::{
-    AgentGroup, Connector, Countermeasure, Exit, Gate, InformationSource, Message, Point3,
-    Scenario, Surface,
+    AgentGroup, Connector, ConnectorKind, ConnectorStateChange, Countermeasure, Exit, Gate,
+    InformationSource, Message, Obstacle, Point3, Scenario, Surface, Waypoint,
 };
 use std::{fmt, str::FromStr};
 
@@ -25,8 +25,11 @@ struct ScenarioBuilder {
     duration_s: Option<f64>,
     timestep_s: Option<f64>,
     surfaces: Vec<Surface>,
+    obstacles: Vec<Obstacle>,
+    waypoints: Vec<Waypoint>,
     exits: Vec<Exit>,
     connectors: Vec<Connector>,
+    connector_states: Vec<ConnectorStateChange>,
     gates: Vec<Gate>,
     agents: Vec<AgentGroup>,
     messages: Vec<Message>,
@@ -49,8 +52,11 @@ impl ScenarioBuilder {
                 .timestep_s
                 .ok_or_else(|| error(line, "missing `timestep` declaration"))?,
             surfaces: self.surfaces,
+            obstacles: self.obstacles,
+            waypoints: self.waypoints,
             exits: self.exits,
             connectors: self.connectors,
+            connector_states: self.connector_states,
             gates: self.gates,
             agents: self.agents,
             messages: self.messages,
@@ -95,26 +101,26 @@ fn parse_declaration(
     match keyword {
         "scenario" => {
             reject_duplicate(line, builder.name.is_some(), "scenario")?;
-            require_count(line, tokens, 2)?;
+            require_exact_count(line, tokens, 2)?;
             builder.name = Some(tokens[1].clone());
         }
         "seed" => {
             reject_duplicate(line, builder.seed.is_some(), "seed")?;
-            require_count(line, tokens, 2)?;
+            require_exact_count(line, tokens, 2)?;
             builder.seed = Some(parse_plain(line, &tokens[1], "seed")?);
         }
         "duration" => {
             reject_duplicate(line, builder.duration_s.is_some(), "duration")?;
-            require_count(line, tokens, 2)?;
+            require_exact_count(line, tokens, 2)?;
             builder.duration_s = Some(parse_duration(line, &tokens[1])?);
         }
         "timestep" => {
             reject_duplicate(line, builder.timestep_s.is_some(), "timestep")?;
-            require_count(line, tokens, 2)?;
+            require_exact_count(line, tokens, 2)?;
             builder.timestep_s = Some(parse_duration(line, &tokens[1])?);
         }
         "surface" => {
-            require_count(line, tokens, 9)?;
+            require_exact_count(line, tokens, 9)?;
             expect(line, tokens, 2, "at")?;
             expect(line, tokens, 6, "size")?;
             builder.surfaces.push(Surface {
@@ -124,16 +130,58 @@ fn parse_declaration(
                 depth_m: parse_length(line, required(line, tokens, 8, "surface depth")?)?,
             });
         }
+        "obstacle" => {
+            require_exact_count(line, tokens, 11)?;
+            expect(line, tokens, 2, "on")?;
+            expect(line, tokens, 4, "at")?;
+            expect(line, tokens, 8, "size")?;
+            builder.obstacles.push(Obstacle {
+                id: tokens[1].clone(),
+                surface: tokens[3].clone(),
+                at: point(line, tokens, 5)?,
+                width_m: parse_length(line, required(line, tokens, 9, "obstacle width")?)?,
+                depth_m: parse_length(line, required(line, tokens, 10, "obstacle depth")?)?,
+            });
+        }
+        "waypoint" => {
+            require_count(line, tokens, 8)?;
+            expect(line, tokens, 2, "on")?;
+            expect(line, tokens, 4, "at")?;
+            let dwell_s = match tokens.get(8).map(String::as_str) {
+                None if tokens.len() == 8 => 0.0,
+                Some("dwell") if tokens.len() == 10 => {
+                    parse_duration(line, required(line, tokens, 9, "waypoint dwell time")?)?
+                }
+                Some("dwell") => {
+                    return Err(error(
+                        line,
+                        "waypoint dwell must be the final `dwell DURATION` clause",
+                    ));
+                }
+                Some(actual) => {
+                    return Err(error(line, format!("expected `dwell`, found `{actual}`")));
+                }
+                None => unreachable!("the minimum token count was checked"),
+            };
+            builder.waypoints.push(Waypoint {
+                id: tokens[1].clone(),
+                surface: tokens[3].clone(),
+                at: point(line, tokens, 5)?,
+                dwell_s,
+            });
+        }
         "exit" => {
             require_count(line, tokens, 10)?;
             expect(line, tokens, 2, "on")?;
             expect(line, tokens, 4, "at")?;
             expect(line, tokens, 8, "width")?;
+            let capacity_per_s = optional_exit_capacity(line, tokens)?;
             builder.exits.push(Exit {
                 id: tokens[1].clone(),
                 surface: tokens[3].clone(),
                 at: point(line, tokens, 5)?,
                 width_m: parse_length(line, required(line, tokens, 9, "exit width")?)?,
+                capacity_per_s,
             });
         }
         "stair" => {
@@ -143,6 +191,7 @@ fn parse_declaration(
             expect(line, tokens, 8, "to")?;
             expect(line, tokens, 10, "at")?;
             expect(line, tokens, 14, "width")?;
+            let (capacity_per_s, clearance_height_m) = connector_options(line, tokens, 16)?;
             builder.connectors.push(Connector::Stair {
                 id: tokens[1].clone(),
                 from_surface: tokens[3].clone(),
@@ -150,6 +199,8 @@ fn parse_declaration(
                 to_surface: tokens[9].clone(),
                 to: point(line, tokens, 11)?,
                 width_m: parse_length(line, required(line, tokens, 15, "stair width")?)?,
+                capacity_per_s,
+                clearance_height_m,
             });
         }
         "ramp" => {
@@ -159,6 +210,7 @@ fn parse_declaration(
             expect(line, tokens, 8, "to")?;
             expect(line, tokens, 10, "at")?;
             expect(line, tokens, 14, "width")?;
+            let (capacity_per_s, clearance_height_m) = connector_options(line, tokens, 16)?;
             builder.connectors.push(Connector::Ramp {
                 id: tokens[1].clone(),
                 from_surface: tokens[3].clone(),
@@ -166,6 +218,8 @@ fn parse_declaration(
                 to_surface: tokens[9].clone(),
                 to: point(line, tokens, 11)?,
                 width_m: parse_length(line, required(line, tokens, 15, "ramp width")?)?,
+                capacity_per_s,
+                clearance_height_m,
             });
         }
         "escalator" => {
@@ -176,6 +230,7 @@ fn parse_declaration(
             expect(line, tokens, 10, "at")?;
             expect(line, tokens, 14, "width")?;
             expect(line, tokens, 16, "belt")?;
+            let (capacity_per_s, clearance_height_m) = connector_options(line, tokens, 18)?;
             builder.connectors.push(Connector::Escalator {
                 id: tokens[1].clone(),
                 from_surface: tokens[3].clone(),
@@ -187,6 +242,8 @@ fn parse_declaration(
                     line,
                     required(line, tokens, 17, "escalator belt speed")?,
                 )?,
+                capacity_per_s,
+                clearance_height_m,
             });
         }
         "lift" => {
@@ -212,10 +269,22 @@ fn parse_declaration(
                     "lift capacity",
                 )?,
                 cycle_s: parse_duration(line, required(line, tokens, 20, "lift cycle")?)?,
+                clearance_height_m: optional_clearance(line, tokens, 21, "lift")?,
+            });
+        }
+        "connector-state" => {
+            require_exact_count(line, tokens, 7)?;
+            expect(line, tokens, 2, "connector")?;
+            expect(line, tokens, 5, "time")?;
+            builder.connector_states.push(ConnectorStateChange {
+                id: tokens[1].clone(),
+                connector: tokens[3].clone(),
+                open: parse_connector_open(line, required(line, tokens, 4, "connector state")?)?,
+                at_s: parse_duration(line, required(line, tokens, 6, "connector state time")?)?,
             });
         }
         "gate" => {
-            require_count(line, tokens, 14)?;
+            require_exact_count(line, tokens, 14)?;
             expect(line, tokens, 2, "on")?;
             expect(line, tokens, 4, "at")?;
             expect(line, tokens, 8, "width")?;
@@ -239,6 +308,8 @@ fn parse_declaration(
             expect(line, tokens, 12, "speed")?;
             expect(line, tokens, 14, "radius")?;
             expect(line, tokens, 16, "height")?;
+            let (release_at_s, via, excluded_connector_kinds, alternative_destinations) =
+                agent_options(line, tokens, &tokens[11])?;
             builder.agents.push(AgentGroup {
                 id: tokens[1].clone(),
                 count: parse_plain(
@@ -249,13 +320,17 @@ fn parse_declaration(
                 surface: tokens[5].clone(),
                 at: point(line, tokens, 7)?,
                 destination: tokens[11].clone(),
+                alternative_destinations,
                 speed_mps: parse_speed(line, required(line, tokens, 13, "agent speed")?)?,
                 radius_m: parse_length(line, required(line, tokens, 15, "agent radius")?)?,
                 height_m: parse_length(line, required(line, tokens, 17, "agent height")?)?,
+                release_at_s,
+                via,
+                excluded_connector_kinds,
             });
         }
         "message" => {
-            require_count(line, tokens, 22)?;
+            require_exact_count(line, tokens, 22)?;
             expect(line, tokens, 2, "source")?;
             expect(line, tokens, 4, "on")?;
             expect(line, tokens, 6, "at")?;
@@ -290,7 +365,7 @@ fn parse_declaration(
             });
         }
         "countermeasure" => {
-            require_count(line, tokens, 18)?;
+            require_exact_count(line, tokens, 18)?;
             expect(line, tokens, 2, "corrects")?;
             expect(line, tokens, 4, "source")?;
             expect(line, tokens, 6, "on")?;
@@ -301,7 +376,10 @@ fn parse_declaration(
             builder.countermeasures.push(Countermeasure {
                 id: tokens[1].clone(),
                 corrects: tokens[3].clone(),
-                source: parse_source(line, required(line, tokens, 5, "countermeasure source")?)?,
+                source: parse_countermeasure_source(
+                    line,
+                    required(line, tokens, 5, "countermeasure source")?,
+                )?,
                 surface: tokens[7].clone(),
                 origin: point(line, tokens, 9)?,
                 at_s: parse_duration(line, required(line, tokens, 13, "countermeasure time")?)?,
@@ -381,6 +459,142 @@ fn parse_rate(line: usize, value: &str) -> Result<f64, ParseError> {
     parse_unit(line, value, "/s", "rate")
 }
 
+fn connector_options(
+    line: usize,
+    tokens: &[String],
+    start: usize,
+) -> Result<(Option<f64>, Option<f64>), ParseError> {
+    let mut capacity_per_s = None;
+    let mut clearance_height_m = None;
+    let mut index = start;
+    while let Some(clause) = tokens.get(index).map(String::as_str) {
+        let value = required(line, tokens, index + 1, "connector option value")?;
+        match clause {
+            "capacity" if capacity_per_s.is_none() => {
+                capacity_per_s = Some(parse_rate(line, value)?);
+            }
+            "capacity" => {
+                return Err(error(line, "connector capacity may be declared only once"));
+            }
+            "clearance" if clearance_height_m.is_none() => {
+                clearance_height_m = Some(parse_length(line, value)?);
+            }
+            "clearance" => {
+                return Err(error(line, "connector clearance may be declared only once"));
+            }
+            actual => {
+                return Err(error(
+                    line,
+                    format!("expected `capacity` or `clearance`, found `{actual}`"),
+                ));
+            }
+        }
+        index += 2;
+    }
+    Ok((capacity_per_s, clearance_height_m))
+}
+
+fn optional_clearance(
+    line: usize,
+    tokens: &[String],
+    start: usize,
+    subject: &str,
+) -> Result<Option<f64>, ParseError> {
+    match tokens.get(start).map(String::as_str) {
+        None => Ok(None),
+        Some("clearance") if tokens.len() == start + 2 => Ok(Some(parse_length(
+            line,
+            required(line, tokens, start + 1, "connector clearance")?,
+        )?)),
+        Some("clearance") => Err(error(
+            line,
+            format!("{subject} clearance must be the final `clearance LENGTH` clause"),
+        )),
+        Some(actual) => Err(error(
+            line,
+            format!("expected `clearance`, found `{actual}`"),
+        )),
+    }
+}
+
+fn optional_exit_capacity(line: usize, tokens: &[String]) -> Result<Option<f64>, ParseError> {
+    match tokens.get(10).map(String::as_str) {
+        None => Ok(None),
+        Some("capacity") if tokens.len() == 12 => Ok(Some(parse_rate(
+            line,
+            required(line, tokens, 11, "exit capacity")?,
+        )?)),
+        Some("capacity") => Err(error(
+            line,
+            "exit capacity must be the final `capacity RATE` clause",
+        )),
+        Some(actual) => Err(error(
+            line,
+            format!("expected `capacity`, found `{actual}`"),
+        )),
+    }
+}
+
+fn agent_options(
+    line: usize,
+    tokens: &[String],
+    primary_destination: &str,
+) -> Result<(f64, Vec<String>, Vec<ConnectorKind>, Vec<String>), ParseError> {
+    let mut release_at_s = None;
+    let mut via = Vec::new();
+    let mut excluded_connector_kinds = Vec::new();
+    let mut alternative_destinations = Vec::new();
+    let mut index = 18;
+    while index < tokens.len() {
+        match tokens[index].as_str() {
+            "release" if release_at_s.is_none() => {
+                release_at_s = Some(parse_duration(
+                    line,
+                    required(line, tokens, index + 1, "agent release time")?,
+                )?);
+            }
+            "via" => via.push(required(line, tokens, index + 1, "journey waypoint")?.to_owned()),
+            "alternative" => {
+                let exit_id = required(line, tokens, index + 1, "alternative exit")?;
+                if exit_id == primary_destination
+                    || alternative_destinations
+                        .iter()
+                        .any(|alternative| alternative == exit_id)
+                {
+                    return Err(error(
+                        line,
+                        format!("duplicate alternative exit `{exit_id}`"),
+                    ));
+                }
+                alternative_destinations.push(exit_id.to_owned());
+            }
+            "exclude" => {
+                let connector_kind = parse_connector_kind(
+                    line,
+                    required(line, tokens, index + 1, "excluded connector kind")?,
+                )?;
+                if excluded_connector_kinds.contains(&connector_kind) {
+                    return Err(error(
+                        line,
+                        format!("duplicate `exclude {}` clause", connector_kind.as_str()),
+                    ));
+                }
+                excluded_connector_kinds.push(connector_kind);
+            }
+            "release" => return Err(error(line, "duplicate `release` clause")),
+            actual => return Err(error(line, format!("unknown agent option `{actual}`"))),
+        }
+        index += 2;
+    }
+    excluded_connector_kinds.sort_unstable();
+    Ok((
+        release_at_s.unwrap_or(0.0),
+        via,
+        excluded_connector_kinds,
+        alternative_destinations,
+    ))
+}
+
 fn parse_unit(line: usize, value: &str, suffix: &str, label: &str) -> Result<f64, ParseError> {
     let number = value
         .strip_suffix(suffix)
@@ -401,6 +615,16 @@ fn parse_source(line: usize, value: &str) -> Result<InformationSource, ParseErro
     }
 }
 
+fn parse_countermeasure_source(line: usize, value: &str) -> Result<InformationSource, ParseError> {
+    match parse_source(line, value)? {
+        InformationSource::Peer => Err(error(
+            line,
+            "countermeasure source must be official, signage, or staff",
+        )),
+        source => Ok(source),
+    }
+}
+
 fn parse_claim(
     line: usize,
     kind: &str,
@@ -413,20 +637,35 @@ fn parse_claim(
             format!("unsupported claim kind `{kind}`; use `connector`"),
         ));
     }
-    let open = match state {
-        "open" => true,
-        "closed" => false,
-        _ => {
-            return Err(error(
-                line,
-                format!("unknown connector state `{state}`; use `open` or `closed`"),
-            ));
-        }
-    };
+    let open = parse_connector_open(line, state)?;
     Ok(crate::model::Proposition::ConnectorAvailability {
         connector: subject.to_owned(),
         open,
     })
+}
+
+fn parse_connector_open(line: usize, state: &str) -> Result<bool, ParseError> {
+    match state {
+        "open" => Ok(true),
+        "closed" => Ok(false),
+        _ => Err(error(
+            line,
+            format!("unknown connector state `{state}`; use `open` or `closed`"),
+        )),
+    }
+}
+
+fn parse_connector_kind(line: usize, value: &str) -> Result<ConnectorKind, ParseError> {
+    match value {
+        "stair" => Ok(ConnectorKind::Stair),
+        "ramp" => Ok(ConnectorKind::Ramp),
+        "escalator" => Ok(ConnectorKind::Escalator),
+        "lift" => Ok(ConnectorKind::Lift),
+        _ => Err(error(
+            line,
+            format!("unknown connector kind `{value}`; use stair, ramp, escalator, or lift"),
+        )),
+    }
 }
 
 fn parse_plain<T>(line: usize, value: &str, label: &str) -> Result<T, ParseError>
@@ -470,6 +709,17 @@ fn require_count(line: usize, tokens: &[String], minimum: usize) -> Result<(), P
         ))
     } else {
         Ok(())
+    }
+}
+
+fn require_exact_count(line: usize, tokens: &[String], expected: usize) -> Result<(), ParseError> {
+    if tokens.len() == expected {
+        Ok(())
+    } else {
+        Err(error(
+            line,
+            format!("expected {expected} tokens, found {}", tokens.len()),
+        ))
     }
 }
 

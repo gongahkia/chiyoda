@@ -1,27 +1,63 @@
-# Executable semantics 0.1
+# Executable semantics 0.14
 
 The Rust `chiyoda-core` runtime is the reference interpreter for language
-version 0.1. This document is normative where it describes public behavior;
+version 0.14. This document is normative where it describes public behavior;
 the source and conformance tests make that behavior executable.
 
 ## State and step order
 
 The interpreter initializes a deterministic row-major spawn layout for each
-agent group. A simulation step at time `t` performs, in order:
+agent group. Static validation checks every generated starting coordinate
+against the declared surface and the same radius-expanded obstacles used by the
+navigator before the interpreter starts. A simulation step at time `t` performs,
+in chronological event order. Events with equal timestamps run in this order:
+connector state, message, countermeasure; declaration order breaks any remaining
+tie.
 
-1. Deliver messages and countermeasures whose declared time falls in
-   `(t - timestep, t]` to agents on the same surface within the declared
-   reach radius.
-2. Update accepted connector-availability beliefs. A trust value of at least
-   `0.5` is accepted by this reference policy; a closed connector is excluded
-   from a new shortest directed surface route. A qualifying countermeasure
-   removes the false connector closure and recomputes a route.
-3. Accrue gate service tokens at their declared people-per-second rate.
-4. Advance in-transit agents, then advance on-surface agents in declaration
-   order using a fixed Euler step, radius-based local separation, and surface
-   bounds clamping.
-5. Board an available connector, process a gate token, or mark the agent
-   evacuated. Lifts enforce cabin capacity during their declared cycle.
+1. Apply each `connector-state` event whose declared time falls in
+   `(t - timestep, t]` to the physical connector state. State events at `0s`
+   are applied before the initial trace; same-time events apply in declaration
+   order. A state change immediately recomputes each on-surface agent's route.
+   It does not interrupt an agent already in connector transit.
+2. Deliver each message and countermeasure whose declared time falls in
+   `(t - timestep, t]` to active agents on the same surface within the
+   declared reach radius. A not-yet-released group is not a recipient.
+3. Update accepted connector-availability beliefs. Each eligible recipient
+   accepts an intervention when its deterministic seed-derived sample is below
+   the declared trust probability. A qualifying countermeasure sets the
+   corrected connector belief to its current physical state and recomputes a
+   route. Physical closures are excluded regardless of belief. If the active
+   constraints leave no route, an on-surface agent waits in the traceable
+   `waiting_for_route` state until a later state or information event produces
+   one. The route cost includes obstacle-aware Euclidean walking from the
+   agent's current point to each connector and exit plus connector transit time.
+   Each rectangular obstacle is expanded by the agent radius and the shortest
+   path over visible clearance corners is used. A connector with an authored
+   height clearance is excluded when the agent's authored height exceeds it,
+   as is a connector class explicitly excluded by the agent group. The route
+   does not forecast queues, density, or later messages. Ties resolve by
+   connector declaration order.
+4. Accrue gate, declared connector, and declared exit service tokens at their authored
+   people-per-second rates. Each resource begins empty and stores at most one
+   authored rate's worth of credit, with a one-person minimum for rates below
+   `1/s`; an idle resource therefore retains no more than one second of
+   throughput (or one discrete person). Only whole tokens may be consumed.
+5. Release groups whose authored release time is at or before `t`, then
+   advance in-transit agents and on-surface agents in declaration order using
+   a fixed Euler step, radius-based local separation, and surface bounds
+   clamping. Release occurs after information delivery in the same step.
+6. Board an available connector, process a gate token, process an exit token,
+   advance from a reached next required waypoint or final exit stage, or mark
+   the agent evacuated. A
+   waypoint with dwell holds the agent until its authored expiry time.
+   Stairs and ramps use endpoint distance divided by agent speed;
+   escalators add their declared belt speed; lifts enforce cabin capacity
+   during their declared cycle. A non-lift connector with an authored service
+   rate consumes one deterministic service token before boarding; a connector
+   without that declaration remains unlimited. An exit with an authored service
+   rate likewise consumes one token after any gate processing; an undeclared
+   exit capacity remains unlimited. The trace distinguishes waiting for a lift,
+   an authored non-lift connector capacity, and an authored exit capacity.
 
 Ties resolve by declaration and generated-agent order. This is intentional:
 the complete order is recorded in canonical source and must not be replaced by
@@ -29,10 +65,12 @@ unordered map iteration.
 
 ## What this does not mean
 
-The `0.1` local-separation law and `0.5` information acceptance threshold are
-reference semantics, not calibrated behavioral claims. A valid source program
-or deterministic trace does not demonstrate crowd-flow accuracy, accessible
-egress fidelity, message effectiveness, or operational safety.
+The `0.14` local-separation law, nominal routing cost, scheduled-release
+semantics, operational-state transitions, escalator walking-rider assumption,
+and seeded information acceptance law are reference semantics, not calibrated
+behavioral claims. A valid source program or deterministic trace does not
+demonstrate crowd-flow accuracy, accessible egress fidelity, message
+effectiveness, operational-state fidelity, or operational safety.
 
 ## Reproducibility contract
 
@@ -46,4 +84,3 @@ Given identical source, language/runtime version, options, and supported Linux
 environment, the reference runtime is expected to emit an identical bundle
 hash. This is tested for the current implementation; it does not establish
 cross-version or cross-architecture numerical equivalence.
-

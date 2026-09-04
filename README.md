@@ -5,12 +5,15 @@ Chiyoda is an Apache-2.0 research platform for deterministic, reproducible
 is a standalone experiment language and executable reference semantics—not a
 real-time operations dashboard or a certified evacuation product.
 
-The current `0.1.0-alpha.1` release establishes the language/runtime contract:
+The current `0.14.0-alpha.1` release establishes the language/runtime contract:
 
 - a typed textual DSL with static unit, topology, reachability, capacity, and
   deterministic-replay checks;
-- a Rust reference runtime for volume-bearing agents on connected 3D walkable
-  surfaces, stairs, lifts, gates, exits, and typed information interventions;
+- a Rust reference runtime for radius-aware, height-annotated agents with
+  authored connector-eligibility constraints on connected 3D walkable surfaces
+  with rectangular obstacles, stairs, ramps, escalators, lifts, gates,
+  capacity-limited exits, operational connector states, and typed information
+  interventions;
 - immutable JSON run bundles with source, canonical IR, events, traces,
   metrics, and SHA-256 integrity hashes;
 - a deterministic, constraint-preserving scenario generator; and
@@ -23,12 +26,15 @@ facility certification, or life-safety decisions. The reference runtime has
 not yet been calibrated against public trajectory data. It makes no claim of
 predictive fidelity for any population, facility, or evacuation outcome.
 
-An empirical benchmark round must supply redistributable calibration and
+The simulator is not gated on an empirical research programme: uncalibrated
+models and structural experiments may be authored and executed now. The
+evidence requirements apply only to an empirical benchmark or claims about
+predictive fidelity. Such a round must supply redistributable calibration and
 held-out datasets, documented transformations, source hashes, released seeds,
 and an explicit evidence boundary. The repository now has a content-locked
 candidate source and descriptive intake pipeline for 2D platform trajectories;
 this is not runtime calibration or a published empirical round. The CLI rejects
-a round manifest that does not meet its contract. See [evidence
+only a benchmark round manifest that does not meet its contract. See [evidence
 boundaries](docs/evidence.md) and the [benchmark protocol](docs/benchmark.md).
 
 ## Quick start
@@ -80,11 +86,15 @@ timestep 100ms
 
 surface platform at (0m, 0m, 6m) size (40m, 16m)
 surface concourse at (0m, 0m, 0m) size (40m, 16m)
-exit street on concourse at (40m, 8m, 0m) width 3m
-stair north_stair from platform at (24m, 8m, 6m) to concourse at (24m, 8m, 0m) width 2m
-lift accessible_lift from platform at (5m, 8m, 6m) to concourse at (5m, 8m, 0m) cabin 2m 2m capacity 8 cycle 12s
+obstacle retail_kiosk on concourse at (18m, 6m, 0m) size (4m, 4m)
+waypoint fare_hall on concourse at (28m, 8m, 0m) dwell 5s
+exit street on concourse at (40m, 8m, 0m) width 3m capacity 3/s
+stair north_stair from platform at (24m, 8m, 6m) to concourse at (24m, 8m, 0m) width 2m capacity 1.5/s clearance 2.1m
+escalator south_escalator from platform at (30m, 8m, 6m) to concourse at (30m, 8m, 0m) width 1m belt 0.6m/s capacity 1.2/s clearance 2.1m
+lift accessible_lift from platform at (5m, 8m, 6m) to concourse at (5m, 8m, 0m) cabin 2m 2m capacity 8 cycle 12s clearance 2.1m
+connector-state planned_north_closure connector north_stair closed time 50s
 gate fare_gate on concourse at (32m, 8m, 0m) width 2m capacity 18/s to street
-agents passengers count 120 on platform at (8m, 8m, 6m) to street speed 1.2m/s radius 0.3m height 1.7m
+agents passengers count 120 on platform at (8m, 8m, 6m) to street speed 1.2m/s radius 0.3m height 1.7m via fare_hall exclude stair release 0s
 
 message false_closure source peer on platform at (16m, 8m, 6m) claim connector north_stair closed truth false time 20s reach 10m trust 0.7
 countermeasure correction corrects false_closure source staff on platform at (16m, 8m, 6m) time 35s reach 14m trust 0.9

@@ -1,4 +1,6 @@
-use crate::model::{Connector, Point3, Scenario, Surface};
+use crate::model::{
+    Connector, NAVIGATION_CLEARANCE_EPSILON_M, Obstacle, Point3, Scenario, Surface,
+};
 use std::{
     collections::{BTreeSet, HashMap, HashSet, VecDeque},
     fmt,
@@ -49,12 +51,57 @@ pub fn validate(scenario: &Scenario) -> Result<(), Vec<ValidationError>> {
         errors.push(issue("surfaces", "at least one surface is required"));
     }
 
+    for (index, obstacle) in scenario.obstacles.iter().enumerate() {
+        let path = format!("obstacles[{index}]");
+        check_unique(&mut ids, &obstacle.id, &path, &mut errors);
+        check_positive(&format!("{path}.width_m"), obstacle.width_m, &mut errors);
+        check_positive(&format!("{path}.depth_m"), obstacle.depth_m, &mut errors);
+        check_point(
+            &surfaces,
+            &obstacle.surface,
+            obstacle.at,
+            &format!("{path}.at"),
+            &mut errors,
+        );
+        check_point(
+            &surfaces,
+            &obstacle.surface,
+            Point3 {
+                x_m: obstacle.at.x_m + obstacle.width_m,
+                y_m: obstacle.at.y_m + obstacle.depth_m,
+                z_m: obstacle.at.z_m,
+            },
+            &format!("{path}.extent"),
+            &mut errors,
+        );
+    }
+
+    for (index, waypoint) in scenario.waypoints.iter().enumerate() {
+        let path = format!("waypoints[{index}]");
+        check_unique(&mut ids, &waypoint.id, &path, &mut errors);
+        check_walkable_point(
+            &surfaces,
+            &scenario.obstacles,
+            &waypoint.surface,
+            waypoint.at,
+            &format!("{path}.at"),
+            &mut errors,
+        );
+        check_nonnegative(&format!("{path}.dwell_s"), waypoint.dwell_s, &mut errors);
+    }
+
     for (index, exit) in scenario.exits.iter().enumerate() {
         let path = format!("exits[{index}]");
         check_unique(&mut ids, &exit.id, &path, &mut errors);
         check_positive(&format!("{path}.width_m"), exit.width_m, &mut errors);
-        check_point(
+        check_optional_positive(
+            &format!("{path}.capacity_per_s"),
+            exit.capacity_per_s,
+            &mut errors,
+        );
+        check_walkable_point(
             &surfaces,
+            &scenario.obstacles,
             &exit.surface,
             exit.at,
             &format!("{path}.at"),
@@ -68,15 +115,17 @@ pub fn validate(scenario: &Scenario) -> Result<(), Vec<ValidationError>> {
     for (index, connector) in scenario.connectors.iter().enumerate() {
         let path = format!("connectors[{index}]");
         check_unique(&mut ids, connector.id(), &path, &mut errors);
-        check_point(
+        check_walkable_point(
             &surfaces,
+            &scenario.obstacles,
             connector.from_surface(),
             connector.from(),
             &format!("{path}.from"),
             &mut errors,
         );
-        check_point(
+        check_walkable_point(
             &surfaces,
+            &scenario.obstacles,
             connector.to_surface(),
             connector.to(),
             &format!("{path}.to"),
@@ -86,12 +135,35 @@ pub fn validate(scenario: &Scenario) -> Result<(), Vec<ValidationError>> {
             errors.push(issue(&path, "must connect two distinct surfaces"));
         }
         match connector {
-            Connector::Stair { width_m, .. } | Connector::Ramp { width_m, .. } => {
+            Connector::Stair {
+                width_m,
+                capacity_per_s,
+                clearance_height_m,
+                ..
+            }
+            | Connector::Ramp {
+                width_m,
+                capacity_per_s,
+                clearance_height_m,
+                ..
+            } => {
                 check_positive(&format!("{path}.width_m"), *width_m, &mut errors);
+                check_optional_positive(
+                    &format!("{path}.capacity_per_s"),
+                    *capacity_per_s,
+                    &mut errors,
+                );
+                check_optional_positive(
+                    &format!("{path}.clearance_height_m"),
+                    *clearance_height_m,
+                    &mut errors,
+                );
             }
             Connector::Escalator {
                 width_m,
                 belt_speed_mps,
+                capacity_per_s,
+                clearance_height_m,
                 ..
             } => {
                 check_positive(&format!("{path}.width_m"), *width_m, &mut errors);
@@ -100,12 +172,23 @@ pub fn validate(scenario: &Scenario) -> Result<(), Vec<ValidationError>> {
                     *belt_speed_mps,
                     &mut errors,
                 );
+                check_optional_positive(
+                    &format!("{path}.capacity_per_s"),
+                    *capacity_per_s,
+                    &mut errors,
+                );
+                check_optional_positive(
+                    &format!("{path}.clearance_height_m"),
+                    *clearance_height_m,
+                    &mut errors,
+                );
             }
             Connector::Lift {
                 cabin_width_m,
                 cabin_depth_m,
                 capacity,
                 cycle_s,
+                clearance_height_m,
                 ..
             } => {
                 check_positive(
@@ -119,6 +202,11 @@ pub fn validate(scenario: &Scenario) -> Result<(), Vec<ValidationError>> {
                     &mut errors,
                 );
                 check_positive(&format!("{path}.cycle_s"), *cycle_s, &mut errors);
+                check_optional_positive(
+                    &format!("{path}.clearance_height_m"),
+                    *clearance_height_m,
+                    &mut errors,
+                );
                 if *capacity == 0 {
                     errors.push(issue(
                         &format!("{path}.capacity"),
@@ -127,6 +215,24 @@ pub fn validate(scenario: &Scenario) -> Result<(), Vec<ValidationError>> {
                 }
             }
         }
+    }
+
+    let connector_ids: HashSet<&str> = scenario.connectors.iter().map(Connector::id).collect();
+    for (index, change) in scenario.connector_states.iter().enumerate() {
+        let path = format!("connector_states[{index}]");
+        check_unique(&mut ids, &change.id, &path, &mut errors);
+        if !connector_ids.contains(change.connector.as_str()) {
+            errors.push(issue(
+                &format!("{path}.connector"),
+                format!("references unknown connector `{}`", change.connector),
+            ));
+        }
+        check_time(
+            &format!("{path}.at_s"),
+            change.at_s,
+            scenario.duration_s,
+            &mut errors,
+        );
     }
 
     for (index, gate) in scenario.gates.iter().enumerate() {
@@ -138,8 +244,9 @@ pub fn validate(scenario: &Scenario) -> Result<(), Vec<ValidationError>> {
             gate.service_rate_per_s,
             &mut errors,
         );
-        check_point(
+        check_walkable_point(
             &surfaces,
+            &scenario.obstacles,
             &gate.surface,
             gate.at,
             &format!("{path}.at"),
@@ -163,6 +270,11 @@ pub fn validate(scenario: &Scenario) -> Result<(), Vec<ValidationError>> {
     }
 
     let exit_ids: HashSet<&str> = scenario.exits.iter().map(|exit| exit.id.as_str()).collect();
+    let waypoint_ids: HashSet<&str> = scenario
+        .waypoints
+        .iter()
+        .map(|waypoint| waypoint.id.as_str())
+        .collect();
     for (index, group) in scenario.agents.iter().enumerate() {
         let path = format!("agents[{index}]");
         check_unique(&mut ids, &group.id, &path, &mut errors);
@@ -172,27 +284,53 @@ pub fn validate(scenario: &Scenario) -> Result<(), Vec<ValidationError>> {
         check_positive(&format!("{path}.speed_mps"), group.speed_mps, &mut errors);
         check_positive(&format!("{path}.radius_m"), group.radius_m, &mut errors);
         check_positive(&format!("{path}.height_m"), group.height_m, &mut errors);
-        check_point(
-            &surfaces,
-            &group.surface,
-            group.at,
-            &format!("{path}.at"),
+        let mut excluded_connector_kinds = BTreeSet::new();
+        for (kind_index, kind) in group.excluded_connector_kinds.iter().enumerate() {
+            if !excluded_connector_kinds.insert(kind) {
+                errors.push(issue(
+                    &format!("{path}.excluded_connector_kinds[{kind_index}]"),
+                    format!("duplicate excluded connector kind `{}`", kind.as_str()),
+                ));
+            }
+        }
+        check_time(
+            &format!("{path}.release_at_s"),
+            group.release_at_s,
+            scenario.duration_s,
             &mut errors,
         );
         if group.radius_m.is_finite() && group.radius_m > 0.0 {
-            let columns = grid_columns(group.count);
-            let rows = group.count.div_ceil(columns);
-            let spacing = group.radius_m * 2.1;
-            let final_spawn = Point3 {
-                x_m: group.at.x_m + f64::from(columns.saturating_sub(1)) * spacing,
-                y_m: group.at.y_m + f64::from(rows.saturating_sub(1)) * spacing,
-                z_m: group.at.z_m,
-            };
-            check_point(
+            check_agent_spawn(
                 &surfaces,
+                &scenario.obstacles,
                 &group.surface,
-                final_spawn,
-                &format!("{path}.spawn_extent"),
+                group.at,
+                group.radius_m,
+                &format!("{path}.at"),
+                &mut errors,
+            );
+            for (ordinal, position) in group.spawn_positions().enumerate().skip(1) {
+                let error_count = errors.len();
+                check_agent_spawn(
+                    &surfaces,
+                    &scenario.obstacles,
+                    &group.surface,
+                    position,
+                    group.radius_m,
+                    &format!("{path}.spawn[{ordinal}]"),
+                    &mut errors,
+                );
+                if errors.len() > error_count {
+                    break;
+                }
+            }
+        } else {
+            check_walkable_point(
+                &surfaces,
+                &scenario.obstacles,
+                &group.surface,
+                group.at,
+                &format!("{path}.at"),
                 &mut errors,
             );
         }
@@ -201,6 +339,29 @@ pub fn validate(scenario: &Scenario) -> Result<(), Vec<ValidationError>> {
                 &format!("{path}.destination"),
                 format!("unknown exit `{}`", group.destination),
             ));
+        }
+        let mut destinations = HashSet::from([group.destination.as_str()]);
+        for (alternative_index, destination) in group.alternative_destinations.iter().enumerate() {
+            if !exit_ids.contains(destination.as_str()) {
+                errors.push(issue(
+                    &format!("{path}.alternative_destinations[{alternative_index}]"),
+                    format!("unknown exit `{destination}`"),
+                ));
+            }
+            if !destinations.insert(destination) {
+                errors.push(issue(
+                    &format!("{path}.alternative_destinations[{alternative_index}]"),
+                    format!("duplicate alternative exit `{destination}`"),
+                ));
+            }
+        }
+        for (waypoint_index, waypoint) in group.via.iter().enumerate() {
+            if !waypoint_ids.contains(waypoint.as_str()) {
+                errors.push(issue(
+                    &format!("{path}.via[{waypoint_index}]"),
+                    format!("references unknown waypoint `{waypoint}`"),
+                ));
+            }
         }
     }
     if scenario.agents.is_empty() {
@@ -215,11 +376,16 @@ pub fn validate(scenario: &Scenario) -> Result<(), Vec<ValidationError>> {
     for (index, message) in scenario.messages.iter().enumerate() {
         let path = format!("messages[{index}]");
         check_unique(&mut ids, &message.id, &path, &mut errors);
-        if !scenario
-            .connectors
-            .iter()
-            .any(|connector| connector.id() == message.claim.connector())
-        {
+        if connector_ids.contains(message.claim.connector()) {
+            let claim_matches_reality = message.claim.is_open()
+                == scenario.connector_open_at(message.claim.connector(), message.at_s);
+            if message.truthful != claim_matches_reality {
+                errors.push(issue(
+                    &format!("{path}.truthful"),
+                    "does not match the connector's authored physical state at message time",
+                ));
+            }
+        } else {
             errors.push(issue(
                 &format!("{path}.claim"),
                 format!(
@@ -228,8 +394,9 @@ pub fn validate(scenario: &Scenario) -> Result<(), Vec<ValidationError>> {
                 ),
             ));
         }
-        check_point(
+        check_walkable_point(
             &surfaces,
+            &scenario.obstacles,
             &message.surface,
             message.origin,
             &format!("{path}.origin"),
@@ -252,15 +419,23 @@ pub fn validate(scenario: &Scenario) -> Result<(), Vec<ValidationError>> {
             .messages
             .iter()
             .find(|message| message.id == countermeasure.corrects)
-            && message.truthful
         {
-            errors.push(issue(
-                &format!("{path}.corrects"),
-                "may only correct a message declared `truth false`",
-            ));
+            if message.truthful {
+                errors.push(issue(
+                    &format!("{path}.corrects"),
+                    "may only correct a message declared `truth false`",
+                ));
+            }
+            if countermeasure.at_s < message.at_s {
+                errors.push(issue(
+                    &format!("{path}.at_s"),
+                    "must not precede the message it corrects",
+                ));
+            }
         }
-        check_point(
+        check_walkable_point(
             &surfaces,
+            &scenario.obstacles,
             &countermeasure.surface,
             countermeasure.origin,
             &format!("{path}.origin"),
@@ -291,36 +466,73 @@ fn check_reachability(scenario: &Scenario, errors: &mut Vec<ValidationError>) {
         .iter()
         .map(|exit| (exit.id.as_str(), exit.surface.as_str()))
         .collect();
-    let mut graph: HashMap<&str, Vec<&str>> = HashMap::new();
-    for connector in &scenario.connectors {
-        graph
-            .entry(connector.from_surface())
-            .or_default()
-            .push(connector.to_surface());
-    }
+    let waypoint_surfaces: HashMap<&str, &str> = scenario
+        .waypoints
+        .iter()
+        .map(|waypoint| (waypoint.id.as_str(), waypoint.surface.as_str()))
+        .collect();
     for (index, group) in scenario.agents.iter().enumerate() {
-        let Some(&exit_surface) = exit_surfaces.get(group.destination.as_str()) else {
-            continue;
-        };
-        let mut visited = HashSet::from([group.surface.as_str()]);
-        let mut queue = VecDeque::from([group.surface.as_str()]);
-        while let Some(current) = queue.pop_front() {
-            for next in graph.get(current).into_iter().flatten() {
-                if visited.insert(next) {
-                    queue.push_back(next);
-                }
+        let mut graph: HashMap<&str, Vec<&str>> = HashMap::new();
+        for connector in scenario.connectors.iter().filter(|connector| {
+            connector.supports_height(group.height_m) && group.allows_connector(connector)
+        }) {
+            graph
+                .entry(connector.from_surface())
+                .or_default()
+                .push(connector.to_surface());
+        }
+        let mut current_surface = group.surface.as_str();
+        for (waypoint_index, waypoint_id) in group.via.iter().enumerate() {
+            let Some(&waypoint_surface) = waypoint_surfaces.get(waypoint_id.as_str()) else {
+                continue;
+            };
+            if !surface_is_reachable(&graph, current_surface, waypoint_surface) {
+                errors.push(issue(
+                    &format!("agents[{index}].via[{waypoint_index}]"),
+                    format!(
+                        "waypoint `{waypoint_id}` on surface `{waypoint_surface}` is unreachable from `{current_surface}`"
+                    ),
+                ));
+                break;
+            }
+            current_surface = waypoint_surface;
+        }
+        for (destination_index, destination) in group.exit_candidates().enumerate() {
+            let Some(&exit_surface) = exit_surfaces.get(destination) else {
+                continue;
+            };
+            if !surface_is_reachable(&graph, current_surface, exit_surface) {
+                let path = if destination_index == 0 {
+                    format!("agents[{index}].destination")
+                } else {
+                    format!("agents[{index}].alternative_destinations[{}]", destination_index - 1)
+                };
+                errors.push(issue(
+                    &path,
+                    format!(
+                        "exit `{destination}` on surface `{exit_surface}` is unreachable from `{current_surface}`"
+                    ),
+                ));
             }
         }
-        if !visited.contains(exit_surface) {
-            errors.push(issue(
-                &format!("agents[{index}].destination"),
-                format!(
-                    "exit `{}` on surface `{exit_surface}` is unreachable from `{}`",
-                    group.destination, group.surface
-                ),
-            ));
+    }
+}
+
+fn surface_is_reachable(
+    graph: &HashMap<&str, Vec<&str>>,
+    start_surface: &str,
+    target_surface: &str,
+) -> bool {
+    let mut visited = HashSet::from([start_surface]);
+    let mut queue = VecDeque::from([start_surface]);
+    while let Some(current) = queue.pop_front() {
+        for next in graph.get(current).into_iter().flatten() {
+            if visited.insert(next) {
+                queue.push_back(next);
+            }
         }
     }
+    visited.contains(target_surface)
 }
 
 fn check_point(
@@ -340,6 +552,64 @@ fn check_point(
     }
 }
 
+fn check_walkable_point(
+    surfaces: &HashMap<&str, &Surface>,
+    obstacles: &[Obstacle],
+    surface_id: &str,
+    point: Point3,
+    path: &str,
+    errors: &mut Vec<ValidationError>,
+) {
+    let Some(surface) = surfaces.get(surface_id) else {
+        errors.push(issue(
+            path,
+            format!("references unknown surface `{surface_id}`"),
+        ));
+        return;
+    };
+    if !surface.contains(point) {
+        errors.push(issue(path, format!("is outside surface `{surface_id}`")));
+        return;
+    }
+    if obstacles
+        .iter()
+        .any(|obstacle| obstacle.surface == surface_id && obstacle.contains(point))
+    {
+        errors.push(issue(
+            path,
+            format!("is inside an obstacle on `{surface_id}`"),
+        ));
+    }
+}
+
+fn check_agent_spawn(
+    surfaces: &HashMap<&str, &Surface>,
+    obstacles: &[Obstacle],
+    surface_id: &str,
+    point: Point3,
+    radius_m: f64,
+    path: &str,
+    errors: &mut Vec<ValidationError>,
+) {
+    let error_count = errors.len();
+    check_walkable_point(surfaces, obstacles, surface_id, point, path, errors);
+    if errors.len() > error_count {
+        return;
+    }
+    if let Some(obstacle) = obstacles.iter().find(|obstacle| {
+        obstacle.surface == surface_id
+            && obstacle.contains_with_clearance(point, radius_m + NAVIGATION_CLEARANCE_EPSILON_M)
+    }) {
+        errors.push(issue(
+            path,
+            format!(
+                "does not clear obstacle `{}` on `{surface_id}` by the agent radius",
+                obstacle.id
+            ),
+        ));
+    }
+}
+
 fn check_unique(
     ids: &mut BTreeSet<String>,
     id: &str,
@@ -356,6 +626,18 @@ fn check_unique(
 fn check_positive(path: &str, value: f64, errors: &mut Vec<ValidationError>) {
     if !value.is_finite() || value <= 0.0 {
         errors.push(issue(path, "must be finite and greater than zero"));
+    }
+}
+
+fn check_nonnegative(path: &str, value: f64, errors: &mut Vec<ValidationError>) {
+    if !value.is_finite() || value < 0.0 {
+        errors.push(issue(path, "must be finite and non-negative"));
+    }
+}
+
+fn check_optional_positive(path: &str, value: Option<f64>, errors: &mut Vec<ValidationError>) {
+    if let Some(value) = value {
+        check_positive(path, value, errors);
     }
 }
 
@@ -382,12 +664,4 @@ fn issue(path: &str, message: impl Into<String>) -> ValidationError {
         path: path.to_owned(),
         message: message.into(),
     }
-}
-
-fn grid_columns(count: u32) -> u32 {
-    let mut columns = 1_u32;
-    while columns.saturating_mul(columns) < count {
-        columns += 1;
-    }
-    columns
 }

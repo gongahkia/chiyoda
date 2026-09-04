@@ -1,5 +1,8 @@
 use serde::{Deserialize, Serialize};
 
+/// Extra clearance used to keep visibility-graph paths off obstacle boundaries.
+pub(crate) const NAVIGATION_CLEARANCE_EPSILON_M: f64 = 1e-6;
+
 /// A point in metres in the scenario's declared Cartesian coordinate system.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct Point3 {
@@ -47,12 +50,54 @@ impl Surface {
     }
 }
 
+/// An axis-aligned rectangular no-go zone on a declared walkable surface.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Obstacle {
+    pub id: String,
+    pub surface: String,
+    pub at: Point3,
+    pub width_m: f64,
+    pub depth_m: f64,
+}
+
+/// A required intermediate point in an agent group's authored journey.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Waypoint {
+    pub id: String,
+    pub surface: String,
+    pub at: Point3,
+    /// Authored hold time after arrival before the next journey stage begins.
+    pub dwell_s: f64,
+}
+
+impl Obstacle {
+    #[must_use]
+    pub fn contains(&self, point: Point3) -> bool {
+        const EPSILON: f64 = 1e-9;
+        (point.z_m - self.at.z_m).abs() < EPSILON
+            && point.x_m >= self.at.x_m - EPSILON
+            && point.x_m <= self.at.x_m + self.width_m + EPSILON
+            && point.y_m >= self.at.y_m - EPSILON
+            && point.y_m <= self.at.y_m + self.depth_m + EPSILON
+    }
+
+    /// Match the conservative axis-aligned obstacle expansion used by navigation.
+    pub(crate) fn contains_with_clearance(&self, point: Point3, clearance_m: f64) -> bool {
+        point.x_m >= self.at.x_m - clearance_m
+            && point.x_m <= self.at.x_m + self.width_m + clearance_m
+            && point.y_m >= self.at.y_m - clearance_m
+            && point.y_m <= self.at.y_m + self.depth_m + clearance_m
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Exit {
     pub id: String,
     pub surface: String,
     pub at: Point3,
     pub width_m: f64,
+    /// Optional authored discharge limit. Width alone does not imply flow.
+    pub capacity_per_s: Option<f64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -76,6 +121,11 @@ pub enum Connector {
         to_surface: String,
         to: Point3,
         width_m: f64,
+        /// Optional authored throughput limit. Width alone is not treated as
+        /// empirical evidence for a particular service rate.
+        capacity_per_s: Option<f64>,
+        /// Optional authored maximum traversable agent height.
+        clearance_height_m: Option<f64>,
     },
     Ramp {
         id: String,
@@ -84,6 +134,8 @@ pub enum Connector {
         to_surface: String,
         to: Point3,
         width_m: f64,
+        capacity_per_s: Option<f64>,
+        clearance_height_m: Option<f64>,
     },
     Escalator {
         id: String,
@@ -95,6 +147,8 @@ pub enum Connector {
         /// Declared directed belt speed. The reference model assumes walking
         /// agents add their own speed to this value while in transit.
         belt_speed_mps: f64,
+        capacity_per_s: Option<f64>,
+        clearance_height_m: Option<f64>,
     },
     Lift {
         id: String,
@@ -106,7 +160,30 @@ pub enum Connector {
         cabin_depth_m: f64,
         capacity: u32,
         cycle_s: f64,
+        clearance_height_m: Option<f64>,
     },
+}
+
+/// A connector class used for authored route-eligibility constraints.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ConnectorKind {
+    Stair,
+    Ramp,
+    Escalator,
+    Lift,
+}
+
+impl ConnectorKind {
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Stair => "stair",
+            Self::Ramp => "ramp",
+            Self::Escalator => "escalator",
+            Self::Lift => "lift",
+        }
+    }
 }
 
 impl Connector {
@@ -166,11 +243,55 @@ impl Connector {
     }
 
     #[must_use]
+    pub fn kind(&self) -> ConnectorKind {
+        match self {
+            Self::Stair { .. } => ConnectorKind::Stair,
+            Self::Ramp { .. } => ConnectorKind::Ramp,
+            Self::Escalator { .. } => ConnectorKind::Escalator,
+            Self::Lift { .. } => ConnectorKind::Lift,
+        }
+    }
+
+    #[must_use]
     pub fn capacity(&self) -> Option<u32> {
         match self {
             Self::Lift { capacity, .. } => Some(*capacity),
             Self::Stair { .. } | Self::Ramp { .. } | Self::Escalator { .. } => None,
         }
+    }
+
+    #[must_use]
+    pub fn service_rate_per_s(&self) -> Option<f64> {
+        match self {
+            Self::Stair { capacity_per_s, .. }
+            | Self::Ramp { capacity_per_s, .. }
+            | Self::Escalator { capacity_per_s, .. } => *capacity_per_s,
+            Self::Lift { .. } => None,
+        }
+    }
+
+    #[must_use]
+    pub fn clearance_height_m(&self) -> Option<f64> {
+        match self {
+            Self::Stair {
+                clearance_height_m, ..
+            }
+            | Self::Ramp {
+                clearance_height_m, ..
+            }
+            | Self::Escalator {
+                clearance_height_m, ..
+            }
+            | Self::Lift {
+                clearance_height_m, ..
+            } => *clearance_height_m,
+        }
+    }
+
+    #[must_use]
+    pub fn supports_height(&self, height_m: f64) -> bool {
+        self.clearance_height_m()
+            .is_none_or(|clearance_height_m| height_m <= clearance_height_m)
     }
 
     #[must_use]
@@ -196,10 +317,67 @@ pub struct AgentGroup {
     pub count: u32,
     pub surface: String,
     pub at: Point3,
+    /// The first declared final exit, used to break equal nominal-route costs.
     pub destination: String,
+    /// Additional final exits considered alongside `destination`; declaration
+    /// order breaks equal nominal-route costs.
+    pub alternative_destinations: Vec<String>,
     pub speed_mps: f64,
     pub radius_m: f64,
     pub height_m: f64,
+    /// The authored time at which this group becomes active in the simulation.
+    /// This is a scenario input, not an inferred arrival distribution.
+    pub release_at_s: f64,
+    /// Ordered required stages before the group's final exit.
+    pub via: Vec<String>,
+    /// Connector classes this group must not traverse. This is an authored
+    /// route constraint, not an inferred mobility or accessibility profile.
+    pub excluded_connector_kinds: Vec<ConnectorKind>,
+}
+
+impl AgentGroup {
+    #[must_use]
+    pub fn exit_candidates(&self) -> impl Iterator<Item = &str> {
+        std::iter::once(self.destination.as_str())
+            .chain(self.alternative_destinations.iter().map(String::as_str))
+    }
+
+    #[must_use]
+    pub fn allows_connector(&self, connector: &Connector) -> bool {
+        !self.excluded_connector_kinds.contains(&connector.kind())
+    }
+
+    /// Return the deterministic row-major positions used to instantiate this group.
+    pub(crate) fn spawn_positions(&self) -> impl Iterator<Item = Point3> + '_ {
+        let columns = spawn_grid_columns(self.count);
+        let spacing = self.radius_m * 2.1;
+        (0..self.count).map(move |ordinal| {
+            let column = ordinal % columns;
+            let row = ordinal / columns;
+            Point3 {
+                x_m: self.at.x_m + f64::from(column) * spacing,
+                y_m: self.at.y_m + f64::from(row) * spacing,
+                z_m: self.at.z_m,
+            }
+        })
+    }
+}
+
+fn spawn_grid_columns(count: u32) -> u32 {
+    let mut columns = 1_u32;
+    while columns.saturating_mul(columns) < count {
+        columns += 1;
+    }
+    columns
+}
+
+/// An authored change to a connector's physical availability.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConnectorStateChange {
+    pub id: String,
+    pub connector: String,
+    pub open: bool,
+    pub at_s: f64,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -280,12 +458,35 @@ pub struct Scenario {
     pub duration_s: f64,
     pub timestep_s: f64,
     pub surfaces: Vec<Surface>,
+    pub obstacles: Vec<Obstacle>,
+    pub waypoints: Vec<Waypoint>,
     pub exits: Vec<Exit>,
     pub connectors: Vec<Connector>,
+    pub connector_states: Vec<ConnectorStateChange>,
     pub gates: Vec<Gate>,
     pub agents: Vec<AgentGroup>,
     pub messages: Vec<Message>,
     pub countermeasures: Vec<Countermeasure>,
+}
+
+impl Scenario {
+    /// Return a connector's authored physical state at an exact scenario time.
+    /// The default is open; same-time declarations apply in source order.
+    #[must_use]
+    pub fn connector_open_at(&self, connector_id: &str, time_s: f64) -> bool {
+        let mut changes: Vec<_> = self
+            .connector_states
+            .iter()
+            .enumerate()
+            .filter(|(_, change)| change.connector == connector_id && change.at_s <= time_s)
+            .collect();
+        changes.sort_by(|(left_index, left), (right_index, right)| {
+            left.at_s
+                .total_cmp(&right.at_s)
+                .then(left_index.cmp(right_index))
+        });
+        changes.into_iter().fold(true, |_, (_, change)| change.open)
+    }
 }
 
 /// The compiler's stable interchange representation.
