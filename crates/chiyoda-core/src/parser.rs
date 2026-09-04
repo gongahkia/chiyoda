@@ -152,6 +152,43 @@ fn parse_declaration(
                 width_m: parse_length(line, required(line, tokens, 15, "stair width")?)?,
             });
         }
+        "ramp" => {
+            require_count(line, tokens, 16)?;
+            expect(line, tokens, 2, "from")?;
+            expect(line, tokens, 4, "at")?;
+            expect(line, tokens, 8, "to")?;
+            expect(line, tokens, 10, "at")?;
+            expect(line, tokens, 14, "width")?;
+            builder.connectors.push(Connector::Ramp {
+                id: tokens[1].clone(),
+                from_surface: tokens[3].clone(),
+                from: point(line, tokens, 5)?,
+                to_surface: tokens[9].clone(),
+                to: point(line, tokens, 11)?,
+                width_m: parse_length(line, required(line, tokens, 15, "ramp width")?)?,
+            });
+        }
+        "escalator" => {
+            require_count(line, tokens, 18)?;
+            expect(line, tokens, 2, "from")?;
+            expect(line, tokens, 4, "at")?;
+            expect(line, tokens, 8, "to")?;
+            expect(line, tokens, 10, "at")?;
+            expect(line, tokens, 14, "width")?;
+            expect(line, tokens, 16, "belt")?;
+            builder.connectors.push(Connector::Escalator {
+                id: tokens[1].clone(),
+                from_surface: tokens[3].clone(),
+                from: point(line, tokens, 5)?,
+                to_surface: tokens[9].clone(),
+                to: point(line, tokens, 11)?,
+                width_m: parse_length(line, required(line, tokens, 15, "escalator width")?)?,
+                belt_speed_mps: parse_speed(
+                    line,
+                    required(line, tokens, 17, "escalator belt speed")?,
+                )?,
+            });
+        }
         "lift" => {
             require_count(line, tokens, 21)?;
             expect(line, tokens, 2, "from")?;

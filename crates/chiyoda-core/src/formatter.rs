@@ -3,7 +3,7 @@
 use crate::model::{Connector, Proposition, Scenario};
 use std::fmt::Write;
 
-/// Render a typed scenario as canonical version-0.1 source.
+/// Render a typed scenario as canonical version-0.2 source.
 #[must_use]
 #[allow(clippy::too_many_lines)] // mirrors the complete declaration grammar in one reviewable serializer
 pub fn format_scenario(scenario: &Scenario) -> String {
@@ -52,6 +52,36 @@ pub fn format_scenario(scenario: &Scenario) -> String {
                 point(*from),
                 point(*to),
                 length(*width_m),
+            ),
+            Connector::Ramp {
+                id,
+                from_surface,
+                from,
+                to_surface,
+                to,
+                width_m,
+            } => writeln!(
+                source,
+                "ramp {id} from {from_surface} at {} to {to_surface} at {} width {}",
+                point(*from),
+                point(*to),
+                length(*width_m),
+            ),
+            Connector::Escalator {
+                id,
+                from_surface,
+                from,
+                to_surface,
+                to,
+                width_m,
+                belt_speed_mps,
+            } => writeln!(
+                source,
+                "escalator {id} from {from_surface} at {} to {to_surface} at {} width {} belt {}",
+                point(*from),
+                point(*to),
+                length(*width_m),
+                speed(*belt_speed_mps),
             ),
             Connector::Lift {
                 id,

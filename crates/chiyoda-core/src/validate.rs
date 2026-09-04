@@ -86,8 +86,20 @@ pub fn validate(scenario: &Scenario) -> Result<(), Vec<ValidationError>> {
             errors.push(issue(&path, "must connect two distinct surfaces"));
         }
         match connector {
-            Connector::Stair { width_m, .. } => {
+            Connector::Stair { width_m, .. } | Connector::Ramp { width_m, .. } => {
                 check_positive(&format!("{path}.width_m"), *width_m, &mut errors);
+            }
+            Connector::Escalator {
+                width_m,
+                belt_speed_mps,
+                ..
+            } => {
+                check_positive(&format!("{path}.width_m"), *width_m, &mut errors);
+                check_positive(
+                    &format!("{path}.belt_speed_mps"),
+                    *belt_speed_mps,
+                    &mut errors,
+                );
             }
             Connector::Lift {
                 cabin_width_m,

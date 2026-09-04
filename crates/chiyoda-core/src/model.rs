@@ -77,6 +77,25 @@ pub enum Connector {
         to: Point3,
         width_m: f64,
     },
+    Ramp {
+        id: String,
+        from_surface: String,
+        from: Point3,
+        to_surface: String,
+        to: Point3,
+        width_m: f64,
+    },
+    Escalator {
+        id: String,
+        from_surface: String,
+        from: Point3,
+        to_surface: String,
+        to: Point3,
+        width_m: f64,
+        /// Declared directed belt speed. The reference model assumes walking
+        /// agents add their own speed to this value while in transit.
+        belt_speed_mps: f64,
+    },
     Lift {
         id: String,
         from_surface: String,
@@ -94,35 +113,50 @@ impl Connector {
     #[must_use]
     pub fn id(&self) -> &str {
         match self {
-            Self::Stair { id, .. } | Self::Lift { id, .. } => id,
+            Self::Stair { id, .. }
+            | Self::Ramp { id, .. }
+            | Self::Escalator { id, .. }
+            | Self::Lift { id, .. } => id,
         }
     }
 
     #[must_use]
     pub fn from_surface(&self) -> &str {
         match self {
-            Self::Stair { from_surface, .. } | Self::Lift { from_surface, .. } => from_surface,
+            Self::Stair { from_surface, .. }
+            | Self::Ramp { from_surface, .. }
+            | Self::Escalator { from_surface, .. }
+            | Self::Lift { from_surface, .. } => from_surface,
         }
     }
 
     #[must_use]
     pub fn to_surface(&self) -> &str {
         match self {
-            Self::Stair { to_surface, .. } | Self::Lift { to_surface, .. } => to_surface,
+            Self::Stair { to_surface, .. }
+            | Self::Ramp { to_surface, .. }
+            | Self::Escalator { to_surface, .. }
+            | Self::Lift { to_surface, .. } => to_surface,
         }
     }
 
     #[must_use]
     pub fn from(&self) -> Point3 {
         match self {
-            Self::Stair { from, .. } | Self::Lift { from, .. } => *from,
+            Self::Stair { from, .. }
+            | Self::Ramp { from, .. }
+            | Self::Escalator { from, .. }
+            | Self::Lift { from, .. } => *from,
         }
     }
 
     #[must_use]
     pub fn to(&self) -> Point3 {
         match self {
-            Self::Stair { to, .. } | Self::Lift { to, .. } => *to,
+            Self::Stair { to, .. }
+            | Self::Ramp { to, .. }
+            | Self::Escalator { to, .. }
+            | Self::Lift { to, .. } => *to,
         }
     }
 
@@ -135,14 +169,22 @@ impl Connector {
     pub fn capacity(&self) -> Option<u32> {
         match self {
             Self::Lift { capacity, .. } => Some(*capacity),
-            Self::Stair { .. } => None,
+            Self::Stair { .. } | Self::Ramp { .. } | Self::Escalator { .. } => None,
         }
     }
 
     #[must_use]
     pub fn traversal_duration_s(&self, walking_speed_mps: f64) -> f64 {
         match self {
-            Self::Stair { from, to, .. } => from.distance(*to) / walking_speed_mps,
+            Self::Stair { from, to, .. } | Self::Ramp { from, to, .. } => {
+                from.distance(*to) / walking_speed_mps
+            }
+            Self::Escalator {
+                from,
+                to,
+                belt_speed_mps,
+                ..
+            } => from.distance(*to) / (walking_speed_mps + belt_speed_mps),
             Self::Lift { cycle_s, .. } => *cycle_s,
         }
     }

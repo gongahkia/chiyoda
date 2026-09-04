@@ -4,7 +4,7 @@ use crate::{
     validate,
 };
 use std::{
-    collections::{BTreeMap, HashMap, HashSet, VecDeque},
+    collections::{BTreeMap, HashMap, HashSet},
     fmt,
 };
 
@@ -212,8 +212,14 @@ pub fn run(scenario: &Scenario, options: RunOptions) -> Result<RunBundle, RunErr
 fn spawn_agents(scenario: &Scenario) -> Result<Vec<Agent>, RunError> {
     let mut agents = Vec::new();
     for group in &scenario.agents {
-        let route =
-            route_to_exit(scenario, &group.surface, &group.destination).ok_or_else(|| {
+        let route = route_to_exit(
+            scenario,
+            &group.surface,
+            group.at,
+            group.speed_mps,
+            &group.destination,
+        )
+        .ok_or_else(|| {
                 RunError::NoRoute {
                     agent_group: group.id.clone(),
                     destination: group.destination.clone(),
@@ -256,47 +262,117 @@ fn grid_columns(count: u32) -> u32 {
     columns
 }
 
-fn route_to_exit(scenario: &Scenario, start: &str, exit_id: &str) -> Option<Vec<usize>> {
-    route_to_exit_avoiding(scenario, start, exit_id, &HashSet::new())
+fn route_to_exit(
+    scenario: &Scenario,
+    start_surface: &str,
+    start: Point3,
+    walking_speed_mps: f64,
+    exit_id: &str,
+) -> Option<Vec<usize>> {
+    route_to_exit_avoiding(
+        scenario,
+        start_surface,
+        start,
+        walking_speed_mps,
+        exit_id,
+        &HashSet::new(),
+    )
 }
 
 fn route_to_exit_avoiding(
     scenario: &Scenario,
-    start: &str,
+    start_surface: &str,
+    start: Point3,
+    walking_speed_mps: f64,
     exit_id: &str,
     blocked_connectors: &HashSet<String>,
 ) -> Option<Vec<usize>> {
     let exit = scenario.exits.iter().find(|exit| exit.id == exit_id)?;
-    if start == exit.surface {
+    if start_surface == exit.surface {
         return Some(Vec::new());
     }
-    let mut queue = VecDeque::from([start.to_owned()]);
-    let mut previous: HashMap<String, (String, usize)> = HashMap::new();
-    let mut seen = HashSet::from([start.to_owned()]);
-    while let Some(surface) = queue.pop_front() {
-        for (index, connector) in scenario.connectors.iter().enumerate() {
-            if blocked_connectors.contains(connector.id())
+
+    // Connector nodes retain the arrival point needed to price the following
+    // surface walk. This is a time-weighted directed route, not a hop-count
+    // graph: a nominal lift cycle can be slower than multiple stairs.
+    let connector_count = scenario.connectors.len();
+    let mut durations = vec![None; connector_count];
+    let mut previous = vec![None; connector_count];
+    let mut settled = vec![false; connector_count];
+    for (index, connector) in scenario.connectors.iter().enumerate() {
+        if blocked_connectors.contains(connector.id())
+            || connector.from_surface() != start_surface
+        {
+            continue;
+        }
+        durations[index] = Some(
+            start.distance(connector.from()) / walking_speed_mps
+                + connector.traversal_duration_s(walking_speed_mps),
+        );
+    }
+
+    while let Some(current) = next_unsettled(&durations, &settled) {
+        settled[current] = true;
+        let duration = durations[current]?;
+        let arrival = scenario.connectors[current].to();
+        let surface = scenario.connectors[current].to_surface();
+        for (next, connector) in scenario.connectors.iter().enumerate() {
+            if settled[next]
+                || blocked_connectors.contains(connector.id())
                 || connector.from_surface() != surface
-                || !seen.insert(connector.to_surface().to_owned())
             {
                 continue;
             }
-            previous.insert(connector.to_surface().to_owned(), (surface.clone(), index));
-            if connector.to_surface() == exit.surface {
-                let mut route = Vec::new();
-                let mut cursor = exit.surface.clone();
-                while cursor != start {
-                    let (parent, connector_index) = previous.get(&cursor)?.clone();
-                    route.push(connector_index);
-                    cursor = parent;
-                }
-                route.reverse();
-                return Some(route);
+            let candidate = duration
+                + arrival.distance(connector.from()) / walking_speed_mps
+                + connector.traversal_duration_s(walking_speed_mps);
+            if durations[next].is_none_or(|current_duration| candidate < current_duration) {
+                durations[next] = Some(candidate);
+                previous[next] = Some(current);
             }
-            queue.push_back(connector.to_surface().to_owned());
         }
     }
-    None
+
+    let terminal = scenario
+        .connectors
+        .iter()
+        .enumerate()
+        .filter(|(_, connector)| connector.to_surface() == exit.surface)
+        .filter_map(|(index, connector)| {
+            durations[index].map(|duration| {
+                (
+                    index,
+                    duration + connector.to().distance(exit.at) / walking_speed_mps,
+                )
+            })
+        })
+        .min_by(|(left_index, left_duration), (right_index, right_duration)| {
+            left_duration
+                .total_cmp(right_duration)
+                .then(left_index.cmp(right_index))
+        })?
+        .0;
+    let mut route = vec![terminal];
+    let mut cursor = terminal;
+    while let Some(parent) = previous[cursor] {
+        route.push(parent);
+        cursor = parent;
+    }
+    route.reverse();
+    Some(route)
+}
+
+fn next_unsettled(durations: &[Option<f64>], settled: &[bool]) -> Option<usize> {
+    let mut next = None;
+    for (index, duration) in durations.iter().enumerate() {
+        if settled[index] || duration.is_none() {
+            continue;
+        }
+        if next.is_none_or(|current| duration.expect("checked") < durations[current].expect("checked")) {
+            next = Some(index);
+        }
+    }
+    next
 }
 
 fn apply_information(
@@ -400,6 +476,8 @@ fn reroute_after_information(
     if let Some(route) = route_to_exit_avoiding(
         scenario,
         &agent.surface,
+        agent.position,
+        agent.speed_mps,
         &agent.destination,
         &agent.blocked_connectors,
     ) {
