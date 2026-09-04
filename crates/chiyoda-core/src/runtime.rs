@@ -82,6 +82,7 @@ struct Agent {
     motion: Motion,
     beliefs: BTreeMap<String, f64>,
     blocked_connectors: HashSet<String>,
+    passed_gates: HashSet<String>,
 }
 
 /// Execute the reference small-step semantics deterministically.
@@ -98,6 +99,12 @@ pub fn run(scenario: Scenario, options: RunOptions) -> Result<RunBundle, RunErro
     let mut trace = vec![snapshot(0, 0.0, &agents)];
     let mut events = Vec::new();
     let mut queued_for_lift_agents = HashSet::new();
+    let mut queued_for_gate_agents = HashSet::new();
+    let mut gate_tokens: HashMap<String, f64> = scenario
+        .gates
+        .iter()
+        .map(|gate| (gate.id.clone(), 0.0))
+        .collect();
 
     for step in 1..=step_count {
         let time_s = (step as f64) * scenario.timestep_s;
@@ -114,6 +121,8 @@ pub fn run(scenario: Scenario, options: RunOptions) -> Result<RunBundle, RunErro
             time_s,
             &mut events,
             &mut queued_for_lift_agents,
+            &mut queued_for_gate_agents,
+            &mut gate_tokens,
         );
         if step % u64::from(options.trace_every_steps) == 0 || step == step_count {
             trace.push(snapshot(step, time_s, &agents));
@@ -137,6 +146,8 @@ pub fn run(scenario: Scenario, options: RunOptions) -> Result<RunBundle, RunErro
         clearance_time_s,
         mean_exit_time_s,
         queued_for_lift_agents: u32::try_from(queued_for_lift_agents.len())
+            .expect("agent count fits u32"),
+        queued_for_gate_agents: u32::try_from(queued_for_gate_agents.len())
             .expect("agent count fits u32"),
     };
     let options = BTreeMap::from([
@@ -184,6 +195,7 @@ fn spawn_agents(scenario: &Scenario) -> Result<Vec<Agent>, RunError> {
                 motion: Motion::OnSurface,
                 beliefs: BTreeMap::new(),
                 blocked_connectors: HashSet::new(),
+                passed_gates: HashSet::new(),
             });
         }
     }
@@ -364,12 +376,18 @@ fn integrate(
     time_s: f64,
     events: &mut Vec<RunEvent>,
     queued_for_lift_agents: &mut HashSet<String>,
+    queued_for_gate_agents: &mut HashSet<String>,
+    gate_tokens: &mut HashMap<String, f64>,
 ) {
     let positions: Vec<(String, Point3, f64)> = agents
         .iter()
         .map(|agent| (agent.surface.clone(), agent.position, agent.radius_m))
         .collect();
     let mut lift_loads = current_lift_loads(agents);
+    for gate in &scenario.gates {
+        let token = gate_tokens.entry(gate.id.clone()).or_default();
+        *token = (*token + gate.service_rate_per_s * scenario.timestep_s).min(1.0);
+    }
     for (index, agent) in agents.iter_mut().enumerate() {
         match &mut agent.motion {
             Motion::Evacuated { .. } => continue,

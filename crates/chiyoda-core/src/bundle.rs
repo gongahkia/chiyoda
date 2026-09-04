@@ -46,6 +46,7 @@ pub struct RunMetrics {
     pub clearance_time_s: Option<f64>,
     pub mean_exit_time_s: Option<f64>,
     pub queued_for_lift_agents: u32,
+    pub queued_for_gate_agents: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

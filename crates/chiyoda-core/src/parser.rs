@@ -177,17 +177,19 @@ fn parse_declaration(
             });
         }
         "gate" => {
-            require_count(line, tokens, 12)?;
+            require_count(line, tokens, 14)?;
             expect(line, tokens, 2, "on")?;
             expect(line, tokens, 4, "at")?;
             expect(line, tokens, 8, "width")?;
             expect(line, tokens, 10, "capacity")?;
+            expect(line, tokens, 12, "to")?;
             builder.gates.push(Gate {
                 id: tokens[1].clone(),
                 surface: tokens[3].clone(),
                 at: point(line, tokens, 5)?,
                 width_m: parse_length(line, required(line, tokens, 9, "gate width")?)?,
                 service_rate_per_s: parse_rate(line, required(line, tokens, 11, "gate capacity")?)?,
+                destination: tokens[13].clone(),
             });
         }
         "agents" => {

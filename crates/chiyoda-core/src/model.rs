@@ -63,6 +63,8 @@ pub struct Gate {
     pub width_m: f64,
     /// Maximum people processed per second, declared as `N/s` in source.
     pub service_rate_per_s: f64,
+    /// The exit this gate controls. This makes service semantics unambiguous.
+    pub destination: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

@@ -132,6 +132,17 @@ pub fn validate(scenario: &Scenario) -> Result<(), Vec<ValidationError>> {
             &format!("{path}.at"),
             &mut errors,
         );
+        match scenario.exits.iter().find(|exit| exit.id == gate.destination) {
+            Some(exit) if exit.surface == gate.surface => {}
+            Some(_) => errors.push(issue(
+                &format!("{path}.destination"),
+                "gate and controlled exit must be on the same surface",
+            )),
+            None => errors.push(issue(
+                &format!("{path}.destination"),
+                format!("references unknown exit `{}`", gate.destination),
+            )),
+        }
     }
 
     let exit_ids: HashSet<&str> = scenario.exits.iter().map(|exit| exit.id.as_str()).collect();
