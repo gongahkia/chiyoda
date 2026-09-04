@@ -116,7 +116,8 @@ cannot enforce it.
 - `python` — dependency-light bundle verification and analysis helpers; it is
   intentionally outside the trusted simulation runtime.
 - `benchmarks` — public fixtures and round-protocol materials; no empirical
-  result is published until its evidence manifest validates.
+  result is published until its evidence manifest validates. Its source
+  screening decisions are documented in [data scouting](docs/data-scouting.md).
 - `docs` — normative language, runtime, evidence, and release contracts.
 
 ## License
