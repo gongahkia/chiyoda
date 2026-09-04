@@ -10,6 +10,12 @@ fn generated_source_is_parseable_and_valid() {
     let scenario = generator::scenario(73).expect("generator must preserve the language contract");
     assert_eq!(scenario.surfaces.len(), 2);
     assert_eq!(scenario.connectors.len(), 2);
+    assert_eq!(scenario.exits.len(), 2);
+    assert_eq!(scenario.exit_states.len(), 1);
+    assert_eq!(
+        scenario.agents[0].alternative_destinations,
+        vec!["plaza".to_owned()]
+    );
     assert_eq!(scenario.messages.len(), 1);
     assert_eq!(scenario.countermeasures.len(), 1);
 }
@@ -373,7 +379,8 @@ agents passengers count 1 on upper at (1m, 1m, 3m) to street speed 1m/s radius 0
 
 #[test]
 fn runtime_is_reproducible_and_information_recomputes_routes() {
-    let scenario = generator::scenario(73).expect("valid generated scenario");
+    let mut scenario = generator::scenario(73).expect("valid generated scenario");
+    scenario.exit_states.clear();
     let first = run(
         &scenario,
         RunOptions {

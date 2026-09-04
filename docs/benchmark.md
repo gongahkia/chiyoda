@@ -38,6 +38,9 @@ basic outcome metrics, and evacuations attributed to each final exit.
 `chiyoda verify-sweep DIRECTORY` cross-checks that summary against every
 bundle hash, metric, and canonical source. The supplied output directory must
 be empty so an existing experiment artifact cannot be silently overwritten.
+Each generated case declares a primary exit, an alternative final exit, and a
+scheduled closure of the primary, so a sweep exercises the deterministic
+rerouting semantics as well as its outcome attribution.
 
 This command supports structural exploration and regression investigation. It
 does not produce a benchmark score, calibration result, or predictive claim.
