@@ -270,6 +270,13 @@ fn initial_state_events(scenario: &Scenario) -> Vec<RunEvent> {
     );
     events.extend(
         scenario
+            .gate_states
+            .iter()
+            .filter(|change| change.at_s == 0.0)
+            .map(gate_state_event),
+    );
+    events.extend(
+        scenario
             .connector_capacity_states
             .iter()
             .filter(|change| change.at_s == 0.0)
@@ -288,13 +295,6 @@ fn initial_state_events(scenario: &Scenario) -> Vec<RunEvent> {
             .iter()
             .filter(|change| change.at_s == 0.0)
             .map(gate_capacity_event),
-    );
-    events.extend(
-        scenario
-            .gate_states
-            .iter()
-            .filter(|change| change.at_s == 0.0)
-            .map(gate_state_event),
     );
     events
 }
@@ -370,7 +370,7 @@ fn apply_scheduled_events(
             .iter()
             .enumerate()
             .filter(|(_, change)| is_scheduled(change.at_s))
-            .map(|(index, change)| (change.at_s, 0_u8, index, ScheduledEvent::ExitState(change))),
+            .map(|(index, change)| (change.at_s, 1_u8, index, ScheduledEvent::ExitState(change))),
     );
     scheduled.extend(
         scenario
@@ -381,7 +381,7 @@ fn apply_scheduled_events(
             .map(|(index, change)| {
                 (
                     change.at_s,
-                    0_u8,
+                    3_u8,
                     index,
                     ScheduledEvent::ConnectorCapacity(change),
                 )
@@ -396,7 +396,7 @@ fn apply_scheduled_events(
             .map(|(index, change)| {
                 (
                     change.at_s,
-                    0_u8,
+                    4_u8,
                     index,
                     ScheduledEvent::ExitCapacity(change),
                 )
@@ -411,7 +411,7 @@ fn apply_scheduled_events(
             .map(|(index, change)| {
                 (
                     change.at_s,
-                    0_u8,
+                    5_u8,
                     index,
                     ScheduledEvent::GateCapacity(change),
                 )
@@ -423,7 +423,7 @@ fn apply_scheduled_events(
             .iter()
             .enumerate()
             .filter(|(_, change)| 0.0 < change.at_s && is_scheduled(change.at_s))
-            .map(|(index, change)| (change.at_s, 0_u8, index, ScheduledEvent::GateState(change))),
+            .map(|(index, change)| (change.at_s, 2_u8, index, ScheduledEvent::GateState(change))),
     );
     scheduled.extend(
         scenario
@@ -431,7 +431,7 @@ fn apply_scheduled_events(
             .iter()
             .enumerate()
             .filter(|(_, message)| is_scheduled(message.at_s))
-            .map(|(index, message)| (message.at_s, 1_u8, index, ScheduledEvent::Message(message))),
+            .map(|(index, message)| (message.at_s, 6_u8, index, ScheduledEvent::Message(message))),
     );
     scheduled.extend(
         scenario
@@ -442,7 +442,7 @@ fn apply_scheduled_events(
             .map(|(index, countermeasure)| {
                 (
                     countermeasure.at_s,
-                    2_u8,
+                    7_u8,
                     index,
                     ScheduledEvent::Countermeasure(countermeasure),
                 )

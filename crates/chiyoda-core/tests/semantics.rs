@@ -107,10 +107,12 @@ surface concourse at (0m, 0m, 0m) size (10m, 10m)
 exit street on concourse at (5m, 1m, 0m) width 2m capacity 2/s
 exit side on concourse at (8m, 1m, 0m) width 2m capacity 1/s
 stair down from upper at (2m, 1m, 3m) to concourse at (2m, 1m, 0m) width 2m capacity 1/s
+connector-state down_closed connector down closed time 0s
 connector-capacity-state down_slow connector down capacity 0.5/s time 0s
 connector-capacity-state down_restore connector down capacity 1/s time 3s
 exit-capacity-state street_slow exit street capacity 0.1/s time 2s
 gate side_gate on concourse at (7m, 1m, 0m) width 1m capacity 1/s to side
+gate-state side_gate_closed gate side_gate closed time 1s
 gate-capacity-state side_gate_slow gate side_gate capacity 0.5/s time 1s
 agents passengers count 3 on concourse at (1m, 1m, 0m) to street speed 10m/s radius 0.3m height 1.7m
 "#;
@@ -136,6 +138,32 @@ agents passengers count 3 on concourse at (1m, 1m, 0m) to street speed 10m/s rad
     )
     .expect("run succeeds");
     assert_eq!(bundle.metrics.evacuated_agents, 2);
+    let initial_physical_events: Vec<_> = bundle
+        .events
+        .iter()
+        .filter(|event| event.time_s == 0.0 && event.subject == "down")
+        .map(|event| event.kind.as_str())
+        .collect();
+    assert_eq!(
+        initial_physical_events,
+        vec!["connector_state_changed", "connector_capacity_changed"]
+    );
+    let gate_events_at_one_second: Vec<_> = bundle
+        .events
+        .iter()
+        .filter(|event| {
+            (event.time_s - 1.0).abs() < 1e-9
+                && matches!(
+                    event.kind.as_str(),
+                    "gate_state_changed" | "gate_capacity_changed"
+                )
+        })
+        .map(|event| event.kind.as_str())
+        .collect();
+    assert_eq!(
+        gate_events_at_one_second,
+        vec!["gate_state_changed", "gate_capacity_changed"]
+    );
     assert!(bundle.events.iter().any(|event| {
         event.kind == "connector_capacity_changed" && event.subject == "down" && event.time_s == 0.0
     }));

@@ -200,8 +200,8 @@ impl SensitivityTarget {
                 if value < 0.0 =>
             {
                 Err(SensitivityError::InvalidValue {
-                factor_id: factor_id.to_owned(),
-                message: "must be zero or greater".to_owned(),
+                    factor_id: factor_id.to_owned(),
+                    message: "must be zero or greater".to_owned(),
                 })
             }
             Self::AgentReleaseIntervalS if value <= 0.0 => Err(SensitivityError::InvalidValue {
@@ -898,6 +898,72 @@ fn gate_mut<'a>(
         .iter_mut()
         .find(|item| item.id == factor.subject)
         .ok_or_else(|| unknown(factor, "gate"))
+}
+
+fn connector_state<'a>(
+    scenario: &'a Scenario,
+    factor: &SensitivityFactor,
+) -> Result<&'a crate::model::ConnectorStateChange, SensitivityError> {
+    scenario
+        .connector_states
+        .iter()
+        .find(|item| item.id == factor.subject)
+        .ok_or_else(|| unknown(factor, "connector state"))
+}
+
+fn connector_state_mut<'a>(
+    scenario: &'a mut Scenario,
+    factor: &SensitivityFactor,
+) -> Result<&'a mut crate::model::ConnectorStateChange, SensitivityError> {
+    scenario
+        .connector_states
+        .iter_mut()
+        .find(|item| item.id == factor.subject)
+        .ok_or_else(|| unknown(factor, "connector state"))
+}
+
+fn exit_state<'a>(
+    scenario: &'a Scenario,
+    factor: &SensitivityFactor,
+) -> Result<&'a crate::model::ExitStateChange, SensitivityError> {
+    scenario
+        .exit_states
+        .iter()
+        .find(|item| item.id == factor.subject)
+        .ok_or_else(|| unknown(factor, "exit state"))
+}
+
+fn exit_state_mut<'a>(
+    scenario: &'a mut Scenario,
+    factor: &SensitivityFactor,
+) -> Result<&'a mut crate::model::ExitStateChange, SensitivityError> {
+    scenario
+        .exit_states
+        .iter_mut()
+        .find(|item| item.id == factor.subject)
+        .ok_or_else(|| unknown(factor, "exit state"))
+}
+
+fn gate_state<'a>(
+    scenario: &'a Scenario,
+    factor: &SensitivityFactor,
+) -> Result<&'a crate::model::GateStateChange, SensitivityError> {
+    scenario
+        .gate_states
+        .iter()
+        .find(|item| item.id == factor.subject)
+        .ok_or_else(|| unknown(factor, "gate state"))
+}
+
+fn gate_state_mut<'a>(
+    scenario: &'a mut Scenario,
+    factor: &SensitivityFactor,
+) -> Result<&'a mut crate::model::GateStateChange, SensitivityError> {
+    scenario
+        .gate_states
+        .iter_mut()
+        .find(|item| item.id == factor.subject)
+        .ok_or_else(|| unknown(factor, "gate state"))
 }
 
 fn connector_capacity_state<'a>(

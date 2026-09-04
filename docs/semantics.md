@@ -11,8 +11,9 @@ agent group. Static validation checks every generated starting coordinate
 against the declared surface and the same radius-expanded obstacles used by the
 navigator before the interpreter starts. A simulation step at time `t` performs,
 in chronological event order. Events with equal timestamps run in this order:
-availability and capacity state, message, countermeasure; declaration order
-breaks any remaining tie within one event kind.
+connector availability, exit availability, gate availability, connector
+capacity, exit capacity, gate capacity, message, countermeasure. Declaration
+order breaks ties within one event kind.
 
 1. Apply each availability and capacity-state event whose declared time falls
    in `(t - timestep, t]`. `connector-state`, `exit-state`, and `gate-state`

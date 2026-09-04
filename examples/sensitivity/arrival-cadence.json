@@ -32,6 +32,14 @@
       "values": [0.5, 0.75, 1.0],
       "basis": "structural_assumption",
       "rationale": "The 0.5/s, 0.75/s, and 1.0/s post-change gate limits expose an explicitly authored operational stress schedule without claiming observed staffing or equipment performance."
+    },
+    {
+      "id": "fare_gate_reduced_time",
+      "target": "gate_capacity_state_at_s",
+      "subject": "fare_gate_reduced",
+      "values": [20.0, 30.0, 40.0],
+      "basis": "structural_assumption",
+      "rationale": "The 20 s, 30 s, and 40 s transition times expose deterministic timing sensitivity without claiming an observed shift, incident, equipment state, or operational response."
     }
   ],
   "claim_boundary": "This deterministic sensitivity study explores declared staged-demand and service-limit schedules. It does not estimate an arrival distribution, passenger demand, observed staffing, equipment reliability, station performance, operational suitability, or safety outcome."
