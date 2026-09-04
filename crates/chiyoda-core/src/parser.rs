@@ -36,6 +36,14 @@ struct ScenarioBuilder {
     countermeasures: Vec<Countermeasure>,
 }
 
+#[derive(Debug, Default)]
+struct AgentOptions {
+    release_at_s: f64,
+    via: Vec<String>,
+    excluded_connector_kinds: Vec<ConnectorKind>,
+    alternative_destinations: Vec<String>,
+}
+
 impl ScenarioBuilder {
     fn finish(self, line: usize) -> Result<Scenario, ParseError> {
         Ok(Scenario {
@@ -308,8 +316,7 @@ fn parse_declaration(
             expect(line, tokens, 12, "speed")?;
             expect(line, tokens, 14, "radius")?;
             expect(line, tokens, 16, "height")?;
-            let (release_at_s, via, excluded_connector_kinds, alternative_destinations) =
-                agent_options(line, tokens, &tokens[11])?;
+            let agent_options = agent_options(line, tokens, &tokens[11])?;
             builder.agents.push(AgentGroup {
                 id: tokens[1].clone(),
                 count: parse_plain(
@@ -320,13 +327,13 @@ fn parse_declaration(
                 surface: tokens[5].clone(),
                 at: point(line, tokens, 7)?,
                 destination: tokens[11].clone(),
-                alternative_destinations,
+                alternative_destinations: agent_options.alternative_destinations,
                 speed_mps: parse_speed(line, required(line, tokens, 13, "agent speed")?)?,
                 radius_m: parse_length(line, required(line, tokens, 15, "agent radius")?)?,
                 height_m: parse_length(line, required(line, tokens, 17, "agent height")?)?,
-                release_at_s,
-                via,
-                excluded_connector_kinds,
+                release_at_s: agent_options.release_at_s,
+                via: agent_options.via,
+                excluded_connector_kinds: agent_options.excluded_connector_kinds,
             });
         }
         "message" => {
@@ -539,7 +546,7 @@ fn agent_options(
     line: usize,
     tokens: &[String],
     primary_destination: &str,
-) -> Result<(f64, Vec<String>, Vec<ConnectorKind>, Vec<String>), ParseError> {
+) -> Result<AgentOptions, ParseError> {
     let mut release_at_s = None;
     let mut via = Vec::new();
     let mut excluded_connector_kinds = Vec::new();
@@ -587,12 +594,12 @@ fn agent_options(
         index += 2;
     }
     excluded_connector_kinds.sort_unstable();
-    Ok((
-        release_at_s.unwrap_or(0.0),
+    Ok(AgentOptions {
+        release_at_s: release_at_s.unwrap_or(0.0),
         via,
         excluded_connector_kinds,
         alternative_destinations,
-    ))
+    })
 }
 
 fn parse_unit(line: usize, value: &str, suffix: &str, label: &str) -> Result<f64, ParseError> {

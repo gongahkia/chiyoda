@@ -470,11 +470,11 @@ fn spawn_agents(
             let waiting_for_route = planned.is_none();
             let (route, destination) = match planned {
                 Some(planned) => {
-                    let destination = planned
-                        .target
-                        .is_exit
-                        .then_some(planned.target.id)
-                        .unwrap_or_else(|| group.destination.clone());
+                    let destination = if planned.target.is_exit {
+                        planned.target.id
+                    } else {
+                        group.destination.clone()
+                    };
                     (planned.plan.connector_indices, destination)
                 }
                 None if group_plan_becomes_available(scenario, route_start, group) => {
@@ -657,33 +657,13 @@ fn route_to_target_avoiding(
         });
     }
 
+    let mut durations = initial_connector_durations(scenario, start, blocked_connectors);
+    let connector_count = scenario.connectors.len();
+    let mut previous = vec![None; connector_count];
+    let mut settled = vec![false; connector_count];
     // Connector nodes retain the arrival point needed to price the following
     // surface walk. This is a time-weighted directed route, not a hop-count
     // graph: a nominal lift cycle can be slower than multiple stairs.
-    let connector_count = scenario.connectors.len();
-    let mut durations = vec![None; connector_count];
-    let mut previous = vec![None; connector_count];
-    let mut settled = vec![false; connector_count];
-    for (index, connector) in scenario.connectors.iter().enumerate() {
-        if blocked_connectors.contains(connector.id())
-            || !start.allows_connector(connector)
-            || connector.from_surface() != start.surface
-        {
-            continue;
-        }
-        let Some(walking_duration) = walking_duration_s(
-            scenario,
-            start.surface,
-            start.position,
-            connector.from(),
-            start.radius_m,
-            start.walking_speed_mps,
-        ) else {
-            continue;
-        };
-        durations[index] =
-            Some(walking_duration + connector.traversal_duration_s(start.walking_speed_mps));
-    }
 
     while let Some(current) = next_unsettled(&durations, &settled) {
         settled[current] = true;
@@ -753,6 +733,34 @@ fn route_to_target_avoiding(
         connector_indices: route,
         nominal_duration_s,
     })
+}
+
+fn initial_connector_durations(
+    scenario: &Scenario,
+    start: RouteStart<'_>,
+    blocked_connectors: &HashSet<String>,
+) -> Vec<Option<f64>> {
+    scenario
+        .connectors
+        .iter()
+        .map(|connector| {
+            if blocked_connectors.contains(connector.id())
+                || !start.allows_connector(connector)
+                || connector.from_surface() != start.surface
+            {
+                return None;
+            }
+            let walking_duration = walking_duration_s(
+                scenario,
+                start.surface,
+                start.position,
+                connector.from(),
+                start.radius_m,
+                start.walking_speed_mps,
+            )?;
+            Some(walking_duration + connector.traversal_duration_s(start.walking_speed_mps))
+        })
+        .collect()
 }
 
 fn next_unsettled(durations: &[Option<f64>], settled: &[bool]) -> Option<usize> {
@@ -1119,7 +1127,7 @@ fn reroute(
         &blocked_connectors,
     ) {
         if planned.target.is_exit {
-            agent.destination = planned.target.id.clone();
+            agent.destination.clone_from(&planned.target.id);
         }
         agent.route = planned.plan.connector_indices;
         agent.route_cursor = 0;
@@ -1326,7 +1334,7 @@ fn integrate(
                                 &blocked_connectors,
                             ) {
                                 if planned.target.is_exit {
-                                    agent.destination = planned.target.id.clone();
+                                    agent.destination.clone_from(&planned.target.id);
                                 }
                                 agent.route = planned.plan.connector_indices;
                                 agent.route_cursor = 0;

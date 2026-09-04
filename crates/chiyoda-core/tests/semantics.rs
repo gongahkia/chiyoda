@@ -24,6 +24,16 @@ fn parser_rejects_trailing_tokens_and_duplicate_zero_release() {
         generator::source(73).replacen("release 0s", "release 0s release 0s", 1);
     let duplicate = parse(&duplicate_release).expect_err("duplicate release must be rejected");
     assert!(duplicate.message.contains("duplicate `release` clause"));
+
+    let duplicate_alternative =
+        generator::source(73).replacen("release 0s", "alternative street release 0s", 1);
+    let duplicate = parse(&duplicate_alternative)
+        .expect_err("an alternative cannot duplicate the primary exit");
+    assert!(
+        duplicate
+            .message
+            .contains("duplicate alternative exit `street`")
+    );
 }
 
 #[test]
@@ -61,11 +71,12 @@ surface mezzanine at (0m, 0m, 3m) size (10m, 10m)
 surface concourse at (0m, 0m, 0m) size (10m, 10m)
 obstacle column on platform at (6m, 6m, 6m) size (1m, 1m)
 exit street on concourse at (9m, 1m, 0m) width 2m capacity 2/s
+exit plaza on concourse at (8m, 1m, 0m) width 2m
 ramp accessible_ramp from platform at (2m, 1m, 6m) to mezzanine at (2m, 1m, 3m) width 1.5m capacity 1.2/s clearance 1.8m
 escalator down_escalator from mezzanine at (2m, 1m, 3m) to concourse at (2m, 1m, 0m) width 1m belt 0.6m/s clearance 1.9m capacity 0.8/s
 lift accessible_lift from platform at (4m, 1m, 6m) to concourse at (4m, 1m, 0m) cabin 2m 2m capacity 4 cycle 5s clearance 2m
 connector-state escalator_closure connector down_escalator closed time 10s
-agents passengers count 1 on platform at (1m, 1m, 6m) to street speed 1m/s radius 0.3m height 1.7m exclude lift exclude stair
+agents passengers count 1 on platform at (1m, 1m, 6m) to street speed 1m/s radius 0.3m height 1.7m alternative plaza exclude lift exclude stair
 "#;
     let scenario = parse(source).expect("source parses");
     validate(&scenario).expect("source validates");
@@ -127,6 +138,36 @@ agents passengers count 1 on upper at (1m, 1m, 3m) to primary speed 1m/s radius 
 }
 
 #[test]
+fn alternative_exit_is_reselected_when_a_connector_closes() {
+    let source = r#"
+scenario "alternative-exit-reroute"
+seed 1
+duration 20s
+timestep 1s
+surface upper at (0m, 0m, 3m) size (10m, 10m)
+surface lower at (0m, 0m, 0m) size (10m, 10m)
+exit primary on lower at (1m, 1m, 0m) width 2m
+exit fallback on upper at (5m, 1m, 3m) width 2m
+stair down from upper at (1m, 1m, 3m) to lower at (1m, 1m, 0m) width 2m
+connector-state closure connector down closed time 1s
+agents passengers count 1 on upper at (1m, 1m, 3m) to primary speed 1m/s radius 0.3m height 1.7m alternative fallback
+"#;
+    let scenario = parse(source).expect("source parses");
+    let bundle = run(&scenario, RunOptions::default()).expect("rerouted fallback runs");
+    assert!(bundle.events.iter().any(|event| {
+        event.kind == "connector_state_changed"
+            && event.subject == "down"
+            && (event.time_s - 1.0).abs() < 1e-9
+    }));
+    assert!(
+        bundle
+            .events
+            .iter()
+            .any(|event| event.kind == "evacuated" && event.detail == "fallback")
+    );
+}
+
+#[test]
 fn alternative_exit_ties_respect_declaration_order() {
     let source = r#"
 scenario "alternative-exit-tie"
@@ -145,6 +186,26 @@ agents passengers count 1 on concourse at (1m, 1m, 0m) to first speed 1m/s radiu
             .events
             .iter()
             .any(|event| event.kind == "evacuated" && event.detail == "first")
+    );
+}
+
+#[test]
+fn validation_rejects_an_unknown_alternative_exit() {
+    let source = r#"
+scenario "unknown-alternative-exit"
+seed 1
+duration 10s
+timestep 1s
+surface concourse at (0m, 0m, 0m) size (10m, 10m)
+exit street on concourse at (5m, 1m, 0m) width 2m
+agents passengers count 1 on concourse at (1m, 1m, 0m) to street speed 1m/s radius 0.3m height 1.7m alternative missing
+"#;
+    let scenario = parse(source).expect("source parses");
+    let errors = validate(&scenario).expect_err("unknown alternative exits must be rejected");
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.path == "agents[0].alternative_destinations[0]")
     );
 }
 

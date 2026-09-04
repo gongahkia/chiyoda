@@ -35,8 +35,11 @@ tie.
    path over visible clearance corners is used. A connector with an authored
    height clearance is excluded when the agent's authored height exceeds it,
    as is a connector class explicitly excluded by the agent group. The route
-   does not forecast queues, density, or later messages. Ties resolve by
-   connector declaration order.
+   does not forecast queues, density, or later messages. When a final stage
+   offers alternative exits, the runtime compares feasible nominal route costs
+   and chooses the shortest; ties resolve by final-exit declaration order and
+   then connector declaration order. It re-evaluates that choice only at
+   initial routing or an existing reroute trigger.
 4. Accrue gate, declared connector, and declared exit service tokens at their authored
    people-per-second rates. Each resource begins empty and stores at most one
    authored rate's worth of credit, with a one-person minimum for rates below
@@ -65,10 +68,11 @@ unordered map iteration.
 
 ## What this does not mean
 
-The `0.14` local-separation law, nominal routing cost, scheduled-release
-semantics, operational-state transitions, escalator walking-rider assumption,
-and seeded information acceptance law are reference semantics, not calibrated
-behavioral claims. A valid source program or deterministic trace does not
+The `0.14` local-separation law, nominal routing cost and alternative-exit
+selection, scheduled-release semantics, operational-state transitions,
+escalator walking-rider assumption, and seeded information acceptance law are
+reference semantics, not calibrated behavioral claims. A valid source program
+or deterministic trace does not
 demonstrate crowd-flow accuracy, accessible egress fidelity, message
 effectiveness, operational-state fidelity, or operational safety.
 

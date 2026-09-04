@@ -336,7 +336,6 @@ pub struct AgentGroup {
 }
 
 impl AgentGroup {
-    #[must_use]
     pub fn exit_candidates(&self) -> impl Iterator<Item = &str> {
         std::iter::once(self.destination.as_str())
             .chain(self.alternative_destinations.iter().map(String::as_str))

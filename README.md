@@ -10,10 +10,10 @@ The current `0.14.0-alpha.1` release establishes the language/runtime contract:
 - a typed textual DSL with static unit, topology, reachability, capacity, and
   deterministic-replay checks;
 - a Rust reference runtime for radius-aware, height-annotated agents with
-  authored connector-eligibility constraints on connected 3D walkable surfaces
-  with rectangular obstacles, stairs, ramps, escalators, lifts, gates,
-  capacity-limited exits, operational connector states, and typed information
-  interventions;
+  authored connector-eligibility constraints and alternative final exits on
+  connected 3D walkable surfaces with rectangular obstacles, stairs, ramps,
+  escalators, lifts, gates, capacity-limited exits, operational connector
+  states, and typed information interventions;
 - immutable JSON run bundles with source, canonical IR, events, traces,
   metrics, and SHA-256 integrity hashes;
 - a deterministic, constraint-preserving scenario generator; and
