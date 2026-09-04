@@ -741,8 +741,7 @@ fn route_to_target_avoiding(
                     .total_cmp(right_duration)
                     .then(left_index.cmp(right_index))
             },
-        )?
-        ;
+        )?;
     let mut route = vec![terminal];
     let mut cursor = terminal;
     while let Some(parent) = previous[cursor] {

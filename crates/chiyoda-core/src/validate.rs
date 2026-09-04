@@ -505,7 +505,10 @@ fn check_reachability(scenario: &Scenario, errors: &mut Vec<ValidationError>) {
                 let path = if destination_index == 0 {
                     format!("agents[{index}].destination")
                 } else {
-                    format!("agents[{index}].alternative_destinations[{}]", destination_index - 1)
+                    format!(
+                        "agents[{index}].alternative_destinations[{}]",
+                        destination_index - 1
+                    )
                 };
                 errors.push(issue(
                     &path,

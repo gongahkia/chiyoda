@@ -101,6 +101,54 @@ agents passengers count 1 on upper at (1m, 1m, 3m) to street speed 1m/s radius 0
 }
 
 #[test]
+fn alternative_exit_is_selected_when_the_primary_route_is_closed() {
+    let source = r#"
+scenario "alternative-exit"
+seed 1
+duration 20s
+timestep 1s
+surface upper at (0m, 0m, 3m) size (10m, 10m)
+surface lower at (0m, 0m, 0m) size (10m, 10m)
+exit primary on lower at (1m, 1m, 0m) width 2m
+exit fallback on upper at (5m, 1m, 3m) width 2m
+stair down from upper at (1m, 1m, 3m) to lower at (1m, 1m, 0m) width 2m
+connector-state initial_closure connector down closed time 0s
+agents passengers count 1 on upper at (1m, 1m, 3m) to primary speed 1m/s radius 0.3m height 1.7m alternative fallback
+"#;
+    let scenario = parse(source).expect("source parses");
+    validate(&scenario).expect("all declared final exits are statically reachable");
+    let bundle = run(&scenario, RunOptions::default()).expect("fallback route runs");
+    assert!(
+        bundle
+            .events
+            .iter()
+            .any(|event| event.kind == "evacuated" && event.detail == "fallback")
+    );
+}
+
+#[test]
+fn alternative_exit_ties_respect_declaration_order() {
+    let source = r#"
+scenario "alternative-exit-tie"
+seed 1
+duration 10s
+timestep 1s
+surface concourse at (0m, 0m, 0m) size (10m, 10m)
+exit first on concourse at (5m, 1m, 0m) width 2m
+exit second on concourse at (5m, 1m, 0m) width 2m
+agents passengers count 1 on concourse at (1m, 1m, 0m) to first speed 1m/s radius 0.3m height 1.7m alternative second
+"#;
+    let scenario = parse(source).expect("source parses");
+    let bundle = run(&scenario, RunOptions::default()).expect("run succeeds");
+    assert!(
+        bundle
+            .events
+            .iter()
+            .any(|event| event.kind == "evacuated" && event.detail == "first")
+    );
+}
+
+#[test]
 fn validation_rejects_a_route_when_all_connector_classes_are_excluded() {
     let source = r#"
 scenario "ineligible-route"

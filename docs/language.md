@@ -28,7 +28,7 @@ lift ID from SURFACE at (LENGTH, LENGTH, LENGTH) to SURFACE at (LENGTH, LENGTH, 
 connector-state ID connector CONNECTOR (open|closed) time DURATION
 gate ID on SURFACE at (LENGTH, LENGTH, LENGTH) width LENGTH capacity RATE to EXIT
 
-agents ID count UNSIGNED_INTEGER on SURFACE at (LENGTH, LENGTH, LENGTH) to EXIT speed SPEED radius LENGTH height LENGTH [via WAYPOINT]... [exclude (stair|ramp|escalator|lift)]... [release DURATION]
+agents ID count UNSIGNED_INTEGER on SURFACE at (LENGTH, LENGTH, LENGTH) to EXIT speed SPEED radius LENGTH height LENGTH [via WAYPOINT]... [alternative EXIT]... [exclude (stair|ramp|escalator|lift)]... [release DURATION]
 
 message ID source (peer|official|signage|staff) on SURFACE at (LENGTH, LENGTH, LENGTH) claim connector CONNECTOR (open|closed) truth (true|false) time DURATION reach LENGTH trust PROBABILITY
 countermeasure ID corrects MESSAGE source (official|signage|staff) on SURFACE at (LENGTH, LENGTH, LENGTH) time DURATION reach LENGTH trust PROBABILITY
@@ -43,6 +43,12 @@ becomes active; it is an authored demand input rather than an arrival-rate fit.
 Each `via` adds an ordered required waypoint stage before the final exit.
 Waypoint `dwell` defaults to `0s`; when declared, it holds an agent after the
 stage before it may begin the next one.
+The `to` exit and every `alternative` exit are final-stage candidates. At route
+creation and each existing reroute trigger, the runtime selects the candidate
+with the shortest currently feasible nominal route; source order breaks exact
+ties. An alternative must be a distinct declared exit and, like the primary
+exit, must be statically reachable after every required waypoint. This is a
+transparent routing rule, not an inferred exit-preference model.
 Each `exclude` is a hard route constraint on one connector class. Omission
 permits all connector classes; it does not assign an inferred mobility,
 disability, or accessibility profile. Duplicate exclusions are rejected and
@@ -76,8 +82,8 @@ spawn (including the navigation radius clearance), and message coordinate; exit
 and connector references; connector-state times; message truth labels against
 the authored physical state; an agent-height- and connector-eligibility-aware
 directed surface path from every agent group through every required waypoint
-stage and to its declared exit;
-message timing; and countermeasure references and ordering.
+stage and to every declared final exit candidate; message timing; and
+countermeasure references and ordering.
 
 `countermeasure` is a correction of a declared falsehood, so it may only
 reference a `message` with `truth false` and may not precede that message. This
