@@ -1,6 +1,6 @@
 use crate::{
     bundle::{AgentSnapshot, AgentState, RunBundle, RunEvent, RunMetrics, TraceFrame},
-    model::{CanonicalScenario, Connector, Point3, Scenario},
+    model::{CanonicalScenario, Point3, Scenario, Surface},
     validate,
 };
 use std::{
@@ -81,6 +81,7 @@ struct Agent {
     route_cursor: usize,
     motion: Motion,
     beliefs: BTreeMap<String, f64>,
+    blocked_connectors: HashSet<String>,
 }
 
 /// Execute the reference small-step semantics deterministically.
@@ -182,6 +183,7 @@ fn spawn_agents(scenario: &Scenario) -> Result<Vec<Agent>, RunError> {
                 route_cursor: 0,
                 motion: Motion::OnSurface,
                 beliefs: BTreeMap::new(),
+                blocked_connectors: HashSet::new(),
             });
         }
     }
@@ -189,6 +191,15 @@ fn spawn_agents(scenario: &Scenario) -> Result<Vec<Agent>, RunError> {
 }
 
 fn route_to_exit(scenario: &Scenario, start: &str, exit_id: &str) -> Option<Vec<usize>> {
+    route_to_exit_avoiding(scenario, start, exit_id, &HashSet::new())
+}
+
+fn route_to_exit_avoiding(
+    scenario: &Scenario,
+    start: &str,
+    exit_id: &str,
+    blocked_connectors: &HashSet<String>,
+) -> Option<Vec<usize>> {
     let exit = scenario.exits.iter().find(|exit| exit.id == exit_id)?;
     if start == exit.surface {
         return Some(Vec::new());
@@ -198,7 +209,8 @@ fn route_to_exit(scenario: &Scenario, start: &str, exit_id: &str) -> Option<Vec<
     let mut seen = HashSet::from([start.to_owned()]);
     while let Some(surface) = queue.pop_front() {
         for (index, connector) in scenario.connectors.iter().enumerate() {
-            if connector.from_surface() != surface
+            if blocked_connectors.contains(connector.id())
+                || connector.from_surface() != surface
                 || !seen.insert(connector.to_surface().to_owned())
             {
                 continue;
@@ -239,13 +251,23 @@ fn apply_information(
         {
             if agent.position.distance(message.origin) <= message.reach_m {
                 agent.beliefs.insert(message.id.clone(), message.trust);
+                if message.trust >= 0.5 {
+                    apply_claim(agent, &message.claim);
+                    reroute_after_information(scenario, agent, message.at_s, events);
+                }
                 events.push(RunEvent {
                     time_s: message.at_s,
                     kind: "message_received".to_owned(),
                     subject: agent.id.clone(),
                     detail: format!(
-                        "{} claim from {} (truthful={})",
+                        "{}: connector `{}` {} from {} (truthful={})",
                         message.id,
+                        message.claim.connector(),
+                        if message.claim.is_open() {
+                            "open"
+                        } else {
+                            "closed"
+                        },
                         message.source.as_str(),
                         message.truthful
                     ),
@@ -265,6 +287,16 @@ fn apply_information(
                 agent
                     .beliefs
                     .insert(countermeasure.corrects.clone(), countermeasure.trust);
+                if countermeasure.trust >= 0.5 {
+                    if let Some(message) = scenario
+                        .messages
+                        .iter()
+                        .find(|message| message.id == countermeasure.corrects)
+                    {
+                        agent.blocked_connectors.remove(message.claim.connector());
+                        reroute_after_information(scenario, agent, countermeasure.at_s, events);
+                    }
+                }
                 events.push(RunEvent {
                     time_s: countermeasure.at_s,
                     kind: "countermeasure_received".to_owned(),
@@ -281,6 +313,51 @@ fn apply_information(
     }
 }
 
+fn apply_claim(agent: &mut Agent, claim: &crate::model::Proposition) {
+    if claim.is_open() {
+        agent.blocked_connectors.remove(claim.connector());
+    } else {
+        agent
+            .blocked_connectors
+            .insert(claim.connector().to_owned());
+    }
+}
+
+fn reroute_after_information(
+    scenario: &Scenario,
+    agent: &mut Agent,
+    time_s: f64,
+    events: &mut Vec<RunEvent>,
+) {
+    if !matches!(agent.motion, Motion::OnSurface) {
+        return;
+    }
+    if let Some(route) = route_to_exit_avoiding(
+        scenario,
+        &agent.surface,
+        &agent.destination,
+        &agent.blocked_connectors,
+    ) {
+        agent.route = route;
+        agent.route_cursor = 0;
+        let mut blocked: Vec<_> = agent.blocked_connectors.iter().cloned().collect();
+        blocked.sort_unstable();
+        events.push(RunEvent {
+            time_s,
+            kind: "route_recomputed".to_owned(),
+            subject: agent.id.clone(),
+            detail: blocked.join(","),
+        });
+    } else {
+        events.push(RunEvent {
+            time_s,
+            kind: "route_unavailable".to_owned(),
+            subject: agent.id.clone(),
+            detail: "belief-constrained route does not reach the destination".to_owned(),
+        });
+    }
+}
+
 fn integrate(
     scenario: &Scenario,
     agents: &mut [Agent],
@@ -292,7 +369,7 @@ fn integrate(
         .iter()
         .map(|agent| (agent.surface.clone(), agent.position, agent.radius_m))
         .collect();
-    let lift_loads = current_lift_loads(agents);
+    let mut lift_loads = current_lift_loads(agents);
     for (index, agent) in agents.iter_mut().enumerate() {
         match &mut agent.motion {
             Motion::Evacuated { .. } => continue,
@@ -308,6 +385,7 @@ fn integrate(
                 let ratio = (*elapsed_s / *duration_s).min(1.0);
                 agent.position = start.lerp(*end, ratio);
                 if ratio >= 1.0 {
+                    let connector_id = scenario.connectors[*connector_index].id().to_owned();
                     agent.surface = next_surface.clone();
                     agent.route_cursor += 1;
                     agent.motion = Motion::OnSurface;
@@ -315,7 +393,7 @@ fn integrate(
                         time_s,
                         kind: "connector_arrival".to_owned(),
                         subject: agent.id.clone(),
-                        detail: scenario.connectors[*connector_index].id().to_owned(),
+                        detail: connector_id,
                     });
                 }
             }
@@ -334,7 +412,19 @@ fn integrate(
                             .expect("validated destination exists");
                         (exit.at, None)
                     };
-                let reached = move_toward(agent, target, scenario.timestep_s, &positions, index);
+                let surface = scenario
+                    .surfaces
+                    .iter()
+                    .find(|surface| surface.id == agent.surface)
+                    .expect("validated surface exists");
+                let reached = move_toward(
+                    agent,
+                    target,
+                    scenario.timestep_s,
+                    &positions,
+                    index,
+                    surface,
+                );
                 if !reached {
                     continue;
                 }
@@ -361,6 +451,9 @@ fn integrate(
                             continue;
                         }
                         let duration_s = connector.traversal_duration_s(agent.speed_mps);
+                        if connector.is_lift() {
+                            *lift_loads.entry(connector_index).or_insert(0) += 1;
+                        }
                         agent.motion = Motion::Transit {
                             connector_index,
                             elapsed_s: 0.0,
@@ -401,6 +494,7 @@ fn move_toward(
     timestep_s: f64,
     positions: &[(String, Point3, f64)],
     own_index: usize,
+    surface: &Surface,
 ) -> bool {
     let dx = target.x_m - agent.position.x_m;
     let dy = target.y_m - agent.position.y_m;
@@ -428,6 +522,13 @@ fn move_toward(
             next.y_m += (next.y_m - position.y_m) / separation * correction;
         }
     }
+    next.x_m = next
+        .x_m
+        .clamp(surface.origin.x_m, surface.origin.x_m + surface.width_m);
+    next.y_m = next
+        .y_m
+        .clamp(surface.origin.y_m, surface.origin.y_m + surface.depth_m);
+    next.z_m = surface.origin.z_m;
     agent.position = next;
     false
 }

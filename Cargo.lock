@@ -114,6 +114,7 @@ dependencies = [
  "anyhow",
  "chiyoda-core",
  "clap",
+ "serde",
  "serde_json",
 ]
 

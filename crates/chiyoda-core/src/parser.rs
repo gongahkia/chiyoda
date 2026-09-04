@@ -136,7 +136,7 @@ fn parse_declaration(
             });
         }
         "stair" => {
-            require_count(line, tokens, 17)?;
+            require_count(line, tokens, 16)?;
             expect(line, tokens, 2, "from")?;
             expect(line, tokens, 4, "at")?;
             expect(line, tokens, 8, "to")?;
@@ -168,7 +168,11 @@ fn parse_declaration(
                 to: point(line, tokens, 11)?,
                 cabin_width_m: parse_length(line, required(line, tokens, 15, "cabin width")?)?,
                 cabin_depth_m: parse_length(line, required(line, tokens, 16, "cabin depth")?)?,
-                capacity: parse_plain(line, required(line, tokens, 18, "lift capacity")?)?,
+                capacity: parse_plain(
+                    line,
+                    required(line, tokens, 18, "lift capacity")?,
+                    "lift capacity",
+                )?,
                 cycle_s: parse_duration(line, required(line, tokens, 20, "lift cycle")?)?,
             });
         }
@@ -197,7 +201,11 @@ fn parse_declaration(
             expect(line, tokens, 16, "height")?;
             builder.agents.push(AgentGroup {
                 id: tokens[1].clone(),
-                count: parse_plain(line, required(line, tokens, 3, "agent count")?)?,
+                count: parse_plain(
+                    line,
+                    required(line, tokens, 3, "agent count")?,
+                    "agent count",
+                )?,
                 surface: tokens[5].clone(),
                 at: point(line, tokens, 7)?,
                 destination: tokens[11].clone(),
@@ -207,25 +215,38 @@ fn parse_declaration(
             });
         }
         "message" => {
-            require_count(line, tokens, 20)?;
+            require_count(line, tokens, 22)?;
             expect(line, tokens, 2, "source")?;
             expect(line, tokens, 4, "on")?;
             expect(line, tokens, 6, "at")?;
             expect(line, tokens, 10, "claim")?;
-            expect(line, tokens, 12, "truth")?;
-            expect(line, tokens, 14, "time")?;
-            expect(line, tokens, 16, "reach")?;
-            expect(line, tokens, 18, "trust")?;
+            expect(line, tokens, 14, "truth")?;
+            expect(line, tokens, 16, "time")?;
+            expect(line, tokens, 18, "reach")?;
+            expect(line, tokens, 20, "trust")?;
             builder.messages.push(Message {
                 id: tokens[1].clone(),
                 source: parse_source(line, required(line, tokens, 3, "message source")?)?,
                 surface: tokens[5].clone(),
                 origin: point(line, tokens, 7)?,
-                claim: tokens[11].clone(),
-                truthful: parse_plain(line, required(line, tokens, 13, "message truth value")?)?,
-                at_s: parse_duration(line, required(line, tokens, 15, "message time")?)?,
-                reach_m: parse_length(line, required(line, tokens, 17, "message reach")?)?,
-                trust: parse_plain(line, required(line, tokens, 19, "message trust")?)?,
+                claim: parse_claim(
+                    line,
+                    required(line, tokens, 11, "claim kind")?,
+                    required(line, tokens, 12, "claim subject")?,
+                    required(line, tokens, 13, "claim state")?,
+                )?,
+                truthful: parse_plain(
+                    line,
+                    required(line, tokens, 15, "message truth value")?,
+                    "message truth value",
+                )?,
+                at_s: parse_duration(line, required(line, tokens, 17, "message time")?)?,
+                reach_m: parse_length(line, required(line, tokens, 19, "message reach")?)?,
+                trust: parse_plain(
+                    line,
+                    required(line, tokens, 21, "message trust")?,
+                    "message trust",
+                )?,
             });
         }
         "countermeasure" => {
@@ -245,7 +266,11 @@ fn parse_declaration(
                 origin: point(line, tokens, 9)?,
                 at_s: parse_duration(line, required(line, tokens, 13, "countermeasure time")?)?,
                 reach_m: parse_length(line, required(line, tokens, 15, "countermeasure reach")?)?,
-                trust: parse_plain(line, required(line, tokens, 17, "countermeasure trust")?)?,
+                trust: parse_plain(
+                    line,
+                    required(line, tokens, 17, "countermeasure trust")?,
+                    "countermeasure trust",
+                )?,
             });
         }
         other => return Err(error(line, format!("unknown declaration `{other}`"))),
@@ -334,6 +359,34 @@ fn parse_source(line: usize, value: &str) -> Result<InformationSource, ParseErro
             format!("unknown information source `{value}`; use peer, official, signage, or staff"),
         )),
     }
+}
+
+fn parse_claim(
+    line: usize,
+    kind: &str,
+    subject: &str,
+    state: &str,
+) -> Result<crate::model::Proposition, ParseError> {
+    if kind != "connector" {
+        return Err(error(
+            line,
+            format!("unsupported claim kind `{kind}`; use `connector`"),
+        ));
+    }
+    let open = match state {
+        "open" => true,
+        "closed" => false,
+        _ => {
+            return Err(error(
+                line,
+                format!("unknown connector state `{state}`; use `open` or `closed`"),
+            ));
+        }
+    };
+    Ok(crate::model::Proposition::ConnectorAvailability {
+        connector: subject.to_owned(),
+        open,
+    })
 }
 
 fn parse_plain<T>(line: usize, value: &str, label: &str) -> Result<T, ParseError>

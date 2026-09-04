@@ -13,7 +13,7 @@ pub mod runtime;
 pub mod validate;
 
 pub use benchmark::{BenchmarkManifest, BenchmarkValidationError, validate_manifest};
-pub use bundle::{RunBundle, bundle_hash};
+pub use bundle::{AgentState, RunBundle, bundle_hash};
 pub use model::{CanonicalScenario, Scenario};
 pub use parser::{ParseError, parse};
 pub use runtime::{RunOptions, run};

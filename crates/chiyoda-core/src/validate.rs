@@ -170,7 +170,19 @@ pub fn validate(scenario: &Scenario) -> Result<(), Vec<ValidationError>> {
     for (index, message) in scenario.messages.iter().enumerate() {
         let path = format!("messages[{index}]");
         check_unique(&mut ids, &message.id, &path, &mut errors);
-        check_nonempty(&format!("{path}.claim"), &message.claim, &mut errors);
+        if !scenario
+            .connectors
+            .iter()
+            .any(|connector| connector.id() == message.claim.connector())
+        {
+            errors.push(issue(
+                &format!("{path}.claim"),
+                format!(
+                    "references unknown connector `{}`",
+                    message.claim.connector()
+                ),
+            ));
+        }
         check_point(
             &surfaces,
             &message.surface,
@@ -189,6 +201,17 @@ pub fn validate(scenario: &Scenario) -> Result<(), Vec<ValidationError>> {
             errors.push(issue(
                 &format!("{path}.corrects"),
                 format!("unknown message `{}`", countermeasure.corrects),
+            ));
+        }
+        if let Some(message) = scenario
+            .messages
+            .iter()
+            .find(|message| message.id == countermeasure.corrects)
+            && message.truthful
+        {
+            errors.push(issue(
+                &format!("{path}.corrects"),
+                "may only correct a message declared `truth false`",
             ));
         }
         check_point(

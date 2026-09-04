@@ -178,13 +178,37 @@ impl InformationSource {
     }
 }
 
+/// A route-relevant, machine-checkable proposition. Free-form narrative is
+/// intentionally excluded from the reference semantics: it belongs in an
+/// attached research note, not in an executable causal claim.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Proposition {
+    ConnectorAvailability { connector: String, open: bool },
+}
+
+impl Proposition {
+    #[must_use]
+    pub fn connector(&self) -> &str {
+        match self {
+            Self::ConnectorAvailability { connector, .. } => connector,
+        }
+    }
+
+    #[must_use]
+    pub fn is_open(&self) -> bool {
+        match self {
+            Self::ConnectorAvailability { open, .. } => *open,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Message {
     pub id: String,
     pub source: InformationSource,
     pub surface: String,
     pub origin: Point3,
-    pub claim: String,
+    pub claim: Proposition,
     pub truthful: bool,
     pub at_s: f64,
     pub reach_m: f64,
