@@ -50,6 +50,8 @@ $ cargo run -p chiyoda -- run example.chy -o out/example
 $ cargo run -p chiyoda -- sweep --seed 73 --count 20 -o out/generated-sweep
 $ cargo run -p chiyoda -- verify-sweep out/generated-sweep
 $ cargo run -p chiyoda -- analyze-sweep out/generated-sweep -o out/generated-sweep/analysis.json
+$ cargo run -p chiyoda -- replicate example.chy --seed 100 --count 20 -o out/authored-replicates
+$ cargo run -p chiyoda -- compare-sweeps out/control out/intervention -o out/comparison.json
 $ cargo run -p chiyoda -- replay out/example/run.json
 $ cargo run -p chiyoda-replay -- out/example/run.json
 ```
@@ -68,6 +70,25 @@ evacuation fraction is emitted as an exact numerator/denominator rather than a
 misleadingly precise estimate, and its final-state totals explain agents still
 in the system at the configured time limit. The output directory must be empty,
 and the workflow does not require a benchmark manifest or research data.
+
+`replicate` runs one authored, validated scenario over a contiguous seed range.
+It stores the canonical template and its hash, then writes one canonical source
+and independently hash-verifiable bundle per seed. `verify-sweep` proves every
+replication differs from that template only in its seed, making interventions
+and information-trust variation inspectable without pretending the seed range
+is an empirical sample.
+
+`compare-sweeps` verifies both authored replication directories before producing
+a seed-aligned control/candidate artifact. It rejects generated sweeps and arms
+with different seed ranges, duration, timestep, or authored agent demand and
+journeys. The report records the two template hashes, every changed scenario
+section, each seed's outcomes, exact aggregate count deltas, exit and terminal
+state deltas, and clearance-time differences only for seeds where both arms
+fully evacuated. It is a deterministic structural comparison, not a control
+group, causal estimate, uncertainty estimate, or predictive result. Matching
+message or countermeasure identifiers retain their deterministic acceptance
+stream where delivery remains comparable; renaming an intervention identifier
+deliberately selects a different stream even at the same scenario seed.
 
 ## Research data intake
 

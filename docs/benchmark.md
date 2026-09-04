@@ -42,6 +42,14 @@ Each generated case declares a primary exit, an alternative final exit, and a
 scheduled closure of the primary, so a sweep exercises the deterministic
 rerouting semantics as well as its outcome attribution.
 
+`chiyoda replicate SOURCE --seed FIRST --count COUNT -o DIRECTORY` uses the
+same bundle, verification, and analysis format for a user-authored scenario.
+It records canonical `template.chy` and its scenario hash, and every replica is
+required to match that template except for the declared seed. This is the
+appropriate uncalibrated workflow for comparing an authored intervention or
+information design over deterministic trust samples; it does not make those
+samples empirical observations.
+
 `chiyoda analyze-sweep DIRECTORY [-o REPORT.json]` first performs every
 `verify-sweep` check, then emits an explicitly descriptive aggregate: exact
 agent and evacuation counts, exact overall evacuation fraction numerator and
@@ -53,3 +61,25 @@ attribution reported separately rather than silently assigned a cause.
 
 This command supports structural exploration and regression investigation. It
 does not produce a benchmark score, calibration result, or predictive claim.
+
+## Authored intervention comparisons
+
+`chiyoda compare-sweeps BASELINE CANDIDATE [-o REPORT.json]` is the
+uncalibrated comparison workflow. Both directories must first pass the full
+replication verifier and therefore carry an authored `template.chy`, a template
+hash, and one bundle per declared seed. The command accepts only equal
+contiguous seed ranges and rejects arms whose duration, timestep, or authored
+agent groups (including their journeys) differ. It does not require geometry,
+capacity, route-state, or information declarations to be identical: the report
+lists every changed top-level scenario section and retains the two canonical
+template hashes so the actual intervention remains inspectable.
+
+The report has one row per common seed, with arm-specific bundle hashes,
+evacuation counts, final-exit attribution, remaining-state attribution, and a
+clearance-time delta only if both runs completed. It additionally reports exact
+aggregate candidate-minus-baseline count deltas and separates pairs with only
+one completed arm from comparable clearance-time pairs. No confidence interval,
+significance label, causal conclusion, or predictive interpretation is
+emitted. A shared seed labels deterministic scenario variation; it is not an
+empirical sample. Information acceptance samples also incorporate the message
+or countermeasure identifier, so changing an identifier changes that stream.

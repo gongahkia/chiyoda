@@ -1,7 +1,7 @@
 use chiyoda_core::{
     BenchmarkManifest, EvidenceCatalog, RunBundle, RunOptions, benchmark::DatasetEvidence,
-    benchmark::DatasetRole, benchmark::GeneratorRound, format_scenario, generator, parse, run,
-    validate, validate_catalog, validate_manifest,
+    benchmark::DatasetRole, benchmark::GeneratorRound, bundle_hash, format_scenario, generator,
+    parse, run, validate, validate_catalog, validate_manifest,
 };
 use std::path::PathBuf;
 
@@ -318,6 +318,18 @@ agents passengers count 1 on concourse at (1m, 1m, 0m) to street speed 1m/s radi
     let bundle = run(&scenario, RunOptions::default()).expect("run succeeds");
     assert_eq!(bundle.metrics.evacuated_agents, 0);
     assert_eq!(bundle.metrics.remaining_by_state.get("moving"), Some(&1));
+    let mut legacy_value = serde_json::to_value(&bundle).expect("bundle serializes");
+    legacy_value["metrics"]
+        .as_object_mut()
+        .expect("metrics is an object")
+        .remove("remaining_by_state");
+    legacy_value["bundle_hash"] = serde_json::Value::String(String::new());
+    let legacy_unsigned: RunBundle =
+        serde_json::from_value(legacy_value.clone()).expect("legacy bundle deserializes");
+    legacy_value["bundle_hash"] = serde_json::Value::String(bundle_hash(&legacy_unsigned));
+    let legacy: RunBundle = serde_json::from_value(legacy_value).expect("legacy bundle reloads");
+    assert!(legacy.metrics.remaining_by_state.is_empty());
+    assert!(legacy.verifies_hash());
 }
 
 #[test]
