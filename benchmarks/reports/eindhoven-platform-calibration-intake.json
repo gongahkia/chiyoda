@@ -1,0 +1,109 @@
+{
+  "schema_version": "0.1",
+  "adapter_version": "0.1.0-alpha.1",
+  "catalog_sha256": "f25fbf0ed6d014cce24015484022a3b0cd0a5d04b0333689d007d73de4d44f66",
+  "dataset_id": "eindhoven-centraal-platform-2024",
+  "source_context": "Anonymous 2D trajectories on a single Eindhoven Centraal train platform; positions are converted from millimetres to metres for speed estimation.",
+  "filter": {
+    "max_gap_ms": 500,
+    "max_speed_mps": 4.0,
+    "histogram_bin_width_mps": 0.01
+  },
+  "partition": "calibration",
+  "summary": {
+    "files": [
+      {
+        "id": "eindhoven-days-01-10",
+        "role": "calibration",
+        "source_sha256": "9f8fa0f178722bcd4c13ecea2b0435fd3b5c698c671b97098ca758be7e202cd6",
+        "local_path": "eindhoven-centraal-2024/Eindhoven_centraal_trajectories_days_01_10.parquet",
+        "observations": {
+          "rows": 185234516,
+          "usable_steps": 184633680,
+          "first_observations": 394117,
+          "non_positive_time_steps": 0,
+          "gaps_over_limit": 966,
+          "speeds_over_limit": 205753
+        },
+        "speed": {
+          "samples": 184633680,
+          "mean_mps": 0.5216351761564384,
+          "standard_deviation_mps": 0.6200114599446482,
+          "p05_mps": 0.005,
+          "p50_mps": 0.275,
+          "p95_mps": 1.905,
+          "min_mps": 0.0,
+          "max_mps": 4.0
+        }
+      },
+      {
+        "id": "eindhoven-days-11-20",
+        "role": "calibration",
+        "source_sha256": "0cd1b90bcc799258d220ca4c11e65ef3d8c26a9dd2d73d97e3aba7cb9ba1ada8",
+        "local_path": "eindhoven-centraal-2024/Eindhoven_centraal_trajectories_days_11_20.parquet",
+        "observations": {
+          "rows": 135830105,
+          "usable_steps": 135369938,
+          "first_observations": 316899,
+          "non_positive_time_steps": 0,
+          "gaps_over_limit": 167,
+          "speeds_over_limit": 143101
+        },
+        "speed": {
+          "samples": 135369938,
+          "mean_mps": 0.6105007217739344,
+          "standard_deviation_mps": 0.654776096944394,
+          "p05_mps": 0.005,
+          "p50_mps": 0.305,
+          "p95_mps": 1.995,
+          "min_mps": 0.0,
+          "max_mps": 4.0
+        }
+      },
+      {
+        "id": "eindhoven-days-21-30",
+        "role": "calibration",
+        "source_sha256": "2b3a1cc55a45ef4f729531d43997bdc88e5baa9dd2c45a93accf2fa576198d67",
+        "local_path": "eindhoven-centraal-2024/Eindhoven_centraal_trajectories_days_21_30.parquet",
+        "observations": {
+          "rows": 151320833,
+          "usable_steps": 150776012,
+          "first_observations": 343618,
+          "non_positive_time_steps": 0,
+          "gaps_over_limit": 634,
+          "speeds_over_limit": 200569
+        },
+        "speed": {
+          "samples": 150776012,
+          "mean_mps": 0.5668276022632157,
+          "standard_deviation_mps": 0.6430997986666728,
+          "p05_mps": 0.005,
+          "p50_mps": 0.28500000000000003,
+          "p95_mps": 1.965,
+          "min_mps": 0.0,
+          "max_mps": 4.0
+        }
+      }
+    ],
+    "observations": {
+      "rows": 472385454,
+      "usable_steps": 470779630,
+      "first_observations": 1054634,
+      "non_positive_time_steps": 0,
+      "gaps_over_limit": 1767,
+      "speeds_over_limit": 549423
+    },
+    "speed": {
+      "samples": 470779630,
+      "mean_mps": 0.5616616683425195,
+      "standard_deviation_mps": 0.6386080514369735,
+      "p05_mps": 0.005,
+      "p50_mps": 0.28500000000000003,
+      "p95_mps": 1.955,
+      "min_mps": 0.0,
+      "max_mps": 4.0
+    }
+  },
+  "status": "descriptive_only",
+  "claim_boundary": "This report describes the locked source under its declared filter. It does not calibrate the reference runtime, validate stairs, lifts, gates, bodies, route choice, information effects, any population profile, or any facility; it cannot support operational or predictive claims."
+}

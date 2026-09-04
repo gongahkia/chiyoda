@@ -57,6 +57,8 @@ pub enum CalibrationError {
     UnsupportedColumnType { path: PathBuf, column: &'static str },
     #[error("{path}: missing required column `{column}`")]
     MissingColumn { path: PathBuf, column: &'static str },
+    #[error("cannot serialize evidence catalog for provenance: {0}")]
+    CatalogSerialization(serde_json::Error),
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -119,6 +121,8 @@ pub struct PartitionCalibrationSummary {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PlatformCalibrationReport {
     pub schema_version: String,
+    pub adapter_version: String,
+    pub catalog_sha256: String,
     pub dataset_id: String,
     pub source_context: String,
     pub filter: ObservationFilter,
@@ -167,6 +171,8 @@ pub fn calibrate_eindhoven_platform(
 
     Ok(PlatformCalibrationReport {
         schema_version: "0.1".to_owned(),
+        adapter_version: crate::RUNTIME_VERSION.to_owned(),
+        catalog_sha256: catalog_hash(catalog)?,
         dataset_id: catalog.dataset_id.clone(),
         source_context: "Anonymous 2D trajectories on a single Eindhoven Centraal train platform; positions are converted from millimetres to metres for speed estimation.".to_owned(),
         filter,
@@ -175,6 +181,11 @@ pub fn calibrate_eindhoven_platform(
         status: "descriptive_only".to_owned(),
         claim_boundary: "This report describes the locked source under its declared filter. It does not calibrate the reference runtime, validate stairs, lifts, gates, bodies, route choice, information effects, any population profile, or any facility; it cannot support operational or predictive claims.".to_owned(),
     })
+}
+
+fn catalog_hash(catalog: &EvidenceCatalog) -> Result<String, CalibrationError> {
+    let canonical = serde_json::to_vec(catalog).map_err(CalibrationError::CatalogSerialization)?;
+    Ok(format!("{:x}", Sha256::digest(canonical)))
 }
 
 /// Verify every catalog-relative source file without interpreting its contents.

@@ -109,10 +109,10 @@ cannot enforce it.
 
 ## Project structure
 
-- `crates/chiyoda-core` — DSL parser, validator, canonical IR, benchmark
-  evidence contract, deterministic generator, and reference runtime.
-- `crates/chiyoda-cli` — compiler, runtime, generator, benchmark, and bundle
-  verification commands.
+- `crates/chiyoda-core` — DSL parser, validator, canonical IR, evidence/source
+  locks, bounded Parquet intake, deterministic generator, and reference runtime.
+- `crates/chiyoda-cli` — compiler, runtime, generator, evidence, calibration,
+  benchmark, and bundle-verification commands.
 - `crates/chiyoda-replay` — native Linux trace viewer.
 - `python` — dependency-light bundle verification and analysis helpers; it is
   intentionally outside the trusted simulation runtime.

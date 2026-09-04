@@ -185,42 +185,10 @@ fn main() -> Result<()> {
             println!("generated: {} ({})", output.display(), scenario.name);
         }
         Command::Benchmark { command } => match command {
-            BenchmarkCommand::Verify { manifest } => {
-                let manifest: BenchmarkManifest = read_json(&manifest)?;
-                validate_manifest(&manifest).map_err(|errors| benchmark_error(&errors))?;
-                println!("valid empirical benchmark round: {}", manifest.round_id);
-            }
+            BenchmarkCommand::Verify { manifest } => verify_benchmark(&manifest)?,
         },
-        Command::Evidence { command } => match command {
-            EvidenceCommand::Verify { catalog } => {
-                let catalog: EvidenceCatalog = read_json(&catalog)?;
-                validate_catalog(&catalog).map_err(|errors| evidence_error(&errors))?;
-                println!("valid evidence catalog: {}", catalog.dataset_id);
-            }
-            EvidenceCommand::Lock { catalog, data_root } => {
-                let catalog: EvidenceCatalog = read_json(&catalog)?;
-                verify_catalog_files(&catalog, &data_root)?;
-                println!("content-locked: {}", catalog.dataset_id);
-            }
-        },
-        Command::Calibrate { command } => match command {
-            CalibrateCommand::EindhovenPlatform {
-                catalog,
-                data_root,
-                partition,
-                output,
-            } => {
-                let catalog: EvidenceCatalog = read_json(&catalog)?;
-                let report = calibrate_eindhoven_platform(
-                    &catalog,
-                    &data_root,
-                    dataset_role(partition),
-                )?;
-                write_json(&output, &report)?;
-                println!("descriptive report: {}", output.display());
-                println!("status: {}", report.status);
-            }
-        },
+        Command::Evidence { command } => handle_evidence(command)?,
+        Command::Calibrate { command } => handle_calibration(command)?,
         Command::Replay {
             bundle: bundle_path,
         } => {
@@ -236,6 +204,48 @@ fn main() -> Result<()> {
                 bundle.metrics.evacuated_agents, bundle.metrics.total_agents
             );
             println!("open with: chiyoda-replay {}", bundle_path.display());
+        }
+    }
+    Ok(())
+}
+
+fn verify_benchmark(manifest: &Path) -> Result<()> {
+    let manifest: BenchmarkManifest = read_json(manifest)?;
+    validate_manifest(&manifest).map_err(|errors| benchmark_error(&errors))?;
+    println!("valid empirical benchmark round: {}", manifest.round_id);
+    Ok(())
+}
+
+fn handle_evidence(command: EvidenceCommand) -> Result<()> {
+    match command {
+        EvidenceCommand::Verify { catalog } => {
+            let catalog: EvidenceCatalog = read_json(&catalog)?;
+            validate_catalog(&catalog).map_err(|errors| evidence_error(&errors))?;
+            println!("valid evidence catalog: {}", catalog.dataset_id);
+        }
+        EvidenceCommand::Lock { catalog, data_root } => {
+            let catalog: EvidenceCatalog = read_json(&catalog)?;
+            verify_catalog_files(&catalog, &data_root)?;
+            println!("content-locked: {}", catalog.dataset_id);
+        }
+    }
+    Ok(())
+}
+
+fn handle_calibration(command: CalibrateCommand) -> Result<()> {
+    match command {
+        CalibrateCommand::EindhovenPlatform {
+            catalog,
+            data_root,
+            partition,
+            output,
+        } => {
+            let catalog: EvidenceCatalog = read_json(&catalog)?;
+            let report =
+                calibrate_eindhoven_platform(&catalog, &data_root, dataset_role(partition))?;
+            write_json(&output, &report)?;
+            println!("descriptive report: {}", output.display());
+            println!("status: {}", report.status);
         }
     }
     Ok(())
@@ -262,7 +272,8 @@ fn write_json<T: serde::Serialize>(path: &Path, value: &T) -> Result<()> {
         .parent()
         .context("output must have a parent directory")?;
     fs::create_dir_all(parent).with_context(|| format!("creating {}", parent.display()))?;
-    let bytes = serde_json::to_vec_pretty(value).context("serializing canonical JSON")?;
+    let mut bytes = serde_json::to_vec_pretty(value).context("serializing canonical JSON")?;
+    bytes.push(b'\n');
     fs::write(path, bytes).with_context(|| format!("writing {}", path.display()))
 }
 

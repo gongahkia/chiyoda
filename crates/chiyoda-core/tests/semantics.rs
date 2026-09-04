@@ -1,7 +1,9 @@
 use chiyoda_core::{
-    BenchmarkManifest, RunBundle, RunOptions, benchmark::DatasetEvidence, benchmark::DatasetRole,
-    benchmark::GeneratorRound, format_scenario, generator, parse, run, validate, validate_manifest,
+    BenchmarkManifest, EvidenceCatalog, RunBundle, RunOptions, benchmark::DatasetEvidence,
+    benchmark::DatasetRole, benchmark::GeneratorRound, format_scenario, generator, parse, run,
+    validate, validate_catalog, validate_manifest,
 };
+use std::path::PathBuf;
 
 #[test]
 fn generated_source_is_parseable_and_valid() {
@@ -197,4 +199,15 @@ fn benchmark_requires_open_calibration_and_holdout_evidence() {
     let mut private = manifest;
     private.datasets[1].redistributable = false;
     assert!(validate_manifest(&private).is_err());
+}
+
+#[test]
+fn checked_in_eindhoven_catalog_is_a_valid_pre_benchmark_source_lock() {
+    let catalog_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../benchmarks/evidence/eindhoven-centraal-platform-2024.json");
+    let catalog: EvidenceCatalog = serde_json::from_str(
+        &std::fs::read_to_string(&catalog_path).expect("checked-in catalog is readable"),
+    )
+    .expect("checked-in catalog is JSON");
+    validate_catalog(&catalog).expect("checked-in catalog follows the source-lock contract");
 }

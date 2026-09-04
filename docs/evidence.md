@@ -69,6 +69,12 @@ command deliberately does not inspect it.
 The exact pre-registration, leakage, and acceptance rules are in the
 [calibration protocol](calibration-protocol.md).
 
+The checked-in [calibration descriptive report](../benchmarks/reports/eindhoven-platform-calibration-intake.json)
+was regenerated from the locked days 01–30 files using adapter
+`0.1.0-alpha.1`. It contains 470,779,630 retained consecutive observations;
+its aggregate speed distribution is intentionally reported only as source
+description, not a runtime default or validated human parameter.
+
 ## Requirements for an empirical benchmark round
 
 Every public round must include a machine-readable manifest accepted by:
