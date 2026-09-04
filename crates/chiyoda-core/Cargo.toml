@@ -1,0 +1,18 @@
+[package]
+name = "chiyoda-core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Formal language, semantics, and deterministic 3D pedestrian-flow runtime for Chiyoda"
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true
+

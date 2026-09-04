@@ -1,0 +1,22 @@
+[package]
+name = "chiyoda"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "CLI for compiling, running, and benchmarking Chiyoda experiments"
+
+[[bin]]
+name = "chiyoda"
+path = "src/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+clap.workspace = true
+serde_json.workspace = true
+chiyoda-core = { path = "../chiyoda-core" }
+
+[lints]
+workspace = true
+

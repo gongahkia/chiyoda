@@ -1,3 +1,0 @@
-level_id,level_index,level_name
-surface,0,Street level
-concourse,-1,Concourse
