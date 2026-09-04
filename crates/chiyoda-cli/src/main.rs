@@ -197,6 +197,10 @@ struct SweepRun {
     seed: u64,
     scenario_name: String,
     bundle_hash: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    bundle_version: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    runtime_version: Option<String>,
     total_agents: u32,
     evacuated_agents: u32,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
@@ -269,9 +273,36 @@ struct SweepComparison {
 struct SweepPairing {
     first_seed: u64,
     run_count: u32,
+    execution_contract: ExecutionContract,
     baseline_template_scenario_hash: String,
     candidate_template_scenario_hash: String,
     changed_scenario_sections: Vec<String>,
+    information_sampling: InformationSamplingAlignment,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+struct ExecutionContract {
+    bundle_version: String,
+    runtime_version: String,
+}
+
+#[derive(Debug, Serialize)]
+struct InformationSamplingAlignment {
+    shared: BTreeMap<String, SamplingPair>,
+    baseline_only: BTreeMap<String, SamplingDeclaration>,
+    candidate_only: BTreeMap<String, SamplingDeclaration>,
+}
+
+#[derive(Debug, Serialize)]
+struct SamplingPair {
+    baseline: SamplingDeclaration,
+    candidate: SamplingDeclaration,
+}
+
+#[derive(Debug, Serialize)]
+struct SamplingDeclaration {
+    intervention: String,
+    kind: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -594,6 +625,8 @@ where
             seed,
             scenario_name: scenario.name,
             bundle_hash: bundle.bundle_hash,
+            bundle_version: Some(bundle.bundle_version),
+            runtime_version: Some(bundle.runtime_version),
             total_agents: bundle.metrics.total_agents,
             evacuated_agents: bundle.metrics.evacuated_agents,
             evacuated_by_exit: bundle.metrics.evacuated_by_exit.clone(),
@@ -650,7 +683,14 @@ fn compare_sweeps(
     let candidate_template = authored_template(candidate_directory, &candidate, "candidate")?;
     let changed_scenario_sections =
         compatible_comparison_sections(&baseline_template, &candidate_template)?;
-    let comparison = compare_sweep_summaries(&baseline, &candidate, changed_scenario_sections)?;
+    let information_sampling =
+        information_sampling_alignment(&baseline_template, &candidate_template);
+    let comparison = compare_sweep_summaries(
+        &baseline,
+        &candidate,
+        changed_scenario_sections,
+        information_sampling,
+    )?;
     if let Some(output) = output {
         write_json(output, &comparison)?;
         println!("sweep comparison: {}", output.display());
@@ -734,8 +774,70 @@ fn compatible_comparison_sections(
     Ok(changed)
 }
 
+fn information_sampling_alignment(
+    baseline: &chiyoda_core::Scenario,
+    candidate: &chiyoda_core::Scenario,
+) -> InformationSamplingAlignment {
+    let mut baseline_keys = declared_sampling_keys(baseline);
+    let mut candidate_keys = declared_sampling_keys(candidate);
+    let mut shared = BTreeMap::new();
+    for sampling_key in baseline_keys.keys().cloned().collect::<Vec<_>>() {
+        if candidate_keys.contains_key(&sampling_key) {
+            let baseline = baseline_keys
+                .remove(&sampling_key)
+                .expect("key came from baseline declarations");
+            let candidate = candidate_keys
+                .remove(&sampling_key)
+                .expect("key exists in candidate declarations");
+            shared.insert(
+                sampling_key,
+                SamplingPair {
+                    baseline,
+                    candidate,
+                },
+            );
+        }
+    }
+    InformationSamplingAlignment {
+        shared,
+        baseline_only: baseline_keys,
+        candidate_only: candidate_keys,
+    }
+}
+
+fn declared_sampling_keys(
+    scenario: &chiyoda_core::Scenario,
+) -> BTreeMap<String, SamplingDeclaration> {
+    let mut declarations = BTreeMap::new();
+    for message in &scenario.messages {
+        declarations.insert(
+            message
+                .sampling_key
+                .clone()
+                .unwrap_or_else(|| message.id.clone()),
+            SamplingDeclaration {
+                intervention: message.id.clone(),
+                kind: "message".to_owned(),
+            },
+        );
+    }
+    for countermeasure in &scenario.countermeasures {
+        declarations.insert(
+            countermeasure
+                .sampling_key
+                .clone()
+                .unwrap_or_else(|| countermeasure.id.clone()),
+            SamplingDeclaration {
+                intervention: countermeasure.id.clone(),
+                kind: "countermeasure".to_owned(),
+            },
+        );
+    }
+    declarations
+}
+
 fn load_and_verify_sweep(directory: &Path) -> Result<SweepSummary> {
-    let summary: SweepSummary = read_json(&directory.join("summary.json"))?;
+    let mut summary: SweepSummary = read_json(&directory.join("summary.json"))?;
     if summary.schema_version != "0.1" {
         bail!(
             "unsupported sweep summary schema `{}`",
@@ -775,7 +877,7 @@ fn load_and_verify_sweep(directory: &Path) -> Result<SweepSummary> {
             Some(template)
         }
     };
-    for (offset, record) in summary.runs.iter().enumerate() {
+    for (offset, record) in summary.runs.iter_mut().enumerate() {
         let expected_seed = summary
             .first_seed
             .checked_add(u64::try_from(offset).expect("usize index fits u64"))
@@ -811,6 +913,7 @@ fn load_and_verify_sweep(directory: &Path) -> Result<SweepSummary> {
                 );
             }
         }
+        reconcile_run_provenance(record, &bundle, &run_directory)?;
         if record.scenario_name != bundle.scenario.scenario.name
             || record.bundle_hash != bundle.bundle_hash
             || record.total_agents != bundle.metrics.total_agents
@@ -828,6 +931,35 @@ fn load_and_verify_sweep(directory: &Path) -> Result<SweepSummary> {
         }
     }
     Ok(summary)
+}
+
+fn reconcile_run_provenance(
+    record: &mut SweepRun,
+    bundle: &RunBundle,
+    run_directory: &Path,
+) -> Result<()> {
+    if let Some(bundle_version) = &record.bundle_version
+        && bundle_version != &bundle.bundle_version
+    {
+        bail!(
+            "summary bundle version disagrees with run bundle: {}",
+            run_directory.display()
+        );
+    }
+    if let Some(runtime_version) = &record.runtime_version
+        && runtime_version != &bundle.runtime_version
+    {
+        bail!(
+            "summary runtime version disagrees with run bundle: {}",
+            run_directory.display()
+        );
+    }
+    // Older summaries did not persist this provenance. The bundle is hash-verified
+    // before this call, so hydrate it in memory for analysis and comparison without
+    // mutating the source artifact; new summaries always write it explicitly.
+    record.bundle_version = Some(bundle.bundle_version.clone());
+    record.runtime_version = Some(bundle.runtime_version.clone());
+    Ok(())
 }
 
 #[allow(clippy::too_many_lines)] // every persisted metric invariant is checked together
@@ -1077,12 +1209,14 @@ fn compare_sweep_summaries(
     baseline: &SweepSummary,
     candidate: &SweepSummary,
     changed_scenario_sections: Vec<String>,
+    information_sampling: InformationSamplingAlignment,
 ) -> Result<SweepComparison> {
     if baseline.first_seed != candidate.first_seed || baseline.count != candidate.count {
         bail!("comparison requires matching contiguous seed ranges");
     }
     let baseline_template_scenario_hash = template_hash_for_comparison(baseline, "baseline")?;
     let candidate_template_scenario_hash = template_hash_for_comparison(candidate, "candidate")?;
+    let execution_contract = compatible_execution_contract(baseline, candidate)?;
     let mut paired_runs = Vec::with_capacity(baseline.runs.len());
     let mut evacuation_delta = 0_i64;
     let mut un_evacuated_delta = 0_i64;
@@ -1169,9 +1303,11 @@ fn compare_sweep_summaries(
         pairing: SweepPairing {
             first_seed: baseline.first_seed,
             run_count: baseline.count,
+            execution_contract,
             baseline_template_scenario_hash,
             candidate_template_scenario_hash,
             changed_scenario_sections,
+            information_sampling,
         },
         baseline: describe_sweep(baseline),
         candidate: describe_sweep(candidate),
@@ -1192,6 +1328,58 @@ fn compare_sweep_summaries(
         },
         claim_boundary: "This report compares deterministic structural runs sharing authored demand and seed labels. It is not an empirical control group, a statistical uncertainty estimate, a causal-effect estimate, a benchmark score, calibration result, or predictive claim.".to_owned(),
     })
+}
+
+fn compatible_execution_contract(
+    baseline: &SweepSummary,
+    candidate: &SweepSummary,
+) -> Result<ExecutionContract> {
+    let baseline_contract = execution_contract_for_arm(baseline, "baseline")?;
+    let candidate_contract = execution_contract_for_arm(candidate, "candidate")?;
+    if baseline_contract != candidate_contract {
+        bail!(
+            "comparison requires identical bundle and runtime versions; baseline uses bundle `{}` runtime `{}`, candidate uses bundle `{}` runtime `{}`",
+            baseline_contract.bundle_version,
+            baseline_contract.runtime_version,
+            candidate_contract.bundle_version,
+            candidate_contract.runtime_version,
+        );
+    }
+    Ok(baseline_contract)
+}
+
+fn execution_contract_for_arm(summary: &SweepSummary, arm: &str) -> Result<ExecutionContract> {
+    let Some(first_run) = summary.runs.first() else {
+        bail!("comparison requires at least one {arm} run");
+    };
+    let contract = ExecutionContract {
+        bundle_version: first_run
+            .bundle_version
+            .clone()
+            .with_context(|| {
+                format!(
+                    "comparison requires bundle-version provenance for every {arm} run; rerun `chiyoda replicate`"
+                )
+            })?,
+        runtime_version: first_run
+            .runtime_version
+            .clone()
+            .with_context(|| {
+                format!(
+                    "comparison requires runtime-version provenance for every {arm} run; rerun `chiyoda replicate`"
+                )
+            })?,
+    };
+    for run in &summary.runs[1..] {
+        if run.bundle_version.as_deref() != Some(contract.bundle_version.as_str())
+            || run.runtime_version.as_deref() != Some(contract.runtime_version.as_str())
+        {
+            bail!(
+                "comparison requires every {arm} run to use the same bundle and runtime versions"
+            );
+        }
+    }
+    Ok(contract)
 }
 
 fn template_hash_for_comparison(summary: &SweepSummary, arm: &str) -> Result<String> {
@@ -1425,8 +1613,8 @@ fn dataset_role(partition: EvidencePartition) -> chiyoda_core::benchmark::Datase
 #[cfg(test)]
 mod tests {
     use super::{
-        SweepRun, SweepSource, SweepSummary, compare_sweep_summaries, describe_sweep,
-        validate_bundle_metrics,
+        InformationSamplingAlignment, SweepRun, SweepSource, SweepSummary, compare_sweep_summaries,
+        describe_sweep, information_sampling_alignment, validate_bundle_metrics,
     };
     use chiyoda_core::{
         InformationDeliveryMetrics, InformationInterventionKind, RunOptions, generator, parse, run,
@@ -1447,6 +1635,8 @@ mod tests {
                     seed: 10,
                     scenario_name: "one".to_owned(),
                     bundle_hash: "a".repeat(64),
+                    bundle_version: None,
+                    runtime_version: None,
                     total_agents: 10,
                     evacuated_agents: 8,
                     evacuated_by_exit: BTreeMap::from([
@@ -1462,6 +1652,8 @@ mod tests {
                     seed: 11,
                     scenario_name: "two".to_owned(),
                     bundle_hash: "b".repeat(64),
+                    bundle_version: None,
+                    runtime_version: None,
                     total_agents: 5,
                     evacuated_agents: 0,
                     evacuated_by_exit: BTreeMap::new(),
@@ -1474,6 +1666,8 @@ mod tests {
                     seed: 12,
                     scenario_name: "three".to_owned(),
                     bundle_hash: "c".repeat(64),
+                    bundle_version: None,
+                    runtime_version: None,
                     total_agents: 5,
                     evacuated_agents: 5,
                     evacuated_by_exit: BTreeMap::from([("east".to_owned(), 5)]),
@@ -1539,6 +1733,45 @@ mod tests {
     }
 
     #[test]
+    fn comparison_reports_shared_and_arm_specific_sampling_keys() {
+        let baseline = parse(
+            r#"
+scenario "baseline"
+seed 1
+duration 10s
+timestep 1s
+message baseline_notice source signage on concourse at (1m, 1m, 0m) claim exit street closed truth false time 1s reach 2m trust 0.5 sample matched
+message baseline_only source signage on concourse at (1m, 1m, 0m) claim exit street closed truth false time 2s reach 2m trust 0.5
+"#,
+        )
+        .expect("baseline parses");
+        let candidate = parse(
+            r#"
+scenario "candidate"
+seed 1
+duration 10s
+timestep 1s
+message candidate_notice source signage on concourse at (1m, 1m, 0m) claim exit street closed truth false time 1s reach 2m trust 0.5 sample matched
+message candidate_only source signage on concourse at (1m, 1m, 0m) claim exit street closed truth false time 2s reach 2m trust 0.5
+"#,
+        )
+        .expect("candidate parses");
+
+        let alignment = information_sampling_alignment(&baseline, &candidate);
+
+        assert_eq!(
+            alignment.shared["matched"].baseline.intervention,
+            "baseline_notice"
+        );
+        assert_eq!(
+            alignment.shared["matched"].candidate.intervention,
+            "candidate_notice"
+        );
+        assert!(alignment.baseline_only.contains_key("baseline_only"));
+        assert!(alignment.candidate_only.contains_key("candidate_only"));
+    }
+
+    #[test]
     fn sweep_analysis_discloses_legacy_bundles_without_exit_attribution() {
         let summary = SweepSummary {
             schema_version: "0.1".to_owned(),
@@ -1551,6 +1784,8 @@ mod tests {
                 seed: 73,
                 scenario_name: "legacy".to_owned(),
                 bundle_hash: "a".repeat(64),
+                bundle_version: None,
+                runtime_version: None,
                 total_agents: 4,
                 evacuated_agents: 3,
                 evacuated_by_exit: BTreeMap::new(),
@@ -1586,6 +1821,8 @@ mod tests {
                     seed: 100,
                     scenario_name: "baseline".to_owned(),
                     bundle_hash: "b".repeat(64),
+                    bundle_version: Some("0.19".to_owned()),
+                    runtime_version: Some("deterministic-euler-0.19".to_owned()),
                     total_agents: 10,
                     evacuated_agents: 10,
                     evacuated_by_exit: BTreeMap::from([("east".to_owned(), 10)]),
@@ -1605,6 +1842,8 @@ mod tests {
                     seed: 101,
                     scenario_name: "baseline".to_owned(),
                     bundle_hash: "c".repeat(64),
+                    bundle_version: Some("0.19".to_owned()),
+                    runtime_version: Some("deterministic-euler-0.19".to_owned()),
                     total_agents: 10,
                     evacuated_agents: 10,
                     evacuated_by_exit: BTreeMap::from([("west".to_owned(), 10)]),
@@ -1636,6 +1875,8 @@ mod tests {
                     seed: 100,
                     scenario_name: "candidate".to_owned(),
                     bundle_hash: "e".repeat(64),
+                    bundle_version: Some("0.19".to_owned()),
+                    runtime_version: Some("deterministic-euler-0.19".to_owned()),
                     total_agents: 10,
                     evacuated_agents: 10,
                     evacuated_by_exit: BTreeMap::from([
@@ -1658,6 +1899,8 @@ mod tests {
                     seed: 101,
                     scenario_name: "candidate".to_owned(),
                     bundle_hash: "f".repeat(64),
+                    bundle_version: Some("0.19".to_owned()),
+                    runtime_version: Some("deterministic-euler-0.19".to_owned()),
                     total_agents: 10,
                     evacuated_agents: 7,
                     evacuated_by_exit: BTreeMap::from([("west".to_owned(), 7)]),
@@ -1680,10 +1923,20 @@ mod tests {
             &baseline,
             &candidate,
             vec!["messages".to_owned(), "countermeasures".to_owned()],
+            InformationSamplingAlignment {
+                shared: BTreeMap::new(),
+                baseline_only: BTreeMap::new(),
+                candidate_only: BTreeMap::new(),
+            },
         )
         .expect("compatible authored sweeps compare");
 
         assert_eq!(comparison.pairing.run_count, 2);
+        assert_eq!(comparison.pairing.execution_contract.bundle_version, "0.19");
+        assert_eq!(
+            comparison.pairing.execution_contract.runtime_version,
+            "deterministic-euler-0.19"
+        );
         assert_eq!(
             comparison.paired_runs[0]
                 .candidate_minus_baseline
@@ -1812,6 +2065,8 @@ mod tests {
                 seed: 100,
                 scenario_name: "control".to_owned(),
                 bundle_hash: "b".repeat(64),
+                bundle_version: None,
+                runtime_version: None,
                 total_agents: 1,
                 evacuated_agents: 1,
                 evacuated_by_exit: BTreeMap::from([("street".to_owned(), 1)]),
@@ -1826,13 +2081,70 @@ mod tests {
             ..summary.clone()
         };
 
-        let error = compare_sweep_summaries(&summary, &candidate, Vec::new())
-            .expect_err("different seed ranges cannot be paired");
+        let error = compare_sweep_summaries(
+            &summary,
+            &candidate,
+            Vec::new(),
+            InformationSamplingAlignment {
+                shared: BTreeMap::new(),
+                baseline_only: BTreeMap::new(),
+                candidate_only: BTreeMap::new(),
+            },
+        )
+        .expect_err("different seed ranges cannot be paired");
 
         assert!(
             error
                 .to_string()
                 .contains("matching contiguous seed ranges")
+        );
+    }
+
+    #[test]
+    fn sweep_comparison_rejects_mismatched_execution_contracts() {
+        let baseline = SweepSummary {
+            schema_version: "0.1".to_owned(),
+            generator_version: "authored-template".to_owned(),
+            source: SweepSource::Authored {
+                template_scenario_hash: "a".repeat(64),
+            },
+            first_seed: 100,
+            count: 1,
+            trace_every_steps: 10,
+            runs: vec![SweepRun {
+                seed: 100,
+                scenario_name: "control".to_owned(),
+                bundle_hash: "b".repeat(64),
+                bundle_version: Some("0.19".to_owned()),
+                runtime_version: Some("deterministic-euler-0.19".to_owned()),
+                total_agents: 1,
+                evacuated_agents: 1,
+                evacuated_by_exit: BTreeMap::from([("street".to_owned(), 1)]),
+                remaining_by_state: BTreeMap::new(),
+                information_delivery: BTreeMap::new(),
+                clearance_time_s: Some(1.0),
+                last_exit_time_s: Some(1.0),
+            }],
+        };
+        let mut candidate = baseline.clone();
+        candidate.runs[0].runtime_version = Some("deterministic-euler-0.20".to_owned());
+
+        let error = compare_sweep_summaries(
+            &baseline,
+            &candidate,
+            Vec::new(),
+            InformationSamplingAlignment {
+                shared: BTreeMap::new(),
+                baseline_only: BTreeMap::new(),
+                candidate_only: BTreeMap::new(),
+            },
+        )
+        .expect_err("different execution contracts cannot be paired");
+
+        assert!(
+            error
+                .to_string()
+                .contains("identical bundle and runtime versions")
         );
     }
 

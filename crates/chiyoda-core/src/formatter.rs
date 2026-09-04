@@ -210,7 +210,7 @@ pub fn format_scenario(scenario: &Scenario) -> String {
             duration(message.at_s),
             length(message.reach_m),
             number(message.trust),
-            sampling_key(&message.sampling_key),
+            sampling_key(message.sampling_key.as_deref()),
         )
         .expect("writing to a string cannot fail");
     }
@@ -226,19 +226,17 @@ pub fn format_scenario(scenario: &Scenario) -> String {
             duration(countermeasure.at_s),
             length(countermeasure.reach_m),
             number(countermeasure.trust),
-            sampling_key(&countermeasure.sampling_key),
+            sampling_key(countermeasure.sampling_key.as_deref()),
         )
         .expect("writing to a string cannot fail");
     }
     source
 }
 
-fn sampling_key(sampling_key: &Option<String>) -> String {
-    sampling_key
-        .as_ref()
-        .map_or_else(String::new, |sampling_key| {
-            format!(" sample {sampling_key}")
-        })
+fn sampling_key(sampling_key: Option<&str>) -> String {
+    sampling_key.map_or_else(String::new, |sampling_key| {
+        format!(" sample {sampling_key}")
+    })
 }
 
 fn proposition(proposition: &Proposition) -> String {

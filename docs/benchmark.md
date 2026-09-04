@@ -70,11 +70,13 @@ does not produce a benchmark score, calibration result, or predictive claim.
 uncalibrated comparison workflow. Both directories must first pass the full
 replication verifier and therefore carry an authored `template.chy`, a template
 hash, and one bundle per declared seed. The command accepts only equal
-contiguous seed ranges and rejects arms whose duration, timestep, or authored
-agent groups (including their journeys) differ. It does not require geometry,
+contiguous seed ranges and rejects arms whose bundle or runtime version,
+duration, timestep, or authored agent groups (including their journeys) differ.
+It does not require geometry,
 capacity, route-state, or information declarations to be identical: the report
 lists every changed top-level scenario section and retains the two canonical
-template hashes so the actual intervention remains inspectable.
+template hashes and shared execution contract so the actual intervention remains
+inspectable.
 
 The report has one row per common seed, with arm-specific bundle hashes,
 evacuation counts, final-exit attribution, remaining-state attribution, and a
@@ -86,4 +88,7 @@ reach/acceptance deltas. No confidence interval,
 significance label, causal conclusion, or predictive interpretation is
 emitted. A shared seed labels deterministic scenario variation; it is not an
 empirical sample. Information acceptance samples also incorporate the message
-or countermeasure identifier, so changing an identifier changes that stream.
+or countermeasure identifier by default, so changing an identifier changes that
+stream. An explicit, globally unique `sample` key can instead align a stream
+across the two arms; the comparison artifact reports shared and arm-specific
+keys without treating them as empirical observations.

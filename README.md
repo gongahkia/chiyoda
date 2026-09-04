@@ -80,17 +80,18 @@ is an empirical sample.
 
 `compare-sweeps` verifies both authored replication directories before producing
 a seed-aligned control/candidate artifact. It rejects generated sweeps and arms
-with different seed ranges, duration, timestep, or authored agent demand and
-journeys. The report records the two template hashes, every changed scenario
-section, each seed's outcomes, exact aggregate count deltas, exit and terminal
-state deltas, intervention reach/acceptance deltas, and clearance-time differences
+with different seed ranges, bundle or runtime versions, duration, timestep, or
+authored agent demand and journeys. The report records the shared execution
+contract, two template hashes, every changed scenario section, each seed's
+outcomes, exact aggregate count deltas, exit and terminal-state deltas,
+intervention reach/acceptance deltas, and clearance-time differences
 only for seeds where both arms fully evacuated. A separately named last-exit-time
 metric remains available when agents still remain in the system. It is a deterministic structural
 comparison, not a control
-group, causal estimate, uncertainty estimate, or predictive result. Matching
-message or countermeasure identifiers retain their deterministic acceptance
-stream where delivery remains comparable; renaming an intervention identifier
-deliberately selects a different stream even at the same scenario seed.
+group, causal estimate, uncertainty estimate, or predictive result. By default,
+matching message or countermeasure identifiers retain their deterministic
+acceptance stream; an explicit `sample` key can retain that stream across a
+renamed intervention, and the comparison artifact discloses the alignment.
 
 ## Research data intake
 
