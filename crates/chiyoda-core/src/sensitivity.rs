@@ -134,6 +134,7 @@ pub enum SensitivityTarget {
     AgentHeightM,
     AgentReleaseAtS,
     AgentReleaseIntervalS,
+    AgentReleaseBatchSize,
     ExitCapacityPerS,
     ConnectorCapacityPerS,
     EscalatorBeltSpeedMps,
@@ -155,6 +156,7 @@ impl SensitivityTarget {
             | Self::MessageReachM
             | Self::CountermeasureReachM => "m",
             Self::AgentReleaseAtS | Self::AgentReleaseIntervalS => "s",
+            Self::AgentReleaseBatchSize => "agents",
             Self::ExitCapacityPerS | Self::ConnectorCapacityPerS | Self::GateServiceRatePerS => {
                 "/s"
             }
@@ -184,7 +186,7 @@ impl SensitivityTarget {
                     message: "must be between zero and one".to_owned(),
                 })
             }
-            Self::AgentCount
+            Self::AgentCount | Self::AgentReleaseBatchSize
                 if value < 1.0 || value.fract() != 0.0 || value > f64::from(u32::MAX) =>
             {
                 Err(SensitivityError::InvalidValue {
@@ -641,6 +643,16 @@ fn factor_value(scenario: &Scenario, factor: &SensitivityFactor) -> Result<f64, 
                 )
             })
         }
+        SensitivityTarget::AgentReleaseBatchSize => {
+            let group = agent(scenario, factor)?;
+            if group.release_interval_s.is_none() {
+                return Err(unsupported(
+                    factor,
+                    "an agent group without an authored release interval",
+                ));
+            }
+            Ok(f64::from(group.release_batch_size.unwrap_or(1)))
+        }
         SensitivityTarget::ExitCapacityPerS => exit(scenario, factor)?
             .capacity_per_s
             .ok_or_else(|| unsupported(factor, "an exit without an authored capacity")),
@@ -674,6 +686,17 @@ fn apply_factor(
         SensitivityTarget::AgentReleaseAtS => agent_mut(scenario, factor)?.release_at_s = value,
         SensitivityTarget::AgentReleaseIntervalS => {
             agent_mut(scenario, factor)?.release_interval_s = Some(value);
+        }
+        SensitivityTarget::AgentReleaseBatchSize => {
+            let batch_size = agent_count(value, factor)?;
+            let group = agent_mut(scenario, factor)?;
+            if group.release_interval_s.is_none() {
+                return Err(unsupported(
+                    factor,
+                    "an agent group without an authored release interval",
+                ));
+            }
+            group.release_batch_size = Some(batch_size);
         }
         SensitivityTarget::ExitCapacityPerS => {
             exit_mut(scenario, factor)?.capacity_per_s = Some(value);

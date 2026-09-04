@@ -333,6 +333,11 @@ pub struct AgentGroup {
     /// batch-release semantics.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub release_interval_s: Option<f64>,
+    /// Optional maximum number of agents released at each cadence instant.
+    /// When absent, a cadence releases one ordinal agent at a time. This keeps
+    /// existing serialized scenarios and their semantics unchanged.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub release_batch_size: Option<u32>,
     /// Ordered required stages before the group's final exit.
     pub via: Vec<String>,
     /// Connector classes this group must not traverse. This is an authored
@@ -364,6 +369,19 @@ impl AgentGroup {
                 z_m: self.at.z_m,
             }
         })
+    }
+
+    /// Return the authored activation time for one generated agent.
+    ///
+    /// A missing cadence means simultaneous release. A missing batch size in a
+    /// cadence means one agent per release instant. Validation rejects a zero
+    /// batch size; the `max` keeps this helper total for programmatic callers
+    /// before validation has run.
+    #[must_use]
+    pub(crate) fn release_time_for(&self, ordinal: u32) -> f64 {
+        let batch_size = self.release_batch_size.unwrap_or(1).max(1);
+        let batch_ordinal = ordinal / batch_size;
+        self.release_at_s + self.release_interval_s.unwrap_or(0.0) * f64::from(batch_ordinal)
     }
 }
 

@@ -194,7 +194,7 @@ pub fn format_scenario(scenario: &Scenario) -> String {
             alternative_destinations(&group.alternative_destinations),
             excluded_connector_kinds(&group.excluded_connector_kinds),
             duration(group.release_at_s),
-            release_interval(group.release_interval_s),
+            release_schedule(group.release_interval_s, group.release_batch_size),
         )
         .expect("writing to a string cannot fail");
     }
@@ -271,8 +271,11 @@ fn duration(value: f64) -> String {
     format!("{}s", number(value))
 }
 
-fn release_interval(value: Option<f64>) -> String {
-    value.map_or_else(String::new, |value| format!(" every {}", duration(value)))
+fn release_schedule(interval_s: Option<f64>, batch_size: Option<u32>) -> String {
+    interval_s.map_or_else(String::new, |interval_s| {
+        let batch = batch_size.map_or_else(String::new, |batch_size| format!(" batch {batch_size}"));
+        format!(" every {}{batch}", duration(interval_s))
+    })
 }
 
 fn speed(value: f64) -> String {

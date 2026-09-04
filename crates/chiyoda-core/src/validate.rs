@@ -322,14 +322,27 @@ pub fn validate(scenario: &Scenario) -> Result<(), Vec<ValidationError>> {
                 release_interval_s,
                 &mut errors,
             );
-            let final_release_s =
-                group.release_at_s + release_interval_s * f64::from(group.count.saturating_sub(1));
+            let final_release_s = group.release_time_for(group.count.saturating_sub(1));
             check_time(
                 &format!("{path}.final_release_at_s"),
                 final_release_s,
                 scenario.duration_s,
                 &mut errors,
             );
+        }
+        if let Some(release_batch_size) = group.release_batch_size {
+            if release_batch_size == 0 {
+                errors.push(issue(
+                    &format!("{path}.release_batch_size"),
+                    "must be greater than zero",
+                ));
+            }
+            if group.release_interval_s.is_none() {
+                errors.push(issue(
+                    &format!("{path}.release_batch_size"),
+                    "requires an authored release interval",
+                ));
+            }
         }
         if group.radius_m.is_finite() && group.radius_m > 0.0 {
             check_agent_spawn(

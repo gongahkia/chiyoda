@@ -42,6 +42,7 @@ struct ScenarioBuilder {
 struct AgentOptions {
     release_at_s: f64,
     release_interval_s: Option<f64>,
+    release_batch_size: Option<u32>,
     via: Vec<String>,
     excluded_connector_kinds: Vec<ConnectorKind>,
     alternative_destinations: Vec<String>,
@@ -348,6 +349,7 @@ fn parse_declaration(
                 height_m: parse_length(line, required(line, tokens, 17, "agent height")?)?,
                 release_at_s: agent_options.release_at_s,
                 release_interval_s: agent_options.release_interval_s,
+                release_batch_size: agent_options.release_batch_size,
                 via: agent_options.via,
                 excluded_connector_kinds: agent_options.excluded_connector_kinds,
             });
@@ -569,6 +571,7 @@ fn agent_options(
 ) -> Result<AgentOptions, ParseError> {
     let mut release_at_s = None;
     let mut release_interval_s = None;
+    let mut release_batch_size = None;
     let mut via = Vec::new();
     let mut excluded_connector_kinds = Vec::new();
     let mut alternative_destinations = Vec::new();
@@ -586,6 +589,17 @@ fn agent_options(
                         required(line, tokens, index + 3, "agent release interval")?,
                     )?);
                     index += 2;
+                    if tokens
+                        .get(index + 2)
+                        .is_some_and(|token| token == "batch")
+                    {
+                        release_batch_size = Some(parse_plain(
+                            line,
+                            required(line, tokens, index + 3, "agent release batch size")?,
+                            "agent release batch size",
+                        )?);
+                        index += 2;
+                    }
                 }
             }
             "via" => via.push(required(line, tokens, index + 1, "journey waypoint")?.to_owned()),
@@ -625,6 +639,7 @@ fn agent_options(
     Ok(AgentOptions {
         release_at_s: release_at_s.unwrap_or(0.0),
         release_interval_s,
+        release_batch_size,
         via,
         excluded_connector_kinds,
         alternative_destinations,

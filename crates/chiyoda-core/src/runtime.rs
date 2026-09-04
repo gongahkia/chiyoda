@@ -601,9 +601,8 @@ fn spawn_agents(
     let mut agents = Vec::new();
     for group in &scenario.agents {
         for (ordinal, position) in group.spawn_positions().enumerate() {
-            let release_at_s = group.release_at_s
-                + group.release_interval_s.unwrap_or(0.0)
-                    * f64::from(u32::try_from(ordinal).expect("agent ordinal fits u32"));
+            let release_at_s =
+                group.release_time_for(u32::try_from(ordinal).expect("agent ordinal fits u32"));
             let route_start = RouteStart {
                 surface: &group.surface,
                 position,
