@@ -1,4 +1,4 @@
-# Chiyoda language reference 0.15
+# Chiyoda language reference 0.16
 
 Each non-empty line is one declaration. Lines beginning with `#` are comments.
 Quoted strings are supported only where explicitly shown. All lengths use
@@ -31,7 +31,7 @@ gate ID on SURFACE at (LENGTH, LENGTH, LENGTH) width LENGTH capacity RATE to EXI
 
 agents ID count UNSIGNED_INTEGER on SURFACE at (LENGTH, LENGTH, LENGTH) to EXIT speed SPEED radius LENGTH height LENGTH [via WAYPOINT]... [alternative EXIT]... [exclude (stair|ramp|escalator|lift)]... [release DURATION]
 
-message ID source (peer|official|signage|staff) on SURFACE at (LENGTH, LENGTH, LENGTH) claim connector CONNECTOR (open|closed) truth (true|false) time DURATION reach LENGTH trust PROBABILITY
+message ID source (peer|official|signage|staff) on SURFACE at (LENGTH, LENGTH, LENGTH) claim (connector CONNECTOR|exit EXIT) (open|closed) truth (true|false) time DURATION reach LENGTH trust PROBABILITY
 countermeasure ID corrects MESSAGE source (official|signage|staff) on SURFACE at (LENGTH, LENGTH, LENGTH) time DURATION reach LENGTH trust PROBABILITY
 ```
 
@@ -68,18 +68,20 @@ at most that clearance. A non-lift connector may declare one `capacity` and one
 reference runtime derives a deterministic sample from the scenario seed, agent
 identifier, and intervention identifier, so replay remains exact.
 
-Every connector is physically open by default. `connector-state` changes that
-physical state; events at `0s` establish the initial state, and same-time
-events apply in declaration order. A `message` records what a recipient may
-believe, whereas a connector state records what can actually be boarded. The
-compiler checks that `truth true` agrees with the connector's declared physical
+Every connector and exit is physically open by default. `connector-state` and
+`exit-state` change physical availability; events at `0s` establish the
+initial state, and same-time events apply in declaration order. A `message`
+records what a recipient may believe about a connector or final exit, whereas
+a state declaration records what can actually be boarded or used. The compiler
+checks that `truth true` agrees with the claimed resource's authored physical
 state at the message time and that `truth false` disagrees. A belief never
 overrides a physical closure.
 
-Every exit is also physically open by default. `exit-state` changes its final
-stage availability; a closed exit is excluded from final-exit selection, and
-its closure recomputes on-surface routes just like a connector state change.
-Exit-state changes do not interrupt an agent already marked evacuated.
+An accepted exit-availability belief is also excluded from that recipient's
+final-exit selection; a qualifying countermeasure resets the belief to the
+current physical state. An exit closure recomputes on-surface routes just like
+a connector state change. Exit-state changes do not interrupt an agent already
+marked evacuated.
 
 ## Static checks
 
@@ -88,7 +90,7 @@ durations, speeds, widths, rates, and capacities; in-surface coordinates;
 obstacle extents; unoccupied exit, connector, gate, every deterministic agent
 spawn (including the navigation radius clearance), and message coordinate; exit
 and connector references; connector-state and exit-state times; message truth labels against
-the authored physical state; an agent-height- and connector-eligibility-aware
+the claimed resource's authored physical state; an agent-height- and connector-eligibility-aware
 directed surface path from every agent group through every required waypoint
 stage and to every declared final exit candidate; message timing; and
 countermeasure references and ordering.
@@ -101,14 +103,14 @@ messaging effects are empirically validated.
 ## Canonical IR
 
 Successful compilation emits a JSON `CanonicalScenario` with
-`language_version: "0.15"`. Declaration order is preserved and forms part of
+`language_version: "0.16"`. Declaration order is preserved and forms part of
 the deterministic execution contract. The canonical IR is the public boundary
 between conforming compilers and runtimes; direct use of parser internals is
 not a stable API.
 
 ## Current geometry boundary
 
-Version 0.15 supports axis-aligned rectangular walkable surfaces with
+Version 0.16 supports axis-aligned rectangular walkable surfaces with
 axis-aligned rectangular no-go zones, joined by directed 3D stairs, ramps,
 escalators, and lifts. The runtime expands no-go zones by each agent radius
 and finds a deterministic Euclidean shortest path through the resulting

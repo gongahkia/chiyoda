@@ -652,17 +652,21 @@ fn parse_claim(
     subject: &str,
     state: &str,
 ) -> Result<crate::model::Proposition, ParseError> {
-    if kind != "connector" {
-        return Err(error(
-            line,
-            format!("unsupported claim kind `{kind}`; use `connector`"),
-        ));
-    }
     let open = parse_availability_open(line, state)?;
-    Ok(crate::model::Proposition::ConnectorAvailability {
-        connector: subject.to_owned(),
-        open,
-    })
+    match kind {
+        "connector" => Ok(crate::model::Proposition::ConnectorAvailability {
+            connector: subject.to_owned(),
+            open,
+        }),
+        "exit" => Ok(crate::model::Proposition::ExitAvailability {
+            exit: subject.to_owned(),
+            open,
+        }),
+        _ => Err(error(
+            line,
+            format!("unsupported claim kind `{kind}`; use `connector` or `exit`"),
+        )),
+    }
 }
 
 fn parse_availability_open(line: usize, state: &str) -> Result<bool, ParseError> {

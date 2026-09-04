@@ -414,13 +414,23 @@ impl InformationSource {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Proposition {
     ConnectorAvailability { connector: String, open: bool },
+    ExitAvailability { exit: String, open: bool },
 }
 
 impl Proposition {
     #[must_use]
-    pub fn connector(&self) -> &str {
+    pub fn subject_kind(&self) -> &'static str {
+        match self {
+            Self::ConnectorAvailability { .. } => "connector",
+            Self::ExitAvailability { .. } => "exit",
+        }
+    }
+
+    #[must_use]
+    pub fn subject(&self) -> &str {
         match self {
             Self::ConnectorAvailability { connector, .. } => connector,
+            Self::ExitAvailability { exit, .. } => exit,
         }
     }
 
@@ -428,6 +438,7 @@ impl Proposition {
     pub fn is_open(&self) -> bool {
         match self {
             Self::ConnectorAvailability { open, .. } => *open,
+            Self::ExitAvailability { open, .. } => *open,
         }
     }
 }

@@ -101,6 +101,7 @@ struct Agent {
     motion: Motion,
     beliefs: BTreeMap<String, f64>,
     blocked_connectors: HashSet<String>,
+    blocked_exits: HashSet<String>,
     passed_gates: HashSet<String>,
     waiting_connector: Option<ConnectorWait>,
     waiting_for_route: bool,
@@ -533,7 +534,7 @@ pub fn run(scenario: &Scenario, options: RunOptions) -> Result<RunBundle, RunErr
         ),
         (
             "integration".to_owned(),
-            "deterministic-euler-0.15".to_owned(),
+            "deterministic-euler-0.16".to_owned(),
         ),
     ]);
     Ok(RunBundle::new(canonical, options, trace, events, metrics))
@@ -611,6 +612,7 @@ fn spawn_agents(
                 },
                 beliefs: BTreeMap::new(),
                 blocked_connectors: HashSet::new(),
+                blocked_exits: HashSet::new(),
                 passed_gates: HashSet::new(),
                 waiting_connector: None,
                 waiting_for_route,
@@ -663,13 +665,14 @@ fn agent_plan(
     blocked_connectors: &HashSet<String>,
     closed_exits: &HashSet<String>,
 ) -> Option<PlannedTarget> {
+    let blocked_exits = effective_blocked_exits(agent, closed_exits);
     plan_for_stage(
         scenario,
         start,
         agent.via.get(agent.via_cursor).map(String::as_str),
         agent.exit_candidates.iter().map(String::as_str),
         blocked_connectors,
-        closed_exits,
+        &blocked_exits,
     )
 }
 
@@ -704,13 +707,13 @@ fn select_exit_plan<'a>(
     start: RouteStart<'_>,
     destinations: impl IntoIterator<Item = &'a str>,
     blocked_connectors: &HashSet<String>,
-    closed_exits: &HashSet<String>,
+    blocked_exits: &HashSet<String>,
 ) -> Option<PlannedTarget> {
     destinations
         .into_iter()
         .enumerate()
         .filter_map(|(index, destination)| {
-            if closed_exits.contains(destination) {
+            if blocked_exits.contains(destination) {
                 return None;
             }
             let target = exit_target(scenario, destination)?;
@@ -1174,9 +1177,10 @@ fn deliver_message(
                 kind: "message_received".to_owned(),
                 subject: agent.id.clone(),
                 detail: format!(
-                    "{}: connector `{}` {} from {} (truthful={}, accepted={accepted})",
+                    "{}: {} `{}` {} from {} (truthful={}, accepted={accepted})",
                     message.id,
-                    message.claim.connector(),
+                    message.claim.subject_kind(),
+                    message.claim.subject(),
                     if message.claim.is_open() {
                         "open"
                     } else {
@@ -1217,10 +1221,11 @@ fn deliver_countermeasure(
                     .iter()
                     .find(|message| message.id == countermeasure.corrects)
             {
-                apply_connector_belief(
+                apply_claim_to_physical_state(
                     agent,
-                    message.claim.connector(),
-                    !closed_connectors.contains(message.claim.connector()),
+                    &message.claim,
+                    closed_connectors,
+                    closed_exits,
                 );
                 reroute(
                     scenario,
@@ -1279,7 +1284,30 @@ fn splitmix64(mut value: u64) -> u64 {
 }
 
 fn apply_claim(agent: &mut Agent, claim: &crate::model::Proposition) {
-    apply_connector_belief(agent, claim.connector(), claim.is_open());
+    match claim {
+        crate::model::Proposition::ConnectorAvailability { connector, open } => {
+            apply_connector_belief(agent, connector, *open);
+        }
+        crate::model::Proposition::ExitAvailability { exit, open } => {
+            apply_exit_belief(agent, exit, *open);
+        }
+    }
+}
+
+fn apply_claim_to_physical_state(
+    agent: &mut Agent,
+    claim: &crate::model::Proposition,
+    closed_connectors: &HashSet<String>,
+    closed_exits: &HashSet<String>,
+) {
+    match claim {
+        crate::model::Proposition::ConnectorAvailability { connector, .. } => {
+            apply_connector_belief(agent, connector, !closed_connectors.contains(connector));
+        }
+        crate::model::Proposition::ExitAvailability { exit, .. } => {
+            apply_exit_belief(agent, exit, !closed_exits.contains(exit));
+        }
+    }
 }
 
 fn apply_connector_belief(agent: &mut Agent, connector: &str, open: bool) {
@@ -1287,6 +1315,14 @@ fn apply_connector_belief(agent: &mut Agent, connector: &str, open: bool) {
         agent.blocked_connectors.remove(connector);
     } else {
         agent.blocked_connectors.insert(connector.to_owned());
+    }
+}
+
+fn apply_exit_belief(agent: &mut Agent, exit: &str, open: bool) {
+    if open {
+        agent.blocked_exits.remove(exit);
+    } else {
+        agent.blocked_exits.insert(exit.to_owned());
     }
 }
 
@@ -1302,6 +1338,7 @@ fn reroute(
         return;
     }
     let blocked_connectors = effective_blocked_connectors(agent, closed_connectors);
+    let blocked_exits = effective_blocked_exits(agent, closed_exits);
     if let Some(planned) = agent_plan(
         scenario,
         RouteStart {
@@ -1325,7 +1362,11 @@ fn reroute(
         agent.waiting_connector = None;
         agent.waiting_for_route = false;
         agent.waiting_for_exit = false;
-        let mut blocked: Vec<_> = blocked_connectors.into_iter().collect();
+        let mut blocked: Vec<_> = blocked_connectors
+            .into_iter()
+            .map(|connector| format!("connector:{connector}"))
+            .chain(blocked_exits.into_iter().map(|exit| format!("exit:{exit}")))
+            .collect();
         blocked.sort_unstable();
         events.push(RunEvent {
             time_s,
@@ -1352,6 +1393,12 @@ fn effective_blocked_connectors(
     let mut blocked_connectors = closed_connectors.clone();
     blocked_connectors.extend(agent.blocked_connectors.iter().cloned());
     blocked_connectors
+}
+
+fn effective_blocked_exits(agent: &Agent, closed_exits: &HashSet<String>) -> HashSet<String> {
+    let mut blocked_exits = closed_exits.clone();
+    blocked_exits.extend(agent.blocked_exits.iter().cloned());
+    blocked_exits
 }
 
 #[allow(clippy::too_many_lines)] // this is the reference small-step transition relation
@@ -1444,11 +1491,15 @@ fn integrate(
                         subject: agent.id.clone(),
                         detail: connector_id,
                     });
-                    if agent.route[agent.route_cursor..].iter().any(|index| {
-                        resources
-                            .closed_connectors
-                            .contains(scenario.connectors[*index].id())
-                    }) {
+                    let remaining_connector_is_closed =
+                        agent.route[agent.route_cursor..].iter().any(|index| {
+                            resources
+                                .closed_connectors
+                                .contains(scenario.connectors[*index].id())
+                        });
+                    let final_exit_is_closed = agent.route_cursor == agent.route.len()
+                        && resources.closed_exits.contains(&agent.destination);
+                    if remaining_connector_is_closed || final_exit_is_closed {
                         reroute(
                             scenario,
                             agent,
@@ -1581,8 +1632,17 @@ fn integrate(
                                 resources.queued_for_gate_agents.insert(agent.id.clone());
                             }
                         } else {
-                            if resources.closed_exits.contains(&agent.destination) {
-                                agent.waiting_for_route = true;
+                            if effective_blocked_exits(agent, &resources.closed_exits)
+                                .contains(&agent.destination)
+                            {
+                                reroute(
+                                    scenario,
+                                    agent,
+                                    time_s,
+                                    events,
+                                    &resources.closed_connectors,
+                                    &resources.closed_exits,
+                                );
                                 continue;
                             }
                             let exit = scenario

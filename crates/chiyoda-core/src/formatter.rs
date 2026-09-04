@@ -3,7 +3,7 @@
 use crate::model::{Connector, Proposition, Scenario};
 use std::fmt::Write;
 
-/// Render a typed scenario as canonical version-0.15 source.
+/// Render a typed scenario as canonical version-0.16 source.
 #[must_use]
 #[allow(clippy::too_many_lines)] // mirrors the complete declaration grammar in one reviewable serializer
 pub fn format_scenario(scenario: &Scenario) -> String {
@@ -238,6 +238,9 @@ fn proposition(proposition: &Proposition) -> String {
                 "connector {connector} {}",
                 if *open { "open" } else { "closed" }
             )
+        }
+        Proposition::ExitAvailability { exit, open } => {
+            format!("exit {exit} {}", if *open { "open" } else { "closed" })
         }
     }
 }

@@ -1,7 +1,7 @@
-# Executable semantics 0.15
+# Executable semantics 0.16
 
 The Rust `chiyoda-core` runtime is the reference interpreter for language
-version 0.15. This document is normative where it describes public behavior;
+version 0.16. This document is normative where it describes public behavior;
 the source and conformance tests make that behavior executable.
 
 ## State and step order
@@ -19,14 +19,15 @@ any remaining tie within an event class.
    applied before the initial trace; same-time events apply in declaration
    order within their event class. A state change immediately recomputes each
    on-surface agent's route. It does not interrupt an agent already in connector
-   transit or already evacuated through an exit.
+   transit or already evacuated through an exit; an arriving agent recomputes
+   before attempting a now-closed final exit.
 2. Deliver each message and countermeasure whose declared time falls in
    `(t - timestep, t]` to active agents on the same surface within the
    declared reach radius. A not-yet-released group is not a recipient.
-3. Update accepted connector-availability beliefs. Each eligible recipient
+3. Update accepted connector- or exit-availability beliefs. Each eligible recipient
    accepts an intervention when its deterministic seed-derived sample is below
    the declared trust probability. A qualifying countermeasure sets the
-   corrected connector belief to its current physical state and recomputes a
+   corrected resource belief to its current physical state and recomputes a
    route. Physical closures are excluded regardless of belief. If the active
    constraints leave no route, an on-surface agent waits in the traceable
    `waiting_for_route` state until a later state or information event produces
@@ -71,7 +72,7 @@ unordered map iteration.
 
 ## What this does not mean
 
-The `0.15` local-separation law, nominal routing cost and alternative-exit
+The `0.16` local-separation law, nominal routing cost and alternative-exit
 selection, scheduled-release semantics, operational-state transitions,
 escalator walking-rider assumption, and seeded information acceptance law are
 reference semantics, not calibrated behavioral claims. A valid source program

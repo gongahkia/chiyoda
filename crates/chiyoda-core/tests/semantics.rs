@@ -84,6 +84,7 @@ lift accessible_lift from platform at (4m, 1m, 6m) to concourse at (4m, 1m, 0m) 
 connector-state escalator_closure connector down_escalator closed time 10s
 exit-state plaza_closure exit plaza closed time 15s
 agents passengers count 1 on platform at (1m, 1m, 6m) to street speed 1m/s radius 0.3m height 1.7m alternative plaza exclude lift exclude stair
+message plaza_notice source signage on concourse at (1m, 1m, 0m) claim exit plaza closed truth true time 15s reach 2m trust 1
 "#;
     let scenario = parse(source).expect("source parses");
     validate(&scenario).expect("source validates");
@@ -208,6 +209,68 @@ agents passengers count 1 on concourse at (1m, 1m, 0m) to primary speed 1m/s rad
             .events
             .iter()
             .any(|event| event.kind == "evacuated" && event.detail == "fallback")
+    );
+}
+
+#[test]
+fn accepted_exit_misinformation_reroutes_and_a_correction_restores_the_physical_exit() {
+    let source = r#"
+scenario "exit-misinformation"
+seed 1
+duration 10s
+timestep 1s
+surface concourse at (0m, 0m, 0m) size (10m, 10m)
+exit primary on concourse at (2m, 1m, 0m) width 2m
+exit fallback on concourse at (8m, 1m, 0m) width 2m
+agents passengers count 1 on concourse at (1m, 1m, 0m) to primary speed 1m/s radius 0.3m height 1.7m alternative fallback
+message false_primary_closure source signage on concourse at (1m, 1m, 0m) claim exit primary closed truth false time 1s reach 10m trust 1
+countermeasure correction corrects false_primary_closure source staff on concourse at (1m, 1m, 0m) time 2s reach 10m trust 1
+"#;
+    let scenario = parse(source).expect("source parses");
+    let bundle = run(&scenario, RunOptions::default()).expect("run succeeds");
+    assert!(bundle.events.iter().any(|event| {
+        event.kind == "message_received"
+            && event.detail.contains("exit `primary` closed")
+            && event.detail.contains("accepted=true")
+    }));
+    assert!(bundle.events.iter().any(|event| {
+        event.kind == "countermeasure_received" && event.subject == "passengers:0"
+    }));
+    assert!(
+        bundle
+            .events
+            .iter()
+            .any(|event| { event.kind == "evacuated" && event.detail == "primary" })
+    );
+}
+
+#[test]
+fn an_exit_closure_during_transit_reroutes_on_arrival() {
+    let source = r#"
+scenario "transit-exit-reroute"
+seed 1
+duration 12s
+timestep 1s
+surface upper at (0m, 0m, 3m) size (10m, 10m)
+surface lower at (0m, 0m, 0m) size (10m, 10m)
+exit primary on lower at (4m, 1m, 0m) width 2m
+exit fallback on lower at (8m, 1m, 0m) width 2m
+stair down from upper at (2m, 1m, 3m) to lower at (2m, 1m, 0m) width 2m
+exit-state primary_closure exit primary closed time 2s
+agents passengers count 1 on upper at (2m, 1m, 3m) to primary speed 1m/s radius 0.3m height 1.7m alternative fallback
+"#;
+    let scenario = parse(source).expect("source parses");
+    let bundle = run(&scenario, RunOptions::default()).expect("run succeeds");
+    assert!(bundle.events.iter().any(|event| {
+        event.kind == "route_recomputed"
+            && event.subject == "passengers:0"
+            && event.detail.contains("exit:primary")
+    }));
+    assert!(
+        bundle
+            .events
+            .iter()
+            .any(|event| { event.kind == "evacuated" && event.detail == "fallback" })
     );
 }
 
@@ -704,6 +767,32 @@ message false_truth source signage on upper at (1m, 1m, 3m) claim connector prim
             .iter()
             .any(|error| error.path == "messages[0].truthful")
     );
+}
+
+#[test]
+fn validation_checks_exit_message_truth_and_references() {
+    let source = r#"
+scenario "invalid-exit-message"
+seed 1
+duration 10s
+timestep 1s
+surface concourse at (0m, 0m, 0m) size (10m, 10m)
+exit street on concourse at (5m, 1m, 0m) width 2m
+exit-state street_closed exit street closed time 1s
+agents passengers count 1 on concourse at (1m, 1m, 0m) to street speed 1m/s radius 0.3m height 1.7m
+message incorrect_truth source signage on concourse at (1m, 1m, 0m) claim exit street open truth true time 1s reach 2m trust 1
+message unknown_exit source signage on concourse at (1m, 1m, 0m) claim exit missing closed truth false time 1s reach 2m trust 1
+"#;
+    let scenario = parse(source).expect("source parses");
+    let errors = validate(&scenario).expect_err("invalid exit claims must be rejected");
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.path == "messages[0].truthful")
+    );
+    assert!(errors.iter().any(|error| {
+        error.path == "messages[1].claim" && error.message.contains("unknown exit `missing`")
+    }));
 }
 
 #[test]

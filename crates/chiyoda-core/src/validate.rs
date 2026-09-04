@@ -393,23 +393,40 @@ pub fn validate(scenario: &Scenario) -> Result<(), Vec<ValidationError>> {
     for (index, message) in scenario.messages.iter().enumerate() {
         let path = format!("messages[{index}]");
         check_unique(&mut ids, &message.id, &path, &mut errors);
-        if connector_ids.contains(message.claim.connector()) {
-            let claim_matches_reality = message.claim.is_open()
-                == scenario.connector_open_at(message.claim.connector(), message.at_s);
-            if message.truthful != claim_matches_reality {
-                errors.push(issue(
-                    &format!("{path}.truthful"),
-                    "does not match the connector's authored physical state at message time",
-                ));
+        match &message.claim {
+            crate::model::Proposition::ConnectorAvailability { connector, open } => {
+                if connector_ids.contains(connector.as_str()) {
+                    let claim_matches_reality =
+                        *open == scenario.connector_open_at(connector, message.at_s);
+                    if message.truthful != claim_matches_reality {
+                        errors.push(issue(
+                            &format!("{path}.truthful"),
+                            "does not match the connector's authored physical state at message time",
+                        ));
+                    }
+                } else {
+                    errors.push(issue(
+                        &format!("{path}.claim"),
+                        format!("references unknown connector `{connector}`"),
+                    ));
+                }
             }
-        } else {
-            errors.push(issue(
-                &format!("{path}.claim"),
-                format!(
-                    "references unknown connector `{}`",
-                    message.claim.connector()
-                ),
-            ));
+            crate::model::Proposition::ExitAvailability { exit, open } => {
+                if exit_ids.contains(exit.as_str()) {
+                    let claim_matches_reality = *open == scenario.exit_open_at(exit, message.at_s);
+                    if message.truthful != claim_matches_reality {
+                        errors.push(issue(
+                            &format!("{path}.truthful"),
+                            "does not match the exit's authored physical state at message time",
+                        ));
+                    }
+                } else {
+                    errors.push(issue(
+                        &format!("{path}.claim"),
+                        format!("references unknown exit `{exit}`"),
+                    ));
+                }
+            }
         }
         check_walkable_point(
             &surfaces,
