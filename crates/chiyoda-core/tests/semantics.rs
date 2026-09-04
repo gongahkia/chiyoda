@@ -304,6 +304,23 @@ agents eastbound count 1 on concourse at (19m, 1m, 0m) to east speed 1m/s radius
 }
 
 #[test]
+fn final_state_metrics_explain_agents_remaining_at_the_time_limit() {
+    let source = r#"
+scenario "remaining-state-metrics"
+seed 1
+duration 2s
+timestep 1s
+surface concourse at (0m, 0m, 0m) size (12m, 10m)
+exit street on concourse at (10m, 1m, 0m) width 2m
+agents passengers count 1 on concourse at (1m, 1m, 0m) to street speed 1m/s radius 0.3m height 1.7m
+"#;
+    let scenario = parse(source).expect("source parses");
+    let bundle = run(&scenario, RunOptions::default()).expect("run succeeds");
+    assert_eq!(bundle.metrics.evacuated_agents, 0);
+    assert_eq!(bundle.metrics.remaining_by_state.get("moving"), Some(&1));
+}
+
+#[test]
 fn exit_reopening_recovers_agents_waiting_for_a_route() {
     let source = r#"
 scenario "exit-reopening"

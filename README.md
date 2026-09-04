@@ -65,8 +65,9 @@ scheduled primary-exit closure, so the output also exercises rerouting.
 source. `analyze-sweep` performs that same verification before producing exact
 cross-run counts, per-exit totals, and descriptive clearance-time ranges. Its
 evacuation fraction is emitted as an exact numerator/denominator rather than a
-misleadingly precise estimate. The output directory must be empty, and the
-workflow does not require a benchmark manifest or research data.
+misleadingly precise estimate, and its final-state totals explain agents still
+in the system at the configured time limit. The output directory must be empty,
+and the workflow does not require a benchmark manifest or research data.
 
 ## Research data intake
 

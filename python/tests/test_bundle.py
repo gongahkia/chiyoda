@@ -23,7 +23,11 @@ class BundleTests(unittest.TestCase):
             "options": {},
             "trace": [],
             "events": [],
-            "metrics": {"total_agents": 0, "evacuated_by_exit": {"street": 2}},
+            "metrics": {
+                "total_agents": 0,
+                "evacuated_by_exit": {"street": 2},
+                "remaining_by_state": {"moving": 3},
+            },
             "bundle_hash": "",
         }
         bundle["bundle_hash"] = _hash(bundle)
@@ -34,6 +38,7 @@ class BundleTests(unittest.TestCase):
         self.assertEqual(summary["scenario"], "fixture")
         self.assertEqual(summary["frames"], 0)
         self.assertEqual(summary["evacuated_by_exit"], {"street": 2})
+        self.assertEqual(summary["remaining_by_state"], {"moving": 3})
 
     def test_summary_defaults_missing_exit_attribution_for_older_bundles(self) -> None:
         bundle = {
@@ -42,11 +47,21 @@ class BundleTests(unittest.TestCase):
             "bundle_hash": "",
         }
         self.assertEqual(summarize(bundle)["evacuated_by_exit"], {})
+        self.assertEqual(summarize(bundle)["remaining_by_state"], {})
 
     def test_summary_rejects_invalid_exit_attribution(self) -> None:
         bundle = {
             "scenario": {"scenario": {"name": "fixture"}},
             "metrics": {"evacuated_by_exit": {"street": -1}},
+            "bundle_hash": "",
+        }
+        with self.assertRaises(BundleError):
+            summarize(bundle)
+
+    def test_summary_rejects_invalid_remaining_state_attribution(self) -> None:
+        bundle = {
+            "scenario": {"scenario": {"name": "fixture"}},
+            "metrics": {"remaining_by_state": {"moving": -1}},
             "bundle_hash": "",
         }
         with self.assertRaises(BundleError):

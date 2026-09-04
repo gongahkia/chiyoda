@@ -47,7 +47,9 @@ rerouting semantics as well as its outcome attribution.
 agent and evacuation counts, exact overall evacuation fraction numerator and
 denominator, per-exit totals, legacy unattributed evacuations, and a minimum,
 mean, and maximum clearance time over only runs that recorded one. It does not
-estimate uncertainty or turn generator seeds into a population sample.
+estimate uncertainty or turn generator seeds into a population sample. Final
+non-evacuated states are also summed, with legacy agents lacking state
+attribution reported separately rather than silently assigned a cause.
 
 This command supports structural exploration and regression investigation. It
 does not produce a benchmark score, calibration result, or predictive claim.

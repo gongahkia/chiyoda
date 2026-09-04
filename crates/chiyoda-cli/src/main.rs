@@ -158,6 +158,8 @@ struct SweepRun {
     evacuated_agents: u32,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     evacuated_by_exit: BTreeMap<String, u32>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    remaining_by_state: BTreeMap<String, u32>,
     clearance_time_s: Option<f64>,
 }
 
@@ -176,6 +178,8 @@ struct SweepAnalysis {
     fully_evacuated_runs: u32,
     evacuated_by_exit: BTreeMap<String, u64>,
     unattributed_evacuations: u64,
+    remaining_by_state: BTreeMap<String, u64>,
+    unattributed_remaining_agents: u64,
     clearance_time_s: Option<DescriptiveRange>,
     claim_boundary: String,
 }
@@ -372,6 +376,7 @@ fn run_sweep(first_seed: u64, count: u32, output: &Path, trace_every_steps: u32)
             total_agents: bundle.metrics.total_agents,
             evacuated_agents: bundle.metrics.evacuated_agents,
             evacuated_by_exit: bundle.metrics.evacuated_by_exit.clone(),
+            remaining_by_state: bundle.metrics.remaining_by_state.clone(),
             clearance_time_s: bundle.metrics.clearance_time_s,
         });
     }
@@ -465,6 +470,7 @@ fn load_and_verify_sweep(directory: &Path) -> Result<SweepSummary> {
             || record.total_agents != bundle.metrics.total_agents
             || record.evacuated_agents != bundle.metrics.evacuated_agents
             || record.evacuated_by_exit != bundle.metrics.evacuated_by_exit
+            || record.remaining_by_state != bundle.metrics.remaining_by_state
             || record.clearance_time_s != bundle.metrics.clearance_time_s
         {
             bail!(
@@ -511,6 +517,40 @@ fn validate_bundle_exit_metrics(bundle: &RunBundle, directory: &Path) -> Result<
             directory.display()
         );
     }
+    let mut remaining = 0_u32;
+    for (state, count) in &metrics.remaining_by_state {
+        if ![
+            "moving",
+            "waiting_to_depart",
+            "waiting_at_waypoint",
+            "waiting_for_route",
+            "waiting_for_lift",
+            "waiting_for_connector",
+            "waiting_for_exit",
+            "in_transit",
+        ]
+        .contains(&state.as_str())
+        {
+            bail!(
+                "bundle attributes a remaining agent to unknown state `{state}`: {}",
+                directory.display()
+            );
+        }
+        remaining = remaining.checked_add(*count).ok_or_else(|| {
+            anyhow::anyhow!(
+                "bundle remaining-state count overflows u32: {}",
+                directory.display()
+            )
+        })?;
+    }
+    if !metrics.remaining_by_state.is_empty()
+        && remaining != metrics.total_agents - metrics.evacuated_agents
+    {
+        bail!(
+            "bundle remaining-state count does not match non-evacuated agents: {}",
+            directory.display()
+        );
+    }
     Ok(())
 }
 
@@ -520,6 +560,7 @@ fn describe_sweep(summary: &SweepSummary) -> SweepAnalysis {
     let mut runs_with_any_evacuation = 0_u32;
     let mut fully_evacuated_runs = 0_u32;
     let mut evacuated_by_exit = BTreeMap::new();
+    let mut remaining_by_state = BTreeMap::new();
     let mut clearance_times = Vec::new();
 
     for run in &summary.runs {
@@ -533,6 +574,9 @@ fn describe_sweep(summary: &SweepSummary) -> SweepAnalysis {
         }
         for (exit_id, count) in &run.evacuated_by_exit {
             *evacuated_by_exit.entry(exit_id.clone()).or_default() += u64::from(*count);
+        }
+        for (state, count) in &run.remaining_by_state {
+            *remaining_by_state.entry(state.clone()).or_default() += u64::from(*count);
         }
         if let Some(clearance_time_s) = run.clearance_time_s {
             clearance_times.push(clearance_time_s);
@@ -576,6 +620,10 @@ fn describe_sweep(summary: &SweepSummary) -> SweepAnalysis {
         fully_evacuated_runs,
         evacuated_by_exit,
         unattributed_evacuations: evacuated_agents.saturating_sub(attributed_evacuations),
+        unattributed_remaining_agents: total_agents
+            .saturating_sub(evacuated_agents)
+            .saturating_sub(remaining_by_state.values().sum()),
+        remaining_by_state,
         clearance_time_s: clearance_time_range,
         claim_boundary: "This report aggregates deterministic structural runs. It is not a benchmark score, calibration result, uncertainty estimate, or predictive claim.".to_owned(),
     }
@@ -691,6 +739,7 @@ mod tests {
                         ("east".to_owned(), 2),
                         ("west".to_owned(), 6),
                     ]),
+                    remaining_by_state: BTreeMap::from([("moving".to_owned(), 2)]),
                     clearance_time_s: Some(2.0),
                 },
                 SweepRun {
@@ -700,6 +749,7 @@ mod tests {
                     total_agents: 5,
                     evacuated_agents: 0,
                     evacuated_by_exit: BTreeMap::new(),
+                    remaining_by_state: BTreeMap::from([("waiting_for_route".to_owned(), 5)]),
                     clearance_time_s: None,
                 },
                 SweepRun {
@@ -709,6 +759,7 @@ mod tests {
                     total_agents: 5,
                     evacuated_agents: 5,
                     evacuated_by_exit: BTreeMap::from([("east".to_owned(), 5)]),
+                    remaining_by_state: BTreeMap::new(),
                     clearance_time_s: Some(4.0),
                 },
             ],
@@ -727,6 +778,12 @@ mod tests {
         assert_eq!(analysis.evacuated_by_exit.get("east"), Some(&7));
         assert_eq!(analysis.evacuated_by_exit.get("west"), Some(&6));
         assert_eq!(analysis.unattributed_evacuations, 0);
+        assert_eq!(analysis.remaining_by_state.get("moving"), Some(&2));
+        assert_eq!(
+            analysis.remaining_by_state.get("waiting_for_route"),
+            Some(&5)
+        );
+        assert_eq!(analysis.unattributed_remaining_agents, 0);
         let clearance_time = analysis
             .clearance_time_s
             .expect("two runs report clearance times");
@@ -751,6 +808,7 @@ mod tests {
                 total_agents: 4,
                 evacuated_agents: 3,
                 evacuated_by_exit: BTreeMap::new(),
+                remaining_by_state: BTreeMap::new(),
                 clearance_time_s: Some(8.0),
             }],
         };
@@ -759,5 +817,7 @@ mod tests {
 
         assert_eq!(analysis.evacuated_by_exit, BTreeMap::new());
         assert_eq!(analysis.unattributed_evacuations, 3);
+        assert_eq!(analysis.remaining_by_state, BTreeMap::new());
+        assert_eq!(analysis.unattributed_remaining_agents, 1);
     }
 }

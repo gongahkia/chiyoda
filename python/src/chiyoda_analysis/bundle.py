@@ -45,15 +45,8 @@ def summarize(bundle: dict[str, Any]) -> dict[str, Any]:
     scenario_body = scenario.get("scenario")
     if not isinstance(scenario_body, dict):
         raise BundleError("bundle scenario body is malformed")
-    evacuated_by_exit = metrics.get("evacuated_by_exit", {})
-    if not isinstance(evacuated_by_exit, dict) or any(
-        not isinstance(exit_id, str)
-        or not isinstance(count, int)
-        or isinstance(count, bool)
-        or count < 0
-        for exit_id, count in evacuated_by_exit.items()
-    ):
-        raise BundleError("metrics.evacuated_by_exit must map exit identifiers to counts")
+    evacuated_by_exit = _count_map(metrics, "evacuated_by_exit", "exit identifiers")
+    remaining_by_state = _count_map(metrics, "remaining_by_state", "state identifiers")
     return {
         "bundle_hash": bundle.get("bundle_hash"),
         "scenario_hash": bundle.get("scenario_hash"),
@@ -62,8 +55,22 @@ def summarize(bundle: dict[str, Any]) -> dict[str, Any]:
         "frames": len(bundle.get("trace", [])),
         "events": len(bundle.get("events", [])),
         "evacuated_by_exit": evacuated_by_exit,
+        "remaining_by_state": remaining_by_state,
         "metrics": metrics,
     }
+
+
+def _count_map(metrics: dict[str, Any], field: str, subject: str) -> dict[str, int]:
+    counts = metrics.get(field, {})
+    if not isinstance(counts, dict) or any(
+        not isinstance(identifier, str)
+        or not isinstance(count, int)
+        or isinstance(count, bool)
+        or count < 0
+        for identifier, count in counts.items()
+    ):
+        raise BundleError(f"metrics.{field} must map {subject} to counts")
+    return counts
 
 
 def _verify_hash(bundle: dict[str, Any]) -> None:
