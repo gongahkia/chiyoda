@@ -122,8 +122,8 @@ pub struct PlatformCalibrationReport {
     pub dataset_id: String,
     pub source_context: String,
     pub filter: ObservationFilter,
-    pub calibration: PartitionCalibrationSummary,
-    pub held_out: PartitionCalibrationSummary,
+    pub partition: DatasetRole,
+    pub summary: PartitionCalibrationSummary,
     /// The fixed claim boundary is data, rather than a caller-provided message.
     pub status: String,
     pub claim_boundary: String,
@@ -135,6 +135,7 @@ pub struct PlatformCalibrationReport {
 pub fn calibrate_eindhoven_platform(
     catalog: &EvidenceCatalog,
     data_root: &Path,
+    partition: DatasetRole,
 ) -> Result<PlatformCalibrationReport, CalibrationError> {
     validate_catalog(catalog).map_err(|errors| {
         CalibrationError::InvalidCatalog(
@@ -153,16 +154,15 @@ pub fn calibrate_eindhoven_platform(
     }
 
     let filter = ObservationFilter::default();
-    let mut calibration = PartitionAccumulator::default();
-    let mut held_out = PartitionAccumulator::default();
+    let mut selected = PartitionAccumulator::default();
     for source in &catalog.files {
+        if source.role != partition {
+            continue;
+        }
         let path = data_root.join(&source.local_path);
         lock_source(&path, source.size_bytes, &source.sha256)?;
         let (summary, speeds) = summarize_eindhoven_file(&path, source, &filter)?;
-        match source.role {
-            DatasetRole::Calibration => calibration.add(summary, speeds),
-            DatasetRole::HeldOut => held_out.add(summary, speeds),
-        }
+        selected.add(summary, speeds);
     }
 
     Ok(PlatformCalibrationReport {
@@ -170,8 +170,8 @@ pub fn calibrate_eindhoven_platform(
         dataset_id: catalog.dataset_id.clone(),
         source_context: "Anonymous 2D trajectories on a single Eindhoven Centraal train platform; positions are converted from millimetres to metres for speed estimation.".to_owned(),
         filter,
-        calibration: calibration.finish(),
-        held_out: held_out.finish(),
+        partition,
+        summary: selected.finish(),
         status: "descriptive_only".to_owned(),
         claim_boundary: "This report describes the locked source under its declared filter. It does not calibrate the reference runtime, validate stairs, lifts, gates, bodies, route choice, information effects, any population profile, or any facility; it cannot support operational or predictive claims.".to_owned(),
     })
@@ -434,7 +434,7 @@ impl FileAccumulator {
             filter: filter.clone(),
             previous: HashMap::new(),
             counts: ObservationCounts::default(),
-            speeds: RunningSpeedSummary::new(&filter),
+            speeds: RunningSpeedSummary::new(filter),
         }
     }
 
@@ -461,12 +461,14 @@ impl FileAccumulator {
             self.counts.gaps_over_limit += 1;
             return;
         }
-        let horizontal_x_delta_m = (observation.x_mm - previous.x_mm) / 1000.0;
-        let horizontal_y_delta_m = (observation.y_mm - previous.y_mm) / 1000.0;
+        let displacement_components_m = (
+            (observation.x_mm - previous.x_mm) / 1000.0,
+            (observation.y_mm - previous.y_mm) / 1000.0,
+        );
         let elapsed_ms = i32::try_from(elapsed_ms).expect("positive gap is limited to 500 ms");
-        let speed_mps = (horizontal_x_delta_m.mul_add(
-            horizontal_x_delta_m,
-            horizontal_y_delta_m * horizontal_y_delta_m,
+        let speed_mps = (displacement_components_m.0.mul_add(
+            displacement_components_m.0,
+            displacement_components_m.1 * displacement_components_m.1,
         ))
         .sqrt()
             / (f64::from(elapsed_ms) / 1000.0);
@@ -577,21 +579,19 @@ impl RunningSpeedSummary {
             samples: self.samples,
             mean_mps: self.mean_mps,
             standard_deviation_mps: (self.sum_squared_differences / self.sample_weight).sqrt(),
-            p05_mps: self.quantile(0.05),
-            p50_mps: self.quantile(0.5),
-            p95_mps: self.quantile(0.95),
+            p05_mps: self.quantile(Quantile::P05),
+            p50_mps: self.quantile(Quantile::P50),
+            p95_mps: self.quantile(Quantile::P95),
             min_mps: self.min_mps,
             max_mps: self.max_mps,
         }
     }
 
-    fn quantile(&self, quantile: f64) -> f64 {
-        let (numerator, denominator) = if quantile == 0.05 {
-            (1, 20)
-        } else if quantile == 0.5 {
-            (1, 2)
-        } else {
-            (19, 20)
+    fn quantile(&self, quantile: Quantile) -> f64 {
+        let (numerator, denominator) = match quantile {
+            Quantile::P05 => (1, 20),
+            Quantile::P50 => (1, 2),
+            Quantile::P95 => (19, 20),
         };
         let target = (self.samples - 1)
             .saturating_mul(numerator)
@@ -606,6 +606,13 @@ impl RunningSpeedSummary {
         }
         self.max_mps
     }
+}
+
+#[derive(Debug, Clone, Copy)]
+enum Quantile {
+    P05,
+    P50,
+    P95,
 }
 
 #[derive(Debug, Default)]

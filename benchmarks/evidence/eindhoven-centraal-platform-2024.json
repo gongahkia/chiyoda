@@ -1,0 +1,74 @@
+{
+  "schema_version": "0.1",
+  "dataset_id": "eindhoven-centraal-platform-2024",
+  "title": "Pedestrian trajectories at Eindhoven Centraal station platform",
+  "landing_page": "https://zenodo.org/records/13784588",
+  "license": "CC-BY-4.0",
+  "redistributable": true,
+  "citation": "Pouw, C. A. S., van der Vleuten, G. G. M., Corbetta, A., & Toschi, F. (2024). Data-driven physics-based modeling of pedestrian dynamics - dataset: Pedestrian trajectories at Eindhoven train station. Zenodo. https://doi.org/10.5281/zenodo.13784588",
+  "files": [
+    {
+      "id": "eindhoven-days-01-10",
+      "role": "calibration",
+      "source_url": "https://zenodo.org/api/records/13784588/files/Eindhoven_centraal_trajectories_days_01_10.parquet/content",
+      "local_path": "eindhoven-centraal-2024/Eindhoven_centraal_trajectories_days_01_10.parquet",
+      "sha256": "9f8fa0f178722bcd4c13ecea2b0435fd3b5c698c671b97098ca758be7e202cd6",
+      "size_bytes": 862133833,
+      "upstream_checksum": "md5:34f1b0c41d93184f0ae30a45246f82dc",
+      "transformation": "Read the publisher's Parquet fields time_ms, object_identifier, x_position_mm, and y_position_mm unchanged; calculate consecutive-sample horizontal speed after converting millimetres to metres."
+    },
+    {
+      "id": "eindhoven-days-11-20",
+      "role": "calibration",
+      "source_url": "https://zenodo.org/api/records/13784588/files/Eindhoven_centraal_trajectories_days_11_20.parquet/content",
+      "local_path": "eindhoven-centraal-2024/Eindhoven_centraal_trajectories_days_11_20.parquet",
+      "sha256": "0cd1b90bcc799258d220ca4c11e65ef3d8c26a9dd2d73d97e3aba7cb9ba1ada8",
+      "size_bytes": 643174366,
+      "upstream_checksum": "md5:48dfb09889cca222252ad9fb47913b0e",
+      "transformation": "Read the publisher's Parquet fields time_ms, object_identifier, x_position_mm, and y_position_mm unchanged; calculate consecutive-sample horizontal speed after converting millimetres to metres."
+    },
+    {
+      "id": "eindhoven-days-21-30",
+      "role": "calibration",
+      "source_url": "https://zenodo.org/api/records/13784588/files/Eindhoven_centraal_trajectories_days_21_30.parquet/content",
+      "local_path": "eindhoven-centraal-2024/Eindhoven_centraal_trajectories_days_21_30.parquet",
+      "sha256": "2b3a1cc55a45ef4f729531d43997bdc88e5baa9dd2c45a93accf2fa576198d67",
+      "size_bytes": 714323011,
+      "upstream_checksum": "md5:1b6cdb6d80b9f6348e66eabbb7b25d11",
+      "transformation": "Read the publisher's Parquet fields time_ms, object_identifier, x_position_mm, and y_position_mm unchanged; calculate consecutive-sample horizontal speed after converting millimetres to metres."
+    },
+    {
+      "id": "eindhoven-days-31-40",
+      "role": "held_out",
+      "source_url": "https://zenodo.org/api/records/13784588/files/Eindhoven_centraal_trajectories_days_31_40.parquet/content",
+      "local_path": "eindhoven-centraal-2024/Eindhoven_centraal_trajectories_days_31_40.parquet",
+      "sha256": "a81d2b8a79811d839890250692ddb4d511811a4194150f337c89c9bdd7609ccc",
+      "size_bytes": 679946696,
+      "upstream_checksum": "md5:b42654e6d45c0e3fca1fe58b264a71fc",
+      "transformation": "Read the publisher's Parquet fields time_ms, object_identifier, x_position_mm, and y_position_mm unchanged; calculate consecutive-sample horizontal speed after converting millimetres to metres."
+    },
+    {
+      "id": "eindhoven-days-41-50",
+      "role": "held_out",
+      "source_url": "https://zenodo.org/api/records/13784588/files/Eindhoven_centraal_trajectories_days_41_50.parquet/content",
+      "local_path": "eindhoven-centraal-2024/Eindhoven_centraal_trajectories_days_41_50.parquet",
+      "sha256": "3daef07a9b84559710ca3f2613fd8faea75becca08975ca7b603b77c8083a409",
+      "size_bytes": 938735824,
+      "upstream_checksum": "md5:c12420a5d735ea1cb5d80a45246f82dc",
+      "transformation": "Read the publisher's Parquet fields time_ms, object_identifier, x_position_mm, and y_position_mm unchanged; calculate consecutive-sample horizontal speed after converting millimetres to metres."
+    },
+    {
+      "id": "eindhoven-days-51-60",
+      "role": "held_out",
+      "source_url": "https://zenodo.org/api/records/13784588/files/Eindhoven_centraal_trajectories_days_51_60.parquet/content",
+      "local_path": "eindhoven-centraal-2024/Eindhoven_centraal_trajectories_days_51_60.parquet",
+      "sha256": "e48ce5c1124ba9a7f43a91e8b61c85f7ccc7e4422d677ac6a8dc5c935ac60ab0",
+      "size_bytes": 757097383,
+      "upstream_checksum": "md5:f3381718f3954baa54e102f6cb5cef01",
+      "transformation": "Read the publisher's Parquet fields time_ms, object_identifier, x_position_mm, and y_position_mm unchanged; calculate consecutive-sample horizontal speed after converting millimetres to metres."
+    }
+  ],
+  "supported_primitives": "Descriptive horizontal walking-speed observations on one station platform only.",
+  "exclusions": "No three-dimensional geometry, stair, escalator, lift, gate, body-dimension, route-choice, information, accessibility, evacuation, or whole-facility claim is supported by this catalog.",
+  "split_rationale": "The publisher partitions the recording into disjoint ten-day files. Days 01–30 are calibration and days 31–60 are held out, preventing row-level and trajectory-level leakage between the roles. The temporal partition remains a single-site, single-measurement-system split rather than external validation."
+}

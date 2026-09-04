@@ -4,7 +4,7 @@ use chiyoda_core::{
     calibrate_eindhoven_platform, format_scenario, generator, parse, run, validate,
     validate_catalog, validate_manifest, verify_catalog_files,
 };
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
 use std::{
     fs,
     path::{Path, PathBuf},
@@ -99,9 +99,19 @@ enum CalibrateCommand {
         catalog: PathBuf,
         #[arg(long, default_value = "data/raw")]
         data_root: PathBuf,
+        /// Process one role only. Calibration is the safe default; held-out data
+        /// should be inspected only after a protocol has frozen the model.
+        #[arg(long, value_enum, default_value_t = EvidencePartition::Calibration)]
+        partition: EvidencePartition,
         #[arg(short, long)]
         output: PathBuf,
     },
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum EvidencePartition {
+    Calibration,
+    HeldOut,
 }
 
 fn main() -> Result<()> {
@@ -197,10 +207,15 @@ fn main() -> Result<()> {
             CalibrateCommand::EindhovenPlatform {
                 catalog,
                 data_root,
+                partition,
                 output,
             } => {
                 let catalog: EvidenceCatalog = read_json(&catalog)?;
-                let report = calibrate_eindhoven_platform(&catalog, &data_root)?;
+                let report = calibrate_eindhoven_platform(
+                    &catalog,
+                    &data_root,
+                    dataset_role(partition),
+                )?;
                 write_json(&output, &report)?;
                 println!("descriptive report: {}", output.display());
                 println!("status: {}", report.status);
@@ -282,4 +297,11 @@ fn evidence_error(errors: &[chiyoda_core::EvidenceValidationError]) -> anyhow::E
             .collect::<Vec<_>>()
             .join("\n")
     )
+}
+
+fn dataset_role(partition: EvidencePartition) -> chiyoda_core::benchmark::DatasetRole {
+    match partition {
+        EvidencePartition::Calibration => chiyoda_core::benchmark::DatasetRole::Calibration,
+        EvidencePartition::HeldOut => chiyoda_core::benchmark::DatasetRole::HeldOut,
+    }
 }

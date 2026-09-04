@@ -46,8 +46,8 @@ file whose content does not match the catalog.
 
 ## Descriptive intake report
 
-After a source lock, the following command streams the Parquet files in bounded
-batches and writes a report. It computes consecutive-observation horizontal
+After a source lock, the following command streams only the **calibration**
+Parquet files in bounded batches and writes a report. It computes consecutive-observation horizontal
 speeds after a declared 500 ms maximum inter-observation gap and 4 m/s upper
 filter. Every rejected observation category is counted, and reported quantiles
 are fixed 0.01 m/s histogram estimates rather than undocumented floating-point
@@ -62,7 +62,12 @@ $ cargo run -p chiyoda -- calibrate eindhoven-platform \
 The report has the hard-coded status `descriptive_only`: it does not change any
 runtime parameter. A reviewable calibration protocol must first decide which
 mechanism, parameterization, uncertainty model, and held-out prediction test a
-future runtime change is allowed to use.
+future runtime change is allowed to use. Only after that protocol freezes a
+candidate may the held-out role be read with `--partition held-out`; the default
+command deliberately does not inspect it.
+
+The exact pre-registration, leakage, and acceptance rules are in the
+[calibration protocol](calibration-protocol.md).
 
 ## Requirements for an empirical benchmark round
 

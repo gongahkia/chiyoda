@@ -67,7 +67,8 @@ $ cargo run -p chiyoda -- calibrate eindhoven-platform \
 
 The report is explicitly `descriptive_only`; it cannot justify predictive or
 operational use. Details, source limits, and the required next review gate are
-in [evidence boundaries](docs/evidence.md).
+in [evidence boundaries](docs/evidence.md) and the [calibration
+protocol](docs/calibration-protocol.md).
 
 ## Language at a glance
 
