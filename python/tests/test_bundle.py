@@ -10,6 +10,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parents[1] / "src"))
 
 from chiyoda_analysis.bundle import BundleError, load_bundle, summarize
+from chiyoda_analysis.evidence import EvidenceError, load_catalog, verify_catalog_files
 
 
 class BundleTests(unittest.TestCase):
@@ -45,6 +46,59 @@ class BundleTests(unittest.TestCase):
             with self.assertRaises(BundleError):
                 load_bundle(path)
 
+    def test_evidence_lock_verifies_content_without_network_access(self) -> None:
+        payload = b"locked evidence"
+        digest = hashlib.sha256(payload).hexdigest()
+        catalog = {
+            "schema_version": "0.1",
+            "dataset_id": "fixture",
+            "title": "Fixture",
+            "landing_page": "https://example.test/record",
+            "license": "CC-BY-4.0",
+            "redistributable": True,
+            "citation": "Fixture (2026)",
+            "files": [
+                _source("calibration", "calibration.bin", digest, len(payload)),
+                _source("held_out", "held-out.bin", digest, len(payload)),
+            ],
+            "supported_primitives": "fixture only",
+            "exclusions": "everything else",
+            "split_rationale": "separate fixture files",
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "calibration.bin").write_bytes(payload)
+            (root / "held-out.bin").write_bytes(payload)
+            catalog_path = root / "catalog.json"
+            catalog_path.write_text(json.dumps(catalog), encoding="utf-8")
+            self.assertEqual(len(verify_catalog_files(load_catalog(catalog_path), root)), 2)
+            (root / "held-out.bin").write_bytes(b"tampered")
+            with self.assertRaises(EvidenceError):
+                verify_catalog_files(load_catalog(catalog_path), root)
+
+    def test_evidence_catalog_rejects_path_traversal(self) -> None:
+        catalog = {
+            "schema_version": "0.1",
+            "dataset_id": "fixture",
+            "title": "Fixture",
+            "license": "CC-BY-4.0",
+            "redistributable": True,
+            "landing_page": "https://example.test/record",
+            "citation": "Fixture (2026)",
+            "files": [
+                _source("calibration", "../outside", "a" * 64, 1),
+                _source("held_out", "inside", "b" * 64, 1),
+            ],
+            "supported_primitives": "fixture only",
+            "exclusions": "everything else",
+            "split_rationale": "separate fixture files",
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "catalog.json"
+            path.write_text(json.dumps(catalog), encoding="utf-8")
+            with self.assertRaises(EvidenceError):
+                load_catalog(path)
+
 
 def _hash(bundle: dict[str, object]) -> str:
     unsigned = dict(bundle)
@@ -53,6 +107,18 @@ def _hash(bundle: dict[str, object]) -> str:
     return hashlib.sha256(payload).hexdigest()
 
 
+def _source(role: str, local_path: str, digest: str, size: int) -> dict[str, object]:
+    return {
+        "id": f"{role}-source",
+        "role": role,
+        "source_url": f"https://example.test/{local_path}",
+        "local_path": local_path,
+        "sha256": digest,
+        "size_bytes": size,
+        "upstream_checksum": "md5:fixture",
+        "transformation": "retain source values",
+    }
+
+
 if __name__ == "__main__":
     unittest.main()
-

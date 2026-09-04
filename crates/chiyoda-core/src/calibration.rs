@@ -6,7 +6,9 @@
 //! becoming a predictive or operational claim.
 
 use crate::{EvidenceCatalog, benchmark::DatasetRole, evidence::validate_catalog};
-use arrow_array::{Array, Float32Array, Float64Array, Int32Array, Int64Array, UInt32Array, UInt64Array};
+use arrow_array::{
+    Array, Float32Array, Float64Array, Int32Array, Int64Array, UInt32Array, UInt64Array,
+};
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -144,7 +146,8 @@ pub fn calibrate_eindhoven_platform(
     })?;
     if catalog.dataset_id != "eindhoven-centraal-platform-2024" {
         return Err(CalibrationError::InvalidCatalog(
-            "the Eindhoven adapter requires dataset_id `eindhoven-centraal-platform-2024`".to_owned(),
+            "the Eindhoven adapter requires dataset_id `eindhoven-centraal-platform-2024`"
+                .to_owned(),
         ));
     }
 
@@ -173,7 +176,36 @@ pub fn calibrate_eindhoven_platform(
     })
 }
 
-fn lock_source(path: &Path, expected_size: u64, expected_hash: &str) -> Result<(), CalibrationError> {
+/// Verify every catalog-relative source file without interpreting its contents.
+/// This is useful immediately after acquisition and before an expensive report.
+pub fn verify_catalog_files(
+    catalog: &EvidenceCatalog,
+    data_root: &Path,
+) -> Result<(), CalibrationError> {
+    validate_catalog(catalog).map_err(|errors| {
+        CalibrationError::InvalidCatalog(
+            errors
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>()
+                .join("; "),
+        )
+    })?;
+    for source in &catalog.files {
+        lock_source(
+            &data_root.join(&source.local_path),
+            source.size_bytes,
+            &source.sha256,
+        )?;
+    }
+    Ok(())
+}
+
+fn lock_source(
+    path: &Path,
+    expected_size: u64,
+    expected_hash: &str,
+) -> Result<(), CalibrationError> {
     let metadata = std::fs::metadata(path).map_err(|source| CalibrationError::ReadFile {
         path: path.to_owned(),
         source,
@@ -240,18 +272,20 @@ fn summarize_eindhoven_file(
             path: path.to_owned(),
             message: error.to_string(),
         })?;
-        let time = batch
-            .column_by_name(TIME_COLUMN)
-            .ok_or_else(|| CalibrationError::MissingColumn {
-                path: path.to_owned(),
-                column: TIME_COLUMN,
-            })?;
-        let id = batch
-            .column_by_name(ID_COLUMN)
-            .ok_or_else(|| CalibrationError::MissingColumn {
-                path: path.to_owned(),
-                column: ID_COLUMN,
-            })?;
+        let time =
+            batch
+                .column_by_name(TIME_COLUMN)
+                .ok_or_else(|| CalibrationError::MissingColumn {
+                    path: path.to_owned(),
+                    column: TIME_COLUMN,
+                })?;
+        let id =
+            batch
+                .column_by_name(ID_COLUMN)
+                .ok_or_else(|| CalibrationError::MissingColumn {
+                    path: path.to_owned(),
+                    column: ID_COLUMN,
+                })?;
         let x = batch
             .column_by_name(X_COLUMN)
             .ok_or_else(|| CalibrationError::MissingColumn {
@@ -480,7 +514,8 @@ impl RunningSpeedSummary {
         let combined = self.samples + other.samples;
         let difference = other.mean_mps - self.mean_mps;
         self.sum_squared_differences += other.sum_squared_differences
-            + difference * difference * self.samples as f64 * other.samples as f64 / combined as f64;
+            + difference * difference * self.samples as f64 * other.samples as f64
+                / combined as f64;
         self.mean_mps += difference * other.samples as f64 / combined as f64;
         self.samples = combined;
         self.min_mps = self.min_mps.min(other.min_mps);

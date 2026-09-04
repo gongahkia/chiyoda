@@ -17,7 +17,9 @@ pub mod validate;
 
 pub use benchmark::{BenchmarkManifest, BenchmarkValidationError, validate_manifest};
 pub use bundle::{AgentState, RunBundle, bundle_hash};
-pub use calibration::{CalibrationError, PlatformCalibrationReport, calibrate_eindhoven_platform};
+pub use calibration::{
+    CalibrationError, PlatformCalibrationReport, calibrate_eindhoven_platform, verify_catalog_files,
+};
 pub use evidence::{EvidenceCatalog, EvidenceValidationError, validate_catalog};
 pub use formatter::format_scenario;
 pub use model::{CanonicalScenario, Scenario};

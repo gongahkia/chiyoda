@@ -1,7 +1,8 @@
 use anyhow::{Context, Result, bail};
 use chiyoda_core::{
-    BenchmarkManifest, CanonicalScenario, RunBundle, RunOptions, bundle_hash, format_scenario,
-    generator, parse, run, validate, validate_manifest,
+    BenchmarkManifest, CanonicalScenario, EvidenceCatalog, RunBundle, RunOptions, bundle_hash,
+    calibrate_eindhoven_platform, format_scenario, generator, parse, run, validate,
+    validate_catalog, validate_manifest, verify_catalog_files,
 };
 use clap::{Parser, Subcommand};
 use std::{
@@ -60,6 +61,16 @@ enum Command {
         #[command(subcommand)]
         command: BenchmarkCommand,
     },
+    /// Validate and content-lock research data before it can enter a round.
+    Evidence {
+        #[command(subcommand)]
+        command: EvidenceCommand,
+    },
+    /// Produce a descriptive, source-locked calibration intake report.
+    Calibrate {
+        #[command(subcommand)]
+        command: CalibrateCommand,
+    },
     /// Verify a run bundle's trace-integrity hash and print its summary.
     Replay { bundle: PathBuf },
 }
@@ -67,6 +78,30 @@ enum Command {
 #[derive(Debug, Subcommand)]
 enum BenchmarkCommand {
     Verify { manifest: PathBuf },
+}
+
+#[derive(Debug, Subcommand)]
+enum EvidenceCommand {
+    /// Validate source/license/split metadata without reading acquired data.
+    Verify { catalog: PathBuf },
+    /// Validate a catalog and verify every acquired source's size and SHA-256.
+    Lock {
+        catalog: PathBuf,
+        #[arg(long, default_value = "data/raw")]
+        data_root: PathBuf,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum CalibrateCommand {
+    /// Summarize the locked Eindhoven Centraal platform trajectories.
+    EindhovenPlatform {
+        catalog: PathBuf,
+        #[arg(long, default_value = "data/raw")]
+        data_root: PathBuf,
+        #[arg(short, long)]
+        output: PathBuf,
+    },
 }
 
 fn main() -> Result<()> {
@@ -146,6 +181,31 @@ fn main() -> Result<()> {
                 println!("valid empirical benchmark round: {}", manifest.round_id);
             }
         },
+        Command::Evidence { command } => match command {
+            EvidenceCommand::Verify { catalog } => {
+                let catalog: EvidenceCatalog = read_json(&catalog)?;
+                validate_catalog(&catalog).map_err(|errors| evidence_error(&errors))?;
+                println!("valid evidence catalog: {}", catalog.dataset_id);
+            }
+            EvidenceCommand::Lock { catalog, data_root } => {
+                let catalog: EvidenceCatalog = read_json(&catalog)?;
+                verify_catalog_files(&catalog, &data_root)?;
+                println!("content-locked: {}", catalog.dataset_id);
+            }
+        },
+        Command::Calibrate { command } => match command {
+            CalibrateCommand::EindhovenPlatform {
+                catalog,
+                data_root,
+                output,
+            } => {
+                let catalog: EvidenceCatalog = read_json(&catalog)?;
+                let report = calibrate_eindhoven_platform(&catalog, &data_root)?;
+                write_json(&output, &report)?;
+                println!("descriptive report: {}", output.display());
+                println!("status: {}", report.status);
+            }
+        },
         Command::Replay {
             bundle: bundle_path,
         } => {
@@ -205,6 +265,17 @@ fn validation_error(errors: &[chiyoda_core::ValidationError]) -> anyhow::Error {
 fn benchmark_error(errors: &[chiyoda_core::BenchmarkValidationError]) -> anyhow::Error {
     anyhow::anyhow!(
         "benchmark manifest is invalid:\n{}",
+        errors
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>()
+            .join("\n")
+    )
+}
+
+fn evidence_error(errors: &[chiyoda_core::EvidenceValidationError]) -> anyhow::Error {
+    anyhow::anyhow!(
+        "evidence catalog is invalid:\n{}",
         errors
             .iter()
             .map(ToString::to_string)

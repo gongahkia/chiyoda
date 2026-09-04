@@ -16,7 +16,7 @@ classifiers = [
 
 [project.scripts]
 chiyoda-analysis = "chiyoda_analysis.cli:main"
+chiyoda-evidence = "chiyoda_analysis.evidence_cli:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/chiyoda_analysis"]
-

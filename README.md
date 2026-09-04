@@ -25,9 +25,11 @@ predictive fidelity for any population, facility, or evacuation outcome.
 
 An empirical benchmark round must supply redistributable calibration and
 held-out datasets, documented transformations, source hashes, released seeds,
-and an explicit evidence boundary. The CLI rejects a manifest that does not
-meet that contract. See [evidence boundaries](docs/evidence.md) and the
-[benchmark protocol](docs/benchmark.md).
+and an explicit evidence boundary. The repository now has a content-locked
+candidate source and descriptive intake pipeline for 2D platform trajectories;
+this is not runtime calibration or a published empirical round. The CLI rejects
+a round manifest that does not meet its contract. See [evidence
+boundaries](docs/evidence.md) and the [benchmark protocol](docs/benchmark.md).
 
 ## Quick start
 
@@ -46,6 +48,26 @@ $ cargo run -p chiyoda-replay -- out/example/run.json
 The first replay command verifies a bundle hash and prints a summary. The
 second opens the native replay viewer; it requires an available Linux display
 server.
+
+## Research data intake
+
+Evidence acquisition, content locking, and descriptive source intake are
+separate from simulator execution. The first source catalog is a CC BY 4.0
+Eindhoven Centraal platform release. Raw data is intentionally never committed.
+
+```console
+$ PYTHONPATH=python/src python3 -m chiyoda_analysis.evidence_cli fetch \
+    benchmarks/evidence/eindhoven-centraal-platform-2024.json
+$ cargo run -p chiyoda -- evidence lock \
+    benchmarks/evidence/eindhoven-centraal-platform-2024.json
+$ cargo run -p chiyoda -- calibrate eindhoven-platform \
+    benchmarks/evidence/eindhoven-centraal-platform-2024.json \
+    -o out/eindhoven-platform-intake.json
+```
+
+The report is explicitly `descriptive_only`; it cannot justify predictive or
+operational use. Details, source limits, and the required next review gate are
+in [evidence boundaries](docs/evidence.md).
 
 ## Language at a glance
 

@@ -23,6 +23,7 @@ scope.
 ## Current status
 
 `0.1.0-alpha.1` includes the generator, fixture-seed protocol, and manifest
-validator. It does not publish an empirical round because no qualifying public
-calibration/held-out corpus has yet been ingested and reviewed.
-
+validator. It now also includes a content-locked candidate source and a
+descriptive 2D platform-trajectory intake path. It does not publish an
+empirical round: the source is neither a calibrated runtime nor independent
+facility/primitives validation. See the [evidence boundary](evidence.md).
