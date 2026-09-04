@@ -1,0 +1,9 @@
+scenario "concourse-capacity-sensitivity"
+seed 41
+duration 90s
+timestep 100ms
+
+surface concourse at (0m, 0m, 0m) size (30m, 12m)
+exit street on concourse at (28m, 6m, 0m) width 3m capacity 2/s
+agents passengers count 12 on concourse at (1m, 6m, 0m) to street speed 1.2m/s radius 0.3m height 1.7m
+message street_open source signage on concourse at (10m, 6m, 0m) claim exit street open truth true time 1s reach 15m trust 0.5

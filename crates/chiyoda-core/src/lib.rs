@@ -13,6 +13,7 @@ pub mod generator;
 pub mod model;
 pub mod parser;
 pub mod runtime;
+pub mod sensitivity;
 pub mod validate;
 
 pub use benchmark::{BenchmarkManifest, BenchmarkValidationError, validate_manifest};
@@ -27,6 +28,10 @@ pub use formatter::format_scenario;
 pub use model::{CanonicalScenario, Scenario};
 pub use parser::{ParseError, parse};
 pub use runtime::{RunOptions, run};
+pub use sensitivity::{
+    AssumptionBasis, SensitivityCondition, SensitivityDesign, SensitivityError, SensitivityFactor,
+    SensitivityManifest, SensitivityStudy, SensitivityTarget, plan_sensitivity,
+};
 pub use validate::{ValidationError, validate};
 
 /// Increment this when the canonical IR or runtime trace contract changes.

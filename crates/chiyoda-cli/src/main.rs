@@ -1,8 +1,9 @@
 use anyhow::{Context, Result, bail};
 use chiyoda_core::{
     BenchmarkManifest, CanonicalScenario, EvidenceCatalog, InformationDeliveryMetrics, RunBundle,
-    RunOptions, bundle_hash, calibrate_eindhoven_platform, format_scenario, generator, parse, run,
-    validate, validate_catalog, validate_manifest, verify_catalog_files,
+    RunOptions, SensitivityFactor, SensitivityManifest, bundle_hash, calibrate_eindhoven_platform,
+    format_scenario, generator, parse, plan_sensitivity, run, validate, validate_catalog,
+    validate_manifest, verify_catalog_files,
 };
 use clap::{Parser, Subcommand, ValueEnum};
 use serde::{Deserialize, Serialize};
@@ -106,6 +107,24 @@ enum Command {
         #[arg(short, long)]
         output: Option<PathBuf>,
     },
+    /// Run a declared, uncalibrated sensitivity study over authored input alternatives.
+    Sensitivity {
+        /// JSON sensitivity manifest, with a baseline source relative to this file.
+        manifest: PathBuf,
+        /// An empty directory that will receive baseline, condition, and comparison artifacts.
+        #[arg(short, long)]
+        output: PathBuf,
+    },
+    /// Validate and resolve a sensitivity manifest without executing any runs.
+    SensitivityPlan {
+        /// JSON sensitivity manifest, with a baseline source relative to this file.
+        manifest: PathBuf,
+        /// Write the resolved plan as JSON instead of standard output.
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+    },
+    /// Verify a complete sensitivity-study artifact against its manifest and sweeps.
+    VerifySensitivity { directory: PathBuf },
     /// Verify an empirical benchmark round's evidence and seed-release contract.
     Benchmark {
         #[command(subcommand)]
@@ -244,7 +263,7 @@ struct ExactRatio {
     denominator: u64,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 struct DescriptiveRange {
     measured_runs: u32,
     minimum_s: f64,
@@ -267,6 +286,108 @@ struct SweepComparison {
     paired_runs: Vec<PairedRun>,
     aggregate: PairedAggregate,
     claim_boundary: String,
+}
+
+#[derive(Debug, Serialize)]
+struct SensitivityReport {
+    schema_version: String,
+    study_name: String,
+    description: String,
+    manifest_snapshot: String,
+    design: chiyoda_core::SensitivityDesign,
+    baseline: SensitivityBaseline,
+    first_seed: u64,
+    run_count_per_condition: u32,
+    trace_every_steps: u32,
+    factors: Vec<SensitivityFactorReport>,
+    conditions: Vec<SensitivityConditionReport>,
+    one_at_a_time_responses: Option<Vec<SensitivityFactorResponse>>,
+    author_claim_boundary: String,
+    claim_boundary: String,
+}
+
+#[derive(Debug, Serialize)]
+struct SensitivityPlanReport {
+    schema_version: String,
+    study_name: String,
+    description: String,
+    manifest: String,
+    design: chiyoda_core::SensitivityDesign,
+    baseline: SensitivityBaseline,
+    first_seed: u64,
+    run_count_per_condition: u32,
+    trace_every_steps: u32,
+    factors: Vec<SensitivityFactorReport>,
+    conditions: Vec<SensitivityPlanCondition>,
+    author_claim_boundary: String,
+    claim_boundary: String,
+}
+
+#[derive(Debug, Serialize)]
+struct SensitivityPlanCondition {
+    id: String,
+    factor_values: BTreeMap<String, f64>,
+    template_scenario_hash: String,
+}
+
+#[derive(Debug, Serialize)]
+struct SensitivityBaseline {
+    source: String,
+    template_scenario_hash: String,
+    sweep_directory: String,
+}
+
+#[derive(Debug, Serialize)]
+struct SensitivityFactorReport {
+    factor: SensitivityFactor,
+    baseline_value: f64,
+    unit: String,
+}
+
+#[derive(Debug, Serialize)]
+struct SensitivityConditionReport {
+    id: String,
+    factor_values: BTreeMap<String, f64>,
+    template_scenario_hash: String,
+    sweep_directory: String,
+    comparison_path: String,
+    outcome: SensitivityOutcome,
+}
+
+#[derive(Debug, Serialize)]
+struct SensitivityFactorResponse {
+    factor_id: String,
+    baseline_value: f64,
+    unit: String,
+    alternatives: Vec<SensitivityResponseObservation>,
+}
+
+#[derive(Debug, Serialize)]
+struct SensitivityResponseObservation {
+    value: f64,
+    outcome: SensitivityOutcome,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct SensitivityOutcome {
+    evacuated_agents_delta: i64,
+    un_evacuated_agents_delta: i64,
+    baseline_fully_evacuated_runs: u32,
+    candidate_fully_evacuated_runs: u32,
+    clearance_time_s: SensitivityTiming,
+    last_exit_time_s: SensitivityTiming,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct SensitivityTiming {
+    both_recorded_runs: u32,
+    baseline_only_recorded_runs: u32,
+    candidate_only_recorded_runs: u32,
+    neither_recorded_runs: u32,
+    candidate_earlier_runs: u32,
+    candidate_later_runs: u32,
+    unchanged_runs: u32,
+    candidate_minus_baseline_s: Option<DescriptiveRange>,
 }
 
 #[derive(Debug, Serialize)]
@@ -475,6 +596,11 @@ fn main() -> Result<()> {
             candidate,
             output,
         } => compare_sweeps(&baseline, &candidate, output.as_deref())?,
+        Command::Sensitivity { manifest, output } => run_sensitivity(&manifest, &output)?,
+        Command::SensitivityPlan { manifest, output } => {
+            sensitivity_plan(&manifest, output.as_deref())?;
+        }
+        Command::VerifySensitivity { directory } => verify_sensitivity(&directory)?,
         Command::Benchmark { command } => match command {
             BenchmarkCommand::Verify { manifest } => verify_benchmark(&manifest)?,
         },
@@ -563,11 +689,22 @@ fn run_replicates(
     trace_every_steps: u32,
 ) -> Result<()> {
     let template = read_scenario(source_path)?;
+    run_authored_replicates(&template, first_seed, count, output, trace_every_steps)
+}
+
+fn run_authored_replicates(
+    template: &chiyoda_core::Scenario,
+    first_seed: u64,
+    count: u32,
+    output: &Path,
+    trace_every_steps: u32,
+) -> Result<()> {
     let template_hash =
         chiyoda_core::bundle::canonical_hash(&CanonicalScenario::from(template.clone()));
     prepare_sweep_output(count, output, trace_every_steps)?;
-    fs::write(output.join("template.chy"), format_scenario(&template))
+    fs::write(output.join("template.chy"), format_scenario(template))
         .with_context(|| format!("writing template into {}", output.display()))?;
+    let template = template.clone();
     write_sweep_batch(
         first_seed,
         count,
@@ -584,6 +721,373 @@ fn run_replicates(
             Ok((source, scenario))
         },
     )
+}
+
+fn run_sensitivity(manifest_path: &Path, output: &Path) -> Result<()> {
+    let (manifest, baseline_template, study) = load_sensitivity_study(manifest_path)?;
+    prepare_sweep_output(manifest.count, output, manifest.trace_every_steps)?;
+    write_json(&output.join("manifest.json"), &manifest)?;
+
+    let baseline_directory = output.join("baseline");
+    run_authored_replicates(
+        &baseline_template,
+        manifest.first_seed,
+        manifest.count,
+        &baseline_directory,
+        manifest.trace_every_steps,
+    )?;
+    let baseline_template_scenario_hash =
+        chiyoda_core::bundle::canonical_hash(&CanonicalScenario::from(baseline_template));
+    let mut conditions = Vec::with_capacity(study.conditions.len());
+    for condition in study.conditions {
+        let condition_id = condition.id.clone();
+        let condition_directory = output.join("conditions").join(&condition_id);
+        run_authored_replicates(
+            &condition.scenario,
+            manifest.first_seed,
+            manifest.count,
+            &condition_directory,
+            manifest.trace_every_steps,
+        )?;
+        let comparison = build_sweep_comparison(&baseline_directory, &condition_directory)?;
+        let comparison_path = format!("comparisons/{condition_id}.json");
+        write_json(&output.join(&comparison_path), &comparison)?;
+        conditions.push(sensitivity_condition_report(
+            &condition,
+            comparison_path,
+            &comparison,
+        ));
+    }
+    let report = sensitivity_report(
+        &manifest,
+        baseline_template_scenario_hash,
+        &study.baseline_values,
+        conditions,
+    );
+    let report_path = output.join("report.json");
+    write_json(&report_path, &report)?;
+    println!("sensitivity study: {}", report_path.display());
+    Ok(())
+}
+
+fn sensitivity_plan(manifest_path: &Path, output: Option<&Path>) -> Result<()> {
+    let (manifest, baseline_template, study) = load_sensitivity_study(manifest_path)?;
+    let report = SensitivityPlanReport {
+        schema_version: "0.1".to_owned(),
+        study_name: manifest.name,
+        description: manifest.description,
+        manifest: manifest_path.display().to_string(),
+        design: manifest.design,
+        baseline: SensitivityBaseline {
+            source: manifest.baseline_source,
+            template_scenario_hash: chiyoda_core::bundle::canonical_hash(
+                &CanonicalScenario::from(baseline_template),
+            ),
+            sweep_directory: "baseline".to_owned(),
+        },
+        first_seed: manifest.first_seed,
+        run_count_per_condition: manifest.count,
+        trace_every_steps: manifest.trace_every_steps,
+        factors: sensitivity_factor_reports(&manifest.factors, &study.baseline_values),
+        conditions: study
+            .conditions
+            .iter()
+            .map(|condition| SensitivityPlanCondition {
+                id: condition.id.clone(),
+                factor_values: condition.factor_values.clone(),
+                template_scenario_hash: chiyoda_core::bundle::canonical_hash(
+                    &CanonicalScenario::from(condition.scenario.clone()),
+                ),
+            })
+            .collect(),
+        author_claim_boundary: manifest.claim_boundary,
+        claim_boundary: "This plan validates and enumerates deterministic structural conditions without executing them. It does not estimate likelihoods, probability distributions, uncertainty intervals, causal effects, real-world performance, or safety.".to_owned(),
+    };
+    if let Some(output) = output {
+        write_json(output, &report)?;
+        println!("sensitivity plan: {}", output.display());
+    } else {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&report).context("serializing sensitivity plan")?
+        );
+    }
+    Ok(())
+}
+
+fn load_sensitivity_study(
+    manifest_path: &Path,
+) -> Result<(
+    SensitivityManifest,
+    chiyoda_core::Scenario,
+    chiyoda_core::SensitivityStudy,
+)> {
+    let manifest: SensitivityManifest = read_json(manifest_path)?;
+    let manifest_directory = manifest_path.parent().unwrap_or_else(|| Path::new("."));
+    let baseline_template = read_scenario(&manifest_directory.join(&manifest.baseline_source))?;
+    let study =
+        plan_sensitivity(&manifest, &baseline_template).map_err(|error| anyhow::anyhow!(error))?;
+    Ok((manifest, baseline_template, study))
+}
+
+fn verify_sensitivity(directory: &Path) -> Result<()> {
+    let manifest: SensitivityManifest = read_json(&directory.join("manifest.json"))?;
+    let baseline_directory = directory.join("baseline");
+    let baseline_summary = load_and_verify_sweep(&baseline_directory)?;
+    let baseline_template = authored_template(&baseline_directory, &baseline_summary, "baseline")?;
+    let study =
+        plan_sensitivity(&manifest, &baseline_template).map_err(|error| anyhow::anyhow!(error))?;
+    let expected_ids = study
+        .conditions
+        .iter()
+        .map(|condition| condition.id.clone())
+        .collect();
+    verify_sensitivity_children(directory, &expected_ids)?;
+
+    let mut reports = Vec::with_capacity(study.conditions.len());
+    for condition in &study.conditions {
+        let condition_directory = directory.join("conditions").join(&condition.id);
+        let condition_summary = load_and_verify_sweep(&condition_directory)?;
+        let persisted_template =
+            authored_template(&condition_directory, &condition_summary, &condition.id)?;
+        if CanonicalScenario::from(persisted_template)
+            != CanonicalScenario::from(condition.scenario.clone())
+        {
+            bail!(
+                "sensitivity condition template does not match its manifest-derived scenario: {}",
+                condition.id
+            );
+        }
+
+        let comparison = build_sweep_comparison(&baseline_directory, &condition_directory)?;
+        let comparison_path = format!("comparisons/{}.json", condition.id);
+        let persisted_comparison: serde_json::Value = read_json(&directory.join(&comparison_path))?;
+        let expected_comparison =
+            serde_json::to_value(&comparison).context("serializing sensitivity comparison")?;
+        if persisted_comparison != expected_comparison {
+            bail!(
+                "persisted sensitivity comparison does not match reconstructed comparison: {}",
+                condition.id
+            );
+        }
+        reports.push(sensitivity_condition_report(
+            condition,
+            comparison_path,
+            &comparison,
+        ));
+    }
+
+    let baseline_template_scenario_hash =
+        chiyoda_core::bundle::canonical_hash(&CanonicalScenario::from(baseline_template));
+    let report = sensitivity_report(
+        &manifest,
+        baseline_template_scenario_hash,
+        &study.baseline_values,
+        reports,
+    );
+    let persisted_report: serde_json::Value = read_json(&directory.join("report.json"))?;
+    let expected_report =
+        serde_json::to_value(&report).context("serializing reconstructed sensitivity report")?;
+    if persisted_report != expected_report {
+        bail!("persisted sensitivity report does not match reconstructed study");
+    }
+    println!("verified sensitivity study: {}", directory.display());
+    Ok(())
+}
+
+fn verify_sensitivity_children(
+    directory: &Path,
+    expected_ids: &std::collections::BTreeSet<String>,
+) -> Result<()> {
+    let condition_directory = directory.join("conditions");
+    let actual_condition_ids = fs::read_dir(&condition_directory)
+        .with_context(|| format!("reading {}", condition_directory.display()))?
+        .map(|entry| {
+            let entry =
+                entry.with_context(|| format!("reading {}", condition_directory.display()))?;
+            if !entry
+                .file_type()
+                .with_context(|| format!("reading {}", entry.path().display()))?
+                .is_dir()
+            {
+                bail!(
+                    "sensitivity conditions contains a non-directory: {}",
+                    entry.path().display()
+                );
+            }
+            entry
+                .file_name()
+                .into_string()
+                .map_err(|_| anyhow::anyhow!("sensitivity condition directory name is not UTF-8"))
+        })
+        .collect::<Result<std::collections::BTreeSet<_>>>()?;
+    if actual_condition_ids != *expected_ids {
+        bail!("sensitivity condition directories do not match the manifest plan");
+    }
+
+    let comparison_directory = directory.join("comparisons");
+    let actual_comparison_ids = fs::read_dir(&comparison_directory)
+        .with_context(|| format!("reading {}", comparison_directory.display()))?
+        .map(|entry| {
+            let entry =
+                entry.with_context(|| format!("reading {}", comparison_directory.display()))?;
+            if !entry
+                .file_type()
+                .with_context(|| format!("reading {}", entry.path().display()))?
+                .is_file()
+            {
+                bail!(
+                    "sensitivity comparisons contains a non-file: {}",
+                    entry.path().display()
+                );
+            }
+            let name = entry
+                .file_name()
+                .into_string()
+                .map_err(|_| anyhow::anyhow!("sensitivity comparison file name is not UTF-8"))?;
+            let Some(id) = name.strip_suffix(".json") else {
+                bail!("sensitivity comparison file must end in .json: {name}");
+            };
+            Ok(id.to_owned())
+        })
+        .collect::<Result<std::collections::BTreeSet<_>>>()?;
+    if actual_comparison_ids != *expected_ids {
+        bail!("sensitivity comparison files do not match the manifest plan");
+    }
+    Ok(())
+}
+
+fn sensitivity_report(
+    manifest: &SensitivityManifest,
+    baseline_template_scenario_hash: String,
+    baseline_values: &BTreeMap<String, f64>,
+    conditions: Vec<SensitivityConditionReport>,
+) -> SensitivityReport {
+    let one_at_a_time_responses = one_at_a_time_responses(
+        manifest.design,
+        &manifest.factors,
+        baseline_values,
+        &conditions,
+    );
+    SensitivityReport {
+        schema_version: "0.1".to_owned(),
+        study_name: manifest.name.clone(),
+        description: manifest.description.clone(),
+        manifest_snapshot: "manifest.json".to_owned(),
+        design: manifest.design,
+        baseline: SensitivityBaseline {
+            source: manifest.baseline_source.clone(),
+            template_scenario_hash: baseline_template_scenario_hash,
+            sweep_directory: "baseline".to_owned(),
+        },
+        first_seed: manifest.first_seed,
+        run_count_per_condition: manifest.count,
+        trace_every_steps: manifest.trace_every_steps,
+        factors: sensitivity_factor_reports(&manifest.factors, baseline_values),
+        conditions,
+        one_at_a_time_responses,
+        author_claim_boundary: manifest.claim_boundary.clone(),
+        claim_boundary: "This report enumerates explicit, uncalibrated input alternatives under fixed deterministic seed labels. It does not estimate parameter likelihoods, probability distributions, uncertainty intervals, causal effects, real-world performance, or safety.".to_owned(),
+    }
+}
+
+fn sensitivity_condition_report(
+    condition: &chiyoda_core::SensitivityCondition,
+    comparison_path: String,
+    comparison: &SweepComparison,
+) -> SensitivityConditionReport {
+    SensitivityConditionReport {
+        id: condition.id.clone(),
+        factor_values: condition.factor_values.clone(),
+        template_scenario_hash: chiyoda_core::bundle::canonical_hash(&CanonicalScenario::from(
+            condition.scenario.clone(),
+        )),
+        sweep_directory: format!("conditions/{}", condition.id),
+        comparison_path,
+        outcome: sensitivity_outcome(comparison),
+    }
+}
+
+fn one_at_a_time_responses(
+    design: chiyoda_core::SensitivityDesign,
+    factors: &[SensitivityFactor],
+    baseline_values: &BTreeMap<String, f64>,
+    conditions: &[SensitivityConditionReport],
+) -> Option<Vec<SensitivityFactorResponse>> {
+    if design != chiyoda_core::SensitivityDesign::OneAtATime {
+        return None;
+    }
+    Some(
+        factors
+            .iter()
+            .map(|factor| {
+                let mut alternatives = conditions
+                    .iter()
+                    .filter_map(|condition| {
+                        (condition.factor_values.len() == 1)
+                            .then(|| condition.factor_values.get(&factor.id))
+                            .flatten()
+                            .map(|value| SensitivityResponseObservation {
+                                value: *value,
+                                outcome: condition.outcome.clone(),
+                            })
+                    })
+                    .collect::<Vec<_>>();
+                alternatives.sort_by(|left, right| left.value.total_cmp(&right.value));
+                SensitivityFactorResponse {
+                    factor_id: factor.id.clone(),
+                    baseline_value: baseline_values[&factor.id],
+                    unit: factor.target.unit().to_owned(),
+                    alternatives,
+                }
+            })
+            .collect(),
+    )
+}
+
+fn sensitivity_factor_reports(
+    factors: &[SensitivityFactor],
+    baseline_values: &BTreeMap<String, f64>,
+) -> Vec<SensitivityFactorReport> {
+    factors
+        .iter()
+        .cloned()
+        .map(|factor| SensitivityFactorReport {
+            baseline_value: baseline_values[&factor.id],
+            unit: factor.target.unit().to_owned(),
+            factor,
+        })
+        .collect()
+}
+
+fn sensitivity_outcome(comparison: &SweepComparison) -> SensitivityOutcome {
+    SensitivityOutcome {
+        evacuated_agents_delta: comparison
+            .aggregate
+            .candidate_minus_baseline
+            .evacuated_agents,
+        un_evacuated_agents_delta: comparison
+            .aggregate
+            .candidate_minus_baseline
+            .un_evacuated_agents,
+        baseline_fully_evacuated_runs: comparison.baseline.fully_evacuated_runs,
+        candidate_fully_evacuated_runs: comparison.candidate.fully_evacuated_runs,
+        clearance_time_s: sensitivity_timing(&comparison.aggregate.clearance_time_s),
+        last_exit_time_s: sensitivity_timing(&comparison.aggregate.last_exit_time_s),
+    }
+}
+
+fn sensitivity_timing(timing: &PairedTime) -> SensitivityTiming {
+    SensitivityTiming {
+        both_recorded_runs: timing.both_recorded_runs,
+        baseline_only_recorded_runs: timing.baseline_only_recorded_runs,
+        candidate_only_recorded_runs: timing.candidate_only_recorded_runs,
+        neither_recorded_runs: timing.neither_recorded_runs,
+        candidate_earlier_runs: timing.candidate_earlier_runs,
+        candidate_later_runs: timing.candidate_later_runs,
+        unchanged_runs: timing.unchanged_runs,
+        candidate_minus_baseline_s: timing.candidate_minus_baseline_s.clone(),
+    }
 }
 
 fn prepare_sweep_output(count: u32, output: &Path, trace_every_steps: u32) -> Result<()> {
@@ -677,20 +1181,7 @@ fn compare_sweeps(
     candidate_directory: &Path,
     output: Option<&Path>,
 ) -> Result<()> {
-    let baseline = load_and_verify_sweep(baseline_directory)?;
-    let candidate = load_and_verify_sweep(candidate_directory)?;
-    let baseline_template = authored_template(baseline_directory, &baseline, "baseline")?;
-    let candidate_template = authored_template(candidate_directory, &candidate, "candidate")?;
-    let changed_scenario_sections =
-        compatible_comparison_sections(&baseline_template, &candidate_template)?;
-    let information_sampling =
-        information_sampling_alignment(&baseline_template, &candidate_template);
-    let comparison = compare_sweep_summaries(
-        &baseline,
-        &candidate,
-        changed_scenario_sections,
-        information_sampling,
-    )?;
+    let comparison = build_sweep_comparison(baseline_directory, candidate_directory)?;
     if let Some(output) = output {
         write_json(output, &comparison)?;
         println!("sweep comparison: {}", output.display());
@@ -701,6 +1192,26 @@ fn compare_sweeps(
         );
     }
     Ok(())
+}
+
+fn build_sweep_comparison(
+    baseline_directory: &Path,
+    candidate_directory: &Path,
+) -> Result<SweepComparison> {
+    let baseline = load_and_verify_sweep(baseline_directory)?;
+    let candidate = load_and_verify_sweep(candidate_directory)?;
+    let baseline_template = authored_template(baseline_directory, &baseline, "baseline")?;
+    let candidate_template = authored_template(candidate_directory, &candidate, "candidate")?;
+    let changed_scenario_sections =
+        compatible_comparison_sections(&baseline_template, &candidate_template)?;
+    let information_sampling =
+        information_sampling_alignment(&baseline_template, &candidate_template);
+    compare_sweep_summaries(
+        &baseline,
+        &candidate,
+        changed_scenario_sections,
+        information_sampling,
+    )
 }
 
 fn authored_template(
@@ -1619,7 +2130,31 @@ mod tests {
     use chiyoda_core::{
         InformationDeliveryMetrics, InformationInterventionKind, RunOptions, generator, parse, run,
     };
-    use std::{collections::BTreeMap, path::Path};
+    use std::{
+        collections::BTreeMap,
+        fs,
+        path::{Path, PathBuf},
+        time::{SystemTime, UNIX_EPOCH},
+    };
+
+    struct TestDirectory(PathBuf);
+
+    impl Drop for TestDirectory {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    fn test_directory(name: &str) -> TestDirectory {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time is after the Unix epoch")
+            .as_nanos();
+        let directory =
+            std::env::temp_dir().join(format!("chiyoda-{name}-{}-{nonce}", std::process::id()));
+        fs::create_dir_all(&directory).expect("creating temporary test directory");
+        TestDirectory(directory)
+    }
 
     #[test]
     fn sweep_analysis_keeps_counts_exact_and_labels_legacy_attribution() {
@@ -1769,6 +2304,85 @@ message candidate_only source signage on concourse at (1m, 1m, 0m) claim exit st
         );
         assert!(alignment.baseline_only.contains_key("baseline_only"));
         assert!(alignment.candidate_only.contains_key("candidate_only"));
+    }
+
+    #[test]
+    fn sensitivity_writes_hash_verifiable_condition_and_comparison_artifacts() {
+        let directory = test_directory("sensitivity");
+        let source_path = directory.0.join("baseline.chy");
+        fs::write(
+            &source_path,
+            r#"
+scenario "sensitivity-cli"
+seed 1
+duration 2s
+timestep 1s
+surface concourse at (0m, 0m, 0m) size (10m, 10m)
+exit street on concourse at (8m, 1m, 0m) width 2m capacity 1/s
+agents passengers count 1 on concourse at (1m, 1m, 0m) to street speed 1m/s radius 0.3m height 1.7m
+"#,
+        )
+        .expect("writing baseline source");
+        let manifest_path = directory.0.join("study.json");
+        fs::write(
+            &manifest_path,
+            r#"{
+  "schema_version": "0.1",
+  "name": "cli fixture",
+  "description": "exercise persisted study artifacts",
+  "baseline_source": "baseline.chy",
+  "first_seed": 10,
+  "count": 1,
+  "design": "one_at_a_time",
+  "max_conditions": 2,
+  "factors": [{
+    "id": "street_capacity",
+    "target": "exit_capacity_per_s",
+    "subject": "street",
+    "values": [1.0, 2.0],
+    "basis": "best_guess",
+    "rationale": "exercise an authored alternative"
+  }],
+  "claim_boundary": "structural fixture only"
+}"#,
+        )
+        .expect("writing sensitivity manifest");
+        let output = directory.0.join("output");
+        let plan_path = directory.0.join("plan.json");
+
+        super::sensitivity_plan(&manifest_path, Some(&plan_path))
+            .expect("sensitivity plan succeeds");
+
+        let plan: serde_json::Value = super::read_json(&plan_path).expect("plan parses");
+        assert_eq!(plan["conditions"].as_array().map(Vec::len), Some(1));
+        assert!(
+            !output.exists(),
+            "planning must not create the execution output directory"
+        );
+
+        super::run_sensitivity(&manifest_path, &output).expect("sensitivity study succeeds");
+
+        let report: serde_json::Value =
+            super::read_json(&output.join("report.json")).expect("report parses");
+        assert_eq!(report["conditions"].as_array().map(Vec::len), Some(1));
+        assert_eq!(
+            report["conditions"][0]["factor_values"]["street_capacity"],
+            2.0
+        );
+        assert_eq!(
+            report["one_at_a_time_responses"].as_array().map(Vec::len),
+            Some(1)
+        );
+        assert_eq!(
+            report["one_at_a_time_responses"][0]["alternatives"][0]["value"],
+            2.0
+        );
+        let comparison_path = output.join("comparisons/case-0001.json");
+        let comparison: serde_json::Value =
+            super::read_json(&comparison_path).expect("comparison parses");
+        assert_eq!(comparison["paired_runs"].as_array().map(Vec::len), Some(1));
+        super::verify_sweep(&output.join("baseline")).expect("baseline verifies");
+        super::verify_sweep(&output.join("conditions/case-0001")).expect("condition verifies");
     }
 
     #[test]

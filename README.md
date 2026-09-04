@@ -52,6 +52,9 @@ $ cargo run -p chiyoda -- verify-sweep out/generated-sweep
 $ cargo run -p chiyoda -- analyze-sweep out/generated-sweep -o out/generated-sweep/analysis.json
 $ cargo run -p chiyoda -- replicate example.chy --seed 100 --count 20 -o out/authored-replicates
 $ cargo run -p chiyoda -- compare-sweeps out/control out/intervention -o out/comparison.json
+$ cargo run -p chiyoda -- sensitivity-plan examples/sensitivity/exit-capacity-and-trust.json -o out/sensitivity-plan.json
+$ cargo run -p chiyoda -- sensitivity examples/sensitivity/exit-capacity-and-trust.json -o out/sensitivity
+$ cargo run -p chiyoda -- verify-sensitivity out/sensitivity
 $ cargo run -p chiyoda -- replay out/example/run.json
 $ cargo run -p chiyoda-replay -- out/example/run.json
 ```
@@ -92,6 +95,14 @@ group, causal estimate, uncertainty estimate, or predictive result. By default,
 matching message or countermeasure identifiers retain their deterministic
 acceptance stream; an explicit `sample` key can retain that stream across a
 renamed intervention, and the comparison artifact discloses the alignment.
+
+`sensitivity` makes best guesses inspectable rather than silently treating
+them as facts. An authored JSON manifest names each mutable input, its discrete
+alternatives, rationale, and basis, then produces a baseline replication sweep,
+validated condition sweeps, seed-paired comparisons, and a bounded report. It
+does not require research data and does not invent probability distributions or
+confidence intervals for uncalibrated values. See the [sensitivity-study
+workflow](docs/sensitivity.md).
 
 ## Research data intake
 

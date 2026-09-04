@@ -1,0 +1,30 @@
+{
+  "schema_version": "0.1",
+  "name": "concourse capacity and message-trust alternatives",
+  "description": "A disclosed structural exploration of two uncalibrated input choices.",
+  "baseline_source": "baseline.chy",
+  "first_seed": 100,
+  "count": 4,
+  "trace_every_steps": 10,
+  "design": "one_at_a_time",
+  "max_conditions": 8,
+  "factors": [
+    {
+      "id": "street_capacity",
+      "target": "exit_capacity_per_s",
+      "subject": "street",
+      "values": [1.0, 2.0, 3.0],
+      "basis": "best_guess",
+      "rationale": "No facility-specific discharge study is available; the alternatives expose the consequence of this authored service-limit choice."
+    },
+    {
+      "id": "signage_trust",
+      "target": "message_trust",
+      "subject": "street_open",
+      "values": [0.25, 0.5, 0.75],
+      "basis": "best_guess",
+      "rationale": "No communication-uptake study is available; the alternatives expose the consequence of this authored acceptance probability."
+    }
+  ],
+  "claim_boundary": "This study is a structural sensitivity exploration of declared best guesses. It does not estimate a real station's capacity, uptake, evacuation performance, or intervention effect."
+}

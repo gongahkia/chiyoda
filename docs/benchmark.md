@@ -64,6 +64,24 @@ attribution reported separately rather than silently assigned a cause.
 This command supports structural exploration and regression investigation. It
 does not produce a benchmark score, calibration result, or predictive claim.
 
+## Uncalibrated sensitivity studies
+
+`chiyoda sensitivity MANIFEST -o DIRECTORY` is a separate structural workflow
+for discrete, declared alternatives to authored numeric inputs. It runs a
+baseline and every valid condition over the same contiguous seed range, writes
+hash-verifiable replication sweeps, and preserves the seed-paired comparisons.
+`chiyoda sensitivity-plan MANIFEST [-o PLAN.json]` resolves and validates this
+condition set without executing it, including the exact condition count and
+canonical template hashes.
+`chiyoda verify-sensitivity DIRECTORY` verifies the whole resulting study,
+including every sweep, manifest-derived condition, saved comparison, and report.
+The manifest requires a rationale and basis for each factor but no dataset or
+probability distribution. `one_at_a_time` examines individual input changes;
+`full_factorial` examines declared interactions within an explicit condition
+limit. The result is a sensitivity artifact, not parameter uncertainty,
+calibration, a benchmark score, or a predictive claim. See [sensitivity
+studies](sensitivity.md).
+
 ## Authored intervention comparisons
 
 `chiyoda compare-sweeps BASELINE CANDIDATE [-o REPORT.json]` is the
