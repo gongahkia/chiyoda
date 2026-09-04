@@ -437,8 +437,7 @@ impl Proposition {
     #[must_use]
     pub fn is_open(&self) -> bool {
         match self {
-            Self::ConnectorAvailability { open, .. } => *open,
-            Self::ExitAvailability { open, .. } => *open,
+            Self::ConnectorAvailability { open, .. } | Self::ExitAvailability { open, .. } => *open,
         }
     }
 }

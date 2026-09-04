@@ -502,10 +502,15 @@ pub fn run(scenario: &Scenario, options: RunOptions) -> Result<RunBundle, RunErr
         .collect();
     let evacuated_agents = u32::try_from(exit_times.len()).expect("agent count fits u32");
     let mut evacuated_by_exit = BTreeMap::new();
+    let mut remaining_by_state = BTreeMap::new();
     for agent in &agents {
         if matches!(agent.motion, Motion::Evacuated { .. }) {
             *evacuated_by_exit
                 .entry(agent.destination.clone())
+                .or_default() += 1;
+        } else {
+            *remaining_by_state
+                .entry(agent_state_name(agent).to_owned())
                 .or_default() += 1;
         }
     }
@@ -516,6 +521,7 @@ pub fn run(scenario: &Scenario, options: RunOptions) -> Result<RunBundle, RunErr
         total_agents: u32::try_from(agents.len()).expect("agent count fits u32"),
         evacuated_agents,
         evacuated_by_exit,
+        remaining_by_state,
         clearance_time_s,
         mean_exit_time_s,
         queued_for_lift_agents: u32::try_from(resources.queued_for_lift_agents.len())
@@ -1852,21 +1858,39 @@ fn snapshot(step: u64, time_s: f64, agents: &[Agent]) -> TraceFrame {
                 x_m: agent.position.x_m,
                 y_m: agent.position.y_m,
                 z_m: agent.position.z_m,
-                state: match &agent.motion {
-                    Motion::WaitingToDepart { .. } => AgentState::WaitingToDepart,
-                    Motion::WaitingAtWaypoint { .. } => AgentState::WaitingAtWaypoint,
-                    Motion::OnSurface if agent.waiting_for_route => AgentState::WaitingForRoute,
-                    Motion::OnSurface if agent.waiting_for_exit => AgentState::WaitingForExit,
-                    Motion::OnSurface => match agent.waiting_connector {
-                        Some(ConnectorWait::Lift) => AgentState::WaitingForLift,
-                        Some(ConnectorWait::Capacity) => AgentState::WaitingForConnector,
-                        None => AgentState::Moving,
-                    },
-                    Motion::Transit { .. } => AgentState::InTransit,
-                    Motion::Evacuated { .. } => AgentState::Evacuated,
-                },
+                state: agent_state(agent),
                 beliefs: agent.beliefs.clone(),
             })
             .collect(),
+    }
+}
+
+fn agent_state(agent: &Agent) -> AgentState {
+    match &agent.motion {
+        Motion::WaitingToDepart { .. } => AgentState::WaitingToDepart,
+        Motion::WaitingAtWaypoint { .. } => AgentState::WaitingAtWaypoint,
+        Motion::OnSurface if agent.waiting_for_route => AgentState::WaitingForRoute,
+        Motion::OnSurface if agent.waiting_for_exit => AgentState::WaitingForExit,
+        Motion::OnSurface => match agent.waiting_connector {
+            Some(ConnectorWait::Lift) => AgentState::WaitingForLift,
+            Some(ConnectorWait::Capacity) => AgentState::WaitingForConnector,
+            None => AgentState::Moving,
+        },
+        Motion::Transit { .. } => AgentState::InTransit,
+        Motion::Evacuated { .. } => AgentState::Evacuated,
+    }
+}
+
+fn agent_state_name(agent: &Agent) -> &'static str {
+    match agent_state(agent) {
+        AgentState::Moving => "moving",
+        AgentState::WaitingToDepart => "waiting_to_depart",
+        AgentState::WaitingAtWaypoint => "waiting_at_waypoint",
+        AgentState::WaitingForRoute => "waiting_for_route",
+        AgentState::WaitingForLift => "waiting_for_lift",
+        AgentState::WaitingForConnector => "waiting_for_connector",
+        AgentState::WaitingForExit => "waiting_for_exit",
+        AgentState::InTransit => "in_transit",
+        AgentState::Evacuated => "evacuated",
     }
 }

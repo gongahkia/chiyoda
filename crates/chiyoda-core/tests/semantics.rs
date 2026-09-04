@@ -234,6 +234,11 @@ countermeasure correction corrects false_primary_closure source staff on concour
             && event.detail.contains("accepted=true")
     }));
     assert!(bundle.events.iter().any(|event| {
+        event.kind == "route_recomputed"
+            && event.subject == "passengers:0"
+            && event.detail.contains("exit:primary")
+    }));
+    assert!(bundle.events.iter().any(|event| {
         event.kind == "countermeasure_received" && event.subject == "passengers:0"
     }));
     assert!(

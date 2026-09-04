@@ -54,6 +54,9 @@ pub struct RunMetrics {
     /// hash-verifiable after deserialization.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub evacuated_by_exit: BTreeMap<String, u32>,
+    /// Final non-evacuated agent states at the end of the configured duration.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub remaining_by_state: BTreeMap<String, u32>,
     pub clearance_time_s: Option<f64>,
     pub mean_exit_time_s: Option<f64>,
     pub queued_for_lift_agents: u32,
