@@ -1,4 +1,4 @@
-# Chiyoda language reference 0.14
+# Chiyoda language reference 0.15
 
 Each non-empty line is one declaration. Lines beginning with `#` are comments.
 Quoted strings are supported only where explicitly shown. All lengths use
@@ -101,14 +101,14 @@ messaging effects are empirically validated.
 ## Canonical IR
 
 Successful compilation emits a JSON `CanonicalScenario` with
-`language_version: "0.14"`. Declaration order is preserved and forms part of
+`language_version: "0.15"`. Declaration order is preserved and forms part of
 the deterministic execution contract. The canonical IR is the public boundary
 between conforming compilers and runtimes; direct use of parser internals is
 not a stable API.
 
 ## Current geometry boundary
 
-Version 0.14 supports axis-aligned rectangular walkable surfaces with
+Version 0.15 supports axis-aligned rectangular walkable surfaces with
 axis-aligned rectangular no-go zones, joined by directed 3D stairs, ramps,
 escalators, and lifts. The runtime expands no-go zones by each agent radius
 and finds a deterministic Euclidean shortest path through the resulting

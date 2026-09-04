@@ -206,6 +206,30 @@ agents passengers count 1 on concourse at (1m, 1m, 0m) to primary speed 1m/s rad
 }
 
 #[test]
+fn exit_metrics_attribute_each_completed_evacuation_to_its_final_exit() {
+    let source = r#"
+scenario "exit-metrics"
+seed 1
+duration 10s
+timestep 1s
+surface concourse at (0m, 0m, 0m) size (20m, 10m)
+exit west on concourse at (4m, 1m, 0m) width 2m
+exit east on concourse at (16m, 1m, 0m) width 2m
+agents westbound count 1 on concourse at (1m, 1m, 0m) to west speed 1m/s radius 0.3m height 1.7m
+agents eastbound count 1 on concourse at (19m, 1m, 0m) to east speed 1m/s radius 0.3m height 1.7m
+"#;
+    let scenario = parse(source).expect("source parses");
+    let bundle = run(&scenario, RunOptions::default()).expect("both groups evacuate");
+    assert_eq!(bundle.metrics.evacuated_agents, 2);
+    assert_eq!(bundle.metrics.evacuated_by_exit.get("west"), Some(&1));
+    assert_eq!(bundle.metrics.evacuated_by_exit.get("east"), Some(&1));
+    assert_eq!(
+        bundle.metrics.evacuated_by_exit.values().sum::<u32>(),
+        bundle.metrics.evacuated_agents
+    );
+}
+
+#[test]
 fn exit_reopening_recovers_agents_waiting_for_a_route() {
     let source = r#"
 scenario "exit-reopening"
