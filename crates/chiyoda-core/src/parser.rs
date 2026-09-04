@@ -85,6 +85,7 @@ pub fn parse(source: &str) -> Result<Scenario, ParseError> {
     builder.finish(last_line)
 }
 
+#[allow(clippy::too_many_lines)] // one exhaustive declaration-to-AST mapping keeps grammar reviewable
 fn parse_declaration(
     line: usize,
     tokens: &[String],

@@ -35,6 +35,7 @@ Fedora Linux 43 with the pinned Rust toolchain is the supported environment.
 
 ```console
 $ cargo run -p chiyoda -- generate --seed 73 -o example.chy
+$ cargo run -p chiyoda -- format example.chy -o example.formatted.chy
 $ cargo run -p chiyoda -- check example.chy
 $ cargo run -p chiyoda -- compile example.chy -o out/example.ir.json
 $ cargo run -p chiyoda -- run example.chy -o out/example
@@ -90,6 +91,8 @@ cannot enforce it.
 - `crates/chiyoda-cli` — compiler, runtime, generator, benchmark, and bundle
   verification commands.
 - `crates/chiyoda-replay` — native Linux trace viewer.
+- `python` — dependency-light bundle verification and analysis helpers; it is
+  intentionally outside the trusted simulation runtime.
 - `benchmarks` — public fixtures and round-protocol materials; no empirical
   result is published until its evidence manifest validates.
 - `docs` — normative language, runtime, evidence, and release contracts.
@@ -98,4 +101,3 @@ cannot enforce it.
 
 Apache-2.0. The project name references the Tokyo Metro Chiyoda Line; it does
 not recreate, operationalize, or provide guidance about historic attacks.
-

@@ -6,10 +6,10 @@ use std::{fs, path::PathBuf, thread, time::Duration};
 
 const WIDTH: usize = 1_200;
 const HEIGHT: usize = 800;
-const BACKGROUND: u32 = 0x10141a;
-const MOVING: u32 = 0x65d1ff;
-const IN_TRANSIT: u32 = 0xffc857;
-const EVACUATED: u32 = 0x4ade80;
+const BACKGROUND: u32 = 0x0010_141a;
+const MOVING: u32 = 0x0065_d1ff;
+const IN_TRANSIT: u32 = 0x00ff_c857;
+const EVACUATED: u32 = 0x004a_de80;
 
 #[derive(Debug, Parser)]
 #[command(
@@ -100,12 +100,11 @@ fn extent(bundle: &RunBundle) -> (f64, f64, f64, f64) {
 fn draw_frame(buffer: &mut [u32], bundle: &RunBundle, index: usize, extent: (f64, f64, f64, f64)) {
     let frame = &bundle.trace[index];
     for agent in &frame.agents {
-        let x = ((agent.x_m - extent.0) / extent.1 * (WIDTH - 1) as f64).round() as isize;
-        let y = ((agent.y_m - extent.2) / extent.3 * (HEIGHT - 1) as f64).round() as isize;
+        let x = project(agent.x_m, extent.0, extent.1, WIDTH);
+        let y = project(agent.y_m, extent.2, extent.3, HEIGHT);
         let color = match agent.state {
             AgentState::Moving => MOVING,
-            AgentState::WaitingForLift => IN_TRANSIT,
-            AgentState::InTransit => IN_TRANSIT,
+            AgentState::WaitingForLift | AgentState::InTransit => IN_TRANSIT,
             AgentState::Evacuated => EVACUATED,
         };
         for offset_y in -2..=2 {
@@ -113,14 +112,24 @@ fn draw_frame(buffer: &mut [u32], bundle: &RunBundle, index: usize, extent: (f64
                 let pixel_x = x + offset_x;
                 let pixel_y = y + offset_y;
                 if pixel_x >= 0
-                    && pixel_x < WIDTH as isize
+                    && pixel_x < WIDTH.cast_signed()
                     && pixel_y >= 0
-                    && pixel_y < HEIGHT as isize
+                    && pixel_y < HEIGHT.cast_signed()
                 {
-                    let location = pixel_y as usize * WIDTH + pixel_x as usize;
+                    let location = pixel_y.cast_unsigned() * WIDTH + pixel_x.cast_unsigned();
                     buffer[location] = color;
                 }
             }
         }
     }
+}
+
+#[allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_precision_loss,
+    clippy::cast_sign_loss
+)] // values are clamped to the small, fixed native framebuffer before conversion
+fn project(value: f64, origin: f64, span: f64, pixels: usize) -> isize {
+    let upper = (pixels - 1) as f64;
+    (((value - origin) / span * upper).round().clamp(0.0, upper)) as isize
 }

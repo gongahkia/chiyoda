@@ -5,6 +5,10 @@ Quoted strings are supported only where explicitly shown. All lengths use
 metres, all durations use seconds or milliseconds, and all speeds use metres
 per second. The compiler rejects unitless values for physical quantities.
 
+`chiyoda format SOURCE` renders canonical source to standard output;
+`chiyoda format SOURCE --check` makes canonical formatting a CI-verifiable
+source invariant.
+
 ## Grammar
 
 ```text
@@ -56,4 +60,3 @@ directed 3D stair or lift connectors. Agents have radius and height metadata
 and move as volume-aware capsules on those surfaces. General meshes, ramps,
 arbitrary floor plans, BIM/IFC imports, and articulated gait are intentionally
 not supported yet; they require separate semantics and empirical validation.
-

@@ -23,6 +23,7 @@ impl std::error::Error for ValidationError {}
 /// This verifies topology and declared resources, not real-world safety or
 /// evacuation outcomes. A successful validation is therefore a precondition
 /// for an experiment, not evidence that the experiment is calibrated.
+#[allow(clippy::too_many_lines)] // all public scenario invariants are intentionally visible together
 pub fn validate(scenario: &Scenario) -> Result<(), Vec<ValidationError>> {
     let mut errors = Vec::new();
     let mut ids = BTreeSet::new();
@@ -166,6 +167,23 @@ pub fn validate(scenario: &Scenario) -> Result<(), Vec<ValidationError>> {
             &format!("{path}.at"),
             &mut errors,
         );
+        if group.radius_m.is_finite() && group.radius_m > 0.0 {
+            let columns = grid_columns(group.count);
+            let rows = group.count.div_ceil(columns);
+            let spacing = group.radius_m * 2.1;
+            let final_spawn = Point3 {
+                x_m: group.at.x_m + f64::from(columns.saturating_sub(1)) * spacing,
+                y_m: group.at.y_m + f64::from(rows.saturating_sub(1)) * spacing,
+                z_m: group.at.z_m,
+            };
+            check_point(
+                &surfaces,
+                &group.surface,
+                final_spawn,
+                &format!("{path}.spawn_extent"),
+                &mut errors,
+            );
+        }
         if !exit_ids.contains(group.destination.as_str()) {
             errors.push(issue(
                 &format!("{path}.destination"),
@@ -352,4 +370,12 @@ fn issue(path: &str, message: impl Into<String>) -> ValidationError {
         path: path.to_owned(),
         message: message.into(),
     }
+}
+
+fn grid_columns(count: u32) -> u32 {
+    let mut columns = 1_u32;
+    while columns.saturating_mul(columns) < count {
+        columns += 1;
+    }
+    columns
 }

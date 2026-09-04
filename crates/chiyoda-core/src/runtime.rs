@@ -85,16 +85,62 @@ struct Agent {
     passed_gates: HashSet<String>,
 }
 
+const SPATIAL_CELL_M: f64 = 1.0;
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct CellKey {
+    surface: String,
+    x: i64,
+    y: i64,
+}
+
+#[derive(Debug)]
+struct SpatialSnapshot {
+    positions: Vec<(String, Point3, f64)>,
+    cells: HashMap<CellKey, Vec<usize>>,
+    max_radius_m: f64,
+}
+
+impl SpatialSnapshot {
+    fn from_agents(agents: &[Agent]) -> Self {
+        let positions: Vec<_> = agents
+            .iter()
+            .map(|agent| (agent.surface.clone(), agent.position, agent.radius_m))
+            .collect();
+        let max_radius_m = positions
+            .iter()
+            .map(|(_, _, radius)| *radius)
+            .fold(0.0_f64, f64::max);
+        let mut cells: HashMap<CellKey, Vec<usize>> = HashMap::new();
+        for (index, (surface, position, _)) in positions.iter().enumerate() {
+            cells
+                .entry(cell_key(surface, *position))
+                .or_default()
+                .push(index);
+        }
+        Self {
+            positions,
+            cells,
+            max_radius_m,
+        }
+    }
+}
+
 /// Execute the reference small-step semantics deterministically.
-pub fn run(scenario: Scenario, options: RunOptions) -> Result<RunBundle, RunError> {
-    validate(&scenario).map_err(RunError::InvalidScenario)?;
+#[allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_precision_loss,
+    clippy::cast_sign_loss
+)] // validation requires finite positive durations/counts; conversions bound discrete reference steps
+pub fn run(scenario: &Scenario, options: RunOptions) -> Result<RunBundle, RunError> {
+    validate(scenario).map_err(RunError::InvalidScenario)?;
     if options.trace_every_steps == 0 {
         return Err(RunError::InvalidOptions(
             "trace_every_steps must be greater than zero".to_owned(),
         ));
     }
     let canonical = CanonicalScenario::from(scenario.clone());
-    let mut agents = spawn_agents(&scenario)?;
+    let mut agents = spawn_agents(scenario)?;
     let step_count = (scenario.duration_s / scenario.timestep_s).ceil() as u64;
     let mut trace = vec![snapshot(0, 0.0, &agents)];
     let mut events = Vec::new();
@@ -109,14 +155,14 @@ pub fn run(scenario: Scenario, options: RunOptions) -> Result<RunBundle, RunErro
     for step in 1..=step_count {
         let time_s = (step as f64) * scenario.timestep_s;
         apply_information(
-            &scenario,
+            scenario,
             &mut agents,
             time_s,
             scenario.timestep_s,
             &mut events,
         );
         integrate(
-            &scenario,
+            scenario,
             &mut agents,
             time_s,
             &mut events,
@@ -173,7 +219,7 @@ fn spawn_agents(scenario: &Scenario) -> Result<Vec<Agent>, RunError> {
                     destination: group.destination.clone(),
                 }
             })?;
-        let columns = (f64::from(group.count).sqrt().ceil() as u32).max(1);
+        let columns = grid_columns(group.count);
         let spacing = group.radius_m * 2.1;
         for ordinal in 0..group.count {
             let column = ordinal % columns;
@@ -200,6 +246,14 @@ fn spawn_agents(scenario: &Scenario) -> Result<Vec<Agent>, RunError> {
         }
     }
     Ok(agents)
+}
+
+fn grid_columns(count: u32) -> u32 {
+    let mut columns = 1_u32;
+    while columns.saturating_mul(columns) < count {
+        columns += 1;
+    }
+    columns
 }
 
 fn route_to_exit(scenario: &Scenario, start: &str, exit_id: &str) -> Option<Vec<usize>> {
@@ -299,15 +353,14 @@ fn apply_information(
                 agent
                     .beliefs
                     .insert(countermeasure.corrects.clone(), countermeasure.trust);
-                if countermeasure.trust >= 0.5 {
-                    if let Some(message) = scenario
+                if countermeasure.trust >= 0.5
+                    && let Some(message) = scenario
                         .messages
                         .iter()
                         .find(|message| message.id == countermeasure.corrects)
-                    {
-                        agent.blocked_connectors.remove(message.claim.connector());
-                        reroute_after_information(scenario, agent, countermeasure.at_s, events);
-                    }
+                {
+                    agent.blocked_connectors.remove(message.claim.connector());
+                    reroute_after_information(scenario, agent, countermeasure.at_s, events);
                 }
                 events.push(RunEvent {
                     time_s: countermeasure.at_s,
@@ -370,6 +423,7 @@ fn reroute_after_information(
     }
 }
 
+#[allow(clippy::too_many_lines)] // this is the reference small-step transition relation
 fn integrate(
     scenario: &Scenario,
     agents: &mut [Agent],
@@ -379,10 +433,7 @@ fn integrate(
     queued_for_gate_agents: &mut HashSet<String>,
     gate_tokens: &mut HashMap<String, f64>,
 ) {
-    let positions: Vec<(String, Point3, f64)> = agents
-        .iter()
-        .map(|agent| (agent.surface.clone(), agent.position, agent.radius_m))
-        .collect();
+    let spatial_snapshot = SpatialSnapshot::from_agents(agents);
     let mut lift_loads = current_lift_loads(agents);
     for gate in &scenario.gates {
         let token = gate_tokens.entry(gate.id.clone()).or_default();
@@ -391,7 +442,7 @@ fn integrate(
     }
     for (index, agent) in agents.iter_mut().enumerate() {
         match &mut agent.motion {
-            Motion::Evacuated { .. } => continue,
+            Motion::Evacuated { .. } => {}
             Motion::Transit {
                 connector_index,
                 elapsed_s,
@@ -405,6 +456,10 @@ fn integrate(
                 agent.position = start.lerp(*end, ratio);
                 if ratio >= 1.0 {
                     let connector_id = scenario.connectors[*connector_index].id().to_owned();
+                    if scenario.connectors[*connector_index].is_lift() {
+                        let load = lift_loads.entry(*connector_index).or_default();
+                        *load = load.saturating_sub(1);
+                    }
                     agent.surface = next_surface.clone();
                     agent.route_cursor += 1;
                     agent.motion = Motion::OnSurface;
@@ -449,7 +504,7 @@ fn integrate(
                     agent,
                     target,
                     scenario.timestep_s,
-                    &positions,
+                    &spatial_snapshot,
                     index,
                     surface,
                 );
@@ -532,11 +587,12 @@ fn current_lift_loads(agents: &[Agent]) -> HashMap<usize, u32> {
     loads
 }
 
+#[allow(clippy::cast_possible_truncation)] // validated finite radii determine a bounded local-cell query
 fn move_toward(
     agent: &mut Agent,
     target: Point3,
     timestep_s: f64,
-    positions: &[(String, Point3, f64)],
+    spatial_snapshot: &SpatialSnapshot,
     own_index: usize,
     surface: &Surface,
 ) -> bool {
@@ -554,16 +610,32 @@ fn move_toward(
         y_m: agent.position.y_m + (dy / distance) * travel,
         z_m: agent.position.z_m + (dz / distance) * travel,
     };
-    for (index, (surface, position, radius)) in positions.iter().enumerate() {
-        if index == own_index || surface != &agent.surface {
-            continue;
-        }
-        let separation = next.distance(*position);
-        let minimum = agent.radius_m + radius;
-        if separation > 0.0 && separation < minimum {
-            let correction = (minimum - separation) / minimum * agent.radius_m;
-            next.x_m += (next.x_m - position.x_m) / separation * correction;
-            next.y_m += (next.y_m - position.y_m) / separation * correction;
+    let cell_range =
+        ((agent.radius_m + spatial_snapshot.max_radius_m) / SPATIAL_CELL_M).ceil() as i64;
+    let center = cell_key(&agent.surface, next);
+    for offset_y in -cell_range..=cell_range {
+        for offset_x in -cell_range..=cell_range {
+            let key = CellKey {
+                surface: agent.surface.clone(),
+                x: center.x + offset_x,
+                y: center.y + offset_y,
+            };
+            let Some(candidates) = spatial_snapshot.cells.get(&key) else {
+                continue;
+            };
+            for candidate in candidates {
+                if *candidate == own_index {
+                    continue;
+                }
+                let (_, position, radius) = &spatial_snapshot.positions[*candidate];
+                let separation = next.distance(*position);
+                let minimum = agent.radius_m + radius;
+                if separation > 0.0 && separation < minimum {
+                    let correction = (minimum - separation) / minimum * agent.radius_m;
+                    next.x_m += (next.x_m - position.x_m) / separation * correction;
+                    next.y_m += (next.y_m - position.y_m) / separation * correction;
+                }
+            }
         }
     }
     next.x_m = next
@@ -575,6 +647,15 @@ fn move_toward(
     next.z_m = surface.origin.z_m;
     agent.position = next;
     false
+}
+
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+fn cell_key(surface: &str, point: Point3) -> CellKey {
+    CellKey {
+        surface: surface.to_owned(),
+        x: (point.x_m / SPATIAL_CELL_M).floor() as i64,
+        y: (point.y_m / SPATIAL_CELL_M).floor() as i64,
+    }
 }
 
 fn snapshot(step: u64, time_s: f64, agents: &[Agent]) -> TraceFrame {

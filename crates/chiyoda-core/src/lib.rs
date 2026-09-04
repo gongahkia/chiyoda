@@ -6,6 +6,7 @@
 
 pub mod benchmark;
 pub mod bundle;
+pub mod formatter;
 pub mod generator;
 pub mod model;
 pub mod parser;
@@ -14,6 +15,7 @@ pub mod validate;
 
 pub use benchmark::{BenchmarkManifest, BenchmarkValidationError, validate_manifest};
 pub use bundle::{AgentState, RunBundle, bundle_hash};
+pub use formatter::format_scenario;
 pub use model::{CanonicalScenario, Scenario};
 pub use parser::{ParseError, parse};
 pub use runtime::{RunOptions, run};

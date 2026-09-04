@@ -1,6 +1,6 @@
 use chiyoda_core::{
-    BenchmarkManifest, RunOptions, benchmark::DatasetEvidence, benchmark::DatasetRole,
-    benchmark::GeneratorRound, generator, parse, run, validate, validate_manifest,
+    BenchmarkManifest, RunBundle, RunOptions, benchmark::DatasetEvidence, benchmark::DatasetRole,
+    benchmark::GeneratorRound, format_scenario, generator, parse, run, validate, validate_manifest,
 };
 
 #[test]
@@ -13,17 +13,26 @@ fn generated_source_is_parseable_and_valid() {
 }
 
 #[test]
+fn formatter_round_trips_to_the_same_typed_scenario() {
+    let scenario = generator::scenario(73).expect("valid generator output");
+    let formatted = format_scenario(&scenario);
+    let reparsed = parse(&formatted).expect("formatted source parses");
+    assert_eq!(scenario, reparsed);
+    assert_eq!(formatted, format_scenario(&reparsed));
+}
+
+#[test]
 fn runtime_is_reproducible_and_information_recomputes_routes() {
     let scenario = generator::scenario(73).expect("valid generated scenario");
     let first = run(
-        scenario.clone(),
+        &scenario,
         RunOptions {
             trace_every_steps: 20,
         },
     )
     .expect("run one");
     let second = run(
-        scenario,
+        &scenario,
         RunOptions {
             trace_every_steps: 20,
         },
@@ -32,6 +41,9 @@ fn runtime_is_reproducible_and_information_recomputes_routes() {
 
     assert_eq!(first.bundle_hash, second.bundle_hash);
     assert!(first.verifies_hash());
+    let serialized = serde_json::to_string(&first).expect("bundle serializes");
+    let round_trip: RunBundle = serde_json::from_str(&serialized).expect("bundle deserializes");
+    assert!(round_trip.verifies_hash());
     assert!(
         first
             .events
@@ -56,7 +68,7 @@ agents passengers count 2 on platform at (1m, 1m, 6m) to street speed 1m/s radiu
     let scenario = parse(source).expect("source parses");
     validate(&scenario).expect("source validates");
     let bundle = run(
-        scenario,
+        &scenario,
         RunOptions {
             trace_every_steps: 1,
         },
@@ -70,6 +82,60 @@ agents passengers count 2 on platform at (1m, 1m, 6m) to street speed 1m/s radiu
     assert_eq!(boardings.len(), 2);
     assert!(boardings[1].time_s > boardings[0].time_s);
     assert_eq!(bundle.metrics.queued_for_lift_agents, 1);
+}
+
+#[test]
+fn gate_service_rate_creates_a_deterministic_queue() {
+    let source = r#"
+scenario "gate-capacity"
+seed 1
+duration 20s
+timestep 1s
+surface concourse at (0m, 0m, 0m) size (10m, 10m)
+exit street on concourse at (9m, 1m, 0m) width 2m
+gate fare_gate on concourse at (3m, 1m, 0m) width 1m capacity 0.5/s to street
+agents passengers count 10 on concourse at (1m, 1m, 0m) to street speed 1m/s radius 0.1m height 1.7m
+"#;
+    let scenario = parse(source).expect("source parses");
+    validate(&scenario).expect("source validates");
+    let bundle = run(
+        &scenario,
+        RunOptions {
+            trace_every_steps: 1,
+        },
+    )
+    .expect("run succeeds");
+    assert!(bundle.metrics.queued_for_gate_agents > 0);
+    assert!(
+        bundle
+            .events
+            .iter()
+            .any(|event| event.kind == "gate_processed")
+    );
+}
+
+#[test]
+fn ten_thousand_agents_execute_a_spatially_indexed_step() {
+    let source = r#"
+scenario "ten-thousand"
+seed 1
+duration 100ms
+timestep 100ms
+surface concourse at (0m, 0m, 0m) size (100m, 100m)
+exit street on concourse at (99m, 50m, 0m) width 4m
+agents passengers count 10000 on concourse at (0m, 0m, 0m) to street speed 1m/s radius 0.3m height 1.7m
+"#;
+    let scenario = parse(source).expect("source parses");
+    validate(&scenario).expect("spawn extent validates");
+    let bundle = run(
+        &scenario,
+        RunOptions {
+            trace_every_steps: 1,
+        },
+    )
+    .expect("run succeeds");
+    assert_eq!(bundle.metrics.total_agents, 10_000);
+    assert_eq!(bundle.trace.len(), 2);
 }
 
 #[test]

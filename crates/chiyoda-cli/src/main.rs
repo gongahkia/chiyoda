@@ -1,7 +1,7 @@
 use anyhow::{Context, Result, bail};
 use chiyoda_core::{
-    BenchmarkManifest, CanonicalScenario, RunBundle, RunOptions, bundle_hash, generator, parse,
-    run, validate, validate_manifest,
+    BenchmarkManifest, CanonicalScenario, RunBundle, RunOptions, bundle_hash, format_scenario,
+    generator, parse, run, validate, validate_manifest,
 };
 use clap::{Parser, Subcommand};
 use std::{
@@ -29,6 +29,16 @@ enum Command {
         source: PathBuf,
         #[arg(short, long)]
         output: PathBuf,
+    },
+    /// Render source in the canonical Chiyoda style.
+    Format {
+        source: PathBuf,
+        /// Write formatted source to a distinct file instead of standard output.
+        #[arg(short, long, conflicts_with = "check")]
+        output: Option<PathBuf>,
+        /// Exit non-zero when the source is not already canonical.
+        #[arg(long)]
+        check: bool,
     },
     /// Execute the deterministic reference runtime and create a run bundle.
     Run {
@@ -71,6 +81,31 @@ fn main() -> Result<()> {
             write_json(&output, &CanonicalScenario::from(scenario))?;
             println!("compiled: {}", output.display());
         }
+        Command::Format {
+            source,
+            output,
+            check,
+        } => {
+            let scenario = read_scenario(&source)?;
+            let formatted = format_scenario(&scenario);
+            if check {
+                let original = read_text(&source)?;
+                if original != formatted {
+                    bail!(
+                        "{} is not canonically formatted; run `chiyoda format {}`",
+                        source.display(),
+                        source.display()
+                    );
+                }
+                println!("formatted: {}", source.display());
+            } else if let Some(output) = output {
+                fs::write(&output, formatted)
+                    .with_context(|| format!("writing formatted source {}", output.display()))?;
+                println!("formatted: {}", output.display());
+            } else {
+                print!("{formatted}");
+            }
+        }
         Command::Run {
             source,
             output,
@@ -78,9 +113,9 @@ fn main() -> Result<()> {
         } => {
             let text = read_text(&source)?;
             let scenario = parse(&text).map_err(|error| anyhow::anyhow!(error))?;
-            validate(&scenario).map_err(validation_error)?;
+            validate(&scenario).map_err(|errors| validation_error(&errors))?;
             let bundle = run(
-                scenario,
+                &scenario,
                 RunOptions {
                     trace_every_steps: trace_every,
                 },
@@ -107,12 +142,14 @@ fn main() -> Result<()> {
         Command::Benchmark { command } => match command {
             BenchmarkCommand::Verify { manifest } => {
                 let manifest: BenchmarkManifest = read_json(&manifest)?;
-                validate_manifest(&manifest).map_err(benchmark_error)?;
+                validate_manifest(&manifest).map_err(|errors| benchmark_error(&errors))?;
                 println!("valid empirical benchmark round: {}", manifest.round_id);
             }
         },
-        Command::Replay { bundle } => {
-            let bundle: RunBundle = read_json(&bundle)?;
+        Command::Replay {
+            bundle: bundle_path,
+        } => {
+            let bundle: RunBundle = read_json(&bundle_path)?;
             if !bundle.verifies_hash() || bundle_hash(&bundle) != bundle.bundle_hash {
                 bail!("bundle integrity check failed");
             }
@@ -123,7 +160,7 @@ fn main() -> Result<()> {
                 "evacuated: {}/{}",
                 bundle.metrics.evacuated_agents, bundle.metrics.total_agents
             );
-            println!("open with: chiyoda-replay {}", bundle_path_hint(&bundle));
+            println!("open with: chiyoda-replay {}", bundle_path.display());
         }
     }
     Ok(())
@@ -132,7 +169,7 @@ fn main() -> Result<()> {
 fn read_scenario(path: &Path) -> Result<chiyoda_core::Scenario> {
     let text = read_text(path)?;
     let scenario = parse(&text).map_err(|error| anyhow::anyhow!(error))?;
-    validate(&scenario).map_err(validation_error)?;
+    validate(&scenario).map_err(|errors| validation_error(&errors))?;
     Ok(scenario)
 }
 
@@ -154,7 +191,7 @@ fn write_json<T: serde::Serialize>(path: &Path, value: &T) -> Result<()> {
     fs::write(path, bytes).with_context(|| format!("writing {}", path.display()))
 }
 
-fn validation_error(errors: Vec<chiyoda_core::ValidationError>) -> anyhow::Error {
+fn validation_error(errors: &[chiyoda_core::ValidationError]) -> anyhow::Error {
     anyhow::anyhow!(
         "scenario is invalid:\n{}",
         errors
@@ -165,7 +202,7 @@ fn validation_error(errors: Vec<chiyoda_core::ValidationError>) -> anyhow::Error
     )
 }
 
-fn benchmark_error(errors: Vec<chiyoda_core::BenchmarkValidationError>) -> anyhow::Error {
+fn benchmark_error(errors: &[chiyoda_core::BenchmarkValidationError]) -> anyhow::Error {
     anyhow::anyhow!(
         "benchmark manifest is invalid:\n{}",
         errors
@@ -174,9 +211,4 @@ fn benchmark_error(errors: Vec<chiyoda_core::BenchmarkValidationError>) -> anyho
             .collect::<Vec<_>>()
             .join("\n")
     )
-}
-
-fn bundle_path_hint(bundle: &RunBundle) -> &str {
-    let _ = bundle;
-    "out/run.json"
 }

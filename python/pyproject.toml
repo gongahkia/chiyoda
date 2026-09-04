@@ -1,0 +1,22 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "chiyoda-analysis"
+version = "0.1.0a1"
+description = "Dependency-light analysis helpers for Chiyoda run bundles"
+requires-python = ">=3.11"
+license = { text = "Apache-2.0" }
+authors = [{ name = "Chiyoda contributors" }]
+classifiers = [
+  "Development Status :: 2 - Pre-Alpha",
+  "Programming Language :: Python :: 3 :: Only",
+]
+
+[project.scripts]
+chiyoda-analysis = "chiyoda_analysis.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/chiyoda_analysis"]
+
