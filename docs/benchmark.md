@@ -42,5 +42,12 @@ Each generated case declares a primary exit, an alternative final exit, and a
 scheduled closure of the primary, so a sweep exercises the deterministic
 rerouting semantics as well as its outcome attribution.
 
+`chiyoda analyze-sweep DIRECTORY [-o REPORT.json]` first performs every
+`verify-sweep` check, then emits an explicitly descriptive aggregate: exact
+agent and evacuation counts, exact overall evacuation fraction numerator and
+denominator, per-exit totals, legacy unattributed evacuations, and a minimum,
+mean, and maximum clearance time over only runs that recorded one. It does not
+estimate uncertainty or turn generator seeds into a population sample.
+
 This command supports structural exploration and regression investigation. It
 does not produce a benchmark score, calibration result, or predictive claim.

@@ -49,6 +49,7 @@ $ cargo run -p chiyoda -- compile example.chy -o out/example.ir.json
 $ cargo run -p chiyoda -- run example.chy -o out/example
 $ cargo run -p chiyoda -- sweep --seed 73 --count 20 -o out/generated-sweep
 $ cargo run -p chiyoda -- verify-sweep out/generated-sweep
+$ cargo run -p chiyoda -- analyze-sweep out/generated-sweep -o out/generated-sweep/analysis.json
 $ cargo run -p chiyoda -- replay out/example/run.json
 $ cargo run -p chiyoda-replay -- out/example/run.json
 ```
@@ -61,8 +62,11 @@ per seed, and records their summaries in `summary.json`, including final-exit
 attribution counts. Generated cases include a declared alternative exit and a
 scheduled primary-exit closure, so the output also exercises rerouting.
 `verify-sweep` cross-checks that summary against every bundle and its canonical
-source. The output directory must be empty, and the workflow does not require a
-benchmark manifest or research data.
+source. `analyze-sweep` performs that same verification before producing exact
+cross-run counts, per-exit totals, and descriptive clearance-time ranges. Its
+evacuation fraction is emitted as an exact numerator/denominator rather than a
+misleadingly precise estimate. The output directory must be empty, and the
+workflow does not require a benchmark manifest or research data.
 
 ## Research data intake
 

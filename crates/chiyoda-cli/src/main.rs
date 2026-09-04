@@ -74,6 +74,13 @@ enum Command {
     },
     /// Verify every run bundle and source recorded by a generated sweep.
     VerifySweep { directory: PathBuf },
+    /// Verify a sweep and emit exact descriptive aggregates; this is not a benchmark score.
+    AnalyzeSweep {
+        directory: PathBuf,
+        /// Write the JSON report to a file instead of standard output.
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+    },
     /// Verify an empirical benchmark round's evidence and seed-release contract.
     Benchmark {
         #[command(subcommand)]
@@ -154,6 +161,40 @@ struct SweepRun {
     clearance_time_s: Option<f64>,
 }
 
+#[derive(Debug, Serialize)]
+struct SweepAnalysis {
+    schema_version: String,
+    input_sweep_schema_version: String,
+    generator_version: String,
+    first_seed: u64,
+    run_count: u32,
+    total_agents: u64,
+    evacuated_agents: u64,
+    un_evacuated_agents: u64,
+    overall_evacuation_fraction: ExactRatio,
+    runs_with_any_evacuation: u32,
+    fully_evacuated_runs: u32,
+    evacuated_by_exit: BTreeMap<String, u64>,
+    unattributed_evacuations: u64,
+    clearance_time_s: Option<DescriptiveRange>,
+    claim_boundary: String,
+}
+
+#[derive(Debug, Serialize)]
+struct ExactRatio {
+    numerator: u64,
+    denominator: u64,
+}
+
+#[derive(Debug, Serialize)]
+struct DescriptiveRange {
+    measured_runs: u32,
+    minimum_s: f64,
+    mean_s: f64,
+    maximum_s: f64,
+}
+
+#[allow(clippy::too_many_lines)] // top-level command dispatch is intentionally visible in one place
 fn main() -> Result<()> {
     let cli = Cli::parse();
     match cli.command {
@@ -231,6 +272,9 @@ fn main() -> Result<()> {
             trace_every,
         } => run_sweep(seed, count, &output, trace_every)?,
         Command::VerifySweep { directory } => verify_sweep(&directory)?,
+        Command::AnalyzeSweep { directory, output } => {
+            analyze_sweep(&directory, output.as_deref())?;
+        }
         Command::Benchmark { command } => match command {
             BenchmarkCommand::Verify { manifest } => verify_benchmark(&manifest)?,
         },
@@ -346,6 +390,27 @@ fn run_sweep(first_seed: u64, count: u32, output: &Path, trace_every_steps: u32)
 }
 
 fn verify_sweep(directory: &Path) -> Result<()> {
+    let _summary = load_and_verify_sweep(directory)?;
+    println!("verified sweep: {}", directory.display());
+    Ok(())
+}
+
+fn analyze_sweep(directory: &Path, output: Option<&Path>) -> Result<()> {
+    let summary = load_and_verify_sweep(directory)?;
+    let analysis = describe_sweep(&summary);
+    if let Some(output) = output {
+        write_json(output, &analysis)?;
+        println!("sweep analysis: {}", output.display());
+    } else {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&analysis).context("serializing sweep analysis")?
+        );
+    }
+    Ok(())
+}
+
+fn load_and_verify_sweep(directory: &Path) -> Result<SweepSummary> {
     let summary: SweepSummary = read_json(&directory.join("summary.json"))?;
     if summary.schema_version != "0.1" {
         bail!(
@@ -355,6 +420,9 @@ fn verify_sweep(directory: &Path) -> Result<()> {
     }
     if summary.generator_version.trim().is_empty() {
         bail!("sweep summary must declare a generator version");
+    }
+    if summary.count == 0 {
+        bail!("sweep summary count must be greater than zero");
     }
     if summary.trace_every_steps == 0 {
         bail!("sweep summary trace interval must be greater than zero");
@@ -382,6 +450,7 @@ fn verify_sweep(directory: &Path) -> Result<()> {
         if !bundle.verifies_hash() || bundle_hash(&bundle) != bundle.bundle_hash {
             bail!("bundle integrity check failed: {}", run_directory.display());
         }
+        validate_bundle_exit_metrics(&bundle, &run_directory)?;
         let source = read_text(&run_directory.join("scenario.chy"))?;
         let scenario = parse(&source).map_err(|error| anyhow::anyhow!(error))?;
         validate(&scenario).map_err(|errors| validation_error(&errors))?;
@@ -404,8 +473,112 @@ fn verify_sweep(directory: &Path) -> Result<()> {
             );
         }
     }
-    println!("verified sweep: {}", directory.display());
+    Ok(summary)
+}
+
+fn validate_bundle_exit_metrics(bundle: &RunBundle, directory: &Path) -> Result<()> {
+    let metrics = &bundle.metrics;
+    if metrics.evacuated_agents > metrics.total_agents {
+        bail!(
+            "bundle evacuation count exceeds total agents: {}",
+            directory.display()
+        );
+    }
+    let mut attributed = 0_u32;
+    for (exit_id, count) in &metrics.evacuated_by_exit {
+        if !bundle
+            .scenario
+            .scenario
+            .exits
+            .iter()
+            .any(|exit| exit.id == *exit_id)
+        {
+            bail!(
+                "bundle attributes an evacuation to unknown exit `{exit_id}`: {}",
+                directory.display()
+            );
+        }
+        attributed = attributed.checked_add(*count).ok_or_else(|| {
+            anyhow::anyhow!(
+                "bundle exit-attribution count overflows u32: {}",
+                directory.display()
+            )
+        })?;
+    }
+    if !metrics.evacuated_by_exit.is_empty() && attributed != metrics.evacuated_agents {
+        bail!(
+            "bundle exit-attribution count does not match evacuations: {}",
+            directory.display()
+        );
+    }
     Ok(())
+}
+
+fn describe_sweep(summary: &SweepSummary) -> SweepAnalysis {
+    let mut total_agents = 0_u64;
+    let mut evacuated_agents = 0_u64;
+    let mut runs_with_any_evacuation = 0_u32;
+    let mut fully_evacuated_runs = 0_u32;
+    let mut evacuated_by_exit = BTreeMap::new();
+    let mut clearance_times = Vec::new();
+
+    for run in &summary.runs {
+        total_agents += u64::from(run.total_agents);
+        evacuated_agents += u64::from(run.evacuated_agents);
+        if run.evacuated_agents > 0 {
+            runs_with_any_evacuation += 1;
+        }
+        if run.total_agents > 0 && run.evacuated_agents == run.total_agents {
+            fully_evacuated_runs += 1;
+        }
+        for (exit_id, count) in &run.evacuated_by_exit {
+            *evacuated_by_exit.entry(exit_id.clone()).or_default() += u64::from(*count);
+        }
+        if let Some(clearance_time_s) = run.clearance_time_s {
+            clearance_times.push(clearance_time_s);
+        }
+    }
+
+    let attributed_evacuations = evacuated_by_exit.values().sum::<u64>();
+    let clearance_time_range = (!clearance_times.is_empty()).then(|| {
+        let measured_runs = u32::try_from(clearance_times.len()).expect("sweep count fits u32");
+        let minimum_s = clearance_times
+            .iter()
+            .copied()
+            .reduce(f64::min)
+            .expect("a non-empty collection has a minimum");
+        let maximum_s = clearance_times
+            .iter()
+            .copied()
+            .reduce(f64::max)
+            .expect("a non-empty collection has a maximum");
+        DescriptiveRange {
+            measured_runs,
+            minimum_s,
+            mean_s: clearance_times.iter().sum::<f64>() / f64::from(measured_runs),
+            maximum_s,
+        }
+    });
+    SweepAnalysis {
+        schema_version: "0.1".to_owned(),
+        input_sweep_schema_version: summary.schema_version.clone(),
+        generator_version: summary.generator_version.clone(),
+        first_seed: summary.first_seed,
+        run_count: summary.count,
+        total_agents,
+        evacuated_agents,
+        un_evacuated_agents: total_agents.saturating_sub(evacuated_agents),
+        overall_evacuation_fraction: ExactRatio {
+            numerator: evacuated_agents,
+            denominator: total_agents,
+        },
+        runs_with_any_evacuation,
+        fully_evacuated_runs,
+        evacuated_by_exit,
+        unattributed_evacuations: evacuated_agents.saturating_sub(attributed_evacuations),
+        clearance_time_s: clearance_time_range,
+        claim_boundary: "This report aggregates deterministic structural runs. It is not a benchmark score, calibration result, uncertainty estimate, or predictive claim.".to_owned(),
+    }
 }
 
 fn ensure_empty_directory(path: &Path) -> Result<()> {
@@ -491,5 +664,100 @@ fn dataset_role(partition: EvidencePartition) -> chiyoda_core::benchmark::Datase
     match partition {
         EvidencePartition::Calibration => chiyoda_core::benchmark::DatasetRole::Calibration,
         EvidencePartition::HeldOut => chiyoda_core::benchmark::DatasetRole::HeldOut,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{SweepRun, SweepSummary, describe_sweep};
+    use std::collections::BTreeMap;
+
+    #[test]
+    fn sweep_analysis_keeps_counts_exact_and_labels_legacy_attribution() {
+        let summary = SweepSummary {
+            schema_version: "0.1".to_owned(),
+            generator_version: "0.15".to_owned(),
+            first_seed: 10,
+            count: 3,
+            trace_every_steps: 10,
+            runs: vec![
+                SweepRun {
+                    seed: 10,
+                    scenario_name: "one".to_owned(),
+                    bundle_hash: "a".repeat(64),
+                    total_agents: 10,
+                    evacuated_agents: 8,
+                    evacuated_by_exit: BTreeMap::from([
+                        ("east".to_owned(), 2),
+                        ("west".to_owned(), 6),
+                    ]),
+                    clearance_time_s: Some(2.0),
+                },
+                SweepRun {
+                    seed: 11,
+                    scenario_name: "two".to_owned(),
+                    bundle_hash: "b".repeat(64),
+                    total_agents: 5,
+                    evacuated_agents: 0,
+                    evacuated_by_exit: BTreeMap::new(),
+                    clearance_time_s: None,
+                },
+                SweepRun {
+                    seed: 12,
+                    scenario_name: "three".to_owned(),
+                    bundle_hash: "c".repeat(64),
+                    total_agents: 5,
+                    evacuated_agents: 5,
+                    evacuated_by_exit: BTreeMap::from([("east".to_owned(), 5)]),
+                    clearance_time_s: Some(4.0),
+                },
+            ],
+        };
+
+        let analysis = describe_sweep(&summary);
+
+        assert_eq!(analysis.run_count, 3);
+        assert_eq!(analysis.total_agents, 20);
+        assert_eq!(analysis.evacuated_agents, 13);
+        assert_eq!(analysis.un_evacuated_agents, 7);
+        assert_eq!(analysis.overall_evacuation_fraction.numerator, 13);
+        assert_eq!(analysis.overall_evacuation_fraction.denominator, 20);
+        assert_eq!(analysis.runs_with_any_evacuation, 2);
+        assert_eq!(analysis.fully_evacuated_runs, 1);
+        assert_eq!(analysis.evacuated_by_exit.get("east"), Some(&7));
+        assert_eq!(analysis.evacuated_by_exit.get("west"), Some(&6));
+        assert_eq!(analysis.unattributed_evacuations, 0);
+        let clearance_time = analysis
+            .clearance_time_s
+            .expect("two runs report clearance times");
+        assert_eq!(clearance_time.measured_runs, 2);
+        assert!((clearance_time.minimum_s - 2.0).abs() < f64::EPSILON);
+        assert!((clearance_time.mean_s - 3.0).abs() < f64::EPSILON);
+        assert!((clearance_time.maximum_s - 4.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn sweep_analysis_discloses_legacy_bundles_without_exit_attribution() {
+        let summary = SweepSummary {
+            schema_version: "0.1".to_owned(),
+            generator_version: "0.14".to_owned(),
+            first_seed: 73,
+            count: 1,
+            trace_every_steps: 10,
+            runs: vec![SweepRun {
+                seed: 73,
+                scenario_name: "legacy".to_owned(),
+                bundle_hash: "a".repeat(64),
+                total_agents: 4,
+                evacuated_agents: 3,
+                evacuated_by_exit: BTreeMap::new(),
+                clearance_time_s: Some(8.0),
+            }],
+        };
+
+        let analysis = describe_sweep(&summary);
+
+        assert_eq!(analysis.evacuated_by_exit, BTreeMap::new());
+        assert_eq!(analysis.unattributed_evacuations, 3);
     }
 }
