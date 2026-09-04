@@ -6,6 +6,8 @@
 
 pub mod benchmark;
 pub mod bundle;
+pub mod calibration;
+pub mod evidence;
 pub mod formatter;
 pub mod generator;
 pub mod model;
@@ -15,6 +17,8 @@ pub mod validate;
 
 pub use benchmark::{BenchmarkManifest, BenchmarkValidationError, validate_manifest};
 pub use bundle::{AgentState, RunBundle, bundle_hash};
+pub use calibration::{CalibrationError, PlatformCalibrationReport, calibrate_eindhoven_platform};
+pub use evidence::{EvidenceCatalog, EvidenceValidationError, validate_catalog};
 pub use formatter::format_scenario;
 pub use model::{CanonicalScenario, Scenario};
 pub use parser::{ParseError, parse};

@@ -1,6 +1,7 @@
 /target/
 /out/
 /build/
+/data/raw/
 __pycache__/
 *.py[cod]
 *.swp
