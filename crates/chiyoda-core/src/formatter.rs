@@ -3,7 +3,7 @@
 use crate::model::{Connector, Proposition, Scenario};
 use std::fmt::Write;
 
-/// Render a typed scenario as canonical version-0.19 source.
+/// Render a typed scenario as canonical version-0.21 source.
 #[must_use]
 #[allow(clippy::too_many_lines)] // mirrors the complete declaration grammar in one reviewable serializer
 pub fn format_scenario(scenario: &Scenario) -> String {
@@ -165,6 +165,28 @@ pub fn format_scenario(scenario: &Scenario) -> String {
         )
         .expect("writing to a string cannot fail");
     }
+    for change in &scenario.connector_capacity_states {
+        writeln!(
+            source,
+            "connector-capacity-state {} connector {} capacity {}/s time {}",
+            change.id,
+            change.connector,
+            number(change.capacity_per_s),
+            duration(change.at_s),
+        )
+        .expect("writing to a string cannot fail");
+    }
+    for change in &scenario.exit_capacity_states {
+        writeln!(
+            source,
+            "exit-capacity-state {} exit {} capacity {}/s time {}",
+            change.id,
+            change.exit,
+            number(change.capacity_per_s),
+            duration(change.at_s),
+        )
+        .expect("writing to a string cannot fail");
+    }
     for gate in &scenario.gates {
         writeln!(
             source,
@@ -175,6 +197,28 @@ pub fn format_scenario(scenario: &Scenario) -> String {
             length(gate.width_m),
             number(gate.service_rate_per_s),
             gate.destination,
+        )
+        .expect("writing to a string cannot fail");
+    }
+    for change in &scenario.gate_states {
+        writeln!(
+            source,
+            "gate-state {} gate {} {} time {}",
+            change.id,
+            change.gate,
+            if change.open { "open" } else { "closed" },
+            duration(change.at_s),
+        )
+        .expect("writing to a string cannot fail");
+    }
+    for change in &scenario.gate_capacity_states {
+        writeln!(
+            source,
+            "gate-capacity-state {} gate {} capacity {}/s time {}",
+            change.id,
+            change.gate,
+            number(change.capacity_per_s),
+            duration(change.at_s),
         )
         .expect("writing to a string cannot fail");
     }
@@ -273,7 +317,8 @@ fn duration(value: f64) -> String {
 
 fn release_schedule(interval_s: Option<f64>, batch_size: Option<u32>) -> String {
     interval_s.map_or_else(String::new, |interval_s| {
-        let batch = batch_size.map_or_else(String::new, |batch_size| format!(" batch {batch_size}"));
+        let batch =
+            batch_size.map_or_else(String::new, |batch_size| format!(" batch {batch_size}"));
         format!(" every {}{batch}", duration(interval_s))
     })
 }

@@ -1,7 +1,7 @@
 use crate::model::{
-    AgentGroup, Connector, ConnectorKind, ConnectorStateChange, Countermeasure, Exit,
-    ExitStateChange, Gate, InformationSource, Message, Obstacle, Point3, Scenario, Surface,
-    Waypoint,
+    AgentGroup, Connector, ConnectorCapacityChange, ConnectorKind, ConnectorStateChange,
+    Countermeasure, Exit, ExitCapacityChange, ExitStateChange, Gate, GateCapacityChange,
+    GateStateChange, InformationSource, Message, Obstacle, Point3, Scenario, Surface, Waypoint,
 };
 use std::{fmt, str::FromStr};
 
@@ -32,7 +32,11 @@ struct ScenarioBuilder {
     connectors: Vec<Connector>,
     connector_states: Vec<ConnectorStateChange>,
     exit_states: Vec<ExitStateChange>,
+    connector_capacity_states: Vec<ConnectorCapacityChange>,
+    exit_capacity_states: Vec<ExitCapacityChange>,
     gates: Vec<Gate>,
+    gate_states: Vec<GateStateChange>,
+    gate_capacity_states: Vec<GateCapacityChange>,
     agents: Vec<AgentGroup>,
     messages: Vec<Message>,
     countermeasures: Vec<Countermeasure>,
@@ -70,7 +74,11 @@ impl ScenarioBuilder {
             connectors: self.connectors,
             connector_states: self.connector_states,
             exit_states: self.exit_states,
+            connector_capacity_states: self.connector_capacity_states,
+            exit_capacity_states: self.exit_capacity_states,
             gates: self.gates,
+            gate_states: self.gate_states,
+            gate_capacity_states: self.gate_capacity_states,
             agents: self.agents,
             messages: self.messages,
             countermeasures: self.countermeasures,
@@ -307,6 +315,41 @@ fn parse_declaration(
                 at_s: parse_duration(line, required(line, tokens, 6, "exit state time")?)?,
             });
         }
+        "connector-capacity-state" => {
+            require_exact_count(line, tokens, 8)?;
+            expect(line, tokens, 2, "connector")?;
+            expect(line, tokens, 4, "capacity")?;
+            expect(line, tokens, 6, "time")?;
+            builder
+                .connector_capacity_states
+                .push(ConnectorCapacityChange {
+                    id: tokens[1].clone(),
+                    connector: tokens[3].clone(),
+                    capacity_per_s: parse_rate(
+                        line,
+                        required(line, tokens, 5, "connector capacity state")?,
+                    )?,
+                    at_s: parse_duration(
+                        line,
+                        required(line, tokens, 7, "connector capacity state time")?,
+                    )?,
+                });
+        }
+        "exit-capacity-state" => {
+            require_exact_count(line, tokens, 8)?;
+            expect(line, tokens, 2, "exit")?;
+            expect(line, tokens, 4, "capacity")?;
+            expect(line, tokens, 6, "time")?;
+            builder.exit_capacity_states.push(ExitCapacityChange {
+                id: tokens[1].clone(),
+                exit: tokens[3].clone(),
+                capacity_per_s: parse_rate(
+                    line,
+                    required(line, tokens, 5, "exit capacity state")?,
+                )?,
+                at_s: parse_duration(line, required(line, tokens, 7, "exit capacity state time")?)?,
+            });
+        }
         "gate" => {
             require_exact_count(line, tokens, 14)?;
             expect(line, tokens, 2, "on")?;
@@ -321,6 +364,32 @@ fn parse_declaration(
                 width_m: parse_length(line, required(line, tokens, 9, "gate width")?)?,
                 service_rate_per_s: parse_rate(line, required(line, tokens, 11, "gate capacity")?)?,
                 destination: tokens[13].clone(),
+            });
+        }
+        "gate-state" => {
+            require_exact_count(line, tokens, 7)?;
+            expect(line, tokens, 2, "gate")?;
+            expect(line, tokens, 5, "time")?;
+            builder.gate_states.push(GateStateChange {
+                id: tokens[1].clone(),
+                gate: tokens[3].clone(),
+                open: parse_availability_open(line, required(line, tokens, 4, "gate state")?)?,
+                at_s: parse_duration(line, required(line, tokens, 6, "gate state time")?)?,
+            });
+        }
+        "gate-capacity-state" => {
+            require_exact_count(line, tokens, 8)?;
+            expect(line, tokens, 2, "gate")?;
+            expect(line, tokens, 4, "capacity")?;
+            expect(line, tokens, 6, "time")?;
+            builder.gate_capacity_states.push(GateCapacityChange {
+                id: tokens[1].clone(),
+                gate: tokens[3].clone(),
+                capacity_per_s: parse_rate(
+                    line,
+                    required(line, tokens, 5, "gate capacity state")?,
+                )?,
+                at_s: parse_duration(line, required(line, tokens, 7, "gate capacity state time")?)?,
             });
         }
         "agents" => {
@@ -589,10 +658,7 @@ fn agent_options(
                         required(line, tokens, index + 3, "agent release interval")?,
                     )?);
                     index += 2;
-                    if tokens
-                        .get(index + 2)
-                        .is_some_and(|token| token == "batch")
-                    {
+                    if tokens.get(index + 2).is_some_and(|token| token == "batch") {
                         release_batch_size = Some(parse_plain(
                             line,
                             required(line, tokens, index + 3, "agent release batch size")?,
@@ -629,6 +695,12 @@ fn agent_options(
                     ));
                 }
                 excluded_connector_kinds.push(connector_kind);
+            }
+            "batch" => {
+                return Err(error(
+                    line,
+                    "`batch` requires `release DURATION every DURATION`",
+                ));
             }
             "release" => return Err(error(line, "duplicate `release` clause")),
             actual => return Err(error(line, format!("unknown agent option `{actual}`"))),

@@ -328,9 +328,9 @@ pub struct AgentGroup {
     /// The authored time at which this group becomes active in the simulation.
     /// This is a scenario input, not an inferred arrival distribution.
     pub release_at_s: f64,
-    /// Optional deterministic time between each ordinal agent release. Omission
-    /// releases the whole group at `release_at_s`, preserving the original
-    /// batch-release semantics.
+    /// Optional deterministic time between release instants. Omission releases
+    /// the whole group at `release_at_s`, preserving the original simultaneous
+    /// release semantics.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub release_interval_s: Option<f64>,
     /// Optional maximum number of agents released at each cadence instant.
@@ -408,6 +408,42 @@ pub struct ExitStateChange {
     pub id: String,
     pub exit: String,
     pub open: bool,
+    pub at_s: f64,
+}
+
+/// An authored change to a gate's physical availability.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct GateStateChange {
+    pub id: String,
+    pub gate: String,
+    pub open: bool,
+    pub at_s: f64,
+}
+
+/// An authored change to the service limit of a constrained non-lift connector.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConnectorCapacityChange {
+    pub id: String,
+    pub connector: String,
+    pub capacity_per_s: f64,
+    pub at_s: f64,
+}
+
+/// An authored change to the discharge limit of a constrained exit.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ExitCapacityChange {
+    pub id: String,
+    pub exit: String,
+    pub capacity_per_s: f64,
+    pub at_s: f64,
+}
+
+/// An authored change to a gate's service limit.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct GateCapacityChange {
+    pub id: String,
+    pub gate: String,
+    pub capacity_per_s: f64,
     pub at_s: f64,
 }
 
@@ -514,7 +550,15 @@ pub struct Scenario {
     pub connector_states: Vec<ConnectorStateChange>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub exit_states: Vec<ExitStateChange>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub connector_capacity_states: Vec<ConnectorCapacityChange>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub exit_capacity_states: Vec<ExitCapacityChange>,
     pub gates: Vec<Gate>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub gate_states: Vec<GateStateChange>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub gate_capacity_states: Vec<GateCapacityChange>,
     pub agents: Vec<AgentGroup>,
     pub messages: Vec<Message>,
     pub countermeasures: Vec<Countermeasure>,
@@ -548,6 +592,104 @@ impl Scenario {
             .iter()
             .enumerate()
             .filter(|(_, change)| change.exit == exit_id && change.at_s <= time_s)
+            .collect();
+        changes.sort_by(|(left_index, left), (right_index, right)| {
+            left.at_s
+                .total_cmp(&right.at_s)
+                .then(left_index.cmp(right_index))
+        });
+        changes.into_iter().fold(true, |_, (_, change)| change.open)
+    }
+
+    /// Return a constrained non-lift connector's authored service rate at an
+    /// exact scenario time. Same-time capacity declarations apply in source
+    /// order. A connector without a declared baseline capacity remains
+    /// unconstrained and cannot be changed by a valid scenario.
+    #[must_use]
+    pub fn connector_service_rate_at(&self, connector_id: &str, time_s: f64) -> Option<f64> {
+        let mut rate = self
+            .connectors
+            .iter()
+            .find(|connector| connector.id() == connector_id)?
+            .service_rate_per_s()?;
+        let mut changes: Vec<_> = self
+            .connector_capacity_states
+            .iter()
+            .enumerate()
+            .filter(|(_, change)| change.connector == connector_id && change.at_s <= time_s)
+            .collect();
+        changes.sort_by(|(left_index, left), (right_index, right)| {
+            left.at_s
+                .total_cmp(&right.at_s)
+                .then(left_index.cmp(right_index))
+        });
+        for (_, change) in changes {
+            rate = change.capacity_per_s;
+        }
+        Some(rate)
+    }
+
+    /// Return an exit's authored discharge rate at an exact scenario time.
+    /// Same-time capacity declarations apply in source order.
+    #[must_use]
+    pub fn exit_capacity_at(&self, exit_id: &str, time_s: f64) -> Option<f64> {
+        let mut rate = self
+            .exits
+            .iter()
+            .find(|exit| exit.id == exit_id)?
+            .capacity_per_s?;
+        let mut changes: Vec<_> = self
+            .exit_capacity_states
+            .iter()
+            .enumerate()
+            .filter(|(_, change)| change.exit == exit_id && change.at_s <= time_s)
+            .collect();
+        changes.sort_by(|(left_index, left), (right_index, right)| {
+            left.at_s
+                .total_cmp(&right.at_s)
+                .then(left_index.cmp(right_index))
+        });
+        for (_, change) in changes {
+            rate = change.capacity_per_s;
+        }
+        Some(rate)
+    }
+
+    /// Return a gate's authored service rate at an exact scenario time.
+    /// Same-time capacity declarations apply in source order.
+    #[must_use]
+    pub fn gate_service_rate_at(&self, gate_id: &str, time_s: f64) -> Option<f64> {
+        let mut rate = self
+            .gates
+            .iter()
+            .find(|gate| gate.id == gate_id)?
+            .service_rate_per_s;
+        let mut changes: Vec<_> = self
+            .gate_capacity_states
+            .iter()
+            .enumerate()
+            .filter(|(_, change)| change.gate == gate_id && change.at_s <= time_s)
+            .collect();
+        changes.sort_by(|(left_index, left), (right_index, right)| {
+            left.at_s
+                .total_cmp(&right.at_s)
+                .then(left_index.cmp(right_index))
+        });
+        for (_, change) in changes {
+            rate = change.capacity_per_s;
+        }
+        Some(rate)
+    }
+
+    /// Return a gate's authored physical state at an exact scenario time. The
+    /// default is open; same-time declarations apply in source order.
+    #[must_use]
+    pub fn gate_open_at(&self, gate_id: &str, time_s: f64) -> bool {
+        let mut changes: Vec<_> = self
+            .gate_states
+            .iter()
+            .enumerate()
+            .filter(|(_, change)| change.gate == gate_id && change.at_s <= time_s)
             .collect();
         changes.sort_by(|(left_index, left), (right_index, right)| {
             left.at_s

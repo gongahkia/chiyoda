@@ -149,6 +149,14 @@ struct RouteStart<'a> {
     excluded_connector_kinds: &'a [ConnectorKind],
 }
 
+/// Final-exit constraints that share one route-planning decision.
+#[derive(Debug, Clone, Copy)]
+struct ExitPlanConstraints<'a> {
+    blocked_exits: &'a HashSet<String>,
+    closed_gates: &'a HashSet<String>,
+    passed_gates: Option<&'a HashSet<String>>,
+}
+
 impl RouteStart<'_> {
     fn allows_connector(self, connector: &crate::model::Connector) -> bool {
         connector.supports_height(self.height_m)
@@ -181,6 +189,7 @@ struct RuntimeResources {
     queued_for_exit_agents: HashSet<String>,
     closed_connectors: HashSet<String>,
     closed_exits: HashSet<String>,
+    closed_gates: HashSet<String>,
     connector_tokens: HashMap<usize, f64>,
     gate_tokens: HashMap<String, f64>,
     exit_tokens: HashMap<String, f64>,
@@ -195,6 +204,7 @@ impl RuntimeResources {
             queued_for_exit_agents: HashSet::new(),
             closed_connectors: closed_connectors_at(scenario, 0.0),
             closed_exits: closed_exits_at(scenario, 0.0),
+            closed_gates: closed_gates_at(scenario, 0.0),
             connector_tokens: scenario
                 .connectors
                 .iter()
@@ -235,6 +245,15 @@ fn closed_exits_at(scenario: &Scenario, time_s: f64) -> HashSet<String> {
         .collect()
 }
 
+fn closed_gates_at(scenario: &Scenario, time_s: f64) -> HashSet<String> {
+    scenario
+        .gates
+        .iter()
+        .filter(|gate| !scenario.gate_open_at(&gate.id, time_s))
+        .map(|gate| gate.id.clone())
+        .collect()
+}
+
 fn initial_state_events(scenario: &Scenario) -> Vec<RunEvent> {
     let mut events: Vec<_> = scenario
         .connector_states
@@ -248,6 +267,34 @@ fn initial_state_events(scenario: &Scenario) -> Vec<RunEvent> {
             .iter()
             .filter(|change| change.at_s == 0.0)
             .map(exit_state_event),
+    );
+    events.extend(
+        scenario
+            .connector_capacity_states
+            .iter()
+            .filter(|change| change.at_s == 0.0)
+            .map(connector_capacity_event),
+    );
+    events.extend(
+        scenario
+            .exit_capacity_states
+            .iter()
+            .filter(|change| change.at_s == 0.0)
+            .map(exit_capacity_event),
+    );
+    events.extend(
+        scenario
+            .gate_capacity_states
+            .iter()
+            .filter(|change| change.at_s == 0.0)
+            .map(gate_capacity_event),
+    );
+    events.extend(
+        scenario
+            .gate_states
+            .iter()
+            .filter(|change| change.at_s == 0.0)
+            .map(gate_state_event),
     );
     events
 }
@@ -282,10 +329,15 @@ fn information_delivery_for_scenario(
 enum ScheduledEvent<'a> {
     ConnectorState(&'a crate::model::ConnectorStateChange),
     ExitState(&'a crate::model::ExitStateChange),
+    ConnectorCapacity(&'a crate::model::ConnectorCapacityChange),
+    ExitCapacity(&'a crate::model::ExitCapacityChange),
+    GateCapacity(&'a crate::model::GateCapacityChange),
+    GateState(&'a crate::model::GateStateChange),
     Message(&'a crate::model::Message),
     Countermeasure(&'a crate::model::Countermeasure),
 }
 
+#[allow(clippy::too_many_lines)] // state events intentionally share one chronological dispatcher
 fn apply_scheduled_events(
     scenario: &Scenario,
     agents: &mut [Agent],
@@ -319,6 +371,59 @@ fn apply_scheduled_events(
             .enumerate()
             .filter(|(_, change)| is_scheduled(change.at_s))
             .map(|(index, change)| (change.at_s, 0_u8, index, ScheduledEvent::ExitState(change))),
+    );
+    scheduled.extend(
+        scenario
+            .connector_capacity_states
+            .iter()
+            .enumerate()
+            .filter(|(_, change)| 0.0 < change.at_s && is_scheduled(change.at_s))
+            .map(|(index, change)| {
+                (
+                    change.at_s,
+                    0_u8,
+                    index,
+                    ScheduledEvent::ConnectorCapacity(change),
+                )
+            }),
+    );
+    scheduled.extend(
+        scenario
+            .exit_capacity_states
+            .iter()
+            .enumerate()
+            .filter(|(_, change)| 0.0 < change.at_s && is_scheduled(change.at_s))
+            .map(|(index, change)| {
+                (
+                    change.at_s,
+                    0_u8,
+                    index,
+                    ScheduledEvent::ExitCapacity(change),
+                )
+            }),
+    );
+    scheduled.extend(
+        scenario
+            .gate_capacity_states
+            .iter()
+            .enumerate()
+            .filter(|(_, change)| 0.0 < change.at_s && is_scheduled(change.at_s))
+            .map(|(index, change)| {
+                (
+                    change.at_s,
+                    0_u8,
+                    index,
+                    ScheduledEvent::GateCapacity(change),
+                )
+            }),
+    );
+    scheduled.extend(
+        scenario
+            .gate_states
+            .iter()
+            .enumerate()
+            .filter(|(_, change)| 0.0 < change.at_s && is_scheduled(change.at_s))
+            .map(|(index, change)| (change.at_s, 0_u8, index, ScheduledEvent::GateState(change))),
     );
     scheduled.extend(
         scenario
@@ -357,14 +462,25 @@ fn apply_scheduled_events(
             ScheduledEvent::ExitState(change) => {
                 apply_exit_state_change(scenario, agents, change, events, resources);
             }
+            ScheduledEvent::ConnectorCapacity(change) => {
+                events.push(connector_capacity_event(change));
+            }
+            ScheduledEvent::ExitCapacity(change) => {
+                events.push(exit_capacity_event(change));
+            }
+            ScheduledEvent::GateCapacity(change) => {
+                events.push(gate_capacity_event(change));
+            }
+            ScheduledEvent::GateState(change) => {
+                apply_gate_state_change(scenario, agents, change, events, resources);
+            }
             ScheduledEvent::Message(message) => {
                 deliver_message(
                     scenario,
                     agents,
                     message,
                     events,
-                    &resources.closed_connectors,
-                    &resources.closed_exits,
+                    resources,
                     information_delivery,
                 );
             }
@@ -374,8 +490,7 @@ fn apply_scheduled_events(
                     agents,
                     countermeasure,
                     events,
-                    &resources.closed_connectors,
-                    &resources.closed_exits,
+                    resources,
                     information_delivery,
                 );
             }
@@ -404,6 +519,7 @@ fn apply_connector_state_change(
             events,
             &resources.closed_connectors,
             &resources.closed_exits,
+            &resources.closed_gates,
         );
     }
 }
@@ -442,6 +558,7 @@ fn apply_exit_state_change(
             events,
             &resources.closed_connectors,
             &resources.closed_exits,
+            &resources.closed_gates,
         );
     }
 }
@@ -451,6 +568,72 @@ fn exit_state_event(change: &crate::model::ExitStateChange) -> RunEvent {
         time_s: change.at_s,
         kind: "exit_state_changed".to_owned(),
         subject: change.exit.clone(),
+        detail: format!(
+            "{}: {}",
+            change.id,
+            if change.open { "open" } else { "closed" }
+        ),
+    }
+}
+
+fn connector_capacity_event(change: &crate::model::ConnectorCapacityChange) -> RunEvent {
+    RunEvent {
+        time_s: change.at_s,
+        kind: "connector_capacity_changed".to_owned(),
+        subject: change.connector.clone(),
+        detail: format!("{}: {}/s", change.id, change.capacity_per_s),
+    }
+}
+
+fn exit_capacity_event(change: &crate::model::ExitCapacityChange) -> RunEvent {
+    RunEvent {
+        time_s: change.at_s,
+        kind: "exit_capacity_changed".to_owned(),
+        subject: change.exit.clone(),
+        detail: format!("{}: {}/s", change.id, change.capacity_per_s),
+    }
+}
+
+fn gate_capacity_event(change: &crate::model::GateCapacityChange) -> RunEvent {
+    RunEvent {
+        time_s: change.at_s,
+        kind: "gate_capacity_changed".to_owned(),
+        subject: change.gate.clone(),
+        detail: format!("{}: {}/s", change.id, change.capacity_per_s),
+    }
+}
+
+fn apply_gate_state_change(
+    scenario: &Scenario,
+    agents: &mut [Agent],
+    change: &crate::model::GateStateChange,
+    events: &mut Vec<RunEvent>,
+    resources: &mut RuntimeResources,
+) {
+    if change.open {
+        resources.closed_gates.remove(&change.gate);
+    } else {
+        resources.closed_gates.insert(change.gate.clone());
+    }
+    events.push(gate_state_event(change));
+    for agent in agents.iter_mut() {
+        reroute(
+            scenario,
+            agent,
+            change.at_s,
+            events,
+            &resources.closed_connectors,
+            &resources.closed_exits,
+            &resources.closed_gates,
+        );
+    }
+}
+
+fn gate_state_event(change: &crate::model::GateStateChange) -> RunEvent {
+    RunEvent {
+        time_s: change.at_s,
+        kind: "gate_state_changed".to_owned(),
+        subject: change.gate.clone(),
         detail: format!(
             "{}: {}",
             change.id,
@@ -509,6 +692,7 @@ pub fn run(scenario: &Scenario, options: RunOptions) -> Result<RunBundle, RunErr
         scenario,
         &resources.closed_connectors,
         &resources.closed_exits,
+        &resources.closed_gates,
     )?;
     let step_count = (scenario.duration_s / scenario.timestep_s).ceil() as u64;
     let mut trace = vec![snapshot(0, 0.0, &agents)];
@@ -587,7 +771,7 @@ pub fn run(scenario: &Scenario, options: RunOptions) -> Result<RunBundle, RunErr
         ),
         (
             "integration".to_owned(),
-            "deterministic-euler-0.19".to_owned(),
+            "deterministic-euler-0.21".to_owned(),
         ),
     ]);
     Ok(RunBundle::new(canonical, options, trace, events, metrics))
@@ -597,6 +781,7 @@ fn spawn_agents(
     scenario: &Scenario,
     closed_connectors: &HashSet<String>,
     closed_exits: &HashSet<String>,
+    closed_gates: &HashSet<String>,
 ) -> Result<Vec<Agent>, RunError> {
     let mut agents = Vec::new();
     for group in &scenario.agents {
@@ -617,6 +802,7 @@ fn spawn_agents(
                 group,
                 closed_connectors,
                 closed_exits,
+                closed_gates,
             );
             let waiting_for_route = planned.is_none();
             let (route, destination, final_gate) = match planned {
@@ -686,11 +872,21 @@ fn group_plan_becomes_available(
         .iter()
         .map(|change| change.at_s)
         .chain(scenario.exit_states.iter().map(|change| change.at_s))
+        .chain(scenario.gate_states.iter().map(|change| change.at_s))
         .filter(|&at_s| at_s > 0.0)
         .any(|at_s| {
             let closed_connectors = closed_connectors_at(scenario, at_s);
             let closed_exits = closed_exits_at(scenario, at_s);
-            group_plan(scenario, start, group, &closed_connectors, &closed_exits).is_some()
+            let closed_gates = closed_gates_at(scenario, at_s);
+            group_plan(
+                scenario,
+                start,
+                group,
+                &closed_connectors,
+                &closed_exits,
+                &closed_gates,
+            )
+            .is_some()
         })
 }
 
@@ -700,14 +896,20 @@ fn group_plan(
     group: &crate::model::AgentGroup,
     blocked_connectors: &HashSet<String>,
     closed_exits: &HashSet<String>,
+    closed_gates: &HashSet<String>,
 ) -> Option<PlannedTarget> {
+    let exit_constraints = ExitPlanConstraints {
+        blocked_exits: closed_exits,
+        closed_gates,
+        passed_gates: None,
+    };
     plan_for_stage(
         scenario,
         start,
         group.via.first().map(String::as_str),
         group.exit_candidates(),
         blocked_connectors,
-        closed_exits,
+        exit_constraints,
     )
 }
 
@@ -717,15 +919,21 @@ fn agent_plan(
     agent: &Agent,
     blocked_connectors: &HashSet<String>,
     closed_exits: &HashSet<String>,
+    closed_gates: &HashSet<String>,
 ) -> Option<PlannedTarget> {
     let blocked_exits = effective_blocked_exits(agent, closed_exits);
+    let exit_constraints = ExitPlanConstraints {
+        blocked_exits: &blocked_exits,
+        closed_gates,
+        passed_gates: Some(&agent.passed_gates),
+    };
     plan_for_stage(
         scenario,
         start,
         agent.via.get(agent.via_cursor).map(String::as_str),
         agent.exit_candidates.iter().map(String::as_str),
         blocked_connectors,
-        &blocked_exits,
+        exit_constraints,
     )
 }
 
@@ -735,7 +943,7 @@ fn plan_for_stage<'a>(
     waypoint_id: Option<&str>,
     destinations: impl IntoIterator<Item = &'a str>,
     blocked_connectors: &HashSet<String>,
-    closed_exits: &HashSet<String>,
+    exit_constraints: ExitPlanConstraints<'_>,
 ) -> Option<PlannedTarget> {
     if let Some(waypoint_id) = waypoint_id {
         let target = waypoint_target(scenario, waypoint_id)?;
@@ -751,7 +959,7 @@ fn plan_for_stage<'a>(
         start,
         destinations,
         blocked_connectors,
-        closed_exits,
+        exit_constraints,
     )
 }
 
@@ -760,18 +968,23 @@ fn select_exit_plan<'a>(
     start: RouteStart<'_>,
     destinations: impl IntoIterator<Item = &'a str>,
     blocked_connectors: &HashSet<String>,
-    blocked_exits: &HashSet<String>,
+    exit_constraints: ExitPlanConstraints<'_>,
 ) -> Option<PlannedTarget> {
     destinations
         .into_iter()
         .enumerate()
         .filter_map(|(index, destination)| {
-            if blocked_exits.contains(destination) {
+            if exit_constraints.blocked_exits.contains(destination) {
                 return None;
             }
             let target = exit_target(scenario, destination)?;
-            let (plan, final_gate) =
-                route_to_exit_target(scenario, start, &target, blocked_connectors)?;
+            let (plan, final_gate) = route_to_exit_target(
+                scenario,
+                start,
+                &target,
+                blocked_connectors,
+                exit_constraints,
+            )?;
             Some((
                 index,
                 PlannedTarget {
@@ -795,6 +1008,7 @@ fn route_to_exit_target(
     start: RouteStart<'_>,
     exit: &RouteTarget,
     blocked_connectors: &HashSet<String>,
+    exit_constraints: ExitPlanConstraints<'_>,
 ) -> Option<(RoutePlan, Option<String>)> {
     let gates: Vec<_> = scenario
         .gates
@@ -805,9 +1019,18 @@ fn route_to_exit_target(
         return route_to_target_avoiding(scenario, start, exit, blocked_connectors)
             .map(|plan| (plan, None));
     }
+    if gates.iter().any(|gate| {
+        exit_constraints
+            .passed_gates
+            .is_some_and(|passed_gates| passed_gates.contains(&gate.id))
+    }) {
+        return route_to_target_avoiding(scenario, start, exit, blocked_connectors)
+            .map(|plan| (plan, None));
+    }
     gates
         .into_iter()
         .enumerate()
+        .filter(|(_, gate)| !exit_constraints.closed_gates.contains(&gate.id))
         .filter_map(|(index, gate)| {
             let gate_target = RouteTarget {
                 id: gate.id.clone(),
@@ -1204,8 +1427,7 @@ fn deliver_message(
     agents: &mut [Agent],
     message: &crate::model::Message,
     events: &mut Vec<RunEvent>,
-    closed_connectors: &HashSet<String>,
-    closed_exits: &HashSet<String>,
+    resources: &RuntimeResources,
     information_delivery: &mut BTreeMap<String, InformationDeliveryMetrics>,
 ) {
     for agent in agents.iter_mut().filter(|agent| {
@@ -1230,8 +1452,9 @@ fn deliver_message(
                     agent,
                     message.at_s,
                     events,
-                    closed_connectors,
-                    closed_exits,
+                    &resources.closed_connectors,
+                    &resources.closed_exits,
+                    &resources.closed_gates,
                 );
             }
             events.push(RunEvent {
@@ -1261,8 +1484,7 @@ fn deliver_countermeasure(
     agents: &mut [Agent],
     countermeasure: &crate::model::Countermeasure,
     events: &mut Vec<RunEvent>,
-    closed_connectors: &HashSet<String>,
-    closed_exits: &HashSet<String>,
+    resources: &RuntimeResources,
     information_delivery: &mut BTreeMap<String, InformationDeliveryMetrics>,
 ) {
     for agent in agents.iter_mut().filter(|agent| {
@@ -1294,16 +1516,17 @@ fn deliver_countermeasure(
                 apply_claim_to_physical_state(
                     agent,
                     &message.claim,
-                    closed_connectors,
-                    closed_exits,
+                    &resources.closed_connectors,
+                    &resources.closed_exits,
                 );
                 reroute(
                     scenario,
                     agent,
                     countermeasure.at_s,
                     events,
-                    closed_connectors,
-                    closed_exits,
+                    &resources.closed_connectors,
+                    &resources.closed_exits,
+                    &resources.closed_gates,
                 );
             }
             events.push(RunEvent {
@@ -1403,6 +1626,7 @@ fn reroute(
     events: &mut Vec<RunEvent>,
     closed_connectors: &HashSet<String>,
     closed_exits: &HashSet<String>,
+    closed_gates: &HashSet<String>,
 ) {
     if !matches!(agent.motion, Motion::OnSurface) {
         return;
@@ -1422,6 +1646,7 @@ fn reroute(
         agent,
         &blocked_connectors,
         closed_exits,
+        closed_gates,
     ) {
         if planned.target.is_exit {
             agent.destination.clone_from(&planned.target.id);
@@ -1436,6 +1661,7 @@ fn reroute(
             .into_iter()
             .map(|connector| format!("connector:{connector}"))
             .chain(blocked_exits.into_iter().map(|exit| format!("exit:{exit}")))
+            .chain(closed_gates.iter().map(|gate| format!("gate:{gate}")))
             .collect();
         blocked.sort_unstable();
         events.push(RunEvent {
@@ -1511,7 +1737,8 @@ fn integrate(
     let spatial_snapshot = SpatialSnapshot::from_agents(agents);
     let mut lift_loads = current_lift_loads(agents);
     for (index, connector) in scenario.connectors.iter().enumerate() {
-        let Some(service_rate_per_s) = connector.service_rate_per_s() else {
+        let Some(service_rate_per_s) = scenario.connector_service_rate_at(connector.id(), time_s)
+        else {
             continue;
         };
         let token = resources.connector_tokens.entry(index).or_default();
@@ -1519,12 +1746,15 @@ fn integrate(
             (*token + service_rate_per_s * scenario.timestep_s).min(service_rate_per_s.max(1.0));
     }
     for gate in &scenario.gates {
+        let service_rate_per_s = scenario
+            .gate_service_rate_at(&gate.id, time_s)
+            .expect("validated gate exists");
         let token = resources.gate_tokens.entry(gate.id.clone()).or_default();
-        *token = (*token + gate.service_rate_per_s * scenario.timestep_s)
-            .min(gate.service_rate_per_s.max(1.0));
+        *token =
+            (*token + service_rate_per_s * scenario.timestep_s).min(service_rate_per_s.max(1.0));
     }
     for exit in &scenario.exits {
-        let Some(capacity_per_s) = exit.capacity_per_s else {
+        let Some(capacity_per_s) = scenario.exit_capacity_at(&exit.id, time_s) else {
             continue;
         };
         let token = resources.exit_tokens.entry(exit.id.clone()).or_default();
@@ -1577,6 +1807,7 @@ fn integrate(
                             events,
                             &resources.closed_connectors,
                             &resources.closed_exits,
+                            &resources.closed_gates,
                         );
                     }
                 }
@@ -1648,6 +1879,7 @@ fn integrate(
                                 agent,
                                 &blocked_connectors,
                                 &resources.closed_exits,
+                                &resources.closed_gates,
                             ) {
                                 if planned.target.is_exit {
                                     agent.destination.clone_from(&planned.target.id);
@@ -1688,6 +1920,18 @@ fn integrate(
                                 });
                             }
                         } else if let Some(gate_id) = final_gate {
+                            if resources.closed_gates.contains(&gate_id) {
+                                reroute(
+                                    scenario,
+                                    agent,
+                                    time_s,
+                                    events,
+                                    &resources.closed_connectors,
+                                    &resources.closed_exits,
+                                    &resources.closed_gates,
+                                );
+                                continue;
+                            }
                             let tokens = resources.gate_tokens.entry(gate_id.clone()).or_default();
                             if *tokens >= 1.0 {
                                 *tokens -= 1.0;
@@ -1712,6 +1956,7 @@ fn integrate(
                                     events,
                                     &resources.closed_connectors,
                                     &resources.closed_exits,
+                                    &resources.closed_gates,
                                 );
                                 continue;
                             }
@@ -1720,7 +1965,7 @@ fn integrate(
                                 .iter()
                                 .find(|exit| exit.id == agent.destination)
                                 .expect("validated exit exists");
-                            if exit.capacity_per_s.is_some() {
+                            if scenario.exit_capacity_at(&exit.id, time_s).is_some() {
                                 let tokens =
                                     resources.exit_tokens.entry(exit.id.clone()).or_default();
                                 if *tokens < 1.0 {
@@ -1763,7 +2008,10 @@ fn integrate(
                             agent.waiting_connector = Some(ConnectorWait::Lift);
                             continue;
                         }
-                        if connector.service_rate_per_s().is_some() {
+                        if scenario
+                            .connector_service_rate_at(connector.id(), time_s)
+                            .is_some()
+                        {
                             let tokens = resources
                                 .connector_tokens
                                 .entry(connector_index)

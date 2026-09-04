@@ -8,4 +8,5 @@ obstacle kiosk on concourse at (14m, 3m, 0m) size (3m, 3m)
 exit street on concourse at (28m, 5m, 0m) width 2m capacity 2/s
 stair central_stair from platform at (12m, 5m, 3m) to concourse at (12m, 5m, 0m) width 1.5m capacity 1.2/s clearance 2m
 gate fare_gate on concourse at (22m, 5m, 0m) width 1.2m capacity 1.5/s to street
-agents passengers count 24 on platform at (3m, 5m, 3m) to street speed 1.2m/s radius 0.3m height 1.7m release 5s every 1s
+gate-capacity-state fare_gate_reduced gate fare_gate capacity 0.75/s time 30s
+agents passengers count 24 on platform at (3m, 5m, 3m) to street speed 1.2m/s radius 0.3m height 1.7m release 5s every 1s batch 4

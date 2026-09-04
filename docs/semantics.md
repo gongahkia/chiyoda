@@ -1,7 +1,7 @@
-# Executable semantics 0.19
+# Executable semantics 0.21
 
 The Rust `chiyoda-core` runtime is the reference interpreter for language
-version 0.19. This document is normative where it describes public behavior;
+version 0.21. This document is normative where it describes public behavior;
 the source and conformance tests make that behavior executable.
 
 ## State and step order
@@ -11,16 +11,21 @@ agent group. Static validation checks every generated starting coordinate
 against the declared surface and the same radius-expanded obstacles used by the
 navigator before the interpreter starts. A simulation step at time `t` performs,
 in chronological event order. Events with equal timestamps run in this order:
-connector state, exit state, message, countermeasure; declaration order breaks
-any remaining tie within an event class.
+availability and capacity state, message, countermeasure; declaration order
+breaks any remaining tie within one event kind.
 
-1. Apply each `connector-state` and `exit-state` event whose declared time falls
-   in `(t - timestep, t]` to physical availability. State events at `0s` are
-   applied before the initial trace; same-time events apply in declaration
-   order within their event class. A state change immediately recomputes each
-   on-surface agent's route. It does not interrupt an agent already in connector
-   transit or already evacuated through an exit; an arriving agent recomputes
-   before attempting a now-closed final exit.
+1. Apply each availability and capacity-state event whose declared time falls
+   in `(t - timestep, t]`. `connector-state`, `exit-state`, and `gate-state`
+   alter physical availability and immediately recompute every on-surface route.
+   `connector-capacity-state`, `exit-capacity-state`, and
+   `gate-capacity-state` alter only the effective service rate and emit an
+   event; route selection does not forecast queues. State events at `0s` are
+   applied before the initial trace; same-time declarations of one kind apply
+   in declaration order. An availability change does not interrupt an agent
+   already in connector transit or already evacuated through an exit; an
+   arriving agent recomputes before attempting a now-closed final exit. A gate
+   closure excludes that gate from future final-exit plans; it does not revoke
+   passage already processed through the gate.
 2. Deliver each message and countermeasure whose declared time falls in
    `(t - timestep, t]` to active agents on the same surface within the
    declared reach radius. A not-yet-released group is not a recipient.
@@ -50,15 +55,20 @@ any remaining tie within an event class.
    An optional explicit sampling key replaces the intervention identifier in
    that draw. Keys are globally unique within one scenario; matching a key
    across separately authored comparison arms deliberately aligns draw streams.
-4. Accrue gate, declared connector, and declared exit service tokens at their authored
-   people-per-second rates. Each resource begins empty and stores at most one
-   authored rate's worth of credit, with a one-person minimum for rates below
-   `1/s`; an idle resource therefore retains no more than one second of
-   throughput (or one discrete person). Only whole tokens may be consumed.
+4. Accrue gate, declared connector, and declared exit service tokens at their
+   effective authored people-per-second rates for this step. A capacity state
+   in the step therefore takes effect before accrual. Each resource begins
+   empty and stores at most one effective rate's worth of credit, with a
+   one-person minimum for rates below `1/s`; an idle resource therefore retains
+   no more than one second of throughput (or one discrete person). Only whole
+   tokens may be consumed.
 5. Release each agent whose authored release time is at or before `t`, then
    advance in-transit agents and on-surface agents in declaration order using
    a fixed Euler step, radius-based local separation, and surface bounds
-   clamping. Release occurs after information delivery in the same step.
+   clamping. For `release T every I batch N`, ordinal agents share one release
+   time by integer batch: `T + I * floor(ordinal / N)`. Omitted `batch` is
+   one; omitted `every` releases the whole group at `T`. Release occurs after
+   information delivery in the same step.
 6. Board an available connector, process a gate token, process an exit token,
    advance from a reached next required waypoint or final exit stage, or mark
    the agent evacuated. A
@@ -78,11 +88,11 @@ unordered map iteration.
 
 ## What this does not mean
 
-The `0.19` local-separation law, nominal routing cost and alternative-exit
-selection, scheduled-release semantics, operational-state transitions,
-escalator walking-rider assumption, and seeded information acceptance law are
-reference semantics, not calibrated behavioral claims. A valid source program
-or deterministic trace does not
+The `0.21` local-separation law, nominal routing cost and alternative-exit
+selection, scheduled-release and service-capacity semantics, operational-state
+transitions, escalator walking-rider assumption, and seeded information
+acceptance law are reference semantics, not calibrated behavioral claims. A
+valid source program or deterministic trace does not
 demonstrate crowd-flow accuracy, accessible egress fidelity, message
 effectiveness, operational-state fidelity, or operational safety.
 

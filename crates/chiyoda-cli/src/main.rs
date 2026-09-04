@@ -2200,7 +2200,10 @@ fn validate_bundle_metrics(bundle: &RunBundle, directory: &Path) -> Result<()> {
             directory.display()
         );
     }
-    if matches!(bundle.bundle_version.as_str(), "0.17" | "0.18" | "0.19") {
+    if matches!(
+        bundle.bundle_version.as_str(),
+        "0.17" | "0.18" | "0.19" | "0.20" | "0.21"
+    ) {
         let fully_evacuated = metrics.evacuated_agents == metrics.total_agents;
         if metrics.clearance_time_s.is_some() != fully_evacuated {
             bail!(
@@ -2275,8 +2278,10 @@ fn validate_bundle_metrics(bundle: &RunBundle, directory: &Path) -> Result<()> {
             );
         }
     }
-    if matches!(bundle.bundle_version.as_str(), "0.18" | "0.19")
-        && !expected_interventions.is_empty()
+    if matches!(
+        bundle.bundle_version.as_str(),
+        "0.18" | "0.19" | "0.20" | "0.21"
+    ) && !expected_interventions.is_empty()
     {
         bail!(
             "0.18 bundle omits information-delivery metrics for: {}",

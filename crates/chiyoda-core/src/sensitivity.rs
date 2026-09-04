@@ -135,10 +135,19 @@ pub enum SensitivityTarget {
     AgentReleaseAtS,
     AgentReleaseIntervalS,
     AgentReleaseBatchSize,
+    ConnectorStateAtS,
+    ExitStateAtS,
+    GateStateAtS,
     ExitCapacityPerS,
     ConnectorCapacityPerS,
+    ExitCapacityStatePerS,
+    ConnectorCapacityStatePerS,
+    ExitCapacityStateAtS,
+    ConnectorCapacityStateAtS,
     EscalatorBeltSpeedMps,
     GateServiceRatePerS,
+    GateCapacityStatePerS,
+    GateCapacityStateAtS,
     MessageTrust,
     MessageReachM,
     CountermeasureTrust,
@@ -149,17 +158,26 @@ impl SensitivityTarget {
     #[must_use]
     pub fn unit(self) -> &'static str {
         match self {
-            Self::AgentCount => "agents",
+            Self::AgentCount | Self::AgentReleaseBatchSize => "agents",
             Self::AgentSpeedMps | Self::EscalatorBeltSpeedMps => "m/s",
             Self::AgentRadiusM
             | Self::AgentHeightM
             | Self::MessageReachM
             | Self::CountermeasureReachM => "m",
-            Self::AgentReleaseAtS | Self::AgentReleaseIntervalS => "s",
-            Self::AgentReleaseBatchSize => "agents",
-            Self::ExitCapacityPerS | Self::ConnectorCapacityPerS | Self::GateServiceRatePerS => {
-                "/s"
-            }
+            Self::AgentReleaseAtS
+            | Self::AgentReleaseIntervalS
+            | Self::ConnectorStateAtS
+            | Self::ExitStateAtS
+            | Self::GateStateAtS
+            | Self::ExitCapacityStateAtS
+            | Self::ConnectorCapacityStateAtS
+            | Self::GateCapacityStateAtS => "s",
+            Self::ExitCapacityPerS
+            | Self::ConnectorCapacityPerS
+            | Self::ExitCapacityStatePerS
+            | Self::ConnectorCapacityStatePerS
+            | Self::GateServiceRatePerS
+            | Self::GateCapacityStatePerS => "/s",
             Self::MessageTrust | Self::CountermeasureTrust => "probability",
         }
     }
@@ -172,10 +190,20 @@ impl SensitivityTarget {
             });
         }
         match self {
-            Self::AgentReleaseAtS if value < 0.0 => Err(SensitivityError::InvalidValue {
+            Self::AgentReleaseAtS
+            | Self::ConnectorStateAtS
+            | Self::ExitStateAtS
+            | Self::GateStateAtS
+            | Self::ExitCapacityStateAtS
+            | Self::ConnectorCapacityStateAtS
+            | Self::GateCapacityStateAtS
+                if value < 0.0 =>
+            {
+                Err(SensitivityError::InvalidValue {
                 factor_id: factor_id.to_owned(),
                 message: "must be zero or greater".to_owned(),
-            }),
+                })
+            }
             Self::AgentReleaseIntervalS if value <= 0.0 => Err(SensitivityError::InvalidValue {
                 factor_id: factor_id.to_owned(),
                 message: "must be greater than zero".to_owned(),
@@ -200,8 +228,11 @@ impl SensitivityTarget {
             | Self::AgentHeightM
             | Self::ExitCapacityPerS
             | Self::ConnectorCapacityPerS
+            | Self::ExitCapacityStatePerS
+            | Self::ConnectorCapacityStatePerS
             | Self::EscalatorBeltSpeedMps
             | Self::GateServiceRatePerS
+            | Self::GateCapacityStatePerS
             | Self::MessageReachM
             | Self::CountermeasureReachM
                 if value <= 0.0 =>
@@ -653,17 +684,34 @@ fn factor_value(scenario: &Scenario, factor: &SensitivityFactor) -> Result<f64, 
             }
             Ok(f64::from(group.release_batch_size.unwrap_or(1)))
         }
+        SensitivityTarget::ConnectorStateAtS => Ok(connector_state(scenario, factor)?.at_s),
+        SensitivityTarget::ExitStateAtS => Ok(exit_state(scenario, factor)?.at_s),
+        SensitivityTarget::GateStateAtS => Ok(gate_state(scenario, factor)?.at_s),
         SensitivityTarget::ExitCapacityPerS => exit(scenario, factor)?
             .capacity_per_s
             .ok_or_else(|| unsupported(factor, "an exit without an authored capacity")),
         SensitivityTarget::ConnectorCapacityPerS => connector(scenario, factor)?
             .service_rate_per_s()
             .ok_or_else(|| unsupported(factor, "a lift or connector without an authored capacity")),
+        SensitivityTarget::ExitCapacityStatePerS => {
+            Ok(exit_capacity_state(scenario, factor)?.capacity_per_s)
+        }
+        SensitivityTarget::ConnectorCapacityStatePerS => {
+            Ok(connector_capacity_state(scenario, factor)?.capacity_per_s)
+        }
+        SensitivityTarget::ExitCapacityStateAtS => Ok(exit_capacity_state(scenario, factor)?.at_s),
+        SensitivityTarget::ConnectorCapacityStateAtS => {
+            Ok(connector_capacity_state(scenario, factor)?.at_s)
+        }
         SensitivityTarget::EscalatorBeltSpeedMps => match connector(scenario, factor)? {
             Connector::Escalator { belt_speed_mps, .. } => Ok(*belt_speed_mps),
             _ => Err(unsupported(factor, "a non-escalator connector")),
         },
         SensitivityTarget::GateServiceRatePerS => Ok(gate(scenario, factor)?.service_rate_per_s),
+        SensitivityTarget::GateCapacityStatePerS => {
+            Ok(gate_capacity_state(scenario, factor)?.capacity_per_s)
+        }
+        SensitivityTarget::GateCapacityStateAtS => Ok(gate_capacity_state(scenario, factor)?.at_s),
         SensitivityTarget::MessageTrust => Ok(message(scenario, factor)?.trust),
         SensitivityTarget::MessageReachM => Ok(message(scenario, factor)?.reach_m),
         SensitivityTarget::CountermeasureTrust => Ok(countermeasure(scenario, factor)?.trust),
@@ -698,6 +746,15 @@ fn apply_factor(
             }
             group.release_batch_size = Some(batch_size);
         }
+        SensitivityTarget::ConnectorStateAtS => {
+            connector_state_mut(scenario, factor)?.at_s = value;
+        }
+        SensitivityTarget::ExitStateAtS => {
+            exit_state_mut(scenario, factor)?.at_s = value;
+        }
+        SensitivityTarget::GateStateAtS => {
+            gate_state_mut(scenario, factor)?.at_s = value;
+        }
         SensitivityTarget::ExitCapacityPerS => {
             exit_mut(scenario, factor)?.capacity_per_s = Some(value);
         }
@@ -707,12 +764,30 @@ fn apply_factor(
             | Connector::Escalator { capacity_per_s, .. } => *capacity_per_s = Some(value),
             Connector::Lift { .. } => return Err(unsupported(factor, "a lift connector")),
         },
+        SensitivityTarget::ExitCapacityStatePerS => {
+            exit_capacity_state_mut(scenario, factor)?.capacity_per_s = value;
+        }
+        SensitivityTarget::ConnectorCapacityStatePerS => {
+            connector_capacity_state_mut(scenario, factor)?.capacity_per_s = value;
+        }
+        SensitivityTarget::ExitCapacityStateAtS => {
+            exit_capacity_state_mut(scenario, factor)?.at_s = value;
+        }
+        SensitivityTarget::ConnectorCapacityStateAtS => {
+            connector_capacity_state_mut(scenario, factor)?.at_s = value;
+        }
         SensitivityTarget::EscalatorBeltSpeedMps => match connector_mut(scenario, factor)? {
             Connector::Escalator { belt_speed_mps, .. } => *belt_speed_mps = value,
             _ => return Err(unsupported(factor, "a non-escalator connector")),
         },
         SensitivityTarget::GateServiceRatePerS => {
             gate_mut(scenario, factor)?.service_rate_per_s = value;
+        }
+        SensitivityTarget::GateCapacityStatePerS => {
+            gate_capacity_state_mut(scenario, factor)?.capacity_per_s = value;
+        }
+        SensitivityTarget::GateCapacityStateAtS => {
+            gate_capacity_state_mut(scenario, factor)?.at_s = value;
         }
         SensitivityTarget::MessageTrust => message_mut(scenario, factor)?.trust = value,
         SensitivityTarget::MessageReachM => message_mut(scenario, factor)?.reach_m = value,
@@ -823,6 +898,72 @@ fn gate_mut<'a>(
         .iter_mut()
         .find(|item| item.id == factor.subject)
         .ok_or_else(|| unknown(factor, "gate"))
+}
+
+fn connector_capacity_state<'a>(
+    scenario: &'a Scenario,
+    factor: &SensitivityFactor,
+) -> Result<&'a crate::model::ConnectorCapacityChange, SensitivityError> {
+    scenario
+        .connector_capacity_states
+        .iter()
+        .find(|item| item.id == factor.subject)
+        .ok_or_else(|| unknown(factor, "connector capacity state"))
+}
+
+fn connector_capacity_state_mut<'a>(
+    scenario: &'a mut Scenario,
+    factor: &SensitivityFactor,
+) -> Result<&'a mut crate::model::ConnectorCapacityChange, SensitivityError> {
+    scenario
+        .connector_capacity_states
+        .iter_mut()
+        .find(|item| item.id == factor.subject)
+        .ok_or_else(|| unknown(factor, "connector capacity state"))
+}
+
+fn exit_capacity_state<'a>(
+    scenario: &'a Scenario,
+    factor: &SensitivityFactor,
+) -> Result<&'a crate::model::ExitCapacityChange, SensitivityError> {
+    scenario
+        .exit_capacity_states
+        .iter()
+        .find(|item| item.id == factor.subject)
+        .ok_or_else(|| unknown(factor, "exit capacity state"))
+}
+
+fn exit_capacity_state_mut<'a>(
+    scenario: &'a mut Scenario,
+    factor: &SensitivityFactor,
+) -> Result<&'a mut crate::model::ExitCapacityChange, SensitivityError> {
+    scenario
+        .exit_capacity_states
+        .iter_mut()
+        .find(|item| item.id == factor.subject)
+        .ok_or_else(|| unknown(factor, "exit capacity state"))
+}
+
+fn gate_capacity_state<'a>(
+    scenario: &'a Scenario,
+    factor: &SensitivityFactor,
+) -> Result<&'a crate::model::GateCapacityChange, SensitivityError> {
+    scenario
+        .gate_capacity_states
+        .iter()
+        .find(|item| item.id == factor.subject)
+        .ok_or_else(|| unknown(factor, "gate capacity state"))
+}
+
+fn gate_capacity_state_mut<'a>(
+    scenario: &'a mut Scenario,
+    factor: &SensitivityFactor,
+) -> Result<&'a mut crate::model::GateCapacityChange, SensitivityError> {
+    scenario
+        .gate_capacity_states
+        .iter_mut()
+        .find(|item| item.id == factor.subject)
+        .ok_or_else(|| unknown(factor, "gate capacity state"))
 }
 
 fn message<'a>(

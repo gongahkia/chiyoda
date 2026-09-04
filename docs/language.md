@@ -1,4 +1,4 @@
-# Chiyoda language reference 0.19
+# Chiyoda language reference 0.21
 
 Each non-empty line is one declaration. Lines beginning with `#` are comments.
 Quoted strings are supported only where explicitly shown. All lengths use
@@ -27,9 +27,13 @@ escalator ID from SURFACE at (LENGTH, LENGTH, LENGTH) to SURFACE at (LENGTH, LEN
 lift ID from SURFACE at (LENGTH, LENGTH, LENGTH) to SURFACE at (LENGTH, LENGTH, LENGTH) cabin LENGTH LENGTH capacity UNSIGNED_INTEGER cycle DURATION [clearance LENGTH]
 connector-state ID connector CONNECTOR (open|closed) time DURATION
 exit-state ID exit EXIT (open|closed) time DURATION
+connector-capacity-state ID connector CONNECTOR capacity RATE time DURATION
+exit-capacity-state ID exit EXIT capacity RATE time DURATION
 gate ID on SURFACE at (LENGTH, LENGTH, LENGTH) width LENGTH capacity RATE to EXIT
+gate-state ID gate GATE (open|closed) time DURATION
+gate-capacity-state ID gate GATE capacity RATE time DURATION
 
-agents ID count UNSIGNED_INTEGER on SURFACE at (LENGTH, LENGTH, LENGTH) to EXIT speed SPEED radius LENGTH height LENGTH [via WAYPOINT]... [alternative EXIT]... [exclude (stair|ramp|escalator|lift)]... [release DURATION [every DURATION]]
+agents ID count UNSIGNED_INTEGER on SURFACE at (LENGTH, LENGTH, LENGTH) to EXIT speed SPEED radius LENGTH height LENGTH [via WAYPOINT]... [alternative EXIT]... [exclude (stair|ramp|escalator|lift)]... [release DURATION [every DURATION [batch UNSIGNED_INTEGER]]]
 
 message ID source (peer|official|signage|staff) on SURFACE at (LENGTH, LENGTH, LENGTH) claim (connector CONNECTOR|exit EXIT) (open|closed) truth (true|false) time DURATION reach LENGTH trust PROBABILITY [sample ID]
 countermeasure ID corrects MESSAGE source (official|signage|staff) on SURFACE at (LENGTH, LENGTH, LENGTH) time DURATION reach LENGTH trust PROBABILITY [sample ID]
@@ -42,9 +46,13 @@ suffix. `PROBABILITY` is a finite decimal in `[0, 1]`.
 `release` is optional and defaults to `0s`. It schedules when a declared group
 becomes active; it is an authored demand input rather than an arrival-rate fit.
 `release T every I` releases ordinal group agents deterministically at `T`,
-`T + I`, and so on. Omission of `every` retains simultaneous batch release.
-The final ordinal release must fall within scenario duration. This is a declared
-schedule, not an inferred arrival process or stochastic demand fit.
+`T + I`, and so on. `release T every I batch N` releases at most `N` agents at
+each of those instants: agents 0 through `N - 1` release at `T`, the next `N`
+at `T + I`, and so on. Omitting `batch` means one agent per instant; omitting
+`every` retains simultaneous release of the whole group. A batch requires an
+`every` clause and must be positive. The final batch release must fall within
+scenario duration. This is a declared schedule, not an inferred arrival
+process or stochastic demand fit.
 Each `via` adds an ordered required waypoint stage before the final exit.
 Waypoint `dwell` defaults to `0s`; when declared, it holds an agent after the
 stage before it may begin the next one.
@@ -63,6 +71,13 @@ canonical formatting writes them in connector-class order.
 Exit and non-lift connector `capacity` are optional and default to unlimited
 throughput. When declared, each is an authored people-per-second service limit;
 width is never silently converted to a flow rate.
+`connector-capacity-state` and `exit-capacity-state` change a resource's
+authored rate at a declared time; `gate-capacity-state` does the same for a
+gate. The referenced non-lift connector or exit must already have an authored
+baseline capacity, and every scheduled rate must be positive. A capacity state
+does not derive a rate from geometry or make a claim about staffing, demand,
+queue discipline, or facility operations. Same-time capacity states apply in
+declaration order.
 Connector `clearance` is optional and defaults to unlimited height. When
 declared, a connector may only be used by an agent whose authored `height` is
 at most that clearance. A non-lift connector may declare one `capacity` and one
@@ -76,14 +91,20 @@ exists so two authored comparison arms can keep matched trust draws despite
 renaming the intervention; it is not a model of repeated measurements or a
 claim about paired human behavior. Omission preserves the identifier stream.
 
-Every connector and exit is physically open by default. `connector-state` and
-`exit-state` change physical availability; events at `0s` establish the
-initial state, and same-time events apply in declaration order. A `message`
-records what a recipient may believe about a connector or final exit, whereas
-a state declaration records what can actually be boarded or used. The compiler
-checks that `truth true` agrees with the claimed resource's authored physical
-state at the message time and that `truth false` disagrees. A belief never
-overrides a physical closure.
+Every connector, exit, and gate is physically open by default.
+`connector-state`, `exit-state`, and `gate-state` change physical availability;
+capacity-state declarations change only service tokens, not availability or
+route choice. A closed gate excludes that gate from final-exit planning. Agents
+already processed by a gate continue to its exit; agents that have not passed a
+closed gate reroute to an open gate or an alternative exit, or wait for a route.
+Events at `0s` establish the initial state, and same-time declarations of one
+kind apply in declaration order. A `message` records what a recipient may
+believe about a connector or final exit, whereas an availability state
+declaration records what can actually be boarded or used. The compiler checks
+that `truth true` agrees with the claimed resource's authored physical state at
+the message time and that `truth false` disagrees. A belief never overrides a
+physical closure. Gate availability is not a proposition type and cannot be
+asserted by a `message`.
 
 An accepted exit-availability belief is also excluded from that recipient's
 final-exit selection; a qualifying countermeasure resets the belief to the
@@ -97,7 +118,10 @@ The compiler enforces globally unique identifiers; positive geometry,
 durations, speeds, widths, rates, and capacities; in-surface coordinates;
 obstacle extents; unoccupied exit, connector, gate, every deterministic agent
 spawn (including the navigation radius clearance), and message coordinate; exit
-and connector references; connector-state and exit-state times; message truth labels against
+contracts; message truth labels against
+and connector references; gate destinations; availability- and capacity-state
+times and resource contracts; message truth labels against
+contracts; message truth labels against
 the claimed resource's authored physical state; an agent-height- and connector-eligibility-aware
 directed surface path from every agent group through every required waypoint
 stage and to every declared final exit candidate; message timing; and
@@ -111,14 +135,14 @@ messaging effects are empirically validated.
 ## Canonical IR
 
 Successful compilation emits a JSON `CanonicalScenario` with
-`language_version: "0.19"`. Declaration order is preserved and forms part of
+`language_version: "0.21"`. Declaration order is preserved and forms part of
 the deterministic execution contract. The canonical IR is the public boundary
 between conforming compilers and runtimes; direct use of parser internals is
 not a stable API.
 
 ## Current geometry boundary
 
-Version 0.19 supports axis-aligned rectangular walkable surfaces with
+Version 0.21 supports axis-aligned rectangular walkable surfaces with
 axis-aligned rectangular no-go zones, joined by directed 3D stairs, ramps,
 escalators, and lifts. The runtime expands no-go zones by each agent radius
 and finds a deterministic Euclidean shortest path through the resulting

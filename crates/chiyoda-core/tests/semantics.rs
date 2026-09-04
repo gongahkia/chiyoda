@@ -96,6 +96,228 @@ message plaza_notice source signage on concourse at (1m, 1m, 0m) claim exit plaz
 }
 
 #[test]
+fn capacity_state_changes_round_trip_log_and_limit_the_effective_rate() {
+    let source = r#"
+scenario "scheduled-capacity"
+seed 1
+duration 6s
+timestep 1s
+surface upper at (0m, 0m, 3m) size (10m, 10m)
+surface concourse at (0m, 0m, 0m) size (10m, 10m)
+exit street on concourse at (5m, 1m, 0m) width 2m capacity 2/s
+exit side on concourse at (8m, 1m, 0m) width 2m capacity 1/s
+stair down from upper at (2m, 1m, 3m) to concourse at (2m, 1m, 0m) width 2m capacity 1/s
+connector-capacity-state down_slow connector down capacity 0.5/s time 0s
+connector-capacity-state down_restore connector down capacity 1/s time 3s
+exit-capacity-state street_slow exit street capacity 0.1/s time 2s
+gate side_gate on concourse at (7m, 1m, 0m) width 1m capacity 1/s to side
+gate-capacity-state side_gate_slow gate side_gate capacity 0.5/s time 1s
+agents passengers count 3 on concourse at (1m, 1m, 0m) to street speed 10m/s radius 0.3m height 1.7m
+"#;
+    let scenario = parse(source).expect("source parses");
+    validate(&scenario).expect("capacity-state source validates");
+    assert_eq!(scenario.connector_service_rate_at("down", 0.0), Some(0.5));
+    assert_eq!(scenario.connector_service_rate_at("down", 3.0), Some(1.0));
+    assert_eq!(scenario.exit_capacity_at("street", 1.0), Some(2.0));
+    assert_eq!(scenario.exit_capacity_at("street", 2.0), Some(0.1));
+    assert_eq!(scenario.gate_service_rate_at("side_gate", 0.0), Some(1.0));
+    assert_eq!(scenario.gate_service_rate_at("side_gate", 1.0), Some(0.5));
+    let formatted = format_scenario(&scenario);
+    assert_eq!(
+        parse(&formatted).expect("formatted source parses"),
+        scenario
+    );
+
+    let bundle = run(
+        &scenario,
+        RunOptions {
+            trace_every_steps: 1,
+        },
+    )
+    .expect("run succeeds");
+    assert_eq!(bundle.metrics.evacuated_agents, 2);
+    assert!(bundle.events.iter().any(|event| {
+        event.kind == "connector_capacity_changed" && event.subject == "down" && event.time_s == 0.0
+    }));
+    assert!(bundle.events.iter().any(|event| {
+        event.kind == "gate_capacity_changed"
+            && event.subject == "side_gate"
+            && (event.time_s - 1.0).abs() < 1e-9
+    }));
+    assert!(bundle.events.iter().any(|event| {
+        event.kind == "exit_capacity_changed"
+            && event.subject == "street"
+            && (event.time_s - 2.0).abs() < 1e-9
+    }));
+    assert!(bundle.events.iter().any(|event| {
+        event.kind == "connector_capacity_changed"
+            && event.subject == "down"
+            && (event.time_s - 3.0).abs() < 1e-9
+    }));
+}
+
+#[test]
+fn validation_rejects_capacity_changes_without_a_constrained_resource() {
+    let source = r#"
+scenario "invalid-capacity-state"
+seed 1
+duration 10s
+timestep 1s
+surface upper at (0m, 0m, 3m) size (10m, 10m)
+surface concourse at (0m, 0m, 0m) size (10m, 10m)
+exit street on concourse at (5m, 1m, 0m) width 2m
+stair down from upper at (2m, 1m, 3m) to concourse at (2m, 1m, 0m) width 2m
+connector-capacity-state down_limit connector down capacity 1/s time 1s
+exit-capacity-state street_limit exit street capacity 1/s time 1s
+gate-capacity-state unknown_gate gate absent capacity 1/s time 1s
+agents passengers count 1 on concourse at (1m, 1m, 0m) to street speed 1m/s radius 0.3m height 1.7m
+"#;
+    let scenario = parse(source).expect("source parses before semantic validation");
+    let errors = validate(&scenario).expect_err("invalid capacity-state resources are rejected");
+    assert!(errors.iter().any(|error| {
+        error.path == "connector_capacity_states[0].connector"
+            && error.message.contains("authored baseline capacity")
+    }));
+    assert!(errors.iter().any(|error| {
+        error.path == "exit_capacity_states[0].exit"
+            && error.message.contains("authored baseline capacity")
+    }));
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.path == "gate_capacity_states[0].gate")
+    );
+}
+
+#[test]
+fn gate_closure_reroutes_to_an_open_alternative_exit() {
+    let source = r#"
+scenario "gate-reroute"
+seed 1
+duration 40s
+timestep 1s
+surface concourse at (0m, 0m, 0m) size (20m, 10m)
+exit east on concourse at (18m, 1m, 0m) width 2m
+exit west on concourse at (18m, 8m, 0m) width 2m
+gate east_gate on concourse at (12m, 1m, 0m) width 1m capacity 2/s to east
+gate west_gate on concourse at (12m, 8m, 0m) width 1m capacity 2/s to west
+gate-state east_closure gate east_gate closed time 2s
+agents passengers count 1 on concourse at (1m, 1m, 0m) to east speed 1m/s radius 0.3m height 1.7m alternative west
+"#;
+    let scenario = parse(source).expect("source parses");
+    validate(&scenario).expect("gate-state source validates");
+    assert!(!scenario.gate_open_at("east_gate", 2.0));
+    assert!(scenario.gate_open_at("west_gate", 2.0));
+    assert_eq!(
+        parse(&format_scenario(&scenario)).expect("formatted source parses"),
+        scenario
+    );
+
+    let bundle = run(&scenario, RunOptions::default()).expect("run succeeds");
+    assert_eq!(bundle.metrics.evacuated_by_exit.get("west"), Some(&1));
+    assert!(bundle.events.iter().any(|event| {
+        event.kind == "gate_state_changed"
+            && event.subject == "east_gate"
+            && (event.time_s - 2.0).abs() < 1e-9
+    }));
+    assert!(
+        bundle
+            .events
+            .iter()
+            .any(|event| { event.kind == "gate_processed" && event.detail == "west_gate" })
+    );
+    assert!(
+        !bundle
+            .events
+            .iter()
+            .any(|event| { event.kind == "gate_processed" && event.detail == "east_gate" })
+    );
+}
+
+#[test]
+fn an_initially_closed_gate_recovers_when_it_reopens() {
+    let source = r#"
+scenario "gate-recovery"
+seed 1
+duration 12s
+timestep 1s
+surface concourse at (0m, 0m, 0m) size (10m, 10m)
+exit street on concourse at (8m, 1m, 0m) width 2m
+gate fare_gate on concourse at (5m, 1m, 0m) width 1m capacity 2/s to street
+gate-state initially_closed gate fare_gate closed time 0s
+gate-state reopened gate fare_gate open time 2s
+agents passengers count 1 on concourse at (1m, 1m, 0m) to street speed 1m/s radius 0.3m height 1.7m
+"#;
+    let scenario = parse(source).expect("source parses");
+    validate(&scenario).expect("gate-state source validates");
+    let bundle = run(
+        &scenario,
+        RunOptions {
+            trace_every_steps: 1,
+        },
+    )
+    .expect("run succeeds");
+    let before_reopening = bundle
+        .trace
+        .iter()
+        .find(|frame| (frame.time_s - 1.0).abs() < 1e-9)
+        .expect("trace contains one-second frame");
+    assert_eq!(
+        before_reopening.agents[0].state,
+        chiyoda_core::AgentState::WaitingForRoute
+    );
+    assert!(bundle.events.iter().any(|event| {
+        event.kind == "gate_state_changed"
+            && event.subject == "fare_gate"
+            && (event.time_s - 2.0).abs() < 1e-9
+    }));
+    assert_eq!(bundle.metrics.evacuated_agents, 1);
+}
+
+#[test]
+fn gate_closure_does_not_revoke_a_completed_gate_passage() {
+    let source = r#"
+scenario "passed-gate"
+seed 1
+duration 3s
+timestep 1s
+surface concourse at (0m, 0m, 0m) size (10m, 10m)
+exit street on concourse at (3m, 1m, 0m) width 2m
+gate fare_gate on concourse at (2m, 1m, 0m) width 1m capacity 2/s to street
+gate-state late_closure gate fare_gate closed time 2s
+agents passengers count 1 on concourse at (1m, 1m, 0m) to street speed 10m/s radius 0.3m height 1.7m
+"#;
+    let scenario = parse(source).expect("source parses");
+    validate(&scenario).expect("gate-state source validates");
+    let bundle = run(&scenario, RunOptions::default()).expect("run succeeds");
+    assert!(bundle.events.iter().any(|event| {
+        event.kind == "gate_processed" && event.detail == "fare_gate" && event.time_s < 2.0
+    }));
+    assert_eq!(bundle.metrics.evacuated_agents, 1);
+}
+
+#[test]
+fn validation_rejects_a_gate_state_for_an_unknown_gate() {
+    let source = r#"
+scenario "unknown-gate-state"
+seed 1
+duration 10s
+timestep 1s
+surface concourse at (0m, 0m, 0m) size (10m, 10m)
+exit street on concourse at (8m, 1m, 0m) width 2m
+gate-state invalid gate absent closed time 1s
+agents passengers count 1 on concourse at (1m, 1m, 0m) to street speed 1m/s radius 0.3m height 1.7m
+"#;
+    let scenario = parse(source).expect("source parses before semantic validation");
+    let errors = validate(&scenario).expect_err("unknown gate state must be rejected");
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.path == "gate_states[0].gate")
+    );
+}
+
+#[test]
 fn formatter_preserves_high_precision_authored_values() {
     let source = r#"
 scenario "high-precision-capacity"
@@ -1169,6 +1391,71 @@ agents arrivals count 3 on concourse at (1m, 1m, 0m) to street speed 1m/s radius
             .filter(|agent| agent.state == chiyoda_core::AgentState::WaitingToDepart)
             .count(),
         2
+    );
+}
+
+#[test]
+fn release_batches_activate_multiple_agents_per_cadence_instant() {
+    let source = r#"
+scenario "scheduled-pulses"
+seed 1
+duration 6s
+timestep 1s
+surface concourse at (0m, 0m, 0m) size (20m, 10m)
+exit street on concourse at (18m, 1m, 0m) width 2m
+agents arrivals count 5 on concourse at (1m, 1m, 0m) to street speed 1m/s radius 0.3m height 1.7m release 1s every 2s batch 2
+"#;
+    let scenario = parse(source).expect("source parses");
+    validate(&scenario).expect("batched cadence source validates");
+    assert_eq!(scenario.agents[0].release_batch_size, Some(2));
+    let formatted = format_scenario(&scenario);
+    assert!(formatted.contains("release 1s every 2s batch 2"));
+    assert_eq!(
+        parse(&formatted).expect("formatted source parses"),
+        scenario
+    );
+
+    let bundle = run(
+        &scenario,
+        RunOptions {
+            trace_every_steps: 1,
+        },
+    )
+    .expect("run succeeds");
+    let release_times: Vec<_> = bundle
+        .events
+        .iter()
+        .filter(|event| event.kind == "agent_released")
+        .map(|event| event.time_s)
+        .collect();
+    assert_eq!(release_times, vec![1.0, 1.0, 3.0, 3.0, 5.0]);
+}
+
+#[test]
+fn validation_rejects_a_zero_release_batch_and_parser_rejects_an_unpaired_batch() {
+    let source = r#"
+scenario "invalid-pulse"
+seed 1
+duration 10s
+timestep 1s
+surface concourse at (0m, 0m, 0m) size (10m, 10m)
+exit street on concourse at (9m, 1m, 0m) width 2m
+agents delayed count 3 on concourse at (1m, 1m, 0m) to street speed 1m/s radius 0.3m height 1.7m release 1s every 2s batch 0
+"#;
+    let scenario = parse(source).expect("source parses before semantic validation");
+    let errors = validate(&scenario).expect_err("zero batch must be rejected");
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.path == "agents[0].release_batch_size")
+    );
+
+    let parse_error = parse(source.replace("every 2s batch 0", "batch 2").as_str())
+        .expect_err("batch without cadence must not parse");
+    assert!(
+        parse_error
+            .message
+            .contains("requires `release DURATION every DURATION`")
     );
 }
 

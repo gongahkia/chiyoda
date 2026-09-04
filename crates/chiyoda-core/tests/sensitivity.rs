@@ -174,6 +174,72 @@ fn planner_varies_an_authored_agent_release_interval() {
 }
 
 #[test]
+fn planner_varies_a_release_batch_from_the_default_of_one() {
+    let baseline = parse(SOURCE).expect("fixture parses");
+    let study = plan_sensitivity(
+        &manifest(
+            SensitivityDesign::OneAtATime,
+            vec![factor(
+                "arrival_pulse",
+                SensitivityTarget::AgentReleaseBatchSize,
+                "passengers",
+                &[1.0, 2.0],
+            )],
+        ),
+        &baseline,
+    )
+    .expect("batch alternatives plan");
+
+    assert!(same_number(study.baseline_values["arrival_pulse"], 1.0));
+    assert_eq!(study.conditions.len(), 1);
+    assert_eq!(
+        study.conditions[0].scenario.agents[0].release_batch_size,
+        Some(2)
+    );
+}
+
+#[test]
+fn planner_varies_a_declared_gate_capacity_state() {
+    let baseline = parse(
+        r#"
+scenario "capacity-state-sensitivity"
+seed 7
+duration 20s
+timestep 1s
+surface concourse at (0m, 0m, 0m) size (20m, 10m)
+exit street on concourse at (18m, 2m, 0m) width 2m capacity 2/s
+gate fare_gate on concourse at (16m, 2m, 0m) width 1m capacity 2/s to street
+gate-capacity-state fare_gate_reduced gate fare_gate capacity 1/s time 10s
+agents passengers count 2 on concourse at (1m, 2m, 0m) to street speed 1m/s radius 0.3m height 1.7m
+"#,
+    )
+    .expect("fixture parses");
+    let study = plan_sensitivity(
+        &manifest(
+            SensitivityDesign::OneAtATime,
+            vec![factor(
+                "fare_gate_reduced_capacity",
+                SensitivityTarget::GateCapacityStatePerS,
+                "fare_gate_reduced",
+                &[1.0, 0.5],
+            )],
+        ),
+        &baseline,
+    )
+    .expect("capacity-state alternatives plan");
+
+    assert!(same_number(
+        study.baseline_values["fare_gate_reduced_capacity"],
+        1.0
+    ));
+    assert_eq!(study.conditions.len(), 1);
+    assert!(same_number(
+        study.conditions[0].scenario.gate_capacity_states[0].capacity_per_s,
+        0.5
+    ));
+}
+
+#[test]
 fn planner_rejects_unbounded_capacity_as_a_numeric_baseline() {
     let baseline = parse(SOURCE.replace("capacity 2/s", "").as_str())
         .expect("fixture without capacity parses");

@@ -253,6 +253,64 @@ pub fn validate(scenario: &Scenario) -> Result<(), Vec<ValidationError>> {
         );
     }
 
+    for (index, change) in scenario.connector_capacity_states.iter().enumerate() {
+        let path = format!("connector_capacity_states[{index}]");
+        check_unique(&mut ids, &change.id, &path, &mut errors);
+        match scenario
+            .connectors
+            .iter()
+            .find(|connector| connector.id() == change.connector)
+        {
+            None => errors.push(issue(
+                &format!("{path}.connector"),
+                format!("references unknown connector `{}`", change.connector),
+            )),
+            Some(connector) if connector.service_rate_per_s().is_none() => errors.push(issue(
+                &format!("{path}.connector"),
+                "requires a non-lift connector with an authored baseline capacity",
+            )),
+            Some(_) => {}
+        }
+        check_positive(
+            &format!("{path}.capacity_per_s"),
+            change.capacity_per_s,
+            &mut errors,
+        );
+        check_time(
+            &format!("{path}.at_s"),
+            change.at_s,
+            scenario.duration_s,
+            &mut errors,
+        );
+    }
+
+    for (index, change) in scenario.exit_capacity_states.iter().enumerate() {
+        let path = format!("exit_capacity_states[{index}]");
+        check_unique(&mut ids, &change.id, &path, &mut errors);
+        match scenario.exits.iter().find(|exit| exit.id == change.exit) {
+            None => errors.push(issue(
+                &format!("{path}.exit"),
+                format!("references unknown exit `{}`", change.exit),
+            )),
+            Some(exit) if exit.capacity_per_s.is_none() => errors.push(issue(
+                &format!("{path}.exit"),
+                "requires an exit with an authored baseline capacity",
+            )),
+            Some(_) => {}
+        }
+        check_positive(
+            &format!("{path}.capacity_per_s"),
+            change.capacity_per_s,
+            &mut errors,
+        );
+        check_time(
+            &format!("{path}.at_s"),
+            change.at_s,
+            scenario.duration_s,
+            &mut errors,
+        );
+    }
+
     for (index, gate) in scenario.gates.iter().enumerate() {
         let path = format!("gates[{index}]");
         check_unique(&mut ids, &gate.id, &path, &mut errors);
@@ -285,6 +343,45 @@ pub fn validate(scenario: &Scenario) -> Result<(), Vec<ValidationError>> {
                 format!("references unknown exit `{}`", gate.destination),
             )),
         }
+    }
+
+    let gate_ids: HashSet<&str> = scenario.gates.iter().map(|gate| gate.id.as_str()).collect();
+    for (index, change) in scenario.gate_states.iter().enumerate() {
+        let path = format!("gate_states[{index}]");
+        check_unique(&mut ids, &change.id, &path, &mut errors);
+        if !gate_ids.contains(change.gate.as_str()) {
+            errors.push(issue(
+                &format!("{path}.gate"),
+                format!("references unknown gate `{}`", change.gate),
+            ));
+        }
+        check_time(
+            &format!("{path}.at_s"),
+            change.at_s,
+            scenario.duration_s,
+            &mut errors,
+        );
+    }
+    for (index, change) in scenario.gate_capacity_states.iter().enumerate() {
+        let path = format!("gate_capacity_states[{index}]");
+        check_unique(&mut ids, &change.id, &path, &mut errors);
+        if !gate_ids.contains(change.gate.as_str()) {
+            errors.push(issue(
+                &format!("{path}.gate"),
+                format!("references unknown gate `{}`", change.gate),
+            ));
+        }
+        check_positive(
+            &format!("{path}.capacity_per_s"),
+            change.capacity_per_s,
+            &mut errors,
+        );
+        check_time(
+            &format!("{path}.at_s"),
+            change.at_s,
+            scenario.duration_s,
+            &mut errors,
+        );
     }
 
     let waypoint_ids: HashSet<&str> = scenario

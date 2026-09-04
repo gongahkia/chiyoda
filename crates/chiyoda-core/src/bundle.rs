@@ -123,7 +123,7 @@ impl RunBundle {
         metrics.mean_exit_time_s = metrics.mean_exit_time_s.map(canonical_number);
         let scenario_hash = canonical_hash(&scenario);
         let mut bundle = Self {
-            bundle_version: "0.19".to_owned(),
+            bundle_version: "0.21".to_owned(),
             runtime_version: RUNTIME_VERSION.to_owned(),
             scenario_hash,
             scenario,

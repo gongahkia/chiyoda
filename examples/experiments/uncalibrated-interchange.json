@@ -18,10 +18,16 @@
       "rationale": "the service rate is an explicit analytical constraint and not an observed facility throughput"
     },
     {
-      "id": "passenger_release_cadence",
-      "subject": "passengers.release and passengers.release_interval",
+      "id": "fare_gate_capacity_change",
+      "subject": "fare_gate_reduced.capacity at 30 seconds",
       "basis": "structural_assumption",
-      "rationale": "the deterministic one-second cadence exposes a staged-demand condition without claiming an observed arrival process"
+      "rationale": "the scheduled reduction is an explicit operational stress condition and not a claim about staffing, equipment reliability, or observed throughput"
+    },
+    {
+      "id": "passenger_release_cadence",
+      "subject": "passengers.release, passengers.release_interval, and passengers.release_batch_size",
+      "basis": "structural_assumption",
+      "rationale": "the deterministic one-second cadence in four-person pulses exposes a staged-demand condition without claiming an observed arrival process"
     },
     {
       "id": "agent_body_envelope",

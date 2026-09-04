@@ -124,8 +124,12 @@ capacity. The source remains out of domain for a station or evacuation; its
 values are structural alternatives, not a capacity law or queue calibration.
 
 `examples/sensitivity/arrival-cadence.json` varies a declared
-`agent_release_interval_s` for the uncalibrated interchange example. It is a
-deterministic schedule sensitivity, not an arrival-rate fit or demand model.
+`agent_release_interval_s`, `agent_release_batch_size`, and
+`gate_capacity_state_per_s` for the uncalibrated interchange example. They are
+deterministic demand and service-limit schedule sensitivities, not an
+arrival-rate fit, demand model, or observed operating profile. Batch-size
+variation requires an authored release interval; an omitted batch size has
+baseline value one.
 
 ## Designs and limits
 
@@ -145,9 +149,10 @@ The command supports these numeric targets:
 | Target | Subject | Unit |
 | --- | --- | --- |
 | `agent_count` | agent group | agents |
-| `agent_speed_mps`, `agent_radius_m`, `agent_height_m`, `agent_release_at_s`, `agent_release_interval_s` | agent group | target suffix |
+| `agent_speed_mps`, `agent_radius_m`, `agent_height_m`, `agent_release_at_s`, `agent_release_interval_s`, `agent_release_batch_size` | agent group | target suffix |
 | `exit_capacity_per_s` | exit with an authored capacity | `/s` |
 | `connector_capacity_per_s` | non-lift connector with an authored capacity | `/s` |
+| `exit_capacity_state_per_s`, `connector_capacity_state_per_s`, `gate_capacity_state_per_s` | named capacity-state declaration | `/s` |
 | `escalator_belt_speed_mps` | escalator | `m/s` |
 | `gate_service_rate_per_s` | gate | `/s` |
 | `message_trust`, `message_reach_m` | message | target suffix |
