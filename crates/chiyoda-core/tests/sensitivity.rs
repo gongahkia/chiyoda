@@ -1,6 +1,6 @@
 use chiyoda_core::{
-    AssumptionBasis, SensitivityDesign, SensitivityFactor, SensitivityManifest, SensitivityTarget,
-    parse, plan_sensitivity,
+    AssumptionBasis, SensitivityDerivedReport, SensitivityDesign, SensitivityFactor,
+    SensitivityManifest, SensitivityReference, SensitivityTarget, parse, plan_sensitivity,
 };
 
 const SOURCE: &str = r#"
@@ -10,7 +10,7 @@ duration 20s
 timestep 1s
 surface concourse at (0m, 0m, 0m) size (20m, 10m)
 exit street on concourse at (18m, 2m, 0m) width 2m capacity 2/s
-agents passengers count 2 on concourse at (1m, 2m, 0m) to street speed 1m/s radius 0.3m height 1.7m
+agents passengers count 2 on concourse at (1m, 2m, 0m) to street speed 1m/s radius 0.3m height 1.7m release 1s every 2s
 message notice source signage on concourse at (2m, 2m, 0m) claim exit street open truth true time 1s reach 5m trust 0.5
 "#;
 
@@ -38,6 +38,7 @@ fn factor(id: &str, target: SensitivityTarget, subject: &str, values: &[f64]) ->
         values: values.to_vec(),
         basis: AssumptionBasis::BestGuess,
         rationale: "disclosed best-guess alternatives".to_owned(),
+        references: Vec::new(),
     }
 }
 
@@ -148,6 +149,31 @@ fn planner_rejects_invalid_agent_count_alternatives_before_execution() {
 }
 
 #[test]
+fn planner_varies_an_authored_agent_release_interval() {
+    let baseline = parse(SOURCE).expect("fixture parses");
+    let study = plan_sensitivity(
+        &manifest(
+            SensitivityDesign::OneAtATime,
+            vec![factor(
+                "arrival_cadence",
+                SensitivityTarget::AgentReleaseIntervalS,
+                "passengers",
+                &[2.0, 3.0],
+            )],
+        ),
+        &baseline,
+    )
+    .expect("cadence alternatives plan");
+
+    assert!(same_number(study.baseline_values["arrival_cadence"], 2.0));
+    assert_eq!(study.conditions.len(), 1);
+    assert_eq!(
+        study.conditions[0].scenario.agents[0].release_interval_s,
+        Some(3.0)
+    );
+}
+
+#[test]
 fn planner_rejects_unbounded_capacity_as_a_numeric_baseline() {
     let baseline = parse(SOURCE.replace("capacity 2/s", "").as_str())
         .expect("fixture without capacity parses");
@@ -222,4 +248,44 @@ fn factorial_limit_counts_every_condition_when_the_baseline_is_not_listed() {
         .expect_err("all four alternatives must count against the execution limit");
 
     assert!(error.to_string().contains("create 4 conditions"));
+}
+
+#[test]
+fn documented_estimates_require_a_retained_source_and_limit() {
+    let baseline = parse(SOURCE).expect("fixture parses");
+    let mut documented = factor(
+        "walking_speed",
+        SensitivityTarget::AgentSpeedMps,
+        "passengers",
+        &[1.0, 1.5],
+    );
+    documented.basis = AssumptionBasis::DocumentedEstimate;
+    let missing = plan_sensitivity(
+        &manifest(SensitivityDesign::OneAtATime, vec![documented.clone()]),
+        &baseline,
+    )
+    .expect_err("documented estimate without source must be rejected");
+    assert!(
+        missing
+            .to_string()
+            .contains("requires at least one reference")
+    );
+
+    documented.references.push(SensitivityReference {
+        id: "source".to_owned(),
+        citation: "Fixture source (2026)".to_owned(),
+        url: "https://example.test/source".to_owned(),
+        applicability: "illustrative alternative range".to_owned(),
+        limitation: "not a runtime calibration".to_owned(),
+        source_sha256: Some("a".repeat(64)),
+        derived_report: Some(SensitivityDerivedReport {
+            path: "report.json".to_owned(),
+            sha256: "b".repeat(64),
+        }),
+    });
+    plan_sensitivity(
+        &manifest(SensitivityDesign::OneAtATime, vec![documented]),
+        &baseline,
+    )
+    .expect("documented source is retained with the factor");
 }

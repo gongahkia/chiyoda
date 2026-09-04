@@ -1,0 +1,22 @@
+{
+  "schema_version": "0.1",
+  "purpose": "uncalibrated_reference",
+  "dataset_id": "wuppertal-crowdqueue-2018",
+  "title": "Crowds in front of bottlenecks from the perspective of physics and social psychology",
+  "landing_page": "https://ped.fz-juelich.de/da/crowdqueue",
+  "license": "CC-BY-4.0",
+  "redistributable": true,
+  "citation": "Adrian, J., Boltes, M., Holl, S., Sieben, A., & Seyfried, A. (2018). Crowds in front of bottlenecks from the perspective of physics and social psychology [data set]. Pedestrian Dynamics Data Archive. https://doi.org/10.34735/ped.2018.1",
+  "files": [
+    {
+      "id": "trajectory-text-archive",
+      "source_url": "https://ped.fz-juelich.de/experiments/2018.01.23_Wuppertal_Entrance/data/2018crowdqueue/trajectories_txt.zip",
+      "local_path": "wuppertal-crowdqueue-2018/trajectories_txt.zip",
+      "sha256": "1918daa6c774325d8daeae31cd79da6b6cbfadeb77e8fefeffededfe979815e8",
+      "size_bytes": 4572496,
+      "transformation": "Preserve the publisher ZIP archive unchanged. The source-specific adapter reads only root text files matching RUN_PRIMING_WIDTH_MOTIVATION.txt, requires the publisher id/frame/x/m/y/m/z/m header, treats frames as 25 Hz, and reports first positive-to-nonpositive y crossings at the publisher-described entry-gate line y = 0 m."
+    }
+  ],
+  "supported_primitives": "Source-locked descriptive 2D trajectories and observed passage through one fixed 0.5 m controlled entry gate; useful only for disclosed, out-of-domain structural exit-capacity exploration.",
+  "exclusions": "Not an empirical benchmark source, calibration source, station or interchange proxy, general exit-capacity law, queueing model validation, body-dimension source, route-choice source, information-behavior source, evacuation source, population profile, accessibility evidence, or safety evidence."
+}

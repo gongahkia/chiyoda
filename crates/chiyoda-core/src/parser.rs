@@ -41,6 +41,7 @@ struct ScenarioBuilder {
 #[derive(Debug, Default)]
 struct AgentOptions {
     release_at_s: f64,
+    release_interval_s: Option<f64>,
     via: Vec<String>,
     excluded_connector_kinds: Vec<ConnectorKind>,
     alternative_destinations: Vec<String>,
@@ -346,6 +347,7 @@ fn parse_declaration(
                 radius_m: parse_length(line, required(line, tokens, 15, "agent radius")?)?,
                 height_m: parse_length(line, required(line, tokens, 17, "agent height")?)?,
                 release_at_s: agent_options.release_at_s,
+                release_interval_s: agent_options.release_interval_s,
                 via: agent_options.via,
                 excluded_connector_kinds: agent_options.excluded_connector_kinds,
             });
@@ -566,6 +568,7 @@ fn agent_options(
     primary_destination: &str,
 ) -> Result<AgentOptions, ParseError> {
     let mut release_at_s = None;
+    let mut release_interval_s = None;
     let mut via = Vec::new();
     let mut excluded_connector_kinds = Vec::new();
     let mut alternative_destinations = Vec::new();
@@ -577,6 +580,13 @@ fn agent_options(
                     line,
                     required(line, tokens, index + 1, "agent release time")?,
                 )?);
+                if tokens.get(index + 2).is_some_and(|token| token == "every") {
+                    release_interval_s = Some(parse_duration(
+                        line,
+                        required(line, tokens, index + 3, "agent release interval")?,
+                    )?);
+                    index += 2;
+                }
             }
             "via" => via.push(required(line, tokens, index + 1, "journey waypoint")?.to_owned()),
             "alternative" => {
@@ -614,6 +624,7 @@ fn agent_options(
     excluded_connector_kinds.sort_unstable();
     Ok(AgentOptions {
         release_at_s: release_at_s.unwrap_or(0.0),
+        release_interval_s,
         via,
         excluded_connector_kinds,
         alternative_destinations,

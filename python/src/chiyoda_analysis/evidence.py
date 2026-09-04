@@ -89,25 +89,59 @@ def _validate_catalog(catalog: dict[str, Any]) -> None:
         "citation",
         "supported_primitives",
         "exclusions",
-        "split_rationale",
     ):
         if not isinstance(catalog.get(key), str) or not catalog[key].strip():
             raise EvidenceError(f"catalog field `{key}` must be a non-empty string")
-    if catalog.get("license") != "CC-BY-4.0" or catalog.get("redistributable") is not True:
-        raise EvidenceError("catalog must declare a redistributable CC-BY-4.0 source")
+    license_id = catalog.get("license")
+    if license_id not in {"CC-BY-4.0", "ODbL-1.0"} or catalog.get("redistributable") is not True:
+        raise EvidenceError(
+            "catalog must declare a redistributable CC-BY-4.0 or ODbL-1.0 source"
+        )
     landing_page = catalog.get("landing_page")
     if not isinstance(landing_page, str) or not landing_page.startswith("https://"):
         raise EvidenceError("landing_page must be an HTTPS URL")
+    purpose = catalog.get("purpose", "empirical_evaluation")
+    if purpose not in {"empirical_evaluation", "uncalibrated_reference"}:
+        raise EvidenceError(
+            "purpose must be `empirical_evaluation` or `uncalibrated_reference`"
+        )
+    if license_id == "ODbL-1.0":
+        attribution = catalog.get("attribution")
+        if not isinstance(attribution, str) or not attribution.strip():
+            raise EvidenceError("attribution must be a non-empty string for an ODbL-1.0 source")
     files = _files(catalog)
-    roles = {source.get("role") for source in files}
-    if roles != {"calibration", "held_out"}:
-        raise EvidenceError("catalog must contain both calibration and held_out source files")
+    if purpose == "empirical_evaluation":
+        if license_id != "CC-BY-4.0":
+            raise EvidenceError(
+                "empirical evaluation requires CC-BY-4.0; ODbL-1.0 is limited to uncalibrated source observation"
+            )
+        split_rationale = catalog.get("split_rationale")
+        if not isinstance(split_rationale, str) or not split_rationale.strip():
+            raise EvidenceError(
+                "split_rationale is required for empirical evaluation and must not be empty"
+            )
+        roles = {source.get("role") for source in files}
+        if roles != {"calibration", "held_out"}:
+            raise EvidenceError(
+                "empirical-evaluation catalog must contain calibration and held_out source files"
+            )
+    elif any(source.get("role") is not None for source in files):
+        raise EvidenceError(
+            "uncalibrated reference sources must not declare calibration or held_out roles"
+        )
     seen_ids: set[str] = set()
     seen_paths: set[str] = set()
     for source in files:
-        for key in ("id", "source_url", "local_path", "sha256", "upstream_checksum", "transformation"):
+        for key in ("id", "source_url", "local_path", "sha256", "transformation"):
             if not isinstance(source.get(key), str) or not source[key].strip():
                 raise EvidenceError(f"source field `{key}` must be a non-empty string")
+        upstream_checksum = source.get("upstream_checksum")
+        if upstream_checksum is not None and (
+            not isinstance(upstream_checksum, str) or not upstream_checksum.strip()
+        ):
+            raise EvidenceError(
+                f"source `{source['id']}` upstream_checksum must be a non-empty string when provided"
+            )
         if not source["source_url"].startswith("https://"):
             raise EvidenceError(f"source `{source['id']}` must use HTTPS")
         if len(source["sha256"]) != 64 or any(character not in "0123456789abcdefABCDEF" for character in source["sha256"]):

@@ -328,6 +328,11 @@ pub struct AgentGroup {
     /// The authored time at which this group becomes active in the simulation.
     /// This is a scenario input, not an inferred arrival distribution.
     pub release_at_s: f64,
+    /// Optional deterministic time between each ordinal agent release. Omission
+    /// releases the whole group at `release_at_s`, preserving the original
+    /// batch-release semantics.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub release_interval_s: Option<f64>,
     /// Ordered required stages before the group's final exit.
     pub via: Vec<String>,
     /// Connector classes this group must not traverse. This is an authored

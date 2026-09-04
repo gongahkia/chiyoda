@@ -55,7 +55,7 @@ any remaining tie within an event class.
    authored rate's worth of credit, with a one-person minimum for rates below
    `1/s`; an idle resource therefore retains no more than one second of
    throughput (or one discrete person). Only whole tokens may be consumed.
-5. Release groups whose authored release time is at or before `t`, then
+5. Release each agent whose authored release time is at or before `t`, then
    advance in-transit agents and on-surface agents in declaration order using
    a fixed Euler step, radius-based local separation, and surface bounds
    clamping. Release occurs after information delivery in the same step.

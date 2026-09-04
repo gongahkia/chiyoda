@@ -55,6 +55,10 @@ $ cargo run -p chiyoda -- compare-sweeps out/control out/intervention -o out/com
 $ cargo run -p chiyoda -- sensitivity-plan examples/sensitivity/exit-capacity-and-trust.json -o out/sensitivity-plan.json
 $ cargo run -p chiyoda -- sensitivity examples/sensitivity/exit-capacity-and-trust.json -o out/sensitivity
 $ cargo run -p chiyoda -- verify-sensitivity out/sensitivity
+$ cargo run -p chiyoda -- experiment run examples/experiments/uncalibrated-interchange.json -o out/experiment
+$ cargo run -p chiyoda -- experiment verify out/experiment
+$ cargo run -p chiyoda -- layout osm my-layout-catalog.json -o out/layout-observations.json
+$ cargo run -p chiyoda -- layout verify-osm my-layout-catalog.json out/layout-observations.json
 $ cargo run -p chiyoda -- replay out/example/run.json
 $ cargo run -p chiyoda-replay -- out/example/run.json
 ```
@@ -104,6 +108,12 @@ does not require research data and does not invent probability distributions or
 confidence intervals for uncalibrated values. See the [sensitivity-study
 workflow](docs/sensitivity.md).
 
+`experiment run` is the corresponding single-scenario artifact workflow. It
+snapshots an authored scenario, disclosed assumptions, any retained JSON source
+reports, and its deterministic bundle; `experiment verify` reconstructs that
+artifact exactly. It is for uncalibrated structural work, not an empirical gate.
+See [uncalibrated experiment artifacts](docs/experiments.md).
+
 ## Research data intake
 
 Evidence acquisition, content locking, and descriptive source intake are
@@ -118,12 +128,42 @@ $ cargo run -p chiyoda -- evidence lock \
 $ cargo run -p chiyoda -- calibrate eindhoven-platform \
     benchmarks/evidence/eindhoven-centraal-platform-2024.json \
     -o out/eindhoven-platform-intake.json
+$ PYTHONPATH=python/src python3 -m chiyoda_analysis.evidence_cli fetch \
+    benchmarks/evidence/vru-trajectory-2022.json
+$ cargo run -p chiyoda -- evidence lock \
+    benchmarks/evidence/vru-trajectory-2022.json
+$ cargo run -p chiyoda -- reference vru-trajectory \
+    benchmarks/evidence/vru-trajectory-2022.json \
+    -o out/vru-trajectory-reference.json
+$ PYTHONPATH=python/src python3 -m chiyoda_analysis.evidence_cli fetch \
+    benchmarks/evidence/wuppertal-crowdqueue-2018.json
+$ cargo run -p chiyoda -- evidence lock \
+    benchmarks/evidence/wuppertal-crowdqueue-2018.json
+$ cargo run -p chiyoda -- reference crowd-queue \
+    benchmarks/evidence/wuppertal-crowdqueue-2018.json \
+    -o out/wuppertal-crowdqueue-reference.json
 ```
 
-The report is explicitly `descriptive_only`; it cannot justify predictive or
-operational use. Details, source limits, and the required next review gate are
-in [evidence boundaries](docs/evidence.md) and the [calibration
+The Eindhoven report is explicitly `descriptive_only`; it cannot justify
+predictive or operational use. Details, source limits, and the required next
+review gate are in [evidence boundaries](docs/evidence.md) and the [calibration
 protocol](docs/calibration-protocol.md).
+
+The VRU catalog is a content-locked `uncalibrated_reference`: it makes a
+CC BY 4.0 urban-intersection trajectory archive available for documented,
+out-of-domain structural assumptions without inventing a held-out split. It is
+not accepted by the calibration adapter or benchmark workflow.
+
+The Wuppertal crowd-queue catalog is another `uncalibrated_reference`. Its
+source-specific report identifies observed crossings through a controlled 0.5 m
+entry gate, including a per-run descriptive flow summary. The values are only
+used by the source-linked gate-capacity sensitivity example; they do not make
+the token-service runtime a calibrated queue model.
+
+An acquired OpenStreetMap XML extract can also be content-locked as an ODbL
+`uncalibrated_reference` and inspected with `layout osm`. It emits attributed
+geographic tag observations—not a scenario or inferred station geometry. See
+[open-layout source observations](docs/layout-sources.md).
 
 ## Language at a glance
 

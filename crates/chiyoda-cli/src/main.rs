@@ -1,12 +1,16 @@
 use anyhow::{Context, Result, bail};
 use chiyoda_core::{
-    BenchmarkManifest, CanonicalScenario, EvidenceCatalog, InformationDeliveryMetrics, RunBundle,
+    BenchmarkManifest, CanonicalScenario, EvidenceCatalog, ExperimentManifest,
+    InformationDeliveryMetrics, OpenStreetMapLayoutReport, OsmInspectionLimits, RunBundle,
     RunOptions, SensitivityFactor, SensitivityManifest, bundle_hash, calibrate_eindhoven_platform,
-    format_scenario, generator, parse, plan_sensitivity, run, validate, validate_catalog,
-    validate_manifest, verify_catalog_files,
+    format_scenario, generator, inspect_openstreetmap_layout, parse, plan_sensitivity, run,
+    summarize_crowd_queue_reference, summarize_vru_trajectory_reference, validate,
+    validate_catalog, validate_experiment_manifest, validate_manifest, verify_catalog_files,
+    verify_openstreetmap_layout_report,
 };
 use clap::{Parser, Subcommand, ValueEnum};
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::{
     collections::BTreeMap,
     fs,
@@ -125,15 +129,30 @@ enum Command {
     },
     /// Verify a complete sensitivity-study artifact against its manifest and sweeps.
     VerifySensitivity { directory: PathBuf },
+    /// Execute one provenance-bound, uncalibrated authored experiment.
+    Experiment {
+        #[command(subcommand)]
+        command: ExperimentCommand,
+    },
     /// Verify an empirical benchmark round's evidence and seed-release contract.
     Benchmark {
         #[command(subcommand)]
         command: BenchmarkCommand,
     },
-    /// Validate and content-lock research data before it can enter a round.
+    /// Validate and content-lock open data; only evaluation catalogs can enter a round.
     Evidence {
         #[command(subcommand)]
         command: EvidenceCommand,
+    },
+    /// Inspect a content-locked public layout source without creating a scenario.
+    Layout {
+        #[command(subcommand)]
+        command: LayoutCommand,
+    },
+    /// Produce an uncalibrated descriptive report from a content-locked reference source.
+    Reference {
+        #[command(subcommand)]
+        command: ReferenceCommand,
     },
     /// Produce a descriptive, source-locked calibration intake report.
     Calibrate {
@@ -151,7 +170,7 @@ enum BenchmarkCommand {
 
 #[derive(Debug, Subcommand)]
 enum EvidenceCommand {
-    /// Validate source/license/split metadata without reading acquired data.
+    /// Validate source metadata and its declared empirical or source-only purpose.
     Verify { catalog: PathBuf },
     /// Validate a catalog and verify every acquired source's size and SHA-256.
     Lock {
@@ -159,6 +178,48 @@ enum EvidenceCommand {
         #[arg(long, default_value = "data/raw")]
         data_root: PathBuf,
     },
+}
+
+#[derive(Debug, Subcommand)]
+enum LayoutCommand {
+    /// Preserve recognized OSM XML features as source observations, not DSL geometry.
+    Osm {
+        /// An uncalibrated-reference `ODbL` catalog with one acquired OSM XML file.
+        catalog: PathBuf,
+        #[arg(long, default_value = "data/raw")]
+        data_root: PathBuf,
+        /// Deliberately raise only for a reviewed extract larger than a station area.
+        #[arg(long, default_value_t = 250_000)]
+        max_nodes: usize,
+        /// Deliberately raise only for a reviewed extract larger than a station area.
+        #[arg(long, default_value_t = 50_000)]
+        max_ways: usize,
+        #[arg(short, long)]
+        output: PathBuf,
+    },
+    /// Reconstruct and verify a source-observation report from its locked OSM XML.
+    VerifyOsm {
+        /// The `ODbL` source catalog used to generate the report.
+        catalog: PathBuf,
+        /// Existing source-observation JSON report to reconstruct and compare.
+        report: PathBuf,
+        #[arg(long, default_value = "data/raw")]
+        data_root: PathBuf,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum ExperimentCommand {
+    /// Snapshot one scenario, its assumptions, and declared source reports with a run bundle.
+    Run {
+        /// JSON experiment manifest; relative paths resolve from this file.
+        manifest: PathBuf,
+        /// An empty directory that will receive the complete experiment artifact.
+        #[arg(short, long)]
+        output: PathBuf,
+    },
+    /// Reconstruct and verify every immutable part of an experiment artifact.
+    Verify { directory: PathBuf },
 }
 
 #[derive(Debug, Subcommand)]
@@ -172,6 +233,26 @@ enum CalibrateCommand {
         /// should be inspected only after a protocol has frozen the model.
         #[arg(long, value_enum, default_value_t = EvidencePartition::Calibration)]
         partition: EvidencePartition,
+        #[arg(short, long)]
+        output: PathBuf,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum ReferenceCommand {
+    /// Summarize the source-locked VRU pedestrian trajectories without calibrating the runtime.
+    VruTrajectory {
+        catalog: PathBuf,
+        #[arg(long, default_value = "data/raw")]
+        data_root: PathBuf,
+        #[arg(short, long)]
+        output: PathBuf,
+    },
+    /// Summarize the locked Wuppertal controlled-bottleneck trajectories without calibrating the runtime.
+    CrowdQueue {
+        catalog: PathBuf,
+        #[arg(long, default_value = "data/raw")]
+        data_root: PathBuf,
         #[arg(short, long)]
         output: PathBuf,
     },
@@ -299,6 +380,7 @@ struct SensitivityReport {
     first_seed: u64,
     run_count_per_condition: u32,
     trace_every_steps: u32,
+    reference_report_snapshots: Vec<SensitivityReferenceReportSnapshot>,
     factors: Vec<SensitivityFactorReport>,
     conditions: Vec<SensitivityConditionReport>,
     one_at_a_time_responses: Option<Vec<SensitivityFactorResponse>>,
@@ -317,6 +399,7 @@ struct SensitivityPlanReport {
     first_seed: u64,
     run_count_per_condition: u32,
     trace_every_steps: u32,
+    reference_report_snapshots: Vec<SensitivityReferenceReportSnapshot>,
     factors: Vec<SensitivityFactorReport>,
     conditions: Vec<SensitivityPlanCondition>,
     author_claim_boundary: String,
@@ -328,6 +411,53 @@ struct SensitivityPlanCondition {
     id: String,
     factor_values: BTreeMap<String, f64>,
     template_scenario_hash: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct SensitivityReferenceReportSnapshot {
+    factor_id: String,
+    reference_id: String,
+    source_path: String,
+    snapshot_path: String,
+    sha256: String,
+}
+
+#[derive(Debug)]
+struct CapturedSensitivityReferenceReport {
+    snapshot: SensitivityReferenceReportSnapshot,
+    bytes: Vec<u8>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct ExperimentSourceReportSnapshot {
+    source_id: String,
+    source_path: String,
+    snapshot_path: String,
+    sha256: String,
+}
+
+#[derive(Debug)]
+struct CapturedExperimentSourceReport {
+    snapshot: ExperimentSourceReportSnapshot,
+    bytes: Vec<u8>,
+}
+
+#[derive(Debug, Serialize)]
+struct ExperimentReport {
+    schema_version: String,
+    experiment_name: String,
+    description: String,
+    manifest_snapshot: String,
+    manifest_sha256: String,
+    scenario_snapshot: String,
+    scenario_source_sha256: String,
+    scenario_hash: String,
+    run_bundle: String,
+    bundle_hash: String,
+    trace_every_steps: u32,
+    source_report_snapshots: Vec<ExperimentSourceReportSnapshot>,
+    author_claim_boundary: String,
+    claim_boundary: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -397,6 +527,10 @@ struct SweepPairing {
     execution_contract: ExecutionContract,
     baseline_template_scenario_hash: String,
     candidate_template_scenario_hash: String,
+    /// Whether all authored agent declarations match. The ordinary comparison
+    /// command requires this; sensitivity comparisons may vary one declared
+    /// agent input and record the two denominators per seed instead.
+    agent_declarations_matched: bool,
     changed_scenario_sections: Vec<String>,
     information_sampling: InformationSamplingAlignment,
 }
@@ -429,7 +563,8 @@ struct SamplingDeclaration {
 #[derive(Debug, Serialize)]
 struct PairedRun {
     seed: u64,
-    total_agents: u32,
+    baseline_total_agents: u32,
+    candidate_total_agents: u32,
     baseline: PairedRunArm,
     candidate: PairedRunArm,
     candidate_minus_baseline: PairedRunDelta,
@@ -501,6 +636,18 @@ struct PairedTimeAccumulator {
     candidate_later_runs: u32,
     unchanged_runs: u32,
     deltas: Vec<f64>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ComparisonPolicy {
+    RequireMatchingAgentDeclarations,
+    AllowSensitivityAgentDeclarationChanges,
+}
+
+impl ComparisonPolicy {
+    fn allows_agent_declaration_changes(self) -> bool {
+        self == Self::AllowSensitivityAgentDeclarationChanges
+    }
 }
 
 #[allow(clippy::too_many_lines)] // top-level command dispatch is intentionally visible in one place
@@ -601,10 +748,13 @@ fn main() -> Result<()> {
             sensitivity_plan(&manifest, output.as_deref())?;
         }
         Command::VerifySensitivity { directory } => verify_sensitivity(&directory)?,
+        Command::Experiment { command } => handle_experiment(command)?,
         Command::Benchmark { command } => match command {
             BenchmarkCommand::Verify { manifest } => verify_benchmark(&manifest)?,
         },
         Command::Evidence { command } => handle_evidence(command)?,
+        Command::Layout { command } => handle_layout(command)?,
+        Command::Reference { command } => handle_reference(command)?,
         Command::Calibrate { command } => handle_calibration(command)?,
         Command::Replay {
             bundle: bundle_path,
@@ -649,6 +799,302 @@ fn handle_evidence(command: EvidenceCommand) -> Result<()> {
     Ok(())
 }
 
+fn handle_layout(command: LayoutCommand) -> Result<()> {
+    match command {
+        LayoutCommand::Osm {
+            catalog,
+            data_root,
+            max_nodes,
+            max_ways,
+            output,
+        } => {
+            let catalog: EvidenceCatalog = read_json(&catalog)?;
+            let limits = OsmInspectionLimits {
+                max_nodes,
+                max_ways,
+                ..OsmInspectionLimits::default()
+            };
+            let report = inspect_openstreetmap_layout(&catalog, &data_root, limits)?;
+            write_json(&output, &report)?;
+            println!("layout observation report: {}", output.display());
+            println!("status: {}", report.status);
+        }
+        LayoutCommand::VerifyOsm {
+            catalog,
+            report,
+            data_root,
+        } => {
+            let catalog: EvidenceCatalog = read_json(&catalog)?;
+            let report: OpenStreetMapLayoutReport = read_json(&report)?;
+            verify_openstreetmap_layout_report(&catalog, &data_root, &report)?;
+            println!(
+                "verified layout observation report: {}",
+                report.source.dataset_id
+            );
+        }
+    }
+    Ok(())
+}
+
+fn handle_experiment(command: ExperimentCommand) -> Result<()> {
+    match command {
+        ExperimentCommand::Run { manifest, output } => run_experiment(&manifest, &output)?,
+        ExperimentCommand::Verify { directory } => verify_experiment(&directory)?,
+    }
+    Ok(())
+}
+
+fn run_experiment(manifest_path: &Path, output: &Path) -> Result<()> {
+    let (manifest, scenario_source, scenario) = load_experiment(manifest_path)?;
+    let source_reports = capture_experiment_source_reports(&manifest, manifest_path)?;
+    ensure_empty_directory(output)?;
+
+    write_json(&output.join("manifest.json"), &manifest)?;
+    fs::write(output.join("scenario.chy"), &scenario_source)
+        .with_context(|| format!("writing scenario snapshot into {}", output.display()))?;
+    write_experiment_source_reports(output, &source_reports)?;
+    let bundle = run(
+        &scenario,
+        RunOptions {
+            trace_every_steps: manifest.trace_every_steps,
+        },
+    )?;
+    write_json(&output.join("run.json"), &bundle)?;
+    let report = experiment_report(
+        &manifest,
+        &fs::read(output.join("manifest.json")).context("reading manifest snapshot")?,
+        scenario_source.as_bytes(),
+        &bundle,
+        source_reports
+            .iter()
+            .map(|report| report.snapshot.clone())
+            .collect(),
+    );
+    write_json(&output.join("report.json"), &report)?;
+    println!(
+        "uncalibrated experiment: {}",
+        output.join("report.json").display()
+    );
+    println!("bundle hash: {}", bundle.bundle_hash);
+    Ok(())
+}
+
+fn verify_experiment(directory: &Path) -> Result<()> {
+    let manifest: ExperimentManifest = read_json(&directory.join("manifest.json"))?;
+    validate_experiment_manifest(&manifest).map_err(|errors| experiment_error(&errors))?;
+    let source_reports = verify_experiment_source_reports(directory, &manifest)?;
+    verify_experiment_layout(directory, !source_reports.is_empty())?;
+    let scenario_source = read_text(&directory.join("scenario.chy"))?;
+    let scenario = parse(&scenario_source).map_err(|error| anyhow::anyhow!(error))?;
+    validate(&scenario).map_err(|errors| validation_error(&errors))?;
+    let bundle: RunBundle = read_json(&directory.join("run.json"))?;
+    if !bundle.verifies_hash() || bundle_hash(&bundle) != bundle.bundle_hash {
+        bail!("experiment run bundle integrity check failed");
+    }
+    let canonical = CanonicalScenario::from(scenario);
+    if bundle.scenario != canonical
+        || bundle.scenario_hash != chiyoda_core::bundle::canonical_hash(&bundle.scenario)
+    {
+        bail!("experiment scenario snapshot does not match its run bundle");
+    }
+    if bundle.options.get("trace_every_steps") != Some(&manifest.trace_every_steps.to_string()) {
+        bail!("experiment run bundle does not use the manifest trace_every_steps");
+    }
+    let report = experiment_report(
+        &manifest,
+        &fs::read(directory.join("manifest.json")).context("reading manifest snapshot")?,
+        scenario_source.as_bytes(),
+        &bundle,
+        source_reports,
+    );
+    let persisted_report: serde_json::Value = read_json(&directory.join("report.json"))?;
+    let expected_report =
+        serde_json::to_value(&report).context("serializing reconstructed experiment report")?;
+    if persisted_report != expected_report {
+        bail!("persisted experiment report does not match reconstruction");
+    }
+    println!("verified uncalibrated experiment: {}", directory.display());
+    Ok(())
+}
+
+fn load_experiment(
+    manifest_path: &Path,
+) -> Result<(ExperimentManifest, String, chiyoda_core::Scenario)> {
+    let manifest: ExperimentManifest = read_json(manifest_path)?;
+    validate_experiment_manifest(&manifest).map_err(|errors| experiment_error(&errors))?;
+    let parent = manifest_path.parent().unwrap_or_else(|| Path::new("."));
+    let source_path = parent.join(&manifest.scenario_source);
+    let source = read_text(&source_path)?;
+    let scenario = parse(&source).map_err(|error| anyhow::anyhow!(error))?;
+    validate(&scenario).map_err(|errors| validation_error(&errors))?;
+    Ok((manifest, source, scenario))
+}
+
+fn declared_experiment_source_reports(
+    manifest: &ExperimentManifest,
+) -> Vec<ExperimentSourceReportSnapshot> {
+    manifest
+        .sources
+        .iter()
+        .filter_map(|source| {
+            source
+                .derived_report
+                .as_ref()
+                .map(|report| ExperimentSourceReportSnapshot {
+                    source_id: source.id.clone(),
+                    source_path: report.path.clone(),
+                    snapshot_path: format!("source-reports/{}.json", source.id),
+                    sha256: report.sha256.clone(),
+                })
+        })
+        .collect()
+}
+
+fn capture_experiment_source_reports(
+    manifest: &ExperimentManifest,
+    manifest_path: &Path,
+) -> Result<Vec<CapturedExperimentSourceReport>> {
+    let parent = manifest_path.parent().unwrap_or_else(|| Path::new("."));
+    declared_experiment_source_reports(manifest)
+        .into_iter()
+        .map(|snapshot| {
+            let path = parent.join(&snapshot.source_path);
+            let bytes = fs::read(&path)
+                .with_context(|| format!("reading source report {}", path.display()))?;
+            if !sha256_hex(&bytes).eq_ignore_ascii_case(&snapshot.sha256) {
+                bail!(
+                    "source report hash does not match declaration for {}: {}",
+                    snapshot.source_id,
+                    path.display()
+                );
+            }
+            let _: serde_json::Value = serde_json::from_slice(&bytes)
+                .with_context(|| format!("parsing source report {}", path.display()))?;
+            Ok(CapturedExperimentSourceReport { snapshot, bytes })
+        })
+        .collect()
+}
+
+fn write_experiment_source_reports(
+    output: &Path,
+    reports: &[CapturedExperimentSourceReport],
+) -> Result<()> {
+    for report in reports {
+        let path = output.join(&report.snapshot.snapshot_path);
+        let parent = path
+            .parent()
+            .context("experiment source snapshot must have a parent")?;
+        fs::create_dir_all(parent).with_context(|| format!("creating {}", parent.display()))?;
+        fs::write(&path, &report.bytes)
+            .with_context(|| format!("writing source report snapshot {}", path.display()))?;
+    }
+    Ok(())
+}
+
+fn verify_experiment_source_reports(
+    directory: &Path,
+    manifest: &ExperimentManifest,
+) -> Result<Vec<ExperimentSourceReportSnapshot>> {
+    let expected = declared_experiment_source_reports(manifest);
+    let root = directory.join("source-reports");
+    if expected.is_empty() {
+        if root.exists() {
+            bail!("experiment has undeclared source report snapshots");
+        }
+        return Ok(expected);
+    }
+    let actual = fs::read_dir(&root)
+        .with_context(|| format!("reading {}", root.display()))?
+        .map(|entry| {
+            let entry = entry.with_context(|| format!("reading {}", root.display()))?;
+            if !entry
+                .file_type()
+                .with_context(|| format!("reading {}", entry.path().display()))?
+                .is_file()
+            {
+                bail!(
+                    "experiment source report is not a file: {}",
+                    entry.path().display()
+                );
+            }
+            entry
+                .file_name()
+                .into_string()
+                .map_err(|_| anyhow::anyhow!("experiment source report name is not UTF-8"))
+                .map(|name| format!("source-reports/{name}"))
+        })
+        .collect::<Result<std::collections::BTreeSet<_>>>()?;
+    let expected_paths = expected
+        .iter()
+        .map(|snapshot| snapshot.snapshot_path.clone())
+        .collect::<std::collections::BTreeSet<_>>();
+    if actual != expected_paths {
+        bail!("experiment source report snapshots do not match manifest declarations");
+    }
+    for snapshot in &expected {
+        let bytes = fs::read(directory.join(&snapshot.snapshot_path)).with_context(|| {
+            format!("reading source report snapshot {}", snapshot.snapshot_path)
+        })?;
+        if !sha256_hex(&bytes).eq_ignore_ascii_case(&snapshot.sha256) {
+            bail!(
+                "source report snapshot hash does not match declaration for {}",
+                snapshot.source_id
+            );
+        }
+        let _: serde_json::Value = serde_json::from_slice(&bytes).with_context(|| {
+            format!("parsing source report snapshot {}", snapshot.snapshot_path)
+        })?;
+    }
+    Ok(expected)
+}
+
+fn verify_experiment_layout(directory: &Path, has_source_reports: bool) -> Result<()> {
+    let expected = ["manifest.json", "scenario.chy", "run.json", "report.json"]
+        .into_iter()
+        .chain(has_source_reports.then_some("source-reports"))
+        .map(str::to_owned)
+        .collect::<std::collections::BTreeSet<_>>();
+    let actual = fs::read_dir(directory)
+        .with_context(|| format!("reading {}", directory.display()))?
+        .map(|entry| {
+            let entry = entry.with_context(|| format!("reading {}", directory.display()))?;
+            entry
+                .file_name()
+                .into_string()
+                .map_err(|_| anyhow::anyhow!("experiment artifact name is not UTF-8"))
+        })
+        .collect::<Result<std::collections::BTreeSet<_>>>()?;
+    if actual != expected {
+        bail!("experiment artifact files do not match the manifest contract");
+    }
+    Ok(())
+}
+
+fn experiment_report(
+    manifest: &ExperimentManifest,
+    manifest_bytes: &[u8],
+    scenario_source: &[u8],
+    bundle: &RunBundle,
+    source_report_snapshots: Vec<ExperimentSourceReportSnapshot>,
+) -> ExperimentReport {
+    ExperimentReport {
+        schema_version: "0.1".to_owned(),
+        experiment_name: manifest.name.clone(),
+        description: manifest.description.clone(),
+        manifest_snapshot: "manifest.json".to_owned(),
+        manifest_sha256: sha256_hex(manifest_bytes),
+        scenario_snapshot: "scenario.chy".to_owned(),
+        scenario_source_sha256: sha256_hex(scenario_source),
+        scenario_hash: bundle.scenario_hash.clone(),
+        run_bundle: "run.json".to_owned(),
+        bundle_hash: bundle.bundle_hash.clone(),
+        trace_every_steps: manifest.trace_every_steps,
+        source_report_snapshots,
+        author_claim_boundary: manifest.claim_boundary.clone(),
+        claim_boundary: "This artifact snapshots one authored, deterministic, uncalibrated structural experiment and its disclosed inputs. It does not establish parameter likelihoods, population behavior, real-world performance, causal effects, predictive validity, operational suitability, or safety.".to_owned(),
+    }
+}
+
 fn handle_calibration(command: CalibrateCommand) -> Result<()> {
     match command {
         CalibrateCommand::EindhovenPlatform {
@@ -662,6 +1108,34 @@ fn handle_calibration(command: CalibrateCommand) -> Result<()> {
                 calibrate_eindhoven_platform(&catalog, &data_root, dataset_role(partition))?;
             write_json(&output, &report)?;
             println!("descriptive report: {}", output.display());
+            println!("status: {}", report.status);
+        }
+    }
+    Ok(())
+}
+
+fn handle_reference(command: ReferenceCommand) -> Result<()> {
+    match command {
+        ReferenceCommand::VruTrajectory {
+            catalog,
+            data_root,
+            output,
+        } => {
+            let catalog: EvidenceCatalog = read_json(&catalog)?;
+            let report = summarize_vru_trajectory_reference(&catalog, &data_root)?;
+            write_json(&output, &report)?;
+            println!("uncalibrated reference report: {}", output.display());
+            println!("status: {}", report.status);
+        }
+        ReferenceCommand::CrowdQueue {
+            catalog,
+            data_root,
+            output,
+        } => {
+            let catalog: EvidenceCatalog = read_json(&catalog)?;
+            let report = summarize_crowd_queue_reference(&catalog, &data_root)?;
+            write_json(&output, &report)?;
+            println!("uncalibrated reference report: {}", output.display());
             println!("status: {}", report.status);
         }
     }
@@ -725,8 +1199,14 @@ fn run_authored_replicates(
 
 fn run_sensitivity(manifest_path: &Path, output: &Path) -> Result<()> {
     let (manifest, baseline_template, study) = load_sensitivity_study(manifest_path)?;
+    let reference_reports = capture_sensitivity_reference_reports(&manifest, manifest_path)?;
+    let reference_report_snapshots = reference_reports
+        .iter()
+        .map(|report| report.snapshot.clone())
+        .collect();
     prepare_sweep_output(manifest.count, output, manifest.trace_every_steps)?;
     write_json(&output.join("manifest.json"), &manifest)?;
+    write_sensitivity_reference_reports(output, &reference_reports)?;
 
     let baseline_directory = output.join("baseline");
     run_authored_replicates(
@@ -749,7 +1229,7 @@ fn run_sensitivity(manifest_path: &Path, output: &Path) -> Result<()> {
             &condition_directory,
             manifest.trace_every_steps,
         )?;
-        let comparison = build_sweep_comparison(&baseline_directory, &condition_directory)?;
+        let comparison = build_sensitivity_comparison(&baseline_directory, &condition_directory)?;
         let comparison_path = format!("comparisons/{condition_id}.json");
         write_json(&output.join(&comparison_path), &comparison)?;
         conditions.push(sensitivity_condition_report(
@@ -762,6 +1242,7 @@ fn run_sensitivity(manifest_path: &Path, output: &Path) -> Result<()> {
         &manifest,
         baseline_template_scenario_hash,
         &study.baseline_values,
+        reference_report_snapshots,
         conditions,
     );
     let report_path = output.join("report.json");
@@ -772,6 +1253,7 @@ fn run_sensitivity(manifest_path: &Path, output: &Path) -> Result<()> {
 
 fn sensitivity_plan(manifest_path: &Path, output: Option<&Path>) -> Result<()> {
     let (manifest, baseline_template, study) = load_sensitivity_study(manifest_path)?;
+    let reference_reports = capture_sensitivity_reference_reports(&manifest, manifest_path)?;
     let report = SensitivityPlanReport {
         schema_version: "0.1".to_owned(),
         study_name: manifest.name,
@@ -788,6 +1270,10 @@ fn sensitivity_plan(manifest_path: &Path, output: Option<&Path>) -> Result<()> {
         first_seed: manifest.first_seed,
         run_count_per_condition: manifest.count,
         trace_every_steps: manifest.trace_every_steps,
+        reference_report_snapshots: reference_reports
+            .iter()
+            .map(|report| report.snapshot.clone())
+            .collect(),
         factors: sensitivity_factor_reports(&manifest.factors, &study.baseline_values),
         conditions: study
             .conditions
@@ -830,6 +1316,181 @@ fn load_sensitivity_study(
     Ok((manifest, baseline_template, study))
 }
 
+fn declared_sensitivity_reference_reports(
+    manifest: &SensitivityManifest,
+) -> Vec<SensitivityReferenceReportSnapshot> {
+    manifest
+        .factors
+        .iter()
+        .flat_map(|factor| {
+            factor.references.iter().filter_map(move |reference| {
+                reference
+                    .derived_report
+                    .as_ref()
+                    .map(|report| SensitivityReferenceReportSnapshot {
+                        factor_id: factor.id.clone(),
+                        reference_id: reference.id.clone(),
+                        source_path: report.path.clone(),
+                        snapshot_path: format!(
+                            "reference-reports/{}/{}.json",
+                            factor.id, reference.id
+                        ),
+                        sha256: report.sha256.clone(),
+                    })
+            })
+        })
+        .collect()
+}
+
+fn capture_sensitivity_reference_reports(
+    manifest: &SensitivityManifest,
+    manifest_path: &Path,
+) -> Result<Vec<CapturedSensitivityReferenceReport>> {
+    let manifest_directory = manifest_path.parent().unwrap_or_else(|| Path::new("."));
+    declared_sensitivity_reference_reports(manifest)
+        .into_iter()
+        .map(|snapshot| {
+            let source_path = manifest_directory.join(&snapshot.source_path);
+            let bytes = fs::read(&source_path).with_context(|| {
+                format!("reading derived reference report {}", source_path.display())
+            })?;
+            let actual_hash = sha256_hex(&bytes);
+            if !actual_hash.eq_ignore_ascii_case(&snapshot.sha256) {
+                bail!(
+                    "derived reference report hash does not match declaration for {}/{}: {}",
+                    snapshot.factor_id,
+                    snapshot.reference_id,
+                    source_path.display()
+                );
+            }
+            let _: serde_json::Value = serde_json::from_slice(&bytes).with_context(|| {
+                format!("parsing derived reference report {}", source_path.display())
+            })?;
+            Ok(CapturedSensitivityReferenceReport { snapshot, bytes })
+        })
+        .collect()
+}
+
+fn write_sensitivity_reference_reports(
+    output: &Path,
+    reports: &[CapturedSensitivityReferenceReport],
+) -> Result<()> {
+    for report in reports {
+        let path = output.join(&report.snapshot.snapshot_path);
+        let parent = path
+            .parent()
+            .context("reference snapshot must have a parent")?;
+        fs::create_dir_all(parent).with_context(|| format!("creating {}", parent.display()))?;
+        fs::write(&path, &report.bytes)
+            .with_context(|| format!("writing reference snapshot {}", path.display()))?;
+    }
+    Ok(())
+}
+
+fn verify_sensitivity_reference_reports(
+    directory: &Path,
+    manifest: &SensitivityManifest,
+) -> Result<Vec<SensitivityReferenceReportSnapshot>> {
+    let expected = declared_sensitivity_reference_reports(manifest);
+    verify_sensitivity_reference_report_layout(directory, &expected)?;
+    for snapshot in &expected {
+        let path = directory.join(&snapshot.snapshot_path);
+        let bytes = fs::read(&path)
+            .with_context(|| format!("reading reference snapshot {}", path.display()))?;
+        if !sha256_hex(&bytes).eq_ignore_ascii_case(&snapshot.sha256) {
+            bail!(
+                "reference snapshot hash does not match declaration for {}/{}",
+                snapshot.factor_id,
+                snapshot.reference_id
+            );
+        }
+        let _: serde_json::Value = serde_json::from_slice(&bytes)
+            .with_context(|| format!("parsing reference snapshot {}", path.display()))?;
+    }
+    Ok(expected)
+}
+
+fn verify_sensitivity_reference_report_layout(
+    directory: &Path,
+    expected: &[SensitivityReferenceReportSnapshot],
+) -> Result<()> {
+    let root = directory.join("reference-reports");
+    if expected.is_empty() {
+        if !root.exists() {
+            return Ok(());
+        }
+        let mut entries =
+            fs::read_dir(&root).with_context(|| format!("reading {}", root.display()))?;
+        if entries.next().is_some() {
+            bail!("sensitivity study has undeclared reference snapshots");
+        }
+        return Ok(());
+    }
+
+    let actual = fs::read_dir(&root)
+        .with_context(|| format!("reading {}", root.display()))?
+        .map(|factor| {
+            let factor = factor.with_context(|| format!("reading {}", root.display()))?;
+            if !factor
+                .file_type()
+                .with_context(|| format!("reading {}", factor.path().display()))?
+                .is_dir()
+            {
+                bail!(
+                    "reference snapshot root contains a non-directory: {}",
+                    factor.path().display()
+                );
+            }
+            let factor_id = factor
+                .file_name()
+                .into_string()
+                .map_err(|_| anyhow::anyhow!("reference snapshot directory name is not UTF-8"))?;
+            fs::read_dir(factor.path())
+                .with_context(|| format!("reading {}", factor.path().display()))?
+                .map(|entry| {
+                    let entry =
+                        entry.with_context(|| format!("reading {}", factor.path().display()))?;
+                    if !entry
+                        .file_type()
+                        .with_context(|| format!("reading {}", entry.path().display()))?
+                        .is_file()
+                    {
+                        bail!(
+                            "reference snapshot directory contains a non-file: {}",
+                            entry.path().display()
+                        );
+                    }
+                    let name = entry.file_name().into_string().map_err(|_| {
+                        anyhow::anyhow!("reference snapshot file name is not UTF-8")
+                    })?;
+                    if !Path::new(&name)
+                        .extension()
+                        .is_some_and(|extension| extension.eq_ignore_ascii_case("json"))
+                    {
+                        bail!("reference snapshot file must end in .json: {name}");
+                    }
+                    Ok(format!("reference-reports/{factor_id}/{name}"))
+                })
+                .collect::<Result<Vec<_>>>()
+        })
+        .collect::<Result<Vec<_>>>()?
+        .into_iter()
+        .flatten()
+        .collect::<std::collections::BTreeSet<_>>();
+    let expected = expected
+        .iter()
+        .map(|snapshot| snapshot.snapshot_path.clone())
+        .collect::<std::collections::BTreeSet<_>>();
+    if actual != expected {
+        bail!("reference snapshot files do not match the manifest declarations");
+    }
+    Ok(())
+}
+
+fn sha256_hex(bytes: &[u8]) -> String {
+    format!("{:x}", Sha256::digest(bytes))
+}
+
 fn verify_sensitivity(directory: &Path) -> Result<()> {
     let manifest: SensitivityManifest = read_json(&directory.join("manifest.json"))?;
     let baseline_directory = directory.join("baseline");
@@ -837,6 +1498,7 @@ fn verify_sensitivity(directory: &Path) -> Result<()> {
     let baseline_template = authored_template(&baseline_directory, &baseline_summary, "baseline")?;
     let study =
         plan_sensitivity(&manifest, &baseline_template).map_err(|error| anyhow::anyhow!(error))?;
+    let reference_report_snapshots = verify_sensitivity_reference_reports(directory, &manifest)?;
     let expected_ids = study
         .conditions
         .iter()
@@ -859,7 +1521,7 @@ fn verify_sensitivity(directory: &Path) -> Result<()> {
             );
         }
 
-        let comparison = build_sweep_comparison(&baseline_directory, &condition_directory)?;
+        let comparison = build_sensitivity_comparison(&baseline_directory, &condition_directory)?;
         let comparison_path = format!("comparisons/{}.json", condition.id);
         let persisted_comparison: serde_json::Value = read_json(&directory.join(&comparison_path))?;
         let expected_comparison =
@@ -883,6 +1545,7 @@ fn verify_sensitivity(directory: &Path) -> Result<()> {
         &manifest,
         baseline_template_scenario_hash,
         &study.baseline_values,
+        reference_report_snapshots,
         reports,
     );
     let persisted_report: serde_json::Value = read_json(&directory.join("report.json"))?;
@@ -961,6 +1624,7 @@ fn sensitivity_report(
     manifest: &SensitivityManifest,
     baseline_template_scenario_hash: String,
     baseline_values: &BTreeMap<String, f64>,
+    reference_report_snapshots: Vec<SensitivityReferenceReportSnapshot>,
     conditions: Vec<SensitivityConditionReport>,
 ) -> SensitivityReport {
     let one_at_a_time_responses = one_at_a_time_responses(
@@ -983,6 +1647,7 @@ fn sensitivity_report(
         first_seed: manifest.first_seed,
         run_count_per_condition: manifest.count,
         trace_every_steps: manifest.trace_every_steps,
+        reference_report_snapshots,
         factors: sensitivity_factor_reports(&manifest.factors, baseline_values),
         conditions,
         one_at_a_time_responses,
@@ -1198,20 +1863,54 @@ fn build_sweep_comparison(
     baseline_directory: &Path,
     candidate_directory: &Path,
 ) -> Result<SweepComparison> {
+    build_sweep_comparison_with_policy(
+        baseline_directory,
+        candidate_directory,
+        ComparisonPolicy::RequireMatchingAgentDeclarations,
+    )
+}
+
+fn build_sensitivity_comparison(
+    baseline_directory: &Path,
+    candidate_directory: &Path,
+) -> Result<SweepComparison> {
+    build_sweep_comparison_with_policy(
+        baseline_directory,
+        candidate_directory,
+        ComparisonPolicy::AllowSensitivityAgentDeclarationChanges,
+    )
+}
+
+fn build_sweep_comparison_with_policy(
+    baseline_directory: &Path,
+    candidate_directory: &Path,
+    policy: ComparisonPolicy,
+) -> Result<SweepComparison> {
     let baseline = load_and_verify_sweep(baseline_directory)?;
     let candidate = load_and_verify_sweep(candidate_directory)?;
     let baseline_template = authored_template(baseline_directory, &baseline, "baseline")?;
     let candidate_template = authored_template(candidate_directory, &candidate, "candidate")?;
     let changed_scenario_sections =
-        compatible_comparison_sections(&baseline_template, &candidate_template)?;
+        compatible_comparison_sections(&baseline_template, &candidate_template, policy)?;
     let information_sampling =
         information_sampling_alignment(&baseline_template, &candidate_template);
-    compare_sweep_summaries(
-        &baseline,
-        &candidate,
-        changed_scenario_sections,
-        information_sampling,
-    )
+    match policy {
+        ComparisonPolicy::RequireMatchingAgentDeclarations => compare_sweep_summaries(
+            &baseline,
+            &candidate,
+            changed_scenario_sections,
+            information_sampling,
+        ),
+        ComparisonPolicy::AllowSensitivityAgentDeclarationChanges => {
+            compare_sweep_summaries_with_policy(
+                &baseline,
+                &candidate,
+                changed_scenario_sections,
+                information_sampling,
+                policy,
+            )
+        }
+    }
 }
 
 fn authored_template(
@@ -1237,6 +1936,7 @@ fn authored_template(
 fn compatible_comparison_sections(
     baseline: &chiyoda_core::Scenario,
     candidate: &chiyoda_core::Scenario,
+    policy: ComparisonPolicy,
 ) -> Result<Vec<String>> {
     if baseline.duration_s.total_cmp(&candidate.duration_s) != std::cmp::Ordering::Equal {
         bail!("comparison requires identical scenario durations");
@@ -1244,7 +1944,7 @@ fn compatible_comparison_sections(
     if baseline.timestep_s.total_cmp(&candidate.timestep_s) != std::cmp::Ordering::Equal {
         bail!("comparison requires identical simulation timesteps");
     }
-    if baseline.agents != candidate.agents {
+    if !policy.allows_agent_declaration_changes() && baseline.agents != candidate.agents {
         bail!("comparison requires identical authored agent demand and journeys");
     }
 
@@ -1260,6 +1960,9 @@ fn compatible_comparison_sections(
     }
     if baseline.waypoints != candidate.waypoints {
         changed.push("waypoints".to_owned());
+    }
+    if baseline.agents != candidate.agents {
+        changed.push("agents".to_owned());
     }
     if baseline.exits != candidate.exits {
         changed.push("exits".to_owned());
@@ -1722,12 +2425,32 @@ fn compare_sweep_summaries(
     changed_scenario_sections: Vec<String>,
     information_sampling: InformationSamplingAlignment,
 ) -> Result<SweepComparison> {
+    compare_sweep_summaries_with_policy(
+        baseline,
+        candidate,
+        changed_scenario_sections,
+        information_sampling,
+        ComparisonPolicy::RequireMatchingAgentDeclarations,
+    )
+}
+
+#[allow(clippy::too_many_lines)] // paired outcome accounting remains auditable in one routine
+fn compare_sweep_summaries_with_policy(
+    baseline: &SweepSummary,
+    candidate: &SweepSummary,
+    changed_scenario_sections: Vec<String>,
+    information_sampling: InformationSamplingAlignment,
+    policy: ComparisonPolicy,
+) -> Result<SweepComparison> {
     if baseline.first_seed != candidate.first_seed || baseline.count != candidate.count {
         bail!("comparison requires matching contiguous seed ranges");
     }
     let baseline_template_scenario_hash = template_hash_for_comparison(baseline, "baseline")?;
     let candidate_template_scenario_hash = template_hash_for_comparison(candidate, "candidate")?;
     let execution_contract = compatible_execution_contract(baseline, candidate)?;
+    let agent_declarations_matched = !changed_scenario_sections
+        .iter()
+        .any(|section| section == "agents");
     let mut paired_runs = Vec::with_capacity(baseline.runs.len());
     let mut evacuation_delta = 0_i64;
     let mut un_evacuated_delta = 0_i64;
@@ -1748,7 +2471,9 @@ fn compare_sweep_summaries(
                 candidate_run.seed
             );
         }
-        if baseline_run.total_agents != candidate_run.total_agents {
+        if !policy.allows_agent_declaration_changes()
+            && baseline_run.total_agents != candidate_run.total_agents
+        {
             bail!(
                 "comparison requires equal agents for seed {}; baseline has {}, candidate has {}",
                 baseline_run.seed,
@@ -1797,7 +2522,8 @@ fn compare_sweep_summaries(
         );
         paired_runs.push(PairedRun {
             seed: baseline_run.seed,
-            total_agents: baseline_run.total_agents,
+            baseline_total_agents: baseline_run.total_agents,
+            candidate_total_agents: candidate_run.total_agents,
             baseline: paired_run_arm(baseline_run),
             candidate: paired_run_arm(candidate_run),
             candidate_minus_baseline: PairedRunDelta {
@@ -1817,6 +2543,7 @@ fn compare_sweep_summaries(
             execution_contract,
             baseline_template_scenario_hash,
             candidate_template_scenario_hash,
+            agent_declarations_matched,
             changed_scenario_sections,
             information_sampling,
         },
@@ -1837,8 +2564,15 @@ fn compare_sweep_summaries(
             clearance_time_s: clearance_times.report(),
             last_exit_time_s: last_exit_times.report(),
         },
-        claim_boundary: "This report compares deterministic structural runs sharing authored demand and seed labels. It is not an empirical control group, a statistical uncertainty estimate, a causal-effect estimate, a benchmark score, calibration result, or predictive claim.".to_owned(),
+        claim_boundary: comparison_claim_boundary(policy),
     })
+}
+
+fn comparison_claim_boundary(policy: ComparisonPolicy) -> String {
+    match policy {
+        ComparisonPolicy::RequireMatchingAgentDeclarations => "This report compares deterministic structural runs sharing authored demand and seed labels. It is not an empirical control group, a statistical uncertainty estimate, a causal-effect estimate, a benchmark score, calibration result, or predictive claim.".to_owned(),
+        ComparisonPolicy::AllowSensitivityAgentDeclarationChanges => "This sensitivity comparison pairs deterministic seed labels, but its declared agent configuration may differ between arms. The per-seed baseline and candidate denominators are retained; seed alignment does not normalize changed demand or make outcome deltas causal, empirical, calibrated, predictive, or safety claims.".to_owned(),
+    }
 }
 
 fn compatible_execution_contract(
@@ -2114,6 +2848,17 @@ fn evidence_error(errors: &[chiyoda_core::EvidenceValidationError]) -> anyhow::E
     )
 }
 
+fn experiment_error(errors: &[chiyoda_core::ExperimentValidationError]) -> anyhow::Error {
+    anyhow::anyhow!(
+        "experiment manifest is invalid:\n{}",
+        errors
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>()
+            .join("\n")
+    )
+}
+
 fn dataset_role(partition: EvidencePartition) -> chiyoda_core::benchmark::DatasetRole {
     match partition {
         EvidencePartition::Calibration => chiyoda_core::benchmark::DatasetRole::Calibration,
@@ -2124,12 +2869,14 @@ fn dataset_role(partition: EvidencePartition) -> chiyoda_core::benchmark::Datase
 #[cfg(test)]
 mod tests {
     use super::{
-        InformationSamplingAlignment, SweepRun, SweepSource, SweepSummary, compare_sweep_summaries,
-        describe_sweep, information_sampling_alignment, validate_bundle_metrics,
+        ExperimentCommand, InformationSamplingAlignment, LayoutCommand, SweepRun, SweepSource,
+        SweepSummary, compare_sweep_summaries, describe_sweep, handle_experiment, handle_layout,
+        information_sampling_alignment, validate_bundle_metrics,
     };
     use chiyoda_core::{
         InformationDeliveryMetrics, InformationInterventionKind, RunOptions, generator, parse, run,
     };
+    use sha2::{Digest, Sha256};
     use std::{
         collections::BTreeMap,
         fs,
@@ -2154,6 +2901,150 @@ mod tests {
             std::env::temp_dir().join(format!("chiyoda-{name}-{}-{nonce}", std::process::id()));
         fs::create_dir_all(&directory).expect("creating temporary test directory");
         TestDirectory(directory)
+    }
+
+    #[test]
+    fn layout_osm_writes_a_content_locked_source_observation_report() {
+        let directory = test_directory("layout-osm");
+        let data_root = directory.0.join("raw");
+        fs::create_dir_all(&data_root).expect("creating layout data root");
+        let source = br#"<osm version="0.6"><node id="1" lat="1.3" lon="103.8"><tag k="entrance" v="yes"/></node></osm>"#;
+        let source_path = data_root.join("station.osm");
+        fs::write(&source_path, source).expect("writing OSM source");
+        let catalog_path = directory.0.join("catalog.json");
+        let catalog = serde_json::json!({
+            "schema_version": "0.1",
+            "purpose": "uncalibrated_reference",
+            "dataset_id": "cli-osm-fixture",
+            "title": "CLI OSM fixture",
+            "landing_page": "https://www.openstreetmap.org/",
+            "license": "ODbL-1.0",
+            "redistributable": true,
+            "attribution": "© OpenStreetMap contributors",
+            "citation": "OpenStreetMap contributors",
+            "files": [{
+                "id": "station",
+                "source_url": "https://example.test/station.osm",
+                "local_path": "station.osm",
+                "sha256": format!("{:x}", Sha256::digest(source)),
+                "size_bytes": source.len(),
+                "transformation": "inspect geographic map observations only"
+            }],
+            "supported_primitives": "mapped tags only",
+            "exclusions": "scenario geometry and operational claims"
+        });
+        fs::write(
+            &catalog_path,
+            serde_json::to_vec_pretty(&catalog).expect("serializing catalog"),
+        )
+        .expect("writing catalog");
+        let output = directory.0.join("layout.json");
+
+        handle_layout(LayoutCommand::Osm {
+            catalog: catalog_path.clone(),
+            data_root: data_root.clone(),
+            max_nodes: 1,
+            max_ways: 1,
+            output: output.clone(),
+        })
+        .expect("layout command succeeds");
+        handle_layout(LayoutCommand::VerifyOsm {
+            catalog: catalog_path,
+            report: output.clone(),
+            data_root,
+        })
+        .expect("layout verification command succeeds");
+
+        let report: serde_json::Value =
+            serde_json::from_slice(&fs::read(output).expect("reading observation report"))
+                .expect("parsing observation report");
+        assert_eq!(report["status"], "source_observation_only");
+        assert_eq!(report["counts"]["selected_node_features"], 1);
+        assert_eq!(
+            report["features"][0]["categories"],
+            serde_json::json!(["entrance"])
+        );
+    }
+
+    #[test]
+    fn experiment_snapshots_assumptions_and_source_reports_then_detects_tampering() {
+        let directory = test_directory("experiment");
+        fs::write(
+            directory.0.join("scenario.chy"),
+            r#"
+scenario "experiment-fixture"
+seed 1
+duration 5s
+timestep 1s
+surface concourse at (0m, 0m, 0m) size (10m, 10m)
+exit street on concourse at (8m, 1m, 0m) width 1m capacity 1/s
+agents passengers count 1 on concourse at (1m, 1m, 0m) to street speed 1.2m/s radius 0.3m height 1.7m
+"#,
+        )
+        .expect("writing scenario source");
+        let source_report = b"{\"source\":\"fixture\"}\n";
+        fs::write(directory.0.join("reference.json"), source_report)
+            .expect("writing source report");
+        let manifest_path = directory.0.join("experiment.json");
+        let manifest = serde_json::json!({
+            "schema_version": "0.1",
+            "name": "CLI experiment fixture",
+            "description": "one explicit uncalibrated structural run",
+            "scenario_source": "scenario.chy",
+            "trace_every_steps": 1,
+            "assumptions": [{
+                "id": "exit_capacity",
+                "subject": "street.capacity",
+                "basis": "documented_estimate",
+                "rationale": "keep the chosen input and its source boundary visible",
+                "source_ids": ["fixture_reference"]
+            }],
+            "sources": [{
+                "id": "fixture_reference",
+                "citation": "Fixture (2026)",
+                "url": "https://example.test/reference",
+                "applicability": "source report is disclosed context only",
+                "limitation": "does not calibrate the runtime",
+                "derived_report": {
+                    "path": "reference.json",
+                    "sha256": format!("{:x}", Sha256::digest(source_report))
+                }
+            }],
+            "claim_boundary": "not predictive, operational, or safety guidance"
+        });
+        fs::write(
+            &manifest_path,
+            serde_json::to_vec_pretty(&manifest).expect("serializing experiment manifest"),
+        )
+        .expect("writing experiment manifest");
+        let output = directory.0.join("artifact");
+
+        handle_experiment(ExperimentCommand::Run {
+            manifest: manifest_path,
+            output: output.clone(),
+        })
+        .expect("experiment run succeeds");
+        handle_experiment(ExperimentCommand::Verify {
+            directory: output.clone(),
+        })
+        .expect("experiment artifact verifies");
+        let report: serde_json::Value = serde_json::from_slice(
+            &fs::read(output.join("report.json")).expect("reading experiment report"),
+        )
+        .expect("parsing experiment report");
+        assert_eq!(
+            report["source_report_snapshots"][0]["source_id"],
+            "fixture_reference"
+        );
+
+        fs::write(
+            output.join("source-reports/fixture_reference.json"),
+            b"{\"source\":\"altered\"}\n",
+        )
+        .expect("altering source report snapshot");
+        let error = handle_experiment(ExperimentCommand::Verify { directory: output })
+            .expect_err("altered source report must not verify");
+        assert!(format!("{error:#}").contains("source report snapshot hash"));
     }
 
     #[test]
@@ -2307,6 +3198,7 @@ message candidate_only source signage on concourse at (1m, 1m, 0m) claim exit st
     }
 
     #[test]
+    #[allow(clippy::too_many_lines)] // this fixture exercises every persisted sensitivity arm
     fn sensitivity_writes_hash_verifiable_condition_and_comparison_artifacts() {
         let directory = test_directory("sensitivity");
         let source_path = directory.0.join("baseline.chy");
@@ -2323,6 +3215,9 @@ agents passengers count 1 on concourse at (1m, 1m, 0m) to street speed 1m/s radi
 "#,
         )
         .expect("writing baseline source");
+        let reference_report_path = directory.0.join("reference.json");
+        let reference_report = b"{\"fixture\":true}\n";
+        fs::write(&reference_report_path, reference_report).expect("writing reference report");
         let manifest_path = directory.0.join("study.json");
         fs::write(
             &manifest_path,
@@ -2334,14 +3229,39 @@ agents passengers count 1 on concourse at (1m, 1m, 0m) to street speed 1m/s radi
   "first_seed": 10,
   "count": 1,
   "design": "one_at_a_time",
-  "max_conditions": 2,
+  "max_conditions": 4,
   "factors": [{
     "id": "street_capacity",
     "target": "exit_capacity_per_s",
     "subject": "street",
     "values": [1.0, 2.0],
     "basis": "best_guess",
-    "rationale": "exercise an authored alternative"
+    "rationale": "exercise an authored alternative",
+    "references": [{
+      "id": "fixture_reference",
+      "citation": "Fixture source (2026)",
+      "url": "https://example.test/reference",
+      "applicability": "fixture provenance coverage",
+      "limitation": "not a runtime calibration",
+      "derived_report": {
+        "path": "reference.json",
+        "sha256": "218589323cbe80b7ed077e3ee36f1663e7cb5f8f4e4ad02c938ad8a5c2c5a6b9"
+      }
+    }]
+  }, {
+    "id": "walking_speed",
+    "target": "agent_speed_mps",
+    "subject": "passengers",
+    "values": [1.0, 1.5],
+    "basis": "best_guess",
+    "rationale": "exercise a planned agent declaration change"
+  }, {
+    "id": "passenger_count",
+    "target": "agent_count",
+    "subject": "passengers",
+    "values": [1.0, 2.0],
+    "basis": "best_guess",
+    "rationale": "exercise a planned demand change"
   }],
   "claim_boundary": "structural fixture only"
 }"#,
@@ -2354,7 +3274,11 @@ agents passengers count 1 on concourse at (1m, 1m, 0m) to street speed 1m/s radi
             .expect("sensitivity plan succeeds");
 
         let plan: serde_json::Value = super::read_json(&plan_path).expect("plan parses");
-        assert_eq!(plan["conditions"].as_array().map(Vec::len), Some(1));
+        assert_eq!(plan["conditions"].as_array().map(Vec::len), Some(3));
+        assert_eq!(
+            plan["reference_report_snapshots"][0]["snapshot_path"],
+            "reference-reports/street_capacity/fixture_reference.json"
+        );
         assert!(
             !output.exists(),
             "planning must not create the execution output directory"
@@ -2364,14 +3288,24 @@ agents passengers count 1 on concourse at (1m, 1m, 0m) to street speed 1m/s radi
 
         let report: serde_json::Value =
             super::read_json(&output.join("report.json")).expect("report parses");
-        assert_eq!(report["conditions"].as_array().map(Vec::len), Some(1));
+        assert_eq!(report["conditions"].as_array().map(Vec::len), Some(3));
         assert_eq!(
             report["conditions"][0]["factor_values"]["street_capacity"],
             2.0
         );
         assert_eq!(
             report["one_at_a_time_responses"].as_array().map(Vec::len),
-            Some(1)
+            Some(3)
+        );
+        assert_eq!(
+            report["reference_report_snapshots"][0]["source_path"],
+            "reference.json"
+        );
+        let reference_snapshot_path =
+            output.join("reference-reports/street_capacity/fixture_reference.json");
+        assert_eq!(
+            fs::read(&reference_snapshot_path).expect("reference snapshot reads"),
+            reference_report
         );
         assert_eq!(
             report["one_at_a_time_responses"][0]["alternatives"][0]["value"],
@@ -2381,8 +3315,71 @@ agents passengers count 1 on concourse at (1m, 1m, 0m) to street speed 1m/s radi
         let comparison: serde_json::Value =
             super::read_json(&comparison_path).expect("comparison parses");
         assert_eq!(comparison["paired_runs"].as_array().map(Vec::len), Some(1));
+        let agent_comparison: serde_json::Value =
+            super::read_json(&output.join("comparisons/case-0002.json"))
+                .expect("agent comparison parses");
+        assert_eq!(
+            agent_comparison["pairing"]["agent_declarations_matched"],
+            false
+        );
+        assert_eq!(
+            agent_comparison["paired_runs"][0]["baseline_total_agents"],
+            1
+        );
+        assert_eq!(
+            agent_comparison["paired_runs"][0]["candidate_total_agents"],
+            1
+        );
+        let demand_comparison: serde_json::Value =
+            super::read_json(&output.join("comparisons/case-0003.json"))
+                .expect("demand comparison parses");
+        assert_eq!(
+            demand_comparison["pairing"]["agent_declarations_matched"],
+            false
+        );
+        assert_eq!(
+            demand_comparison["paired_runs"][0]["baseline_total_agents"],
+            1
+        );
+        assert_eq!(
+            demand_comparison["paired_runs"][0]["candidate_total_agents"],
+            2
+        );
         super::verify_sweep(&output.join("baseline")).expect("baseline verifies");
         super::verify_sweep(&output.join("conditions/case-0001")).expect("condition verifies");
+        super::verify_sensitivity(&output).expect("sensitivity study verifies");
+
+        let mut altered_comparison = comparison.clone();
+        altered_comparison["paired_runs"] = serde_json::Value::Array(Vec::new());
+        super::write_json(&comparison_path, &altered_comparison).expect("altering comparison");
+        let comparison_error =
+            super::verify_sensitivity(&output).expect_err("altered comparison must not verify");
+        assert!(
+            format!("{comparison_error:#}").contains("persisted sensitivity comparison"),
+            "unexpected comparison-verification error: {comparison_error:#}"
+        );
+        super::write_json(&comparison_path, &comparison).expect("restoring comparison");
+
+        fs::write(&reference_snapshot_path, b"{\"fixture\":false}\n")
+            .expect("altering reference snapshot");
+        let reference_error = super::verify_sensitivity(&output)
+            .expect_err("altered reference snapshot must not verify");
+        assert!(
+            format!("{reference_error:#}").contains("reference snapshot hash"),
+            "unexpected reference-snapshot verification error: {reference_error:#}"
+        );
+        fs::write(&reference_snapshot_path, reference_report)
+            .expect("restoring reference snapshot");
+
+        let mut altered_report = report.clone();
+        altered_report["study_name"] = serde_json::Value::String("tampered".to_owned());
+        super::write_json(&output.join("report.json"), &altered_report).expect("altering report");
+        let report_error =
+            super::verify_sensitivity(&output).expect_err("altered report must not verify");
+        assert!(
+            format!("{report_error:#}").contains("persisted sensitivity report"),
+            "unexpected report-verification error: {report_error:#}"
+        );
     }
 
     #[test]

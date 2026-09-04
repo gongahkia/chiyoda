@@ -1,0 +1,34 @@
+{
+  "schema_version": "0.1",
+  "name": "uncalibrated interchange structural experiment",
+  "description": "a reproducible reference-runtime exploration of one explicitly authored interchange configuration",
+  "scenario_source": "uncalibrated-interchange.chy",
+  "trace_every_steps": 10,
+  "assumptions": [
+    {
+      "id": "passenger_speed",
+      "subject": "passengers.speed",
+      "basis": "best_guess",
+      "rationale": "the authored walking speed is a transparent structural input, not a calibrated population estimate"
+    },
+    {
+      "id": "fare_gate_capacity",
+      "subject": "fare_gate.capacity",
+      "basis": "best_guess",
+      "rationale": "the service rate is an explicit analytical constraint and not an observed facility throughput"
+    },
+    {
+      "id": "passenger_release_cadence",
+      "subject": "passengers.release and passengers.release_interval",
+      "basis": "structural_assumption",
+      "rationale": "the deterministic one-second cadence exposes a staged-demand condition without claiming an observed arrival process"
+    },
+    {
+      "id": "agent_body_envelope",
+      "subject": "passengers.radius and passengers.height",
+      "basis": "structural_assumption",
+      "rationale": "the reference runtime needs declared body dimensions but this example does not claim a population profile"
+    }
+  ],
+  "claim_boundary": "This is an uncalibrated deterministic structural experiment. It does not predict a real facility, population, evacuation outcome, operational response, or safety result."
+}

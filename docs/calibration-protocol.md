@@ -4,6 +4,11 @@ This protocol governs the Eindhoven Centraal platform catalog. It is deliberatel
 narrow: the catalog measures anonymous 2D motion on one platform, not evacuation
 or whole-interchange behavior.
 
+Only a catalog declared as `empirical_evaluation` can enter this protocol.
+Content-locked `uncalibrated_reference` sources are useful for transparent
+assumption discovery but have no calibration/held-out role and are rejected by
+the calibration adapter.
+
 ## Pre-registration gate
 
 Before reading a held-out report, publish a protocol record that fixes:

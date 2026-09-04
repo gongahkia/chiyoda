@@ -181,7 +181,7 @@ pub fn format_scenario(scenario: &Scenario) -> String {
     for group in &scenario.agents {
         writeln!(
             source,
-            "agents {} count {} on {} at {} to {} speed {} radius {} height {}{}{}{} release {}",
+            "agents {} count {} on {} at {} to {} speed {} radius {} height {}{}{}{} release {}{}",
             group.id,
             group.count,
             group.surface,
@@ -194,6 +194,7 @@ pub fn format_scenario(scenario: &Scenario) -> String {
             alternative_destinations(&group.alternative_destinations),
             excluded_connector_kinds(&group.excluded_connector_kinds),
             duration(group.release_at_s),
+            release_interval(group.release_interval_s),
         )
         .expect("writing to a string cannot fail");
     }
@@ -270,6 +271,10 @@ fn duration(value: f64) -> String {
     format!("{}s", number(value))
 }
 
+fn release_interval(value: Option<f64>) -> String {
+    value.map_or_else(String::new, |value| format!(" every {}", duration(value)))
+}
+
 fn speed(value: f64) -> String {
     format!("{}m/s", number(value))
 }
@@ -309,9 +314,7 @@ fn excluded_connector_kinds(kinds: &[crate::model::ConnectorKind]) -> String {
 }
 
 fn number(value: f64) -> String {
-    let rendered = format!("{value:.9}");
-    rendered
-        .trim_end_matches('0')
-        .trim_end_matches('.')
-        .to_owned()
+    // Rust's shortest `f64` display representation round-trips through the
+    // parser. Fixed decimal truncation would silently alter template hashes.
+    value.to_string()
 }

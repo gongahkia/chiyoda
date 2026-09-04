@@ -1,0 +1,36 @@
+{
+  "schema_version": "0.1",
+  "name": "urban-reference walking-speed alternatives",
+  "description": "An explicitly out-of-domain, uncalibrated structural speed sweep informed by the source-locked VRU reference report.",
+  "baseline_source": "baseline.chy",
+  "first_seed": 100,
+  "count": 4,
+  "trace_every_steps": 10,
+  "design": "one_at_a_time",
+  "max_conditions": 4,
+  "factors": [
+    {
+      "id": "passenger_speed",
+      "target": "agent_speed_mps",
+      "subject": "passengers",
+      "values": [0.565, 1.2, 1.825],
+      "basis": "documented_estimate",
+      "rationale": "The values bracket the 0.565 m/s and 1.825 m/s fixed-histogram P50/P95 reported by the locked urban VRU adapter around this deliberately authored 1.2 m/s baseline. They expose structural sensitivity only and are not a fitted station parameter.",
+      "references": [
+        {
+          "id": "vru_trajectory_2022",
+          "citation": "Zernetsch, S., Kress, V., Bieshaar, M., Reitberger, G., Fuchs, E., Doll, K., & Sick, B. (2022). VRU Trajectory Dataset. Zenodo. https://doi.org/10.5281/zenodo.6303669",
+          "url": "https://zenodo.org/records/6303669",
+          "applicability": "The source-locked Chiyoda VRU adapter reads publisher CSV pedestrian trajectories and reports broad, fixed-filter speed alternatives for disclosed structural exploration.",
+          "limitation": "The data describe head-position trajectories at one urban intersection, including moving, starting, stopping, and waiting labels. They do not measure this concourse, station pedestrians, evacuation, route choice, queueing, body dimensions, or information behavior.",
+          "source_sha256": "e97c1440a43d47cb0a5a82b4d1a3f4e51d6964cc29ec19e73e4f9a97b0912c70",
+          "derived_report": {
+            "path": "../../benchmarks/reports/vru-trajectory-reference.json",
+            "sha256": "580feb2227f485ddf14d97fc650dc284339387143538b6d2da9efca5b4ca0710"
+          }
+        }
+      ]
+    }
+  ],
+  "claim_boundary": "This source-linked study only shows the deterministic reference runtime's response to explicit, out-of-domain structural alternatives. It does not estimate station walking speeds, calibrate the runtime, predict people, or support operational or safety claims."
+}

@@ -1,0 +1,36 @@
+{
+  "schema_version": "0.1",
+  "name": "controlled-bottleneck gate-capacity alternatives",
+  "description": "An explicitly out-of-domain, uncalibrated structural exit-capacity sweep informed by the source-locked Wuppertal controlled-gate report.",
+  "baseline_source": "crowd-queue-baseline.chy",
+  "first_seed": 100,
+  "count": 4,
+  "trace_every_steps": 10,
+  "design": "one_at_a_time",
+  "max_conditions": 4,
+  "factors": [
+    {
+      "id": "entry_gate_capacity",
+      "target": "exit_capacity_per_s",
+      "subject": "entry_gate",
+      "values": [1.01614943388188, 1.1477832456710213, 1.4116132971616988],
+      "basis": "documented_estimate",
+      "rationale": "The alternatives are the locked adapter's per-run P05/P50/P95 observed passage-flow order statistics through the publisher-described fixed 0.5 m gate. They provide a disclosed structural bracket around the deliberately authored P50 baseline, not a fitted exit-capacity law.",
+      "references": [
+        {
+          "id": "wuppertal_crowdqueue_2018",
+          "citation": "Adrian, J., Boltes, M., Holl, S., Sieben, A., & Seyfried, A. (2018). Crowds in front of bottlenecks from the perspective of physics and social psychology [data set]. Pedestrian Dynamics Data Archive. https://doi.org/10.34735/ped.2018.1",
+          "url": "https://ped.fz-juelich.de/da/crowdqueue",
+          "applicability": "The source-locked Chiyoda adapter reports observed passage through the publisher-described 0.5 m controlled entry gate as explicitly bounded alternatives for structural exploration.",
+          "limitation": "The source is a 2018 controlled university experiment with varying corridor width, priming, motivation, and participant counts. It is not a transit station, an evacuation, a validation of Chiyoda's token service rule, or a general exit-capacity law.",
+          "source_sha256": "1918daa6c774325d8daeae31cd79da6b6cbfadeb77e8fefeffededfe979815e8",
+          "derived_report": {
+            "path": "../../benchmarks/reports/wuppertal-crowdqueue-reference.json",
+            "sha256": "5f4b2f1a76aa0fc6d2569cee5f57ff20f89c0f3aadc1fce53d506d73df636113"
+          }
+        }
+      ]
+    }
+  ],
+  "claim_boundary": "This source-linked study only shows the deterministic reference runtime's response to explicit, out-of-domain gate-capacity alternatives. It does not estimate a station exit's capacity, calibrate the runtime, predict crowd queues, or support operational or safety claims."
+}

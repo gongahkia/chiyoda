@@ -9,7 +9,10 @@ use crate::{
     validate,
 };
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, BTreeSet};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    path::Path,
+};
 use thiserror::Error;
 
 const STUDY_SCHEMA_VERSION: &str = "0.1";
@@ -82,6 +85,43 @@ pub struct SensitivityFactor {
     pub values: Vec<f64>,
     pub basis: AssumptionBasis,
     pub rationale: String,
+    /// Retained source context for a documented estimate or measured input.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub references: Vec<SensitivityReference>,
+}
+
+/// A disclosed source and its applicability boundary for one sensitivity factor.
+///
+/// The record preserves why an author selected an alternative. It does not
+/// attach a statistical distribution to the alternative or calibrate the
+/// runtime.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SensitivityReference {
+    pub id: String,
+    pub citation: String,
+    pub url: String,
+    pub applicability: String,
+    pub limitation: String,
+    /// Optional SHA-256 of the precise open-data file informing the factor.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_sha256: Option<String>,
+    /// An optional local descriptive report that selected these alternatives.
+    /// The CLI content-locks and snapshots it with the executed study.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub derived_report: Option<SensitivityDerivedReport>,
+}
+
+/// A source report declared by a sensitivity author.
+///
+/// `path` is resolved relative to the sensitivity manifest. The report is not
+/// interpreted as calibration evidence; its byte hash only pins the exact
+/// descriptive artifact that informed a factor's values.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SensitivityDerivedReport {
+    pub path: String,
+    pub sha256: String,
 }
 
 /// Numeric scenario fields that can be varied without changing the DSL grammar.
@@ -93,6 +133,7 @@ pub enum SensitivityTarget {
     AgentRadiusM,
     AgentHeightM,
     AgentReleaseAtS,
+    AgentReleaseIntervalS,
     ExitCapacityPerS,
     ConnectorCapacityPerS,
     EscalatorBeltSpeedMps,
@@ -113,7 +154,7 @@ impl SensitivityTarget {
             | Self::AgentHeightM
             | Self::MessageReachM
             | Self::CountermeasureReachM => "m",
-            Self::AgentReleaseAtS => "s",
+            Self::AgentReleaseAtS | Self::AgentReleaseIntervalS => "s",
             Self::ExitCapacityPerS | Self::ConnectorCapacityPerS | Self::GateServiceRatePerS => {
                 "/s"
             }
@@ -132,6 +173,10 @@ impl SensitivityTarget {
             Self::AgentReleaseAtS if value < 0.0 => Err(SensitivityError::InvalidValue {
                 factor_id: factor_id.to_owned(),
                 message: "must be zero or greater".to_owned(),
+            }),
+            Self::AgentReleaseIntervalS if value <= 0.0 => Err(SensitivityError::InvalidValue {
+                factor_id: factor_id.to_owned(),
+                message: "must be greater than zero".to_owned(),
             }),
             Self::MessageTrust | Self::CountermeasureTrust if !(0.0..=1.0).contains(&value) => {
                 Err(SensitivityError::InvalidValue {
@@ -206,6 +251,26 @@ pub enum SensitivityError {
     DuplicateValue { factor_id: String, value: f64 },
     #[error("sensitivity factor `{factor_id}` has an invalid value: {message}")]
     InvalidValue { factor_id: String, message: String },
+    #[error(
+        "sensitivity factor `{factor_id}` with basis `{basis}` requires at least one reference"
+    )]
+    MissingReference {
+        factor_id: String,
+        basis: &'static str,
+    },
+    #[error("sensitivity factor `{factor_id}` repeats reference id `{reference_id}`")]
+    DuplicateReference {
+        factor_id: String,
+        reference_id: String,
+    },
+    #[error(
+        "sensitivity reference `{reference_id}` for factor `{factor_id}` is invalid: {message}"
+    )]
+    InvalidReference {
+        factor_id: String,
+        reference_id: String,
+        message: String,
+    },
     #[error("sensitivity factor `{factor_id}` references no {kind} named `{subject}")]
     UnknownSubject {
         factor_id: String,
@@ -342,6 +407,17 @@ fn validate_manifest_shape(manifest: &SensitivityManifest) -> Result<(), Sensiti
                 field: "factor.rationale",
             });
         }
+        if matches!(
+            factor.basis,
+            AssumptionBasis::DocumentedEstimate | AssumptionBasis::MeasuredInput
+        ) && factor.references.is_empty()
+        {
+            return Err(SensitivityError::MissingReference {
+                factor_id: factor.id.clone(),
+                basis: assumption_basis_name(factor.basis),
+            });
+        }
+        validate_factor_references(factor)?;
         if factor.values.len() < 2 {
             return Err(SensitivityError::InsufficientValues {
                 factor_id: factor.id.clone(),
@@ -366,6 +442,71 @@ fn validate_manifest_shape(manifest: &SensitivityManifest) -> Result<(), Sensiti
         }
         for value in &factor.values {
             factor.target.validate_value(*value, &factor.id)?;
+        }
+    }
+    Ok(())
+}
+
+fn assumption_basis_name(basis: AssumptionBasis) -> &'static str {
+    match basis {
+        AssumptionBasis::BestGuess => "best_guess",
+        AssumptionBasis::DocumentedEstimate => "documented_estimate",
+        AssumptionBasis::StructuralAssumption => "structural_assumption",
+        AssumptionBasis::MeasuredInput => "measured_input",
+    }
+}
+
+fn validate_factor_references(factor: &SensitivityFactor) -> Result<(), SensitivityError> {
+    let mut ids = BTreeSet::new();
+    for reference in &factor.references {
+        let invalid = |message: &str| SensitivityError::InvalidReference {
+            factor_id: factor.id.clone(),
+            reference_id: reference.id.clone(),
+            message: message.to_owned(),
+        };
+        if !is_safe_factor_id(&reference.id) {
+            return Err(invalid("id must be a safe identifier"));
+        }
+        if !ids.insert(reference.id.as_str()) {
+            return Err(SensitivityError::DuplicateReference {
+                factor_id: factor.id.clone(),
+                reference_id: reference.id.clone(),
+            });
+        }
+        if reference.citation.trim().is_empty()
+            || reference.applicability.trim().is_empty()
+            || reference.limitation.trim().is_empty()
+        {
+            return Err(invalid(
+                "citation, applicability, and limitation must not be empty",
+            ));
+        }
+        if !reference.url.starts_with("https://") || reference.url.len() == "https://".len() {
+            return Err(invalid("url must be a non-empty HTTPS URL"));
+        }
+        if let Some(hash) = &reference.source_sha256
+            && (hash.len() != 64 || !hash.chars().all(|character| character.is_ascii_hexdigit()))
+        {
+            return Err(invalid(
+                "source_sha256 must be a SHA-256 hexadecimal digest",
+            ));
+        }
+        if let Some(report) = &reference.derived_report {
+            if report.path.trim().is_empty() || Path::new(&report.path).is_absolute() {
+                return Err(invalid(
+                    "derived_report.path must be a non-empty relative path",
+                ));
+            }
+            if report.sha256.len() != 64
+                || !report
+                    .sha256
+                    .chars()
+                    .all(|character| character.is_ascii_hexdigit())
+            {
+                return Err(invalid(
+                    "derived_report.sha256 must be a SHA-256 hexadecimal digest",
+                ));
+            }
         }
     }
     Ok(())
@@ -492,6 +633,14 @@ fn factor_value(scenario: &Scenario, factor: &SensitivityFactor) -> Result<f64, 
         SensitivityTarget::AgentRadiusM => Ok(agent(scenario, factor)?.radius_m),
         SensitivityTarget::AgentHeightM => Ok(agent(scenario, factor)?.height_m),
         SensitivityTarget::AgentReleaseAtS => Ok(agent(scenario, factor)?.release_at_s),
+        SensitivityTarget::AgentReleaseIntervalS => {
+            agent(scenario, factor)?.release_interval_s.ok_or_else(|| {
+                unsupported(
+                    factor,
+                    "an agent group without an authored release interval",
+                )
+            })
+        }
         SensitivityTarget::ExitCapacityPerS => exit(scenario, factor)?
             .capacity_per_s
             .ok_or_else(|| unsupported(factor, "an exit without an authored capacity")),
@@ -523,6 +672,9 @@ fn apply_factor(
         SensitivityTarget::AgentRadiusM => agent_mut(scenario, factor)?.radius_m = value,
         SensitivityTarget::AgentHeightM => agent_mut(scenario, factor)?.height_m = value,
         SensitivityTarget::AgentReleaseAtS => agent_mut(scenario, factor)?.release_at_s = value,
+        SensitivityTarget::AgentReleaseIntervalS => {
+            agent_mut(scenario, factor)?.release_interval_s = Some(value);
+        }
         SensitivityTarget::ExitCapacityPerS => {
             exit_mut(scenario, factor)?.capacity_per_s = Some(value);
         }

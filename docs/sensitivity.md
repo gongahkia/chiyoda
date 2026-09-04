@@ -40,6 +40,8 @@ The output directory must be empty. It contains:
 - `conditions/case-NNNN/` — one authored sweep for each concrete alternative;
 - `comparisons/case-NNNN.json` — the existing seed-paired structural comparison
   from baseline to that condition; and
+- `reference-reports/FACTOR/REFERENCE.json` — exact snapshots of any declared
+  derived reference reports; and
 - `report.json` — factor rationale, declared basis, baseline values, exact
   condition values, source/template hashes, outcome deltas, and interpretation
   boundaries. For a one-at-a-time design it also indexes each factor's ordered
@@ -98,6 +100,33 @@ than being silently skipped.
 provenance only; it does not calibrate the runtime or authorize empirical
 claims.
 
+A `documented_estimate` or `measured_input` factor must retain at least one
+reference. Every reference has a stable identifier, citation, HTTPS source URL,
+applicability statement, limitation statement, and optionally the SHA-256 of
+the exact source file. A reference can additionally declare a local JSON
+`derived_report` and its SHA-256. Planning checks that report; execution copies
+its exact bytes into `reference-reports/FACTOR/REFERENCE.json`; study verification
+checks the saved snapshot without depending on the original path. The reference
+documents selection of alternatives; it does not make their values draws from a
+distribution or establish source-to-scenario transferability.
+
+`examples/sensitivity/urban-reference-speed.json` demonstrates this with the
+source-locked VRU report. Its source is explicitly urban and out of domain for a
+transit concourse, so its values are broad sensitivity brackets rather than
+defaults. First reproduce that report with `chiyoda reference vru-trajectory`
+as described in [evidence boundaries](evidence.md).
+
+`examples/sensitivity/crowd-queue-gate-capacity.json` applies the same contract
+to the locked Wuppertal crowd-queue report. It uses that adapter's per-run
+P05/P50/P95 passage-flow order statistics through one fixed 0.5 m controlled
+entry gate, snapshots the derived report, and varies only an authored exit
+capacity. The source remains out of domain for a station or evacuation; its
+values are structural alternatives, not a capacity law or queue calibration.
+
+`examples/sensitivity/arrival-cadence.json` varies a declared
+`agent_release_interval_s` for the uncalibrated interchange example. It is a
+deterministic schedule sensitivity, not an arrival-rate fit or demand model.
+
 ## Designs and limits
 
 `one_at_a_time` is the default. It creates one condition for each factor/value
@@ -116,7 +145,7 @@ The command supports these numeric targets:
 | Target | Subject | Unit |
 | --- | --- | --- |
 | `agent_count` | agent group | agents |
-| `agent_speed_mps`, `agent_radius_m`, `agent_height_m`, `agent_release_at_s` | agent group | target suffix |
+| `agent_speed_mps`, `agent_radius_m`, `agent_height_m`, `agent_release_at_s`, `agent_release_interval_s` | agent group | target suffix |
 | `exit_capacity_per_s` | exit with an authored capacity | `/s` |
 | `connector_capacity_per_s` | non-lift connector with an authored capacity | `/s` |
 | `escalator_belt_speed_mps` | escalator | `m/s` |
@@ -128,6 +157,16 @@ Unbounded exits and connectors intentionally cannot be treated as a numeric
 baseline capacity. Add an explicit capacity to the authored scenario first if a
 finite-capacity sensitivity question is intended. Values use their target's
 fixed unit: no implicit unit conversion occurs in the manifest.
+
+The ordinary `compare-sweeps` command continues to require identical authored
+agent declarations. A sensitivity condition may deliberately vary one of the
+agent targets above. Its comparison then records `agent_declarations_matched:
+false` and preserves both `baseline_total_agents` and
+`candidate_total_agents` for every seed. Those are raw structural outcomes, not
+normalized rates or evidence that a changed demand represents the same
+population. Agent-speed and agent-count factors therefore execute as declared
+without weakening the comparability contract for ordinary intervention
+comparisons.
 
 ## Interpretation
 

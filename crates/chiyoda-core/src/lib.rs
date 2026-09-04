@@ -8,10 +8,13 @@ pub mod benchmark;
 pub mod bundle;
 pub mod calibration;
 pub mod evidence;
+pub mod experiment;
 pub mod formatter;
 pub mod generator;
+pub mod layout;
 pub mod model;
 pub mod parser;
+pub mod reference;
 pub mod runtime;
 pub mod sensitivity;
 pub mod validate;
@@ -23,14 +26,27 @@ pub use bundle::{
 pub use calibration::{
     CalibrationError, PlatformCalibrationReport, calibrate_eindhoven_platform, verify_catalog_files,
 };
-pub use evidence::{EvidenceCatalog, EvidenceValidationError, validate_catalog};
+pub use evidence::{EvidenceCatalog, EvidencePurpose, EvidenceValidationError, validate_catalog};
+pub use experiment::{
+    ExperimentAssumption, ExperimentManifest, ExperimentValidationError,
+    validate_experiment_manifest,
+};
 pub use formatter::format_scenario;
+pub use layout::{
+    OpenStreetMapLayoutReport, OsmInspectionLimits, OsmLayoutError, inspect_openstreetmap_layout,
+    verify_openstreetmap_layout_report,
+};
 pub use model::{CanonicalScenario, Scenario};
 pub use parser::{ParseError, parse};
+pub use reference::{
+    CrowdQueueReferenceReport, ReferenceDataError, VruReferenceReport,
+    summarize_crowd_queue_reference, summarize_vru_trajectory_reference,
+};
 pub use runtime::{RunOptions, run};
 pub use sensitivity::{
-    AssumptionBasis, SensitivityCondition, SensitivityDesign, SensitivityError, SensitivityFactor,
-    SensitivityManifest, SensitivityStudy, SensitivityTarget, plan_sensitivity,
+    AssumptionBasis, SensitivityCondition, SensitivityDerivedReport, SensitivityDesign,
+    SensitivityError, SensitivityFactor, SensitivityManifest, SensitivityReference,
+    SensitivityStudy, SensitivityTarget, plan_sensitivity,
 };
 pub use validate::{ValidationError, validate};
 

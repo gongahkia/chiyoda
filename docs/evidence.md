@@ -9,11 +9,30 @@ models, empirical benchmark scores, or operational claims** in this repository.
 
 An open dataset is not an empirical result. Before any measurement can be
 described, Chiyoda records it in a versioned evidence catalog with the
-publisher's license and checksum, an exact local byte size and SHA-256 content
-lock, an explicit calibration/held-out role, and a transformation statement.
+publisher's license and any checksum it exposes, an exact local byte size and
+SHA-256 content lock, and a transformation statement. A catalog has one of two explicit
+purposes:
+
+- `empirical_evaluation` is the strict historical contract: every file has a
+  calibration or held-out role and the catalog explains the leakage boundary.
+- `uncalibrated_reference` content-locks an open source without pretending it
+  has an evaluation split. It cannot be passed to a calibration adapter or used
+  as benchmark evidence.
+
 Raw sources live under `data/raw/`, which is intentionally ignored by Git.
 Derived reports name every source digest and must be reproducible from that
 catalog.
+
+The catalog accepts redistributable `CC-BY-4.0` and `ODbL-1.0` source metadata.
+`ODbL-1.0` is limited to `uncalibrated_reference` and must state the required
+attribution; it cannot become an empirical-evaluation catalog. This supports
+source-linked map observation without weakening the public empirical evidence
+contract. See [open-layout source observations](layout-sources.md).
+
+For a one-off uncalibrated scenario informed by any acquired source, use an
+[experiment artifact](experiments.md) to snapshot the scenario, assumptions,
+source-report bytes, and claim boundary with the run bundle. This is provenance
+control, not calibration or empirical evaluation.
 
 The first catalog is
 [`benchmarks/evidence/eindhoven-centraal-platform-2024.json`](../benchmarks/evidence/eindhoven-centraal-platform-2024.json).
@@ -30,6 +49,14 @@ bodies, routing, information effects, accessibility, or evacuation outcomes.
 The full source and the source's CC BY 4.0 license are the authoritative record:
 [Zenodo record 13784588](https://zenodo.org/records/13784588).
 
+The second catalog,
+[`benchmarks/evidence/vru-trajectory-2022.json`](../benchmarks/evidence/vru-trajectory-2022.json),
+locks the publisher's 4.5 MB CC BY 4.0 archive of pedestrian and cyclist
+intersection trajectories. It is deliberately `uncalibrated_reference`: its
+urban-intersection setting is useful for disclosed structural exploration but
+does not supply a station split or authorize calibration. Its publisher record
+is [Zenodo record 6303669](https://zenodo.org/records/6303669).
+
 Acquire and lock the source without putting it in a commit:
 
 ```console
@@ -37,12 +64,87 @@ $ PYTHONPATH=python/src python3 -m chiyoda_analysis.evidence_cli fetch \
     benchmarks/evidence/eindhoven-centraal-platform-2024.json
 $ cargo run -p chiyoda -- evidence lock \
     benchmarks/evidence/eindhoven-centraal-platform-2024.json
+$ cargo run -p chiyoda -- evidence lock \
+    benchmarks/evidence/vru-trajectory-2022.json
 ```
 
 The Rust command is the project-native independent content-lock check. The
 Python fetcher writes a temporary sibling file and atomically installs it only
 after the byte count and SHA-256 match. It will refuse to overwrite an existing
 file whose content does not match the catalog.
+
+`calibrate eindhoven-platform` rejects an `uncalibrated_reference` catalog even
+when its files are content-locked. This preserves a hard line between acquiring
+open data for transparent assumptions and claiming that an adapter can evaluate
+the runtime.
+
+## Uncalibrated VRU reference report
+
+The VRU archive has a source-specific descriptive adapter because its publisher
+format is a gzip-compressed tar archive of one CSV trajectory per file, rather
+than Eindhoven's Parquet schema. Run it only after locking the catalog:
+
+```console
+$ cargo run -p chiyoda -- reference vru-trajectory \
+    benchmarks/evidence/vru-trajectory-2022.json \
+    -o out/vru-trajectory-reference.json
+```
+
+The adapter verifies the archive's byte size and SHA-256 before it reads it. It
+then reads only archive entries under `VRU_dataset/pedestrians/`, validates the
+published `timestamp`, `x`, and `y` CSV schema, and emits row counts, publisher
+motion-directory counts, and a fixed-filter speed summary. A 100 ms gap limit,
+4 m/s upper filter, and 0.01 m/s histogram quantiles are recorded in the
+report; rejected intervals remain counted rather than silently removed.
+
+The report status is `uncalibrated_reference_only`. Its values can help choose
+and disclose broad structural sensitivity alternatives, but cannot become a
+runtime default, a station calibration, a population estimate, a benchmark
+score, or a predictive/safety claim.
+
+The checked-in
+[`vru-trajectory-reference.json`](../benchmarks/reports/vru-trajectory-reference.json)
+is regenerated from the content-locked archive with the current adapter. The
+source-linked walking-speed sensitivity example records this report's SHA-256
+and snapshots its exact JSON inside each executed study.
+
+## Uncalibrated Wuppertal bottleneck reference report
+
+The third catalog,
+[`benchmarks/evidence/wuppertal-crowdqueue-2018.json`](../benchmarks/evidence/wuppertal-crowdqueue-2018.json),
+locks the publisher's 25 Hz text trajectories from 24 controlled university
+entrance runs. The source page describes a fixed 0.5 m entry gate at `y = 0 m`;
+corridor width, priming, motivation, and participant count vary across runs.
+The site declares CC BY 4.0 and the public source is available from the
+[Pedestrian Dynamics Data Archive](https://ped.fz-juelich.de/da/crowdqueue).
+
+Run the source-specific adapter only after locking the catalog:
+
+```console
+$ cargo run -p chiyoda -- reference crowd-queue \
+    benchmarks/evidence/wuppertal-crowdqueue-2018.json \
+    -o out/wuppertal-crowdqueue-reference.json
+```
+
+The adapter verifies the ZIP size and SHA-256 before reading it. It accepts only
+the publisher's root `RUN_PRIMING_WIDTH_MOTIVATION.txt` trajectory files,
+requires the published five-column header, uses the declared 25 Hz frame rate,
+and linearly interpolates each first positive-to-nonpositive `y = 0 m` crossing
+within a 200 ms adjacent-frame limit. It reports each run and a direct,
+descriptive per-run crossing-flow distribution. Gaps and speed-filtered steps
+remain counted rather than disappearing.
+
+The checked-in
+[`wuppertal-crowdqueue-reference.json`](../benchmarks/reports/wuppertal-crowdqueue-reference.json)
+contains 24 measured runs, 978 usable observed crossings, and a 1.1478 persons/s
+per-run P50 under its fixed filter. These are descriptive source facts, not a
+general exit-capacity law. The accompanying source-linked sensitivity example
+uses its P05/P50/P95 values only as out-of-domain structural alternatives.
+
+This source does not validate the reference runtime's service-token mechanism,
+station exits, queues, route choice, information behavior, accessibility,
+evacuation, population profile, or safety. It cannot become a calibration
+source or an empirical benchmark by relabeling it.
 
 ## Descriptive intake report
 

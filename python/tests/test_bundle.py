@@ -220,6 +220,73 @@ class BundleTests(unittest.TestCase):
             with self.assertRaises(EvidenceError):
                 load_catalog(path)
 
+    def test_uncalibrated_reference_catalog_locks_open_data_without_a_split(self) -> None:
+        payload = b"open reference"
+        digest = hashlib.sha256(payload).hexdigest()
+        catalog = {
+            "schema_version": "0.1",
+            "purpose": "uncalibrated_reference",
+            "dataset_id": "reference-fixture",
+            "title": "Reference fixture",
+            "landing_page": "https://example.test/record",
+            "license": "CC-BY-4.0",
+            "redistributable": True,
+            "citation": "Fixture (2026)",
+            "files": [
+                {
+                    "id": "reference-source",
+                    "source_url": "https://example.test/reference.bin",
+                    "local_path": "reference.bin",
+                    "sha256": digest,
+                    "size_bytes": len(payload),
+                    "transformation": "retain source values",
+                }
+            ],
+            "supported_primitives": "fixture only",
+            "exclusions": "empirical evaluation",
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "reference.bin").write_bytes(payload)
+            catalog_path = root / "catalog.json"
+            catalog_path.write_text(json.dumps(catalog), encoding="utf-8")
+            self.assertEqual(len(verify_catalog_files(load_catalog(catalog_path), root)), 1)
+
+    def test_odbl_source_observation_requires_attribution(self) -> None:
+        payload = b"open map extract"
+        digest = hashlib.sha256(payload).hexdigest()
+        catalog = {
+            "schema_version": "0.1",
+            "purpose": "uncalibrated_reference",
+            "dataset_id": "osm-fixture",
+            "title": "OpenStreetMap fixture",
+            "landing_page": "https://www.openstreetmap.org/",
+            "license": "ODbL-1.0",
+            "redistributable": True,
+            "attribution": "© OpenStreetMap contributors",
+            "citation": "OpenStreetMap contributors",
+            "files": [
+                {
+                    "id": "extract",
+                    "source_url": "https://example.test/station.osm",
+                    "local_path": "station.osm",
+                    "sha256": digest,
+                    "size_bytes": len(payload),
+                    "transformation": "inspect as source observations only",
+                }
+            ],
+            "supported_primitives": "mapped tags only",
+            "exclusions": "scenario geometry and operational claims",
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "catalog.json"
+            path.write_text(json.dumps(catalog), encoding="utf-8")
+            self.assertEqual(load_catalog(path)["license"], "ODbL-1.0")
+            del catalog["attribution"]
+            path.write_text(json.dumps(catalog), encoding="utf-8")
+            with self.assertRaises(EvidenceError):
+                load_catalog(path)
+
 
 def _hash(bundle: dict[str, object]) -> str:
     unsigned = dict(bundle)

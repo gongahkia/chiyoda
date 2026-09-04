@@ -96,6 +96,27 @@ message plaza_notice source signage on concourse at (1m, 1m, 0m) claim exit plaz
 }
 
 #[test]
+fn formatter_preserves_high_precision_authored_values() {
+    let source = r#"
+scenario "high-precision-capacity"
+seed 1
+duration 10s
+timestep 100ms
+surface concourse at (0m, 0m, 0m) size (10m, 10m)
+exit street on concourse at (8m, 1m, 0m) width 1m capacity 1.1477832456710213/s
+agents passengers count 1 on concourse at (1m, 1m, 0m) to street speed 1.2m/s radius 0.3m height 1.7m
+"#;
+    let scenario = parse(source).expect("source parses");
+    let formatted = format_scenario(&scenario);
+
+    assert!(formatted.contains("1.1477832456710213/s"));
+    assert_eq!(
+        parse(&formatted).expect("formatted source parses"),
+        scenario
+    );
+}
+
+#[test]
 fn connector_exclusion_routes_agents_to_an_eligible_connector() {
     let source = r#"
 scenario "connector-eligibility"
@@ -1102,6 +1123,56 @@ message before_release source signage on upper at (0m, 1m, 3m) claim connector d
 }
 
 #[test]
+fn release_cadence_staggers_agents_deterministically_and_round_trips() {
+    let source = r#"
+scenario "scheduled-cadence"
+seed 1
+duration 6s
+timestep 1s
+surface concourse at (0m, 0m, 0m) size (20m, 10m)
+exit street on concourse at (18m, 1m, 0m) width 2m
+agents arrivals count 3 on concourse at (1m, 1m, 0m) to street speed 1m/s radius 0.3m height 1.7m release 1s every 2s
+"#;
+    let scenario = parse(source).expect("source parses");
+    validate(&scenario).expect("cadence source validates");
+    assert_eq!(scenario.agents[0].release_interval_s, Some(2.0));
+    let formatted = format_scenario(&scenario);
+    assert!(formatted.contains("release 1s every 2s"));
+    assert_eq!(
+        parse(&formatted).expect("formatted source parses"),
+        scenario
+    );
+
+    let bundle = run(
+        &scenario,
+        RunOptions {
+            trace_every_steps: 1,
+        },
+    )
+    .expect("run succeeds");
+    let release_times: Vec<_> = bundle
+        .events
+        .iter()
+        .filter(|event| event.kind == "agent_released")
+        .map(|event| event.time_s)
+        .collect();
+    assert_eq!(release_times, vec![1.0, 3.0, 5.0]);
+    let at_two_seconds = bundle
+        .trace
+        .iter()
+        .find(|frame| (frame.time_s - 2.0).abs() < 1e-9)
+        .expect("trace contains two-second frame");
+    assert_eq!(
+        at_two_seconds
+            .agents
+            .iter()
+            .filter(|agent| agent.state == chiyoda_core::AgentState::WaitingToDepart)
+            .count(),
+        2
+    );
+}
+
+#[test]
 fn validation_rejects_agent_release_after_the_scenario() {
     let source = r#"
 scenario "late-release"
@@ -1118,6 +1189,26 @@ agents delayed count 1 on concourse at (1m, 1m, 0m) to street speed 1m/s radius 
         errors
             .iter()
             .any(|error| error.path == "agents[0].release_at_s")
+    );
+}
+
+#[test]
+fn validation_rejects_a_release_cadence_that_extends_past_duration() {
+    let source = r#"
+scenario "late-cadence"
+seed 1
+duration 10s
+timestep 1s
+surface concourse at (0m, 0m, 0m) size (10m, 10m)
+exit street on concourse at (9m, 1m, 0m) width 2m
+agents delayed count 3 on concourse at (1m, 1m, 0m) to street speed 1m/s radius 0.3m height 1.7m release 7s every 2s
+"#;
+    let scenario = parse(source).expect("source parses");
+    let errors = validate(&scenario).expect_err("final release outside duration must be rejected");
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.path == "agents[0].final_release_at_s")
     );
 }
 

@@ -8,14 +8,17 @@ content-locked catalog and passes the later protocol review.
 | Source | License/access verified | Decision | Reason |
 | --- | --- | --- | --- |
 | [Eindhoven Centraal platform trajectories](https://zenodo.org/records/13784588) | CC BY 4.0; direct public files | acquired; cataloged | 60 days of anonymous 10 Hz platform trajectories at a transit station. Supports descriptive horizontal platform-walking analysis only. |
-| [VRU Trajectory Dataset](https://zenodo.org/records/6303669) | CC BY 4.0; direct public files | acquired; excluded from current catalog | Its pedestrian data comes from an urban intersection, not a transit interchange. It may become an explicit out-of-domain robustness diagnostic, never transit/stair calibration. |
+| [VRU Trajectory Dataset](https://zenodo.org/records/6303669) | CC BY 4.0; direct public file | acquired; source-only cataloged | Its pedestrian data comes from an urban intersection, not a transit interchange. It is content-locked as `uncalibrated_reference` for disclosed structural exploration, never transit/stair calibration or benchmark evidence. |
+| [Wuppertal controlled crowd-queue trajectories](https://ped.fz-juelich.de/da/crowdqueue) | CC BY 4.0 declared on the dataset page; direct public HTTPS ZIP | acquired; source-only cataloged | 24 controlled university entrance runs with published 25 Hz 2D trajectories through one fixed 0.5 m gate. The adapter reports disclosed gate-crossing alternatives only; it is not a station-capacity or queue-model validation source. |
+| [OpenStreetMap](https://www.openstreetmap.org/) station-area XML extracts | ODbL 1.0; attribution required | supported as local source observation | The `layout osm` workflow content-locks one reviewed local extract and preserves recognized geographic tags with attribution. It deliberately does not turn optional/incomplete map tags into geometry, capacity, accessibility, or calibrated facility claims. |
 | [RAWPED](https://zenodo.org/records/3741742) | restricted; expressly non-commercial and no redistribution | rejected | It violates Chiyoda's public redistribution requirement. |
 | [SiT](https://github.com/SPALaboratory/SiT-Dataset) | CC BY-NC-ND 4.0 | rejected | The non-commercial/no-derivatives terms are incompatible with a redistributable Apache-2.0 benchmark corpus. |
-| [Pedestrian Dynamics Data Archive](https://ped.fz-juelich.de/da/) | archive-wide CC BY 4.0 notice | pending dataset-specific review | The archive is promising for controlled bottleneck experiments, but no individual dataset is admitted until its own files, protocol, schema, citation, and license statement are content-locked. |
+| [Pedestrian Dynamics Data Archive](https://ped.fz-juelich.de/da/) | archive-wide CC BY 4.0 notice | one dataset acquired; others pending dataset-specific review | The Wuppertal crowd-queue source now meets the full source-only intake contract. No other archive dataset is admitted until its own files, protocol, schema, citation, and license statement are separately reviewed and content-locked. |
 
 ## Selection rule
 
-To enter `benchmarks/evidence/`, a source must have all of the following:
+To enter an `empirical_evaluation` catalog under `benchmarks/evidence/`, a
+source must have all of the following:
 
 1. a direct, stable HTTPS file URL and a license allowing redistribution;
 2. published measurement and coordinate semantics sufficient to state a narrow
@@ -29,3 +32,9 @@ Data which merely has an open landing page, is non-commercial, requires an
 account or private request, lacks a per-dataset license, or cannot support the
 declared primitive is not admitted. This is intentionally stricter than
 "downloadable."
+
+An `uncalibrated_reference` catalog has the same direct-file, licensing, content
+lock, coordinate-semantics, and transformation requirements, but does not invent
+a calibration/held-out split. It is appropriate for provenance-preserving
+assumption discovery and structural experiments; it is not a back door into an
+empirical claim.

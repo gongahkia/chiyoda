@@ -1,0 +1,8 @@
+scenario "controlled-gate-capacity-reference"
+seed 47
+duration 90s
+timestep 100ms
+
+surface approach at (0m, 0m, 0m) size (18m, 8m)
+exit entry_gate on approach at (16m, 4m, 0m) width 0.5m capacity 1.1477832456710213/s
+agents participants count 24 on approach at (1m, 4m, 0m) to entry_gate speed 1.2m/s radius 0.3m height 1.7m

@@ -601,6 +601,9 @@ fn spawn_agents(
     let mut agents = Vec::new();
     for group in &scenario.agents {
         for (ordinal, position) in group.spawn_positions().enumerate() {
+            let release_at_s = group.release_at_s
+                + group.release_interval_s.unwrap_or(0.0)
+                    * f64::from(u32::try_from(ordinal).expect("agent ordinal fits u32"));
             let route_start = RouteStart {
                 surface: &group.surface,
                 position,
@@ -656,12 +659,10 @@ fn spawn_agents(
                 excluded_connector_kinds: group.excluded_connector_kinds.clone(),
                 route,
                 route_cursor: 0,
-                motion: if group.release_at_s == 0.0 {
+                motion: if release_at_s == 0.0 {
                     Motion::OnSurface
                 } else {
-                    Motion::WaitingToDepart {
-                        release_at_s: group.release_at_s,
-                    }
+                    Motion::WaitingToDepart { release_at_s }
                 },
                 beliefs: BTreeMap::new(),
                 blocked_connectors: HashSet::new(),

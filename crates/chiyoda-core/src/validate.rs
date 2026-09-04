@@ -316,6 +316,21 @@ pub fn validate(scenario: &Scenario) -> Result<(), Vec<ValidationError>> {
             scenario.duration_s,
             &mut errors,
         );
+        if let Some(release_interval_s) = group.release_interval_s {
+            check_positive(
+                &format!("{path}.release_interval_s"),
+                release_interval_s,
+                &mut errors,
+            );
+            let final_release_s =
+                group.release_at_s + release_interval_s * f64::from(group.count.saturating_sub(1));
+            check_time(
+                &format!("{path}.final_release_at_s"),
+                final_release_s,
+                scenario.duration_s,
+                &mut errors,
+            );
+        }
         if group.radius_m.is_finite() && group.radius_m > 0.0 {
             check_agent_spawn(
                 &surfaces,

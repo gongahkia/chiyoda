@@ -29,7 +29,7 @@ connector-state ID connector CONNECTOR (open|closed) time DURATION
 exit-state ID exit EXIT (open|closed) time DURATION
 gate ID on SURFACE at (LENGTH, LENGTH, LENGTH) width LENGTH capacity RATE to EXIT
 
-agents ID count UNSIGNED_INTEGER on SURFACE at (LENGTH, LENGTH, LENGTH) to EXIT speed SPEED radius LENGTH height LENGTH [via WAYPOINT]... [alternative EXIT]... [exclude (stair|ramp|escalator|lift)]... [release DURATION]
+agents ID count UNSIGNED_INTEGER on SURFACE at (LENGTH, LENGTH, LENGTH) to EXIT speed SPEED radius LENGTH height LENGTH [via WAYPOINT]... [alternative EXIT]... [exclude (stair|ramp|escalator|lift)]... [release DURATION [every DURATION]]
 
 message ID source (peer|official|signage|staff) on SURFACE at (LENGTH, LENGTH, LENGTH) claim (connector CONNECTOR|exit EXIT) (open|closed) truth (true|false) time DURATION reach LENGTH trust PROBABILITY [sample ID]
 countermeasure ID corrects MESSAGE source (official|signage|staff) on SURFACE at (LENGTH, LENGTH, LENGTH) time DURATION reach LENGTH trust PROBABILITY [sample ID]
@@ -41,6 +41,10 @@ suffix. `PROBABILITY` is a finite decimal in `[0, 1]`.
 
 `release` is optional and defaults to `0s`. It schedules when a declared group
 becomes active; it is an authored demand input rather than an arrival-rate fit.
+`release T every I` releases ordinal group agents deterministically at `T`,
+`T + I`, and so on. Omission of `every` retains simultaneous batch release.
+The final ordinal release must fall within scenario duration. This is a declared
+schedule, not an inferred arrival process or stochastic demand fit.
 Each `via` adds an ordered required waypoint stage before the final exit.
 Waypoint `dwell` defaults to `0s`; when declared, it holds an agent after the
 stage before it may begin the next one.

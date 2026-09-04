@@ -1,0 +1,23 @@
+{
+  "schema_version": "0.1",
+  "purpose": "uncalibrated_reference",
+  "dataset_id": "vru-trajectory-2022",
+  "title": "VRU Trajectory Dataset",
+  "landing_page": "https://zenodo.org/records/6303669",
+  "license": "CC-BY-4.0",
+  "redistributable": true,
+  "citation": "Zernetsch, S., Kress, V., Bieshaar, M., Reitberger, G., Fuchs, E., Doll, K., & Sick, B. (2022). VRU Trajectory Dataset. Zenodo. https://doi.org/10.5281/zenodo.6303669",
+  "files": [
+    {
+      "id": "vru-complete-archive",
+      "source_url": "https://zenodo.org/api/records/6303669/files/VRUT_Dataset_complete.tar.gz/content",
+      "local_path": "vru-trajectory-2022/VRUT_Dataset_complete.tar.gz",
+      "sha256": "e97c1440a43d47cb0a5a82b4d1a3f4e51d6964cc29ec19e73e4f9a97b0912c70",
+      "size_bytes": 4466962,
+      "upstream_checksum": "md5:9ed4734e7af7e3616ddf6bf62e45394f",
+      "transformation": "Preserve the publisher archive unchanged. If a future descriptive adapter is added, it must identify each CSV trajectory by archive path and retain timestamp, x, and y coordinates in their published seconds and metres units."
+    }
+  ],
+  "supported_primitives": "Source-locked descriptive 2D pedestrian head-position trajectories from one urban intersection; useful only for clearly labeled out-of-domain structural exploration.",
+  "exclusions": "Not an empirical benchmark source, calibration source, station or interchange proxy, body-dimension source, queueing source, route-choice source, information-behavior source, evacuation source, population profile, or safety evidence."
+}

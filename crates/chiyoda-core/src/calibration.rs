@@ -5,7 +5,7 @@
 //! Keeping that distinction in code prevents a descriptive fit from silently
 //! becoming a predictive or operational claim.
 
-use crate::{EvidenceCatalog, benchmark::DatasetRole, evidence::validate_catalog};
+use crate::{EvidenceCatalog, EvidencePurpose, benchmark::DatasetRole, evidence::validate_catalog};
 use arrow_array::{
     Array, Float32Array, Float64Array, Int32Array, Int64Array, UInt32Array, UInt64Array,
 };
@@ -150,6 +150,11 @@ pub fn calibrate_eindhoven_platform(
                 .join("; "),
         )
     })?;
+    if catalog.purpose != EvidencePurpose::EmpiricalEvaluation {
+        return Err(CalibrationError::InvalidCatalog(
+            "the Eindhoven adapter accepts only an empirical_evaluation catalog".to_owned(),
+        ));
+    }
     if catalog.dataset_id != "eindhoven-centraal-platform-2024" {
         return Err(CalibrationError::InvalidCatalog(
             "the Eindhoven adapter requires dataset_id `eindhoven-centraal-platform-2024`"
@@ -160,7 +165,7 @@ pub fn calibrate_eindhoven_platform(
     let filter = ObservationFilter::default();
     let mut selected = PartitionAccumulator::default();
     for source in &catalog.files {
-        if source.role != partition {
+        if source.role.as_ref() != Some(&partition) {
             continue;
         }
         let path = data_root.join(&source.local_path);
@@ -320,7 +325,13 @@ fn summarize_eindhoven_file(
             accumulator.observe(observation);
         }
     }
-    Ok(accumulator.finish(source))
+    let role = source.role.clone().ok_or_else(|| {
+        CalibrationError::InvalidCatalog(format!(
+            "Eindhoven source `{}` must declare an empirical partition role",
+            source.id
+        ))
+    })?;
+    Ok(accumulator.finish(source, role))
 }
 
 fn identifier_at(
@@ -494,11 +505,12 @@ impl FileAccumulator {
     fn finish(
         self,
         source: &crate::evidence::EvidenceFile,
+        role: DatasetRole,
     ) -> (FileCalibrationSummary, RunningSpeedSummary) {
         let Self { counts, speeds, .. } = self;
         let summary = FileCalibrationSummary {
             id: source.id.clone(),
-            role: source.role.clone(),
+            role,
             source_sha256: source.sha256.clone(),
             local_path: source.local_path.clone(),
             observations: counts,
@@ -664,7 +676,12 @@ impl PartitionAccumulator {
 
 #[cfg(test)]
 mod tests {
-    use super::{FileAccumulator, Observation, ObservationFilter, RunningSpeedSummary};
+    use super::{
+        CalibrationError, FileAccumulator, Observation, ObservationFilter,
+        PlatformCalibrationReport, RunningSpeedSummary, calibrate_eindhoven_platform, catalog_hash,
+    };
+    use crate::{EvidenceCatalog, EvidencePurpose, benchmark::DatasetRole, evidence::EvidenceFile};
+    use std::path::Path;
 
     #[test]
     fn observation_filter_counts_gaps_and_outliers_without_hiding_them() {
@@ -708,5 +725,65 @@ mod tests {
         second.add(3.0);
         first.merge(&second);
         assert!((first.finish().mean_mps - 2.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn calibration_adapter_rejects_a_source_only_catalog_before_reading_files() {
+        let catalog = EvidenceCatalog {
+            schema_version: "0.1".to_owned(),
+            purpose: EvidencePurpose::UncalibratedReference,
+            dataset_id: "eindhoven-centraal-platform-2024".to_owned(),
+            title: "Source-only fixture".to_owned(),
+            landing_page: "https://example.test/record".to_owned(),
+            license: "CC-BY-4.0".to_owned(),
+            redistributable: true,
+            attribution: None,
+            citation: "Fixture (2026)".to_owned(),
+            files: vec![EvidenceFile {
+                id: "source".to_owned(),
+                role: None,
+                source_url: "https://example.test/source".to_owned(),
+                local_path: "missing.parquet".to_owned(),
+                sha256: "a".repeat(64),
+                size_bytes: 1,
+                upstream_checksum: Some("md5:fixture".to_owned()),
+                transformation: "retain source values".to_owned(),
+            }],
+            supported_primitives: "fixture only".to_owned(),
+            exclusions: "empirical evaluation".to_owned(),
+            split_rationale: None,
+        };
+
+        let error =
+            calibrate_eindhoven_platform(&catalog, Path::new("missing"), DatasetRole::Calibration)
+                .expect_err("source-only catalog must be rejected");
+
+        assert!(
+            matches!(error, CalibrationError::InvalidCatalog(message) if message.contains("empirical_evaluation"))
+        );
+    }
+
+    #[test]
+    fn empirical_catalog_hash_is_compatible_with_the_checked_in_intake_report() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let catalog: EvidenceCatalog = serde_json::from_str(
+            &std::fs::read_to_string(
+                root.join("benchmarks/evidence/eindhoven-centraal-platform-2024.json"),
+            )
+            .expect("reading checked-in catalog"),
+        )
+        .expect("parsing checked-in catalog");
+        let report: PlatformCalibrationReport = serde_json::from_str(
+            &std::fs::read_to_string(
+                root.join("benchmarks/reports/eindhoven-platform-calibration-intake.json"),
+            )
+            .expect("reading checked-in intake report"),
+        )
+        .expect("parsing checked-in intake report");
+
+        assert_eq!(
+            catalog_hash(&catalog).expect("hashing catalog"),
+            report.catalog_sha256
+        );
     }
 }
