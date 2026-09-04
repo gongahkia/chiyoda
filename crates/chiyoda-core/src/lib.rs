@@ -4,6 +4,7 @@
 //! every parameter and records every state transition; it is not certified for
 //! regulatory, operational, or life-safety decisions.
 
+pub mod benchmark;
 pub mod bundle;
 pub mod generator;
 pub mod model;
@@ -11,6 +12,7 @@ pub mod parser;
 pub mod runtime;
 pub mod validate;
 
+pub use benchmark::{BenchmarkManifest, BenchmarkValidationError, validate_manifest};
 pub use bundle::{RunBundle, bundle_hash};
 pub use model::{CanonicalScenario, Scenario};
 pub use parser::{ParseError, parse};

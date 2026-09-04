@@ -1,5 +1,8 @@
 use crate::model::{Connector, Point3, Scenario, Surface};
-use std::{collections::{BTreeSet, HashMap, HashSet, VecDeque}, fmt};
+use std::{
+    collections::{BTreeSet, HashMap, HashSet, VecDeque},
+    fmt,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ValidationError {
@@ -49,7 +52,13 @@ pub fn validate(scenario: &Scenario) -> Result<(), Vec<ValidationError>> {
         let path = format!("exits[{index}]");
         check_unique(&mut ids, &exit.id, &path, &mut errors);
         check_positive(&format!("{path}.width_m"), exit.width_m, &mut errors);
-        check_point(&surfaces, &exit.surface, exit.at, &format!("{path}.at"), &mut errors);
+        check_point(
+            &surfaces,
+            &exit.surface,
+            exit.at,
+            &format!("{path}.at"),
+            &mut errors,
+        );
     }
     if scenario.exits.is_empty() {
         errors.push(issue("exits", "at least one exit is required"));
@@ -86,11 +95,22 @@ pub fn validate(scenario: &Scenario) -> Result<(), Vec<ValidationError>> {
                 cycle_s,
                 ..
             } => {
-                check_positive(&format!("{path}.cabin_width_m"), *cabin_width_m, &mut errors);
-                check_positive(&format!("{path}.cabin_depth_m"), *cabin_depth_m, &mut errors);
+                check_positive(
+                    &format!("{path}.cabin_width_m"),
+                    *cabin_width_m,
+                    &mut errors,
+                );
+                check_positive(
+                    &format!("{path}.cabin_depth_m"),
+                    *cabin_depth_m,
+                    &mut errors,
+                );
                 check_positive(&format!("{path}.cycle_s"), *cycle_s, &mut errors);
                 if *capacity == 0 {
-                    errors.push(issue(&format!("{path}.capacity"), "must be greater than zero"));
+                    errors.push(issue(
+                        &format!("{path}.capacity"),
+                        "must be greater than zero",
+                    ));
                 }
             }
         }
@@ -105,7 +125,13 @@ pub fn validate(scenario: &Scenario) -> Result<(), Vec<ValidationError>> {
             gate.service_rate_per_s,
             &mut errors,
         );
-        check_point(&surfaces, &gate.surface, gate.at, &format!("{path}.at"), &mut errors);
+        check_point(
+            &surfaces,
+            &gate.surface,
+            gate.at,
+            &format!("{path}.at"),
+            &mut errors,
+        );
     }
 
     let exit_ids: HashSet<&str> = scenario.exits.iter().map(|exit| exit.id.as_str()).collect();
@@ -118,7 +144,13 @@ pub fn validate(scenario: &Scenario) -> Result<(), Vec<ValidationError>> {
         check_positive(&format!("{path}.speed_mps"), group.speed_mps, &mut errors);
         check_positive(&format!("{path}.radius_m"), group.radius_m, &mut errors);
         check_positive(&format!("{path}.height_m"), group.height_m, &mut errors);
-        check_point(&surfaces, &group.surface, group.at, &format!("{path}.at"), &mut errors);
+        check_point(
+            &surfaces,
+            &group.surface,
+            group.at,
+            &format!("{path}.at"),
+            &mut errors,
+        );
         if !exit_ids.contains(group.destination.as_str()) {
             errors.push(issue(
                 &format!("{path}.destination"),
@@ -130,7 +162,11 @@ pub fn validate(scenario: &Scenario) -> Result<(), Vec<ValidationError>> {
         errors.push(issue("agents", "at least one agent group is required"));
     }
 
-    let message_ids: HashSet<&str> = scenario.messages.iter().map(|message| message.id.as_str()).collect();
+    let message_ids: HashSet<&str> = scenario
+        .messages
+        .iter()
+        .map(|message| message.id.as_str())
+        .collect();
     for (index, message) in scenario.messages.iter().enumerate() {
         let path = format!("messages[{index}]");
         check_unique(&mut ids, &message.id, &path, &mut errors);
@@ -163,14 +199,22 @@ pub fn validate(scenario: &Scenario) -> Result<(), Vec<ValidationError>> {
             &mut errors,
         );
         check_time(&path, countermeasure.at_s, scenario.duration_s, &mut errors);
-        check_positive(&format!("{path}.reach_m"), countermeasure.reach_m, &mut errors);
+        check_positive(
+            &format!("{path}.reach_m"),
+            countermeasure.reach_m,
+            &mut errors,
+        );
         check_probability(&format!("{path}.trust"), countermeasure.trust, &mut errors);
     }
 
     if errors.is_empty() {
         check_reachability(scenario, &mut errors);
     }
-    if errors.is_empty() { Ok(()) } else { Err(errors) }
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(errors)
+    }
 }
 
 fn check_reachability(scenario: &Scenario, errors: &mut Vec<ValidationError>) {
@@ -221,11 +265,19 @@ fn check_point(
     match surfaces.get(surface_id) {
         Some(surface) if surface.contains(point) => {}
         Some(_) => errors.push(issue(path, format!("is outside surface `{surface_id}`"))),
-        None => errors.push(issue(path, format!("references unknown surface `{surface_id}`"))),
+        None => errors.push(issue(
+            path,
+            format!("references unknown surface `{surface_id}`"),
+        )),
     }
 }
 
-fn check_unique(ids: &mut BTreeSet<String>, id: &str, path: &str, errors: &mut Vec<ValidationError>) {
+fn check_unique(
+    ids: &mut BTreeSet<String>,
+    id: &str,
+    path: &str,
+    errors: &mut Vec<ValidationError>,
+) {
     if id.trim().is_empty() {
         errors.push(issue(path, "identifier must not be empty"));
     } else if !ids.insert(id.to_owned()) {

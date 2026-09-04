@@ -1,6 +1,6 @@
 use crate::model::{
-    AgentGroup, Connector, Countermeasure, Exit, Gate, InformationSource, Message, Point3, Scenario,
-    Surface,
+    AgentGroup, Connector, Countermeasure, Exit, Gate, InformationSource, Message, Point3,
+    Scenario, Surface,
 };
 use std::{fmt, str::FromStr};
 
@@ -36,8 +36,12 @@ struct ScenarioBuilder {
 impl ScenarioBuilder {
     fn finish(self, line: usize) -> Result<Scenario, ParseError> {
         Ok(Scenario {
-            name: self.name.ok_or_else(|| error(line, "missing `scenario` declaration"))?,
-            seed: self.seed.ok_or_else(|| error(line, "missing `seed` declaration"))?,
+            name: self
+                .name
+                .ok_or_else(|| error(line, "missing `scenario` declaration"))?,
+            seed: self
+                .seed
+                .ok_or_else(|| error(line, "missing `seed` declaration"))?,
             duration_s: self
                 .duration_s
                 .ok_or_else(|| error(line, "missing `duration` declaration"))?,
@@ -225,7 +229,7 @@ fn parse_declaration(
             });
         }
         "countermeasure" => {
-            require_count(line, tokens, 20)?;
+            require_count(line, tokens, 18)?;
             expect(line, tokens, 2, "corrects")?;
             expect(line, tokens, 4, "source")?;
             expect(line, tokens, 6, "on")?;
@@ -358,7 +362,10 @@ fn expect(line: usize, tokens: &[String], index: usize, expected: &str) -> Resul
     if actual == expected {
         Ok(())
     } else {
-        Err(error(line, format!("expected `{expected}`, found `{actual}`")))
+        Err(error(
+            line,
+            format!("expected `{expected}`, found `{actual}`"),
+        ))
     }
 }
 
