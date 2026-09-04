@@ -514,15 +514,20 @@ pub fn run(scenario: &Scenario, options: RunOptions) -> Result<RunBundle, RunErr
                 .or_default() += 1;
         }
     }
-    let clearance_time_s = exit_times.iter().copied().reduce(f64::max);
+    let total_agents = u32::try_from(agents.len()).expect("agent count fits u32");
+    let last_exit_time_s = exit_times.iter().copied().reduce(f64::max);
+    let clearance_time_s = (evacuated_agents == total_agents)
+        .then_some(last_exit_time_s)
+        .flatten();
     let mean_exit_time_s =
         (!exit_times.is_empty()).then(|| exit_times.iter().sum::<f64>() / exit_times.len() as f64);
     let metrics = RunMetrics {
-        total_agents: u32::try_from(agents.len()).expect("agent count fits u32"),
+        total_agents,
         evacuated_agents,
         evacuated_by_exit,
         remaining_by_state,
         clearance_time_s,
+        last_exit_time_s,
         mean_exit_time_s,
         queued_for_lift_agents: u32::try_from(resources.queued_for_lift_agents.len())
             .expect("agent count fits u32"),
@@ -540,7 +545,7 @@ pub fn run(scenario: &Scenario, options: RunOptions) -> Result<RunBundle, RunErr
         ),
         (
             "integration".to_owned(),
-            "deterministic-euler-0.16".to_owned(),
+            "deterministic-euler-0.17".to_owned(),
         ),
     ]);
     Ok(RunBundle::new(canonical, options, trace, events, metrics))

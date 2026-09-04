@@ -57,7 +57,13 @@ pub struct RunMetrics {
     /// Final non-evacuated agent states at the end of the configured duration.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub remaining_by_state: BTreeMap<String, u32>,
+    /// Time at which the final agent evacuated, present only when every agent
+    /// completed evacuation during the configured duration.
     pub clearance_time_s: Option<f64>,
+    /// Time at which the last observed evacuation occurred, whether or not
+    /// agents remained when the configured duration ended.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_exit_time_s: Option<f64>,
     pub mean_exit_time_s: Option<f64>,
     pub queued_for_lift_agents: u32,
     pub queued_for_connector_agents: u32,
@@ -92,10 +98,11 @@ impl RunBundle {
             event.time_s = canonical_number(event.time_s);
         }
         metrics.clearance_time_s = metrics.clearance_time_s.map(canonical_number);
+        metrics.last_exit_time_s = metrics.last_exit_time_s.map(canonical_number);
         metrics.mean_exit_time_s = metrics.mean_exit_time_s.map(canonical_number);
         let scenario_hash = canonical_hash(&scenario);
         let mut bundle = Self {
-            bundle_version: "0.16".to_owned(),
+            bundle_version: "0.17".to_owned(),
             runtime_version: RUNTIME_VERSION.to_owned(),
             scenario_hash,
             scenario,

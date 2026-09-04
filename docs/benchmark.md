@@ -22,7 +22,7 @@ scope.
 
 ## Current status
 
-`0.16.0-alpha.1` includes the generator, fixture-seed protocol, and manifest
+`0.17.0-alpha.1` includes the generator, fixture-seed protocol, and manifest
 validator. It now also includes a content-locked candidate source and a
 descriptive 2D platform-trajectory intake path. It does not publish an
 empirical round: the source is neither a calibrated runtime nor independent
@@ -76,7 +76,8 @@ template hashes so the actual intervention remains inspectable.
 
 The report has one row per common seed, with arm-specific bundle hashes,
 evacuation counts, final-exit attribution, remaining-state attribution, and a
-clearance-time delta only if both runs completed. It additionally reports exact
+clearance-time delta only if both runs completed; separately named last-exit
+times remain available for partially completed runs. It additionally reports exact
 aggregate candidate-minus-baseline count deltas and separates pairs with only
 one completed arm from comparable clearance-time pairs. No confidence interval,
 significance label, causal conclusion, or predictive interpretation is

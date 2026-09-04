@@ -3,7 +3,7 @@
 use crate::model::{Connector, Proposition, Scenario};
 use std::fmt::Write;
 
-/// Render a typed scenario as canonical version-0.16 source.
+/// Render a typed scenario as canonical version-0.17 source.
 #[must_use]
 #[allow(clippy::too_many_lines)] // mirrors the complete declaration grammar in one reviewable serializer
 pub fn format_scenario(scenario: &Scenario) -> String {

@@ -204,6 +204,8 @@ struct SweepRun {
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     remaining_by_state: BTreeMap<String, u32>,
     clearance_time_s: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    last_exit_time_s: Option<f64>,
 }
 
 #[derive(Debug, Serialize)]
@@ -225,6 +227,7 @@ struct SweepAnalysis {
     remaining_by_state: BTreeMap<String, u64>,
     unattributed_remaining_agents: u64,
     clearance_time_s: Option<DescriptiveRange>,
+    last_exit_time_s: Option<DescriptiveRange>,
     claim_boundary: String,
 }
 
@@ -278,6 +281,7 @@ struct PairedRunArm {
     evacuated_by_exit: BTreeMap<String, u32>,
     remaining_by_state: BTreeMap<String, u32>,
     clearance_time_s: Option<f64>,
+    last_exit_time_s: Option<f64>,
 }
 
 #[derive(Debug, Serialize)]
@@ -285,6 +289,7 @@ struct PairedRunDelta {
     evacuated_agents: i64,
     un_evacuated_agents: i64,
     clearance_time_s: Option<f64>,
+    last_exit_time_s: Option<f64>,
 }
 
 #[derive(Debug, Serialize)]
@@ -293,7 +298,8 @@ struct PairedAggregate {
     runs_with_more_candidate_evacuations: u32,
     runs_with_fewer_candidate_evacuations: u32,
     runs_with_unchanged_evacuations: u32,
-    clearance_time_s: PairedClearance,
+    clearance_time_s: PairedTime,
+    last_exit_time_s: PairedTime,
 }
 
 #[derive(Debug, Serialize)]
@@ -305,15 +311,27 @@ struct AggregateDelta {
 }
 
 #[derive(Debug, Serialize)]
-struct PairedClearance {
-    both_complete_runs: u32,
-    baseline_only_complete_runs: u32,
-    candidate_only_complete_runs: u32,
-    neither_complete_runs: u32,
-    candidate_faster_runs: u32,
-    candidate_slower_runs: u32,
+struct PairedTime {
+    both_recorded_runs: u32,
+    baseline_only_recorded_runs: u32,
+    candidate_only_recorded_runs: u32,
+    neither_recorded_runs: u32,
+    candidate_earlier_runs: u32,
+    candidate_later_runs: u32,
     unchanged_runs: u32,
     candidate_minus_baseline_s: Option<DescriptiveRange>,
+}
+
+#[derive(Default)]
+struct PairedTimeAccumulator {
+    both_recorded_runs: u32,
+    baseline_only_recorded_runs: u32,
+    candidate_only_recorded_runs: u32,
+    neither_recorded_runs: u32,
+    candidate_earlier_runs: u32,
+    candidate_later_runs: u32,
+    unchanged_runs: u32,
+    deltas: Vec<f64>,
 }
 
 #[allow(clippy::too_many_lines)] // top-level command dispatch is intentionally visible in one place
@@ -564,6 +582,7 @@ where
             evacuated_by_exit: bundle.metrics.evacuated_by_exit.clone(),
             remaining_by_state: bundle.metrics.remaining_by_state.clone(),
             clearance_time_s: bundle.metrics.clearance_time_s,
+            last_exit_time_s: bundle.metrics.last_exit_time_s,
         });
     }
     let summary = SweepSummary {
@@ -781,6 +800,7 @@ fn load_and_verify_sweep(directory: &Path) -> Result<SweepSummary> {
             || record.evacuated_by_exit != bundle.metrics.evacuated_by_exit
             || record.remaining_by_state != bundle.metrics.remaining_by_state
             || record.clearance_time_s != bundle.metrics.clearance_time_s
+            || record.last_exit_time_s != bundle.metrics.last_exit_time_s
         {
             bail!(
                 "summary and run bundle disagree: {}",

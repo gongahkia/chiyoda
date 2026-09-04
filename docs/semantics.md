@@ -1,7 +1,7 @@
-# Executable semantics 0.16
+# Executable semantics 0.17
 
 The Rust `chiyoda-core` runtime is the reference interpreter for language
-version 0.16. This document is normative where it describes public behavior;
+version 0.17. This document is normative where it describes public behavior;
 the source and conformance tests make that behavior executable.
 
 ## State and step order
@@ -72,13 +72,19 @@ unordered map iteration.
 
 ## What this does not mean
 
-The `0.16` local-separation law, nominal routing cost and alternative-exit
+The `0.17` local-separation law, nominal routing cost and alternative-exit
 selection, scheduled-release semantics, operational-state transitions,
 escalator walking-rider assumption, and seeded information acceptance law are
 reference semantics, not calibrated behavioral claims. A valid source program
 or deterministic trace does not
 demonstrate crowd-flow accuracy, accessible egress fidelity, message
 effectiveness, operational-state fidelity, or operational safety.
+
+`clearance_time_s` is emitted only if every released agent has evacuated by the
+configured end time. If at least one agent evacuated but one or more agents
+remain, `last_exit_time_s` records the final observed evacuation instead. The
+two measurements must not be substituted for each other: a partial run has no
+system clearance time.
 
 ## Reproducibility contract
 

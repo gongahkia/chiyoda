@@ -5,7 +5,7 @@ Chiyoda is an Apache-2.0 research platform for deterministic, reproducible
 is a standalone experiment language and executable reference semantics—not a
 real-time operations dashboard or a certified evacuation product.
 
-The current `0.16.0-alpha.1` release establishes the language/runtime contract:
+The current `0.17.0-alpha.1` release establishes the language/runtime contract:
 
 - a typed textual DSL with static unit, topology, reachability, capacity, and
   deterministic-replay checks;
@@ -84,7 +84,8 @@ with different seed ranges, duration, timestep, or authored agent demand and
 journeys. The report records the two template hashes, every changed scenario
 section, each seed's outcomes, exact aggregate count deltas, exit and terminal
 state deltas, and clearance-time differences only for seeds where both arms
-fully evacuated. It is a deterministic structural comparison, not a control
+fully evacuated. A separately named last-exit-time metric remains available
+when agents still remain in the system. It is a deterministic structural comparison, not a control
 group, causal estimate, uncertainty estimate, or predictive result. Matching
 message or countermeasure identifiers retain their deterministic acceptance
 stream where delivery remains comparable; renaming an intervention identifier
