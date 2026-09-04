@@ -25,6 +25,7 @@ const ID_COLUMN: &str = "object_identifier";
 const X_COLUMN: &str = "x_position_mm";
 const Y_COLUMN: &str = "y_position_mm";
 const HISTOGRAM_BIN_WIDTH_MPS: f64 = 0.01;
+const HISTOGRAM_BIN_COUNT: usize = 400;
 const DEFAULT_MAX_GAP_MS: i64 = 500;
 const DEFAULT_MAX_SPEED_MPS: f64 = 4.0;
 
@@ -235,7 +236,7 @@ fn sha256_file(path: &Path) -> Result<String, CalibrationError> {
     })?;
     let mut reader = BufReader::new(file);
     let mut hasher = Sha256::new();
-    let mut buffer = [0_u8; 128 * 1024];
+    let mut buffer = vec![0_u8; 128 * 1024];
     loop {
         let read = reader
             .read(&mut buffer)
@@ -266,7 +267,7 @@ fn summarize_eindhoven_file(
             path: path.to_owned(),
             message: error.to_string(),
         })?;
-    let mut accumulator = FileAccumulator::new(filter.clone());
+    let mut accumulator = FileAccumulator::new(filter);
     for batch in reader {
         let batch = batch.map_err(|error| CalibrationError::Parquet {
             path: path.to_owned(),
@@ -316,7 +317,7 @@ fn identifier_at(
     index: usize,
     path: &Path,
 ) -> Result<u64, CalibrationError> {
-    integer_at(column, index, ID_COLUMN, path).map(|value| value as u64)
+    integer_at(column, index, ID_COLUMN, path).map(i64::cast_unsigned)
 }
 
 fn integer_at(
@@ -363,11 +364,11 @@ fn number_at(
         });
     }
     if let Some(values) = column.as_any().downcast_ref::<Int64Array>() {
-        Ok(values.value(index) as f64)
+        integer_to_f64(values.value(index), name, path)
     } else if let Some(values) = column.as_any().downcast_ref::<Int32Array>() {
         Ok(f64::from(values.value(index)))
     } else if let Some(values) = column.as_any().downcast_ref::<UInt64Array>() {
-        Ok(values.value(index) as f64)
+        unsigned_integer_to_f64(values.value(index), name, path)
     } else if let Some(values) = column.as_any().downcast_ref::<UInt32Array>() {
         Ok(f64::from(values.value(index)))
     } else if let Some(values) = column.as_any().downcast_ref::<Float64Array>() {
@@ -380,6 +381,28 @@ fn number_at(
             column: name,
         })
     }
+}
+
+fn integer_to_f64(value: i64, name: &'static str, path: &Path) -> Result<f64, CalibrationError> {
+    i32::try_from(value)
+        .map(f64::from)
+        .map_err(|_| CalibrationError::UnsupportedColumnType {
+            path: path.to_owned(),
+            column: name,
+        })
+}
+
+fn unsigned_integer_to_f64(
+    value: u64,
+    name: &'static str,
+    path: &Path,
+) -> Result<f64, CalibrationError> {
+    u32::try_from(value)
+        .map(f64::from)
+        .map_err(|_| CalibrationError::UnsupportedColumnType {
+            path: path.to_owned(),
+            column: name,
+        })
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -406,7 +429,7 @@ struct FileAccumulator {
 }
 
 impl FileAccumulator {
-    fn new(filter: ObservationFilter) -> Self {
+    fn new(filter: &ObservationFilter) -> Self {
         Self {
             filter: filter.clone(),
             previous: HashMap::new(),
@@ -438,9 +461,15 @@ impl FileAccumulator {
             self.counts.gaps_over_limit += 1;
             return;
         }
-        let dx_m = (observation.x_mm - previous.x_mm) / 1000.0;
-        let dy_m = (observation.y_mm - previous.y_mm) / 1000.0;
-        let speed_mps = (dx_m.mul_add(dx_m, dy_m * dy_m)).sqrt() / (elapsed_ms as f64 / 1000.0);
+        let horizontal_x_delta_m = (observation.x_mm - previous.x_mm) / 1000.0;
+        let horizontal_y_delta_m = (observation.y_mm - previous.y_mm) / 1000.0;
+        let elapsed_ms = i32::try_from(elapsed_ms).expect("positive gap is limited to 500 ms");
+        let speed_mps = (horizontal_x_delta_m.mul_add(
+            horizontal_x_delta_m,
+            horizontal_y_delta_m * horizontal_y_delta_m,
+        ))
+        .sqrt()
+            / (f64::from(elapsed_ms) / 1000.0);
         if !speed_mps.is_finite() || speed_mps > self.filter.max_speed_mps {
             self.counts.speeds_over_limit += 1;
             return;
@@ -473,31 +502,36 @@ struct RunningSpeedSummary {
     sum_squared_differences: f64,
     min_mps: f64,
     max_mps: f64,
+    sample_weight: f64,
     bin_width_mps: f64,
     bins: Vec<u64>,
 }
 
 impl RunningSpeedSummary {
     fn new(filter: &ObservationFilter) -> Self {
-        let bin_count = (filter.max_speed_mps / filter.histogram_bin_width_mps).ceil() as usize;
         Self {
             samples: 0,
             mean_mps: 0.0,
             sum_squared_differences: 0.0,
             min_mps: f64::INFINITY,
             max_mps: f64::NEG_INFINITY,
+            sample_weight: 0.0,
             bin_width_mps: filter.histogram_bin_width_mps,
-            bins: vec![0; bin_count.max(1)],
+            bins: vec![0; HISTOGRAM_BIN_COUNT],
         }
     }
 
     fn add(&mut self, speed_mps: f64) {
         self.samples += 1;
+        self.sample_weight += 1.0;
         let difference = speed_mps - self.mean_mps;
-        self.mean_mps += difference / self.samples as f64;
+        self.mean_mps += difference / self.sample_weight;
         self.sum_squared_differences += difference * (speed_mps - self.mean_mps);
         self.min_mps = self.min_mps.min(speed_mps);
         self.max_mps = self.max_mps.max(speed_mps);
+        // The caller has already rejected negatives and values above the fixed
+        // maximum. The finite conversion indexes a bounded 400-bin histogram.
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
         let bin = (speed_mps / self.bin_width_mps).floor() as usize;
         let last = self.bins.len() - 1;
         self.bins[bin.min(last)] += 1;
@@ -512,12 +546,13 @@ impl RunningSpeedSummary {
             return;
         }
         let combined = self.samples + other.samples;
+        let combined_weight = self.sample_weight + other.sample_weight;
         let difference = other.mean_mps - self.mean_mps;
         self.sum_squared_differences += other.sum_squared_differences
-            + difference * difference * self.samples as f64 * other.samples as f64
-                / combined as f64;
-        self.mean_mps += difference * other.samples as f64 / combined as f64;
+            + difference * difference * self.sample_weight * other.sample_weight / combined_weight;
+        self.mean_mps += difference * other.sample_weight / combined_weight;
         self.samples = combined;
+        self.sample_weight = combined_weight;
         self.min_mps = self.min_mps.min(other.min_mps);
         self.max_mps = self.max_mps.max(other.max_mps);
         for (left, right) in self.bins.iter_mut().zip(&other.bins) {
@@ -541,7 +576,7 @@ impl RunningSpeedSummary {
         SpeedSummary {
             samples: self.samples,
             mean_mps: self.mean_mps,
-            standard_deviation_mps: (self.sum_squared_differences / self.samples as f64).sqrt(),
+            standard_deviation_mps: (self.sum_squared_differences / self.sample_weight).sqrt(),
             p05_mps: self.quantile(0.05),
             p50_mps: self.quantile(0.5),
             p95_mps: self.quantile(0.95),
@@ -551,12 +586,22 @@ impl RunningSpeedSummary {
     }
 
     fn quantile(&self, quantile: f64) -> f64 {
-        let target = ((self.samples - 1) as f64 * quantile).ceil() as u64;
+        let (numerator, denominator) = if quantile == 0.05 {
+            (1, 20)
+        } else if quantile == 0.5 {
+            (1, 2)
+        } else {
+            (19, 20)
+        };
+        let target = (self.samples - 1)
+            .saturating_mul(numerator)
+            .div_ceil(denominator);
         let mut cumulative = 0;
         for (index, count) in self.bins.iter().enumerate() {
             cumulative += count;
             if cumulative > target {
-                return (index as f64 + 0.5) * self.bin_width_mps;
+                let index = u16::try_from(index).expect("histogram has 400 bins");
+                return (f64::from(index) + 0.5) * self.bin_width_mps;
             }
         }
         self.max_mps
@@ -605,7 +650,8 @@ mod tests {
 
     #[test]
     fn observation_filter_counts_gaps_and_outliers_without_hiding_them() {
-        let mut accumulator = FileAccumulator::new(ObservationFilter::default());
+        let filter = ObservationFilter::default();
+        let mut accumulator = FileAccumulator::new(&filter);
         accumulator.observe(Observation {
             id: 1,
             time_ms: 0,
@@ -643,6 +689,6 @@ mod tests {
         let mut second = RunningSpeedSummary::new(&filter);
         second.add(3.0);
         first.merge(&second);
-        assert_eq!(first.finish().mean_mps, 2.0);
+        assert!((first.finish().mean_mps - 2.0).abs() < f64::EPSILON);
     }
 }
