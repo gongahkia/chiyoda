@@ -22,7 +22,7 @@ scope.
 
 ## Current status
 
-`0.17.0-alpha.1` includes the generator, fixture-seed protocol, and manifest
+`0.19.0-alpha.1` includes the generator, fixture-seed protocol, and manifest
 validator. It now also includes a content-locked candidate source and a
 descriptive 2D platform-trajectory intake path. It does not publish an
 empirical round: the source is neither a calibrated runtime nor independent
@@ -54,7 +54,9 @@ samples empirical observations.
 `verify-sweep` check, then emits an explicitly descriptive aggregate: exact
 agent and evacuation counts, exact overall evacuation fraction numerator and
 denominator, per-exit totals, legacy unattributed evacuations, and a minimum,
-mean, and maximum clearance time over only runs that recorded one. It does not
+mean, and maximum clearance time over only fully evacuated runs, a separately
+named last-exit-time range over runs that recorded an evacuation, and aggregate
+per-intervention reach/acceptance counts. It does not
 estimate uncertainty or turn generator seeds into a population sample. Final
 non-evacuated states are also summed, with legacy agents lacking state
 attribution reported separately rather than silently assigned a cause.
@@ -79,7 +81,8 @@ evacuation counts, final-exit attribution, remaining-state attribution, and a
 clearance-time delta only if both runs completed; separately named last-exit
 times remain available for partially completed runs. It additionally reports exact
 aggregate candidate-minus-baseline count deltas and separates pairs with only
-one completed arm from comparable clearance-time pairs. No confidence interval,
+one completed arm from comparable clearance-time pairs, including intervention
+reach/acceptance deltas. No confidence interval,
 significance label, causal conclusion, or predictive interpretation is
 emitted. A shared seed labels deterministic scenario variation; it is not an
 empirical sample. Information acceptance samples also incorporate the message

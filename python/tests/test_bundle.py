@@ -40,6 +40,94 @@ class BundleTests(unittest.TestCase):
         self.assertEqual(summary["evacuated_by_exit"], {"street": 2})
         self.assertEqual(summary["remaining_by_state"], {"moving": 3})
 
+    def test_summary_exposes_partial_run_last_exit_without_calling_it_clearance(self) -> None:
+        bundle = {
+            "bundle_version": "0.17",
+            "scenario": {"scenario": {"name": "fixture"}},
+            "metrics": {
+                "total_agents": 2,
+                "evacuated_agents": 1,
+                "clearance_time_s": None,
+                "last_exit_time_s": 4.5,
+            },
+        }
+
+        summary = summarize(bundle)
+
+        self.assertIsNone(summary["clearance_time_s"])
+        self.assertEqual(summary["last_exit_time_s"], 4.5)
+
+    def test_summary_rejects_partial_017_run_labeled_as_cleared(self) -> None:
+        bundle = {
+            "bundle_version": "0.17",
+            "scenario": {"scenario": {"name": "fixture"}},
+            "metrics": {
+                "total_agents": 2,
+                "evacuated_agents": 1,
+                "clearance_time_s": 4.5,
+                "last_exit_time_s": 4.5,
+            },
+        }
+
+        with self.assertRaises(BundleError):
+            summarize(bundle)
+
+    def test_summary_exposes_information_delivery_and_acceptance(self) -> None:
+        bundle = {
+            "scenario": {"scenario": {"name": "fixture"}},
+            "metrics": {
+                "information_delivery": {
+                    "notice": {
+                        "kind": "message",
+                        "received_agents": 7,
+                        "accepted_agents": 5,
+                    }
+                }
+            },
+        }
+
+        summary = summarize(bundle)
+
+        self.assertEqual(summary["information_delivery"]["notice"]["accepted_agents"], 5)
+
+    def test_summary_rejects_information_acceptance_above_delivery(self) -> None:
+        bundle = {
+            "scenario": {"scenario": {"name": "fixture"}},
+            "metrics": {
+                "information_delivery": {
+                    "notice": {
+                        "kind": "message",
+                        "received_agents": 1,
+                        "accepted_agents": 2,
+                    }
+                }
+            },
+        }
+
+        with self.assertRaises(BundleError):
+            summarize(bundle)
+
+    def test_summary_rejects_missing_018_information_delivery(self) -> None:
+        bundle = {
+            "bundle_version": "0.18",
+            "scenario": {
+                "scenario": {
+                    "name": "fixture",
+                    "messages": [{"id": "notice"}],
+                    "countermeasures": [],
+                }
+            },
+            "metrics": {
+                "total_agents": 1,
+                "evacuated_agents": 0,
+                "clearance_time_s": None,
+                "last_exit_time_s": None,
+            },
+        }
+
+        with self.assertRaises(BundleError):
+            summarize(bundle)
+
     def test_summary_defaults_missing_exit_attribution_for_older_bundles(self) -> None:
         bundle = {
             "scenario": {"scenario": {"name": "fixture"}},

@@ -239,8 +239,36 @@ countermeasure correction corrects false_primary_closure source staff on concour
             && event.detail.contains("exit:primary")
     }));
     assert!(bundle.events.iter().any(|event| {
-        event.kind == "countermeasure_received" && event.subject == "passengers:0"
+        event.kind == "countermeasure_received"
+            && event.subject == "passengers:0"
+            && event.detail.contains("accepted=true")
     }));
+    let message_delivery = bundle
+        .metrics
+        .information_delivery
+        .get("false_primary_closure")
+        .expect("message delivery is recorded");
+    assert_eq!(message_delivery.received_agents, 1);
+    assert_eq!(message_delivery.accepted_agents, 1);
+    let correction_delivery = bundle
+        .metrics
+        .information_delivery
+        .get("correction")
+        .expect("countermeasure delivery is recorded");
+    assert_eq!(correction_delivery.received_agents, 1);
+    assert_eq!(correction_delivery.accepted_agents, 1);
+    let mut legacy_value = serde_json::to_value(&bundle).expect("bundle serializes");
+    legacy_value["metrics"]
+        .as_object_mut()
+        .expect("metrics is an object")
+        .remove("information_delivery");
+    legacy_value["bundle_hash"] = serde_json::Value::String(String::new());
+    let legacy_unsigned: RunBundle =
+        serde_json::from_value(legacy_value.clone()).expect("legacy bundle deserializes");
+    legacy_value["bundle_hash"] = serde_json::Value::String(bundle_hash(&legacy_unsigned));
+    let legacy: RunBundle = serde_json::from_value(legacy_value).expect("legacy bundle reloads");
+    assert!(legacy.metrics.information_delivery.is_empty());
+    assert!(legacy.verifies_hash());
     assert!(
         bundle
             .events
@@ -298,6 +326,10 @@ agents eastbound count 1 on concourse at (19m, 1m, 0m) to east speed 1m/s radius
     assert_eq!(bundle.metrics.evacuated_by_exit.get("west"), Some(&1));
     assert_eq!(bundle.metrics.evacuated_by_exit.get("east"), Some(&1));
     assert_eq!(
+        bundle.metrics.clearance_time_s,
+        bundle.metrics.last_exit_time_s
+    );
+    assert_eq!(
         bundle.metrics.evacuated_by_exit.values().sum::<u32>(),
         bundle.metrics.evacuated_agents
     );
@@ -318,18 +350,46 @@ agents passengers count 1 on concourse at (1m, 1m, 0m) to street speed 1m/s radi
     let bundle = run(&scenario, RunOptions::default()).expect("run succeeds");
     assert_eq!(bundle.metrics.evacuated_agents, 0);
     assert_eq!(bundle.metrics.remaining_by_state.get("moving"), Some(&1));
+    assert_eq!(bundle.metrics.clearance_time_s, None);
+    assert_eq!(bundle.metrics.last_exit_time_s, None);
     let mut legacy_value = serde_json::to_value(&bundle).expect("bundle serializes");
     legacy_value["metrics"]
         .as_object_mut()
         .expect("metrics is an object")
         .remove("remaining_by_state");
+    legacy_value["metrics"]
+        .as_object_mut()
+        .expect("metrics is an object")
+        .remove("last_exit_time_s");
     legacy_value["bundle_hash"] = serde_json::Value::String(String::new());
     let legacy_unsigned: RunBundle =
         serde_json::from_value(legacy_value.clone()).expect("legacy bundle deserializes");
     legacy_value["bundle_hash"] = serde_json::Value::String(bundle_hash(&legacy_unsigned));
     let legacy: RunBundle = serde_json::from_value(legacy_value).expect("legacy bundle reloads");
     assert!(legacy.metrics.remaining_by_state.is_empty());
+    assert_eq!(legacy.metrics.last_exit_time_s, None);
     assert!(legacy.verifies_hash());
+}
+
+#[test]
+fn partial_evacuation_records_last_exit_but_not_system_clearance() {
+    let source = r#"
+scenario "partial-evacuation-metrics"
+seed 1
+duration 3s
+timestep 1s
+surface concourse at (0m, 0m, 0m) size (14m, 10m)
+exit street on concourse at (4m, 1m, 0m) width 2m
+agents quick count 1 on concourse at (1m, 1m, 0m) to street speed 1m/s radius 0.3m height 1.7m
+agents slow count 1 on concourse at (12m, 1m, 0m) to street speed 1m/s radius 0.3m height 1.7m
+"#;
+    let scenario = parse(source).expect("source parses");
+    let bundle = run(&scenario, RunOptions::default()).expect("run succeeds");
+
+    assert_eq!(bundle.metrics.total_agents, 2);
+    assert_eq!(bundle.metrics.evacuated_agents, 1);
+    assert_eq!(bundle.metrics.clearance_time_s, None);
+    assert_eq!(bundle.metrics.last_exit_time_s, Some(3.0));
 }
 
 #[test]
@@ -1201,6 +1261,14 @@ message closure source signage on upper at (1m, 1m, 3m) claim connector primary 
             .iter()
             .any(|event| event.kind == "route_recomputed")
     );
+    assert_eq!(
+        untrusted.metrics.information_delivery["closure"].received_agents,
+        1
+    );
+    assert_eq!(
+        untrusted.metrics.information_delivery["closure"].accepted_agents,
+        0
+    );
 
     let trusted_source = source.replace("trust 0", "trust 1");
     let trusted = run(
@@ -1219,6 +1287,44 @@ message closure source signage on upper at (1m, 1m, 3m) claim connector primary 
             .events
             .iter()
             .any(|event| event.kind == "route_recomputed")
+    );
+    assert_eq!(
+        trusted.metrics.information_delivery["closure"].received_agents,
+        1
+    );
+    assert_eq!(
+        trusted.metrics.information_delivery["closure"].accepted_agents,
+        1
+    );
+}
+
+#[test]
+fn explicit_sampling_key_preserves_trust_draws_across_renamed_interventions() {
+    let source = r#"
+scenario "matched-trust-draws"
+seed 44
+duration 2s
+timestep 1s
+surface concourse at (0m, 0m, 0m) size (30m, 10m)
+exit street on concourse at (28m, 1m, 0m) width 2m
+agents passengers count 6 on concourse at (1m, 1m, 0m) to street speed 1m/s radius 0.3m height 1.7m
+message baseline_notice source signage on concourse at (1m, 1m, 0m) claim exit street closed truth false time 1s reach 30m trust 0.5 sample matched_notice
+"#;
+    let candidate_source = source.replace("baseline_notice", "candidate_notice");
+    let baseline = run(
+        &parse(source).expect("baseline parses"),
+        RunOptions::default(),
+    )
+    .expect("baseline runs");
+    let candidate = run(
+        &parse(&candidate_source).expect("candidate parses"),
+        RunOptions::default(),
+    )
+    .expect("candidate runs");
+
+    assert_eq!(
+        baseline.metrics.information_delivery["baseline_notice"].accepted_agents,
+        candidate.metrics.information_delivery["candidate_notice"].accepted_agents
     );
 }
 

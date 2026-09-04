@@ -44,6 +44,23 @@ pub struct RunEvent {
     pub detail: String,
 }
 
+/// Aggregate delivery and acceptance counts for one authored information
+/// intervention. Counts are deterministic runtime observations, not survey or
+/// behavioral measurements.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum InformationInterventionKind {
+    Message,
+    Countermeasure,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct InformationDeliveryMetrics {
+    pub kind: InformationInterventionKind,
+    pub received_agents: u32,
+    pub accepted_agents: u32,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RunMetrics {
     pub total_agents: u32,
@@ -57,6 +74,10 @@ pub struct RunMetrics {
     /// Final non-evacuated agent states at the end of the configured duration.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub remaining_by_state: BTreeMap<String, u32>,
+    /// Counts agents reached by and accepting each authored message or
+    /// countermeasure. Omission preserves compatibility with older bundles.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub information_delivery: BTreeMap<String, InformationDeliveryMetrics>,
     /// Time at which the final agent evacuated, present only when every agent
     /// completed evacuation during the configured duration.
     pub clearance_time_s: Option<f64>,
@@ -102,7 +123,7 @@ impl RunBundle {
         metrics.mean_exit_time_s = metrics.mean_exit_time_s.map(canonical_number);
         let scenario_hash = canonical_hash(&scenario);
         let mut bundle = Self {
-            bundle_version: "0.17".to_owned(),
+            bundle_version: "0.19".to_owned(),
             runtime_version: RUNTIME_VERSION.to_owned(),
             scenario_hash,
             scenario,

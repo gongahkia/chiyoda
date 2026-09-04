@@ -1,4 +1,4 @@
-# Chiyoda language reference 0.17
+# Chiyoda language reference 0.19
 
 Each non-empty line is one declaration. Lines beginning with `#` are comments.
 Quoted strings are supported only where explicitly shown. All lengths use
@@ -31,8 +31,8 @@ gate ID on SURFACE at (LENGTH, LENGTH, LENGTH) width LENGTH capacity RATE to EXI
 
 agents ID count UNSIGNED_INTEGER on SURFACE at (LENGTH, LENGTH, LENGTH) to EXIT speed SPEED radius LENGTH height LENGTH [via WAYPOINT]... [alternative EXIT]... [exclude (stair|ramp|escalator|lift)]... [release DURATION]
 
-message ID source (peer|official|signage|staff) on SURFACE at (LENGTH, LENGTH, LENGTH) claim (connector CONNECTOR|exit EXIT) (open|closed) truth (true|false) time DURATION reach LENGTH trust PROBABILITY
-countermeasure ID corrects MESSAGE source (official|signage|staff) on SURFACE at (LENGTH, LENGTH, LENGTH) time DURATION reach LENGTH trust PROBABILITY
+message ID source (peer|official|signage|staff) on SURFACE at (LENGTH, LENGTH, LENGTH) claim (connector CONNECTOR|exit EXIT) (open|closed) truth (true|false) time DURATION reach LENGTH trust PROBABILITY [sample ID]
+countermeasure ID corrects MESSAGE source (official|signage|staff) on SURFACE at (LENGTH, LENGTH, LENGTH) time DURATION reach LENGTH trust PROBABILITY [sample ID]
 ```
 
 `LENGTH` is a finite number with an `m` suffix. `DURATION` is a finite number
@@ -66,7 +66,11 @@ at most that clearance. A non-lift connector may declare one `capacity` and one
 
 `trust` is the per-recipient probability of accepting an information event. The
 reference runtime derives a deterministic sample from the scenario seed, agent
-identifier, and intervention identifier, so replay remains exact.
+identifier, and intervention identifier, so replay remains exact. `sample` may
+replace that identifier with an explicit, globally unique draw-stream key. It
+exists so two authored comparison arms can keep matched trust draws despite
+renaming the intervention; it is not a model of repeated measurements or a
+claim about paired human behavior. Omission preserves the identifier stream.
 
 Every connector and exit is physically open by default. `connector-state` and
 `exit-state` change physical availability; events at `0s` establish the
@@ -103,14 +107,14 @@ messaging effects are empirically validated.
 ## Canonical IR
 
 Successful compilation emits a JSON `CanonicalScenario` with
-`language_version: "0.17"`. Declaration order is preserved and forms part of
+`language_version: "0.19"`. Declaration order is preserved and forms part of
 the deterministic execution contract. The canonical IR is the public boundary
 between conforming compilers and runtimes; direct use of parser internals is
 not a stable API.
 
 ## Current geometry boundary
 
-Version 0.17 supports axis-aligned rectangular walkable surfaces with
+Version 0.19 supports axis-aligned rectangular walkable surfaces with
 axis-aligned rectangular no-go zones, joined by directed 3D stairs, ramps,
 escalators, and lifts. The runtime expands no-go zones by each agent radius
 and finds a deterministic Euclidean shortest path through the resulting

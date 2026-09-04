@@ -351,7 +351,8 @@ fn parse_declaration(
             });
         }
         "message" => {
-            require_exact_count(line, tokens, 22)?;
+            require_count(line, tokens, 22)?;
+            let sampling_key = optional_sampling_key(line, tokens, 22, "message")?;
             expect(line, tokens, 2, "source")?;
             expect(line, tokens, 4, "on")?;
             expect(line, tokens, 6, "at")?;
@@ -383,10 +384,12 @@ fn parse_declaration(
                     required(line, tokens, 21, "message trust")?,
                     "message trust",
                 )?,
+                sampling_key,
             });
         }
         "countermeasure" => {
-            require_exact_count(line, tokens, 18)?;
+            require_count(line, tokens, 18)?;
+            let sampling_key = optional_sampling_key(line, tokens, 18, "countermeasure")?;
             expect(line, tokens, 2, "corrects")?;
             expect(line, tokens, 4, "source")?;
             expect(line, tokens, 6, "on")?;
@@ -410,6 +413,7 @@ fn parse_declaration(
                     required(line, tokens, 17, "countermeasure trust")?,
                     "countermeasure trust",
                 )?,
+                sampling_key,
             });
         }
         other => return Err(error(line, format!("unknown declaration `{other}`"))),
@@ -734,6 +738,29 @@ fn require_count(line: usize, tokens: &[String], minimum: usize) -> Result<(), P
         ))
     } else {
         Ok(())
+    }
+}
+
+fn optional_sampling_key(
+    line: usize,
+    tokens: &[String],
+    base_count: usize,
+    declaration: &str,
+) -> Result<Option<String>, ParseError> {
+    match tokens.len() {
+        count if count == base_count => Ok(None),
+        count if count == base_count + 2 => {
+            expect(line, tokens, base_count, "sample")?;
+            Ok(Some(
+                required(line, tokens, base_count + 1, "sampling key")?.to_owned(),
+            ))
+        }
+        count => Err(error(
+            line,
+            format!(
+                "expected {base_count} tokens or {base_count} followed by `sample KEY` for {declaration}, found {count}"
+            ),
+        )),
     }
 }
 

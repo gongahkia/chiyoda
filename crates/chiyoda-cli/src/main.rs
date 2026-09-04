@@ -1,8 +1,8 @@
 use anyhow::{Context, Result, bail};
 use chiyoda_core::{
-    BenchmarkManifest, CanonicalScenario, EvidenceCatalog, RunBundle, RunOptions, bundle_hash,
-    calibrate_eindhoven_platform, format_scenario, generator, parse, run, validate,
-    validate_catalog, validate_manifest, verify_catalog_files,
+    BenchmarkManifest, CanonicalScenario, EvidenceCatalog, InformationDeliveryMetrics, RunBundle,
+    RunOptions, bundle_hash, calibrate_eindhoven_platform, format_scenario, generator, parse, run,
+    validate, validate_catalog, validate_manifest, verify_catalog_files,
 };
 use clap::{Parser, Subcommand, ValueEnum};
 use serde::{Deserialize, Serialize};
@@ -203,6 +203,8 @@ struct SweepRun {
     evacuated_by_exit: BTreeMap<String, u32>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     remaining_by_state: BTreeMap<String, u32>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    information_delivery: BTreeMap<String, InformationDeliveryMetrics>,
     clearance_time_s: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     last_exit_time_s: Option<f64>,
@@ -226,6 +228,7 @@ struct SweepAnalysis {
     unattributed_evacuations: u64,
     remaining_by_state: BTreeMap<String, u64>,
     unattributed_remaining_agents: u64,
+    information_delivery: BTreeMap<String, AggregateInformationDelivery>,
     clearance_time_s: Option<DescriptiveRange>,
     last_exit_time_s: Option<DescriptiveRange>,
     claim_boundary: String,
@@ -243,6 +246,12 @@ struct DescriptiveRange {
     minimum_s: f64,
     mean_s: f64,
     maximum_s: f64,
+}
+
+#[derive(Debug, Serialize)]
+struct AggregateInformationDelivery {
+    received_agents: u64,
+    accepted_agents: u64,
 }
 
 #[derive(Debug, Serialize)]
@@ -280,6 +289,7 @@ struct PairedRunArm {
     evacuated_agents: u32,
     evacuated_by_exit: BTreeMap<String, u32>,
     remaining_by_state: BTreeMap<String, u32>,
+    information_delivery: BTreeMap<String, InformationDeliveryMetrics>,
     clearance_time_s: Option<f64>,
     last_exit_time_s: Option<f64>,
 }
@@ -308,6 +318,13 @@ struct AggregateDelta {
     un_evacuated_agents: i64,
     evacuated_by_exit: BTreeMap<String, i64>,
     remaining_by_state: BTreeMap<String, i64>,
+    information_delivery: BTreeMap<String, InformationDeliveryDelta>,
+}
+
+#[derive(Debug, Serialize)]
+struct InformationDeliveryDelta {
+    received_agents: i64,
+    accepted_agents: i64,
 }
 
 #[derive(Debug, Serialize)]
@@ -581,6 +598,7 @@ where
             evacuated_agents: bundle.metrics.evacuated_agents,
             evacuated_by_exit: bundle.metrics.evacuated_by_exit.clone(),
             remaining_by_state: bundle.metrics.remaining_by_state.clone(),
+            information_delivery: bundle.metrics.information_delivery.clone(),
             clearance_time_s: bundle.metrics.clearance_time_s,
             last_exit_time_s: bundle.metrics.last_exit_time_s,
         });
@@ -799,6 +817,7 @@ fn load_and_verify_sweep(directory: &Path) -> Result<SweepSummary> {
             || record.evacuated_agents != bundle.metrics.evacuated_agents
             || record.evacuated_by_exit != bundle.metrics.evacuated_by_exit
             || record.remaining_by_state != bundle.metrics.remaining_by_state
+            || record.information_delivery != bundle.metrics.information_delivery
             || record.clearance_time_s != bundle.metrics.clearance_time_s
             || record.last_exit_time_s != bundle.metrics.last_exit_time_s
         {
@@ -811,6 +830,7 @@ fn load_and_verify_sweep(directory: &Path) -> Result<SweepSummary> {
     Ok(summary)
 }
 
+#[allow(clippy::too_many_lines)] // every persisted metric invariant is checked together
 fn validate_bundle_metrics(bundle: &RunBundle, directory: &Path) -> Result<()> {
     let metrics = &bundle.metrics;
     if metrics.evacuated_agents > metrics.total_agents {
@@ -818,6 +838,36 @@ fn validate_bundle_metrics(bundle: &RunBundle, directory: &Path) -> Result<()> {
             "bundle evacuation count exceeds total agents: {}",
             directory.display()
         );
+    }
+    if metrics.last_exit_time_s.is_some() && metrics.evacuated_agents == 0 {
+        bail!(
+            "bundle records a last exit time without any evacuations: {}",
+            directory.display()
+        );
+    }
+    if let (Some(clearance_time_s), Some(last_exit_time_s)) =
+        (metrics.clearance_time_s, metrics.last_exit_time_s)
+        && clearance_time_s.total_cmp(&last_exit_time_s) != std::cmp::Ordering::Equal
+    {
+        bail!(
+            "bundle clearance time disagrees with its last exit time: {}",
+            directory.display()
+        );
+    }
+    if matches!(bundle.bundle_version.as_str(), "0.17" | "0.18" | "0.19") {
+        let fully_evacuated = metrics.evacuated_agents == metrics.total_agents;
+        if metrics.clearance_time_s.is_some() != fully_evacuated {
+            bail!(
+                "current bundle clearance time does not match full evacuation: {}",
+                directory.display()
+            );
+        }
+        if metrics.last_exit_time_s.is_some() != (metrics.evacuated_agents > 0) {
+            bail!(
+                "current bundle last exit time does not match evacuations: {}",
+                directory.display()
+            );
+        }
     }
     let mut attributed = 0_u32;
     for (exit_id, count) in &metrics.evacuated_by_exit {
@@ -844,6 +894,51 @@ fn validate_bundle_metrics(bundle: &RunBundle, directory: &Path) -> Result<()> {
         bail!(
             "bundle exit-attribution count does not match evacuations: {}",
             directory.display()
+        );
+    }
+    let mut expected_interventions = BTreeMap::new();
+    for message in &bundle.scenario.scenario.messages {
+        expected_interventions.insert(
+            message.id.clone(),
+            chiyoda_core::InformationInterventionKind::Message,
+        );
+    }
+    for countermeasure in &bundle.scenario.scenario.countermeasures {
+        expected_interventions.insert(
+            countermeasure.id.clone(),
+            chiyoda_core::InformationInterventionKind::Countermeasure,
+        );
+    }
+    for (intervention, delivery) in &metrics.information_delivery {
+        let Some(expected_kind) = expected_interventions.remove(intervention) else {
+            bail!(
+                "bundle attributes information delivery to unknown intervention `{intervention}`: {}",
+                directory.display()
+            );
+        };
+        if delivery.kind != expected_kind {
+            bail!(
+                "bundle information-delivery kind disagrees with intervention `{intervention}`: {}",
+                directory.display()
+            );
+        }
+        if delivery.accepted_agents > delivery.received_agents {
+            bail!(
+                "bundle information acceptance exceeds delivery for `{intervention}`: {}",
+                directory.display()
+            );
+        }
+    }
+    if matches!(bundle.bundle_version.as_str(), "0.18" | "0.19")
+        && !expected_interventions.is_empty()
+    {
+        bail!(
+            "0.18 bundle omits information-delivery metrics for: {}",
+            expected_interventions
+                .keys()
+                .cloned()
+                .collect::<Vec<_>>()
+                .join(", ")
         );
     }
     let mut remaining = 0_u32;
@@ -890,7 +985,9 @@ fn describe_sweep(summary: &SweepSummary) -> SweepAnalysis {
     let mut fully_evacuated_runs = 0_u32;
     let mut evacuated_by_exit = BTreeMap::new();
     let mut remaining_by_state = BTreeMap::new();
+    let mut information_delivery = BTreeMap::new();
     let mut clearance_times = Vec::new();
+    let mut last_exit_times = Vec::new();
 
     for run in &summary.runs {
         total_agents += u64::from(run.total_agents);
@@ -907,33 +1004,25 @@ fn describe_sweep(summary: &SweepSummary) -> SweepAnalysis {
         for (state, count) in &run.remaining_by_state {
             *remaining_by_state.entry(state.clone()).or_default() += u64::from(*count);
         }
-        if let Some(clearance_time_s) = run.clearance_time_s {
+        for (intervention, delivery) in &run.information_delivery {
+            let aggregate = information_delivery.entry(intervention.clone()).or_insert(
+                AggregateInformationDelivery {
+                    received_agents: 0,
+                    accepted_agents: 0,
+                },
+            );
+            aggregate.received_agents += u64::from(delivery.received_agents);
+            aggregate.accepted_agents += u64::from(delivery.accepted_agents);
+        }
+        if let Some(clearance_time_s) = observed_clearance_time(run) {
             clearance_times.push(clearance_time_s);
+        }
+        if let Some(last_exit_time_s) = run.last_exit_time_s.or(run.clearance_time_s) {
+            last_exit_times.push(last_exit_time_s);
         }
     }
 
     let attributed_evacuations = evacuated_by_exit.values().sum::<u64>();
-    let clearance_time_range = (!clearance_times.is_empty()).then(|| {
-        let measured_runs = u32::try_from(clearance_times.len()).expect("sweep count fits u32");
-        let minimum_s = clearance_times
-            .iter()
-            .copied()
-            .reduce(f64::min)
-            .expect("a non-empty collection has a minimum");
-        let maximum_s = clearance_times
-            .iter()
-            .copied()
-            .reduce(f64::max)
-            .expect("a non-empty collection has a maximum");
-        DescriptiveRange {
-            measured_runs,
-            minimum_s,
-            mean_s: canonical_report_number(
-                clearance_times.iter().sum::<f64>() / f64::from(measured_runs),
-            ),
-            maximum_s,
-        }
-    });
     SweepAnalysis {
         schema_version: "0.1".to_owned(),
         input_sweep_schema_version: summary.schema_version.clone(),
@@ -956,9 +1045,31 @@ fn describe_sweep(summary: &SweepSummary) -> SweepAnalysis {
             .saturating_sub(evacuated_agents)
             .saturating_sub(remaining_by_state.values().sum()),
         remaining_by_state,
-        clearance_time_s: clearance_time_range,
+        information_delivery,
+        clearance_time_s: descriptive_range(&clearance_times),
+        last_exit_time_s: descriptive_range(&last_exit_times),
         claim_boundary: "This report aggregates deterministic structural runs. It is not a benchmark score, calibration result, uncertainty estimate, or predictive claim.".to_owned(),
     }
+}
+
+fn descriptive_range(values: &[f64]) -> Option<DescriptiveRange> {
+    (!values.is_empty()).then(|| {
+        let measured_runs = u32::try_from(values.len()).expect("sweep count fits u32");
+        DescriptiveRange {
+            measured_runs,
+            minimum_s: values
+                .iter()
+                .copied()
+                .reduce(f64::min)
+                .expect("a non-empty collection has a minimum"),
+            mean_s: canonical_report_number(values.iter().sum::<f64>() / f64::from(measured_runs)),
+            maximum_s: values
+                .iter()
+                .copied()
+                .reduce(f64::max)
+                .expect("a non-empty collection has a maximum"),
+        }
+    })
 }
 
 #[allow(clippy::too_many_lines)] // paired outcome accounting remains auditable in one routine
@@ -977,17 +1088,12 @@ fn compare_sweep_summaries(
     let mut un_evacuated_delta = 0_i64;
     let mut evacuated_by_exit_delta = BTreeMap::new();
     let mut remaining_by_state_delta = BTreeMap::new();
+    let mut information_delivery_delta = BTreeMap::new();
     let mut more_candidate_evacuations = 0_u32;
     let mut fewer_candidate_evacuations = 0_u32;
     let mut unchanged_evacuations = 0_u32;
-    let mut both_complete_runs = 0_u32;
-    let mut baseline_only_complete_runs = 0_u32;
-    let mut candidate_only_complete_runs = 0_u32;
-    let mut neither_complete_runs = 0_u32;
-    let mut candidate_faster_runs = 0_u32;
-    let mut candidate_slower_runs = 0_u32;
-    let mut unchanged_clearance_runs = 0_u32;
-    let mut clearance_deltas = Vec::new();
+    let mut clearance_times = PairedTimeAccumulator::default();
+    let mut last_exit_times = PairedTimeAccumulator::default();
 
     for (baseline_run, candidate_run) in baseline.runs.iter().zip(&candidate.runs) {
         if baseline_run.seed != candidate_run.seed {
@@ -1030,35 +1136,20 @@ fn compare_sweep_summaries(
             &candidate_run.remaining_by_state,
             &baseline_run.remaining_by_state,
         );
+        accumulate_information_delivery_delta(
+            &mut information_delivery_delta,
+            &candidate_run.information_delivery,
+            &baseline_run.information_delivery,
+        );
 
-        let clearance_time_delta_s = match (
-            baseline_run.clearance_time_s,
-            candidate_run.clearance_time_s,
-        ) {
-            (Some(baseline_time), Some(candidate_time)) => {
-                both_complete_runs += 1;
-                let delta = canonical_report_number(candidate_time - baseline_time);
-                match delta.total_cmp(&0.0) {
-                    std::cmp::Ordering::Less => candidate_faster_runs += 1,
-                    std::cmp::Ordering::Greater => candidate_slower_runs += 1,
-                    std::cmp::Ordering::Equal => unchanged_clearance_runs += 1,
-                }
-                clearance_deltas.push(delta);
-                Some(delta)
-            }
-            (Some(_), None) => {
-                baseline_only_complete_runs += 1;
-                None
-            }
-            (None, Some(_)) => {
-                candidate_only_complete_runs += 1;
-                None
-            }
-            (None, None) => {
-                neither_complete_runs += 1;
-                None
-            }
-        };
+        let clearance_time_delta_s = clearance_times.record(
+            observed_clearance_time(baseline_run),
+            observed_clearance_time(candidate_run),
+        );
+        let last_exit_time_delta_s = last_exit_times.record(
+            observed_last_exit_time(baseline_run),
+            observed_last_exit_time(candidate_run),
+        );
         paired_runs.push(PairedRun {
             seed: baseline_run.seed,
             total_agents: baseline_run.total_agents,
@@ -1068,29 +1159,10 @@ fn compare_sweep_summaries(
                 evacuated_agents: current_evacuation_delta,
                 un_evacuated_agents: current_un_evacuated_delta,
                 clearance_time_s: clearance_time_delta_s,
+                last_exit_time_s: last_exit_time_delta_s,
             },
         });
     }
-
-    let candidate_minus_baseline_s = (!clearance_deltas.is_empty()).then(|| {
-        let measured_runs = u32::try_from(clearance_deltas.len()).expect("sweep count fits u32");
-        DescriptiveRange {
-            measured_runs,
-            minimum_s: clearance_deltas
-                .iter()
-                .copied()
-                .reduce(f64::min)
-                .expect("a non-empty collection has a minimum"),
-            mean_s: canonical_report_number(
-                clearance_deltas.iter().sum::<f64>() / f64::from(measured_runs),
-            ),
-            maximum_s: clearance_deltas
-                .iter()
-                .copied()
-                .reduce(f64::max)
-                .expect("a non-empty collection has a maximum"),
-        }
-    });
 
     Ok(SweepComparison {
         schema_version: "0.1".to_owned(),
@@ -1110,20 +1182,13 @@ fn compare_sweep_summaries(
                 un_evacuated_agents: un_evacuated_delta,
                 evacuated_by_exit: evacuated_by_exit_delta,
                 remaining_by_state: remaining_by_state_delta,
+                information_delivery: information_delivery_delta,
             },
             runs_with_more_candidate_evacuations: more_candidate_evacuations,
             runs_with_fewer_candidate_evacuations: fewer_candidate_evacuations,
             runs_with_unchanged_evacuations: unchanged_evacuations,
-            clearance_time_s: PairedClearance {
-                both_complete_runs,
-                baseline_only_complete_runs,
-                candidate_only_complete_runs,
-                neither_complete_runs,
-                candidate_faster_runs,
-                candidate_slower_runs,
-                unchanged_runs: unchanged_clearance_runs,
-                candidate_minus_baseline_s,
-            },
+            clearance_time_s: clearance_times.report(),
+            last_exit_time_s: last_exit_times.report(),
         },
         claim_boundary: "This report compares deterministic structural runs sharing authored demand and seed labels. It is not an empirical control group, a statistical uncertainty estimate, a causal-effect estimate, a benchmark score, calibration result, or predictive claim.".to_owned(),
     })
@@ -1146,7 +1211,62 @@ fn paired_run_arm(run: &SweepRun) -> PairedRunArm {
         evacuated_agents: run.evacuated_agents,
         evacuated_by_exit: run.evacuated_by_exit.clone(),
         remaining_by_state: run.remaining_by_state.clone(),
-        clearance_time_s: run.clearance_time_s,
+        information_delivery: run.information_delivery.clone(),
+        clearance_time_s: observed_clearance_time(run),
+        last_exit_time_s: observed_last_exit_time(run),
+    }
+}
+
+fn observed_last_exit_time(run: &SweepRun) -> Option<f64> {
+    run.last_exit_time_s.or(run.clearance_time_s)
+}
+
+fn observed_clearance_time(run: &SweepRun) -> Option<f64> {
+    (run.evacuated_agents == run.total_agents)
+        .then_some(run.clearance_time_s)
+        .flatten()
+}
+
+impl PairedTimeAccumulator {
+    fn record(&mut self, baseline: Option<f64>, candidate: Option<f64>) -> Option<f64> {
+        match (baseline, candidate) {
+            (Some(baseline_time), Some(candidate_time)) => {
+                self.both_recorded_runs += 1;
+                let delta = canonical_report_number(candidate_time - baseline_time);
+                match delta.total_cmp(&0.0) {
+                    std::cmp::Ordering::Less => self.candidate_earlier_runs += 1,
+                    std::cmp::Ordering::Greater => self.candidate_later_runs += 1,
+                    std::cmp::Ordering::Equal => self.unchanged_runs += 1,
+                }
+                self.deltas.push(delta);
+                Some(delta)
+            }
+            (Some(_), None) => {
+                self.baseline_only_recorded_runs += 1;
+                None
+            }
+            (None, Some(_)) => {
+                self.candidate_only_recorded_runs += 1;
+                None
+            }
+            (None, None) => {
+                self.neither_recorded_runs += 1;
+                None
+            }
+        }
+    }
+
+    fn report(self) -> PairedTime {
+        PairedTime {
+            both_recorded_runs: self.both_recorded_runs,
+            baseline_only_recorded_runs: self.baseline_only_recorded_runs,
+            candidate_only_recorded_runs: self.candidate_only_recorded_runs,
+            neither_recorded_runs: self.neither_recorded_runs,
+            candidate_earlier_runs: self.candidate_earlier_runs,
+            candidate_later_runs: self.candidate_later_runs,
+            unchanged_runs: self.unchanged_runs,
+            candidate_minus_baseline_s: descriptive_range(&self.deltas),
+        }
     }
 }
 
@@ -1169,6 +1289,43 @@ fn accumulate_count_delta(
         *aggregate.entry(key.clone()).or_default() += delta;
     }
     aggregate.retain(|_, count| *count != 0);
+}
+
+fn accumulate_information_delivery_delta(
+    aggregate: &mut BTreeMap<String, InformationDeliveryDelta>,
+    candidate: &BTreeMap<String, InformationDeliveryMetrics>,
+    baseline: &BTreeMap<String, InformationDeliveryMetrics>,
+) {
+    for intervention in candidate.keys().chain(
+        baseline
+            .keys()
+            .filter(|intervention| !candidate.contains_key(*intervention)),
+    ) {
+        let candidate_delivery = candidate.get(intervention);
+        let baseline_delivery = baseline.get(intervention);
+        let delta = InformationDeliveryDelta {
+            received_agents: signed_count_delta(
+                candidate_delivery.map_or(0, |delivery| delivery.received_agents),
+                baseline_delivery.map_or(0, |delivery| delivery.received_agents),
+            ),
+            accepted_agents: signed_count_delta(
+                candidate_delivery.map_or(0, |delivery| delivery.accepted_agents),
+                baseline_delivery.map_or(0, |delivery| delivery.accepted_agents),
+            ),
+        };
+        if delta.received_agents != 0 || delta.accepted_agents != 0 {
+            let current =
+                aggregate
+                    .entry(intervention.clone())
+                    .or_insert(InformationDeliveryDelta {
+                        received_agents: 0,
+                        accepted_agents: 0,
+                    });
+            current.received_agents += delta.received_agents;
+            current.accepted_agents += delta.accepted_agents;
+        }
+    }
+    aggregate.retain(|_, delta| delta.received_agents != 0 || delta.accepted_agents != 0);
 }
 
 fn signed_count_delta(candidate: u32, baseline: u32) -> i64 {
@@ -1271,7 +1428,9 @@ mod tests {
         SweepRun, SweepSource, SweepSummary, compare_sweep_summaries, describe_sweep,
         validate_bundle_metrics,
     };
-    use chiyoda_core::{RunOptions, parse, run};
+    use chiyoda_core::{
+        InformationDeliveryMetrics, InformationInterventionKind, RunOptions, generator, parse, run,
+    };
     use std::{collections::BTreeMap, path::Path};
 
     #[test]
@@ -1295,7 +1454,9 @@ mod tests {
                         ("west".to_owned(), 6),
                     ]),
                     remaining_by_state: BTreeMap::from([("moving".to_owned(), 2)]),
+                    information_delivery: BTreeMap::new(),
                     clearance_time_s: Some(2.0),
+                    last_exit_time_s: None,
                 },
                 SweepRun {
                     seed: 11,
@@ -1305,7 +1466,9 @@ mod tests {
                     evacuated_agents: 0,
                     evacuated_by_exit: BTreeMap::new(),
                     remaining_by_state: BTreeMap::from([("waiting_for_route".to_owned(), 5)]),
+                    information_delivery: BTreeMap::new(),
                     clearance_time_s: None,
+                    last_exit_time_s: None,
                 },
                 SweepRun {
                     seed: 12,
@@ -1315,7 +1478,9 @@ mod tests {
                     evacuated_agents: 5,
                     evacuated_by_exit: BTreeMap::from([("east".to_owned(), 5)]),
                     remaining_by_state: BTreeMap::new(),
+                    information_delivery: BTreeMap::new(),
                     clearance_time_s: Some(4.0),
+                    last_exit_time_s: None,
                 },
             ],
         };
@@ -1341,11 +1506,17 @@ mod tests {
         assert_eq!(analysis.unattributed_remaining_agents, 0);
         let clearance_time = analysis
             .clearance_time_s
-            .expect("two runs report clearance times");
-        assert_eq!(clearance_time.measured_runs, 2);
-        assert!((clearance_time.minimum_s - 2.0).abs() < f64::EPSILON);
-        assert!((clearance_time.mean_s - 3.0).abs() < f64::EPSILON);
+            .expect("one run reached full clearance");
+        assert_eq!(clearance_time.measured_runs, 1);
+        assert!((clearance_time.minimum_s - 4.0).abs() < f64::EPSILON);
+        assert!((clearance_time.mean_s - 4.0).abs() < f64::EPSILON);
         assert!((clearance_time.maximum_s - 4.0).abs() < f64::EPSILON);
+        let last_exit_time = analysis
+            .last_exit_time_s
+            .expect("legacy recorded exits remain descriptively available");
+        assert_eq!(last_exit_time.measured_runs, 2);
+        assert!((last_exit_time.minimum_s - 2.0).abs() < f64::EPSILON);
+        assert!((last_exit_time.maximum_s - 4.0).abs() < f64::EPSILON);
     }
 
     #[test]
@@ -1384,7 +1555,9 @@ mod tests {
                 evacuated_agents: 3,
                 evacuated_by_exit: BTreeMap::new(),
                 remaining_by_state: BTreeMap::new(),
+                information_delivery: BTreeMap::new(),
                 clearance_time_s: Some(8.0),
+                last_exit_time_s: None,
             }],
         };
 
@@ -1414,10 +1587,19 @@ mod tests {
                     scenario_name: "baseline".to_owned(),
                     bundle_hash: "b".repeat(64),
                     total_agents: 10,
-                    evacuated_agents: 8,
-                    evacuated_by_exit: BTreeMap::from([("east".to_owned(), 8)]),
-                    remaining_by_state: BTreeMap::from([("moving".to_owned(), 2)]),
+                    evacuated_agents: 10,
+                    evacuated_by_exit: BTreeMap::from([("east".to_owned(), 10)]),
+                    remaining_by_state: BTreeMap::new(),
+                    information_delivery: BTreeMap::from([(
+                        "notice".to_owned(),
+                        InformationDeliveryMetrics {
+                            kind: InformationInterventionKind::Message,
+                            received_agents: 4,
+                            accepted_agents: 2,
+                        },
+                    )]),
                     clearance_time_s: Some(10.0),
+                    last_exit_time_s: Some(10.0),
                 },
                 SweepRun {
                     seed: 101,
@@ -1427,7 +1609,16 @@ mod tests {
                     evacuated_agents: 10,
                     evacuated_by_exit: BTreeMap::from([("west".to_owned(), 10)]),
                     remaining_by_state: BTreeMap::new(),
+                    information_delivery: BTreeMap::from([(
+                        "notice".to_owned(),
+                        InformationDeliveryMetrics {
+                            kind: InformationInterventionKind::Message,
+                            received_agents: 1,
+                            accepted_agents: 0,
+                        },
+                    )]),
                     clearance_time_s: Some(20.0),
+                    last_exit_time_s: Some(20.0),
                 },
             ],
         };
@@ -1452,7 +1643,16 @@ mod tests {
                         ("west".to_owned(), 4),
                     ]),
                     remaining_by_state: BTreeMap::new(),
+                    information_delivery: BTreeMap::from([(
+                        "notice".to_owned(),
+                        InformationDeliveryMetrics {
+                            kind: InformationInterventionKind::Message,
+                            received_agents: 4,
+                            accepted_agents: 3,
+                        },
+                    )]),
                     clearance_time_s: Some(9.0),
+                    last_exit_time_s: Some(9.0),
                 },
                 SweepRun {
                     seed: 101,
@@ -1462,7 +1662,16 @@ mod tests {
                     evacuated_agents: 7,
                     evacuated_by_exit: BTreeMap::from([("west".to_owned(), 7)]),
                     remaining_by_state: BTreeMap::from([("waiting_for_exit".to_owned(), 3)]),
+                    information_delivery: BTreeMap::from([(
+                        "notice".to_owned(),
+                        InformationDeliveryMetrics {
+                            kind: InformationInterventionKind::Message,
+                            received_agents: 2,
+                            accepted_agents: 1,
+                        },
+                    )]),
                     clearance_time_s: None,
+                    last_exit_time_s: Some(14.0),
                 },
             ],
         };
@@ -1479,7 +1688,7 @@ mod tests {
             comparison.paired_runs[0]
                 .candidate_minus_baseline
                 .evacuated_agents,
-            2
+            0
         );
         assert_eq!(
             comparison.paired_runs[1]
@@ -1492,14 +1701,14 @@ mod tests {
                 .aggregate
                 .candidate_minus_baseline
                 .evacuated_agents,
-            -1
+            -3
         );
         assert_eq!(
             comparison
                 .aggregate
                 .candidate_minus_baseline
                 .un_evacuated_agents,
-            1
+            3
         );
         assert_eq!(
             comparison
@@ -1507,7 +1716,7 @@ mod tests {
                 .candidate_minus_baseline
                 .evacuated_by_exit
                 .get("east"),
-            Some(&-2)
+            Some(&-4)
         );
         assert_eq!(
             comparison
@@ -1522,32 +1731,41 @@ mod tests {
                 .aggregate
                 .candidate_minus_baseline
                 .remaining_by_state
-                .get("moving"),
-            Some(&-2)
-        );
-        assert_eq!(
-            comparison
-                .aggregate
-                .candidate_minus_baseline
-                .remaining_by_state
                 .get("waiting_for_exit"),
             Some(&3)
         );
-        assert_eq!(comparison.aggregate.runs_with_more_candidate_evacuations, 1);
+        let delivery_delta = comparison
+            .aggregate
+            .candidate_minus_baseline
+            .information_delivery
+            .get("notice")
+            .expect("information-delivery difference is reported");
+        assert_eq!(delivery_delta.received_agents, 1);
+        assert_eq!(delivery_delta.accepted_agents, 2);
+        assert_eq!(
+            comparison.baseline.information_delivery["notice"].received_agents,
+            5
+        );
+        assert_eq!(
+            comparison.candidate.information_delivery["notice"].accepted_agents,
+            4
+        );
+        assert_eq!(comparison.aggregate.runs_with_more_candidate_evacuations, 0);
         assert_eq!(
             comparison.aggregate.runs_with_fewer_candidate_evacuations,
             1
         );
-        assert_eq!(comparison.aggregate.clearance_time_s.both_complete_runs, 1);
+        assert_eq!(comparison.aggregate.runs_with_unchanged_evacuations, 1);
+        assert_eq!(comparison.aggregate.clearance_time_s.both_recorded_runs, 1);
         assert_eq!(
             comparison
                 .aggregate
                 .clearance_time_s
-                .baseline_only_complete_runs,
+                .baseline_only_recorded_runs,
             1
         );
         assert_eq!(
-            comparison.aggregate.clearance_time_s.candidate_faster_runs,
+            comparison.aggregate.clearance_time_s.candidate_earlier_runs,
             1
         );
         assert!(
@@ -1558,6 +1776,22 @@ mod tests {
                 .expect("one pair completed in both arms")
                 .mean_s
                 + 1.0)
+                .abs()
+                < f64::EPSILON
+        );
+        assert_eq!(comparison.aggregate.last_exit_time_s.both_recorded_runs, 2);
+        assert_eq!(
+            comparison.aggregate.last_exit_time_s.candidate_earlier_runs,
+            2
+        );
+        assert!(
+            (comparison
+                .aggregate
+                .last_exit_time_s
+                .candidate_minus_baseline_s
+                .expect("both pairs have observed exits")
+                .mean_s
+                + 3.5)
                 .abs()
                 < f64::EPSILON
         );
@@ -1582,7 +1816,9 @@ mod tests {
                 evacuated_agents: 1,
                 evacuated_by_exit: BTreeMap::from([("street".to_owned(), 1)]),
                 remaining_by_state: BTreeMap::new(),
+                information_delivery: BTreeMap::new(),
                 clearance_time_s: Some(1.0),
+                last_exit_time_s: Some(1.0),
             }],
         };
         let candidate = SweepSummary {
@@ -1626,5 +1862,48 @@ agents passengers count 1 on concourse at (1m, 1m, 0m) to street speed 1m/s radi
                 .to_string()
                 .contains("remaining-state count does not match")
         );
+    }
+
+    #[test]
+    fn sweep_verification_rejects_partial_run_labeled_as_clearance() {
+        let source = r#"
+scenario "partial-clearance"
+seed 1
+duration 3s
+timestep 1s
+surface concourse at (0m, 0m, 0m) size (14m, 10m)
+exit street on concourse at (4m, 1m, 0m) width 2m
+agents quick count 1 on concourse at (1m, 1m, 0m) to street speed 1m/s radius 0.3m height 1.7m
+agents slow count 1 on concourse at (12m, 1m, 0m) to street speed 1m/s radius 0.3m height 1.7m
+"#;
+        let scenario = parse(source).expect("source parses");
+        let mut bundle = run(&scenario, RunOptions::default()).expect("run succeeds");
+        bundle.metrics.clearance_time_s = bundle.metrics.last_exit_time_s;
+
+        let error = validate_bundle_metrics(&bundle, Path::new("fixture"))
+            .expect_err("a partial run cannot be labeled as cleared");
+
+        assert!(
+            error
+                .to_string()
+                .contains("clearance time does not match full evacuation")
+        );
+    }
+
+    #[test]
+    fn sweep_verification_rejects_impossible_information_acceptance() {
+        let scenario = generator::scenario(73).expect("generated scenario is valid");
+        let mut bundle = run(&scenario, RunOptions::default()).expect("run succeeds");
+        let delivery = bundle
+            .metrics
+            .information_delivery
+            .get_mut("false_platform_exit")
+            .expect("generated message has delivery metrics");
+        delivery.accepted_agents = delivery.received_agents + 1;
+
+        let error = validate_bundle_metrics(&bundle, Path::new("fixture"))
+            .expect_err("acceptance cannot exceed delivery");
+
+        assert!(error.to_string().contains("acceptance exceeds delivery"));
     }
 }

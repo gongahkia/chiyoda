@@ -5,7 +5,7 @@ Chiyoda is an Apache-2.0 research platform for deterministic, reproducible
 is a standalone experiment language and executable reference semantics—not a
 real-time operations dashboard or a certified evacuation product.
 
-The current `0.17.0-alpha.1` release establishes the language/runtime contract:
+The current `0.19.0-alpha.1` release establishes the language/runtime contract:
 
 - a typed textual DSL with static unit, topology, reachability, capacity, and
   deterministic-replay checks;
@@ -15,7 +15,7 @@ The current `0.17.0-alpha.1` release establishes the language/runtime contract:
   escalators, lifts, gates, capacity-limited exits, operational connector
   states, and typed information interventions;
 - immutable JSON run bundles with source, canonical IR, events, traces,
-  metrics, and SHA-256 integrity hashes;
+  per-intervention reach/acceptance metrics, and SHA-256 integrity hashes;
 - a deterministic, constraint-preserving scenario generator; and
 - a native Linux trace replay application.
 
@@ -65,8 +65,8 @@ attribution counts. Generated cases include a declared alternative exit and a
 scheduled primary-exit closure, so the output also exercises rerouting.
 `verify-sweep` cross-checks that summary against every bundle and its canonical
 source. `analyze-sweep` performs that same verification before producing exact
-cross-run counts, per-exit totals, and descriptive clearance-time ranges. Its
-evacuation fraction is emitted as an exact numerator/denominator rather than a
+cross-run counts, per-exit totals, intervention reach/acceptance totals, and
+descriptive full-clearance and last-exit-time ranges. Its evacuation fraction is emitted as an exact numerator/denominator rather than a
 misleadingly precise estimate, and its final-state totals explain agents still
 in the system at the configured time limit. The output directory must be empty,
 and the workflow does not require a benchmark manifest or research data.
@@ -83,9 +83,10 @@ a seed-aligned control/candidate artifact. It rejects generated sweeps and arms
 with different seed ranges, duration, timestep, or authored agent demand and
 journeys. The report records the two template hashes, every changed scenario
 section, each seed's outcomes, exact aggregate count deltas, exit and terminal
-state deltas, and clearance-time differences only for seeds where both arms
-fully evacuated. A separately named last-exit-time metric remains available
-when agents still remain in the system. It is a deterministic structural comparison, not a control
+state deltas, intervention reach/acceptance deltas, and clearance-time differences
+only for seeds where both arms fully evacuated. A separately named last-exit-time
+metric remains available when agents still remain in the system. It is a deterministic structural
+comparison, not a control
 group, causal estimate, uncertainty estimate, or predictive result. Matching
 message or countermeasure identifiers retain their deterministic acceptance
 stream where delivery remains comparable; renaming an intervention identifier

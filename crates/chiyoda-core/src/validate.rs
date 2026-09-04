@@ -390,9 +390,17 @@ pub fn validate(scenario: &Scenario) -> Result<(), Vec<ValidationError>> {
         .iter()
         .map(|message| message.id.as_str())
         .collect();
+    let mut sampling_keys = HashSet::new();
     for (index, message) in scenario.messages.iter().enumerate() {
         let path = format!("messages[{index}]");
         check_unique(&mut ids, &message.id, &path, &mut errors);
+        let sampling_key = message.sampling_key.as_deref().unwrap_or(&message.id);
+        if !sampling_keys.insert(sampling_key) {
+            errors.push(issue(
+                &format!("{path}.sampling_key"),
+                format!("duplicate information sampling key `{sampling_key}`"),
+            ));
+        }
         match &message.claim {
             crate::model::Proposition::ConnectorAvailability { connector, open } => {
                 if connector_ids.contains(connector.as_str()) {
@@ -443,6 +451,16 @@ pub fn validate(scenario: &Scenario) -> Result<(), Vec<ValidationError>> {
     for (index, countermeasure) in scenario.countermeasures.iter().enumerate() {
         let path = format!("countermeasures[{index}]");
         check_unique(&mut ids, &countermeasure.id, &path, &mut errors);
+        let sampling_key = countermeasure
+            .sampling_key
+            .as_deref()
+            .unwrap_or(&countermeasure.id);
+        if !sampling_keys.insert(sampling_key) {
+            errors.push(issue(
+                &format!("{path}.sampling_key"),
+                format!("duplicate information sampling key `{sampling_key}`"),
+            ));
+        }
         if !message_ids.contains(countermeasure.corrects.as_str()) {
             errors.push(issue(
                 &format!("{path}.corrects"),

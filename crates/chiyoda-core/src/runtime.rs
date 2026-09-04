@@ -1,5 +1,8 @@
 use crate::{
-    bundle::{AgentSnapshot, AgentState, RunBundle, RunEvent, RunMetrics, TraceFrame},
+    bundle::{
+        AgentSnapshot, AgentState, InformationDeliveryMetrics, InformationInterventionKind,
+        RunBundle, RunEvent, RunMetrics, TraceFrame,
+    },
     model::{
         CanonicalScenario, ConnectorKind, NAVIGATION_CLEARANCE_EPSILON_M, Obstacle, Point3,
         Scenario, Surface,
@@ -249,6 +252,33 @@ fn initial_state_events(scenario: &Scenario) -> Vec<RunEvent> {
     events
 }
 
+fn information_delivery_for_scenario(
+    scenario: &Scenario,
+) -> BTreeMap<String, InformationDeliveryMetrics> {
+    let mut delivery = BTreeMap::new();
+    for message in &scenario.messages {
+        delivery.insert(
+            message.id.clone(),
+            InformationDeliveryMetrics {
+                kind: InformationInterventionKind::Message,
+                received_agents: 0,
+                accepted_agents: 0,
+            },
+        );
+    }
+    for countermeasure in &scenario.countermeasures {
+        delivery.insert(
+            countermeasure.id.clone(),
+            InformationDeliveryMetrics {
+                kind: InformationInterventionKind::Countermeasure,
+                received_agents: 0,
+                accepted_agents: 0,
+            },
+        );
+    }
+    delivery
+}
+
 enum ScheduledEvent<'a> {
     ConnectorState(&'a crate::model::ConnectorStateChange),
     ExitState(&'a crate::model::ExitStateChange),
@@ -262,6 +292,7 @@ fn apply_scheduled_events(
     time_s: f64,
     events: &mut Vec<RunEvent>,
     resources: &mut RuntimeResources,
+    information_delivery: &mut BTreeMap<String, InformationDeliveryMetrics>,
 ) {
     let previous_time = time_s - scenario.timestep_s;
     let is_scheduled = |at_s: f64| previous_time < at_s && at_s <= time_s;
@@ -334,6 +365,7 @@ fn apply_scheduled_events(
                     events,
                     &resources.closed_connectors,
                     &resources.closed_exits,
+                    information_delivery,
                 );
             }
             ScheduledEvent::Countermeasure(countermeasure) => {
@@ -344,6 +376,7 @@ fn apply_scheduled_events(
                     events,
                     &resources.closed_connectors,
                     &resources.closed_exits,
+                    information_delivery,
                 );
             }
         }
@@ -480,10 +513,18 @@ pub fn run(scenario: &Scenario, options: RunOptions) -> Result<RunBundle, RunErr
     let step_count = (scenario.duration_s / scenario.timestep_s).ceil() as u64;
     let mut trace = vec![snapshot(0, 0.0, &agents)];
     let mut events = initial_state_events(scenario);
+    let mut information_delivery = information_delivery_for_scenario(scenario);
 
     for step in 1..=step_count {
         let time_s = (step as f64) * scenario.timestep_s;
-        apply_scheduled_events(scenario, &mut agents, time_s, &mut events, &mut resources);
+        apply_scheduled_events(
+            scenario,
+            &mut agents,
+            time_s,
+            &mut events,
+            &mut resources,
+            &mut information_delivery,
+        );
         integrate(scenario, &mut agents, time_s, &mut events, &mut resources);
         if step % u64::from(options.trace_every_steps) == 0 || step == step_count {
             trace.push(snapshot(step, time_s, &agents));
@@ -526,6 +567,7 @@ pub fn run(scenario: &Scenario, options: RunOptions) -> Result<RunBundle, RunErr
         evacuated_agents,
         evacuated_by_exit,
         remaining_by_state,
+        information_delivery,
         clearance_time_s,
         last_exit_time_s,
         mean_exit_time_s,
@@ -545,7 +587,7 @@ pub fn run(scenario: &Scenario, options: RunOptions) -> Result<RunBundle, RunErr
         ),
         (
             "integration".to_owned(),
-            "deterministic-euler-0.17".to_owned(),
+            "deterministic-euler-0.19".to_owned(),
         ),
     ]);
     Ok(RunBundle::new(canonical, options, trace, events, metrics))
@@ -1164,14 +1206,23 @@ fn deliver_message(
     events: &mut Vec<RunEvent>,
     closed_connectors: &HashSet<String>,
     closed_exits: &HashSet<String>,
+    information_delivery: &mut BTreeMap<String, InformationDeliveryMetrics>,
 ) {
     for agent in agents.iter_mut().filter(|agent| {
         agent.surface == message.surface && matches!(agent.motion, Motion::OnSurface)
     }) {
         if agent.position.distance(message.origin) <= message.reach_m {
             agent.beliefs.insert(message.id.clone(), message.trust);
+            let sampling_key = message.sampling_key.as_deref().unwrap_or(&message.id);
             let accepted =
-                accepts_information(scenario.seed, &agent.id, &message.id, message.trust);
+                accepts_information(scenario.seed, &agent.id, sampling_key, message.trust);
+            let delivery = information_delivery
+                .get_mut(&message.id)
+                .expect("every scheduled message has delivery metrics");
+            delivery.received_agents += 1;
+            if accepted {
+                delivery.accepted_agents += 1;
+            }
             if accepted {
                 apply_claim(agent, &message.claim);
                 reroute(
@@ -1188,7 +1239,7 @@ fn deliver_message(
                 kind: "message_received".to_owned(),
                 subject: agent.id.clone(),
                 detail: format!(
-                    "{}: {} `{}` {} from {} (truthful={}, accepted={accepted})",
+                    "{}: {} `{}` {} from {} (truthful={}, accepted={accepted}, sample={sampling_key})",
                     message.id,
                     message.claim.subject_kind(),
                     message.claim.subject(),
@@ -1212,6 +1263,7 @@ fn deliver_countermeasure(
     events: &mut Vec<RunEvent>,
     closed_connectors: &HashSet<String>,
     closed_exits: &HashSet<String>,
+    information_delivery: &mut BTreeMap<String, InformationDeliveryMetrics>,
 ) {
     for agent in agents.iter_mut().filter(|agent| {
         agent.surface == countermeasure.surface && matches!(agent.motion, Motion::OnSurface)
@@ -1220,12 +1272,19 @@ fn deliver_countermeasure(
             agent
                 .beliefs
                 .insert(countermeasure.corrects.clone(), countermeasure.trust);
-            let accepted = accepts_information(
-                scenario.seed,
-                &agent.id,
-                &countermeasure.id,
-                countermeasure.trust,
-            );
+            let sampling_key = countermeasure
+                .sampling_key
+                .as_deref()
+                .unwrap_or(&countermeasure.id);
+            let accepted =
+                accepts_information(scenario.seed, &agent.id, sampling_key, countermeasure.trust);
+            let delivery = information_delivery
+                .get_mut(&countermeasure.id)
+                .expect("every scheduled countermeasure has delivery metrics");
+            delivery.received_agents += 1;
+            if accepted {
+                delivery.accepted_agents += 1;
+            }
             if accepted
                 && let Some(message) = scenario
                     .messages
@@ -1252,7 +1311,7 @@ fn deliver_countermeasure(
                 kind: "countermeasure_received".to_owned(),
                 subject: agent.id.clone(),
                 detail: format!(
-                    "{} corrected by {} via {}",
+                    "{} corrected by {} via {} (accepted={accepted}, sample={sampling_key})",
                     countermeasure.corrects,
                     countermeasure.id,
                     countermeasure.source.as_str()

@@ -16,7 +16,9 @@ pub mod runtime;
 pub mod validate;
 
 pub use benchmark::{BenchmarkManifest, BenchmarkValidationError, validate_manifest};
-pub use bundle::{AgentState, RunBundle, bundle_hash};
+pub use bundle::{
+    AgentState, InformationDeliveryMetrics, InformationInterventionKind, RunBundle, bundle_hash,
+};
 pub use calibration::{
     CalibrationError, PlatformCalibrationReport, calibrate_eindhoven_platform, verify_catalog_files,
 };
@@ -28,5 +30,5 @@ pub use runtime::{RunOptions, run};
 pub use validate::{ValidationError, validate};
 
 /// Increment this when the canonical IR or runtime trace contract changes.
-pub const LANGUAGE_VERSION: &str = "0.17";
+pub const LANGUAGE_VERSION: &str = "0.19";
 pub const RUNTIME_VERSION: &str = env!("CARGO_PKG_VERSION");

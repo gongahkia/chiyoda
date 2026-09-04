@@ -453,6 +453,11 @@ pub struct Message {
     pub at_s: f64,
     pub reach_m: f64,
     pub trust: f64,
+    /// Optional deterministic trust-draw stream shared deliberately across
+    /// otherwise distinct scenarios. Omission preserves the historical `id`
+    /// stream.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sampling_key: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -465,6 +470,9 @@ pub struct Countermeasure {
     pub at_s: f64,
     pub reach_m: f64,
     pub trust: f64,
+    /// Optional deterministic trust-draw stream; see [`Message::sampling_key`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sampling_key: Option<String>,
 }
 
 /// The parsed, typed source program. Its vectors retain declaration order,

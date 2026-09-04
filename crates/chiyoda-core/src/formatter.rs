@@ -3,7 +3,7 @@
 use crate::model::{Connector, Proposition, Scenario};
 use std::fmt::Write;
 
-/// Render a typed scenario as canonical version-0.17 source.
+/// Render a typed scenario as canonical version-0.19 source.
 #[must_use]
 #[allow(clippy::too_many_lines)] // mirrors the complete declaration grammar in one reviewable serializer
 pub fn format_scenario(scenario: &Scenario) -> String {
@@ -200,7 +200,7 @@ pub fn format_scenario(scenario: &Scenario) -> String {
     for message in &scenario.messages {
         writeln!(
             source,
-            "message {} source {} on {} at {} claim {} truth {} time {} reach {} trust {}",
+            "message {} source {} on {} at {} claim {} truth {} time {} reach {} trust {}{}",
             message.id,
             message.source.as_str(),
             message.surface,
@@ -210,13 +210,14 @@ pub fn format_scenario(scenario: &Scenario) -> String {
             duration(message.at_s),
             length(message.reach_m),
             number(message.trust),
+            sampling_key(&message.sampling_key),
         )
         .expect("writing to a string cannot fail");
     }
     for countermeasure in &scenario.countermeasures {
         writeln!(
             source,
-            "countermeasure {} corrects {} source {} on {} at {} time {} reach {} trust {}",
+            "countermeasure {} corrects {} source {} on {} at {} time {} reach {} trust {}{}",
             countermeasure.id,
             countermeasure.corrects,
             countermeasure.source.as_str(),
@@ -225,10 +226,19 @@ pub fn format_scenario(scenario: &Scenario) -> String {
             duration(countermeasure.at_s),
             length(countermeasure.reach_m),
             number(countermeasure.trust),
+            sampling_key(&countermeasure.sampling_key),
         )
         .expect("writing to a string cannot fail");
     }
     source
+}
+
+fn sampling_key(sampling_key: &Option<String>) -> String {
+    sampling_key
+        .as_ref()
+        .map_or_else(String::new, |sampling_key| {
+            format!(" sample {sampling_key}")
+        })
 }
 
 fn proposition(proposition: &Proposition) -> String {
