@@ -173,6 +173,7 @@ struct RuntimeResources {
     queued_for_gate_agents: HashSet<String>,
     queued_for_exit_agents: HashSet<String>,
     closed_connectors: HashSet<String>,
+    closed_exits: HashSet<String>,
     connector_tokens: HashMap<usize, f64>,
     gate_tokens: HashMap<String, f64>,
     exit_tokens: HashMap<String, f64>,
@@ -186,6 +187,7 @@ impl RuntimeResources {
             queued_for_gate_agents: HashSet::new(),
             queued_for_exit_agents: HashSet::new(),
             closed_connectors: closed_connectors_at(scenario, 0.0),
+            closed_exits: closed_exits_at(scenario, 0.0),
             connector_tokens: scenario
                 .connectors
                 .iter()
@@ -217,17 +219,35 @@ fn closed_connectors_at(scenario: &Scenario, time_s: f64) -> HashSet<String> {
         .collect()
 }
 
-fn initial_connector_state_events(scenario: &Scenario) -> Vec<RunEvent> {
+fn closed_exits_at(scenario: &Scenario, time_s: f64) -> HashSet<String> {
     scenario
+        .exits
+        .iter()
+        .filter(|exit| !scenario.exit_open_at(&exit.id, time_s))
+        .map(|exit| exit.id.clone())
+        .collect()
+}
+
+fn initial_state_events(scenario: &Scenario) -> Vec<RunEvent> {
+    let mut events: Vec<_> = scenario
         .connector_states
         .iter()
         .filter(|change| change.at_s == 0.0)
         .map(connector_state_event)
-        .collect()
+        .collect();
+    events.extend(
+        scenario
+            .exit_states
+            .iter()
+            .filter(|change| change.at_s == 0.0)
+            .map(exit_state_event),
+    );
+    events
 }
 
 enum ScheduledEvent<'a> {
     ConnectorState(&'a crate::model::ConnectorStateChange),
+    ExitState(&'a crate::model::ExitStateChange),
     Message(&'a crate::model::Message),
     Countermeasure(&'a crate::model::Countermeasure),
 }
@@ -256,6 +276,14 @@ fn apply_scheduled_events(
                     ScheduledEvent::ConnectorState(change),
                 )
             }),
+    );
+    scheduled.extend(
+        scenario
+            .exit_states
+            .iter()
+            .enumerate()
+            .filter(|(_, change)| is_scheduled(change.at_s))
+            .map(|(index, change)| (change.at_s, 0_u8, index, ScheduledEvent::ExitState(change))),
     );
     scheduled.extend(
         scenario
@@ -291,6 +319,9 @@ fn apply_scheduled_events(
             ScheduledEvent::ConnectorState(change) => {
                 apply_connector_state_change(scenario, agents, change, events, resources);
             }
+            ScheduledEvent::ExitState(change) => {
+                apply_exit_state_change(scenario, agents, change, events, resources);
+            }
             ScheduledEvent::Message(message) => {
                 deliver_message(
                     scenario,
@@ -298,6 +329,7 @@ fn apply_scheduled_events(
                     message,
                     events,
                     &resources.closed_connectors,
+                    &resources.closed_exits,
                 );
             }
             ScheduledEvent::Countermeasure(countermeasure) => {
@@ -307,6 +339,7 @@ fn apply_scheduled_events(
                     countermeasure,
                     events,
                     &resources.closed_connectors,
+                    &resources.closed_exits,
                 );
             }
         }
@@ -333,6 +366,7 @@ fn apply_connector_state_change(
             change.at_s,
             events,
             &resources.closed_connectors,
+            &resources.closed_exits,
         );
     }
 }
@@ -342,6 +376,44 @@ fn connector_state_event(change: &crate::model::ConnectorStateChange) -> RunEven
         time_s: change.at_s,
         kind: "connector_state_changed".to_owned(),
         subject: change.connector.clone(),
+        detail: format!(
+            "{}: {}",
+            change.id,
+            if change.open { "open" } else { "closed" }
+        ),
+    }
+}
+
+fn apply_exit_state_change(
+    scenario: &Scenario,
+    agents: &mut [Agent],
+    change: &crate::model::ExitStateChange,
+    events: &mut Vec<RunEvent>,
+    resources: &mut RuntimeResources,
+) {
+    if change.open {
+        resources.closed_exits.remove(&change.exit);
+    } else {
+        resources.closed_exits.insert(change.exit.clone());
+    }
+    events.push(exit_state_event(change));
+    for agent in agents.iter_mut() {
+        reroute(
+            scenario,
+            agent,
+            change.at_s,
+            events,
+            &resources.closed_connectors,
+            &resources.closed_exits,
+        );
+    }
+}
+
+fn exit_state_event(change: &crate::model::ExitStateChange) -> RunEvent {
+    RunEvent {
+        time_s: change.at_s,
+        kind: "exit_state_changed".to_owned(),
+        subject: change.exit.clone(),
         detail: format!(
             "{}: {}",
             change.id,
@@ -396,10 +468,14 @@ pub fn run(scenario: &Scenario, options: RunOptions) -> Result<RunBundle, RunErr
     }
     let canonical = CanonicalScenario::from(scenario.clone());
     let mut resources = RuntimeResources::for_scenario(scenario);
-    let mut agents = spawn_agents(scenario, &resources.closed_connectors)?;
+    let mut agents = spawn_agents(
+        scenario,
+        &resources.closed_connectors,
+        &resources.closed_exits,
+    )?;
     let step_count = (scenario.duration_s / scenario.timestep_s).ceil() as u64;
     let mut trace = vec![snapshot(0, 0.0, &agents)];
-    let mut events = initial_connector_state_events(scenario);
+    let mut events = initial_state_events(scenario);
 
     for step in 1..=step_count {
         let time_s = (step as f64) * scenario.timestep_s;
@@ -454,6 +530,7 @@ pub fn run(scenario: &Scenario, options: RunOptions) -> Result<RunBundle, RunErr
 fn spawn_agents(
     scenario: &Scenario,
     closed_connectors: &HashSet<String>,
+    closed_exits: &HashSet<String>,
 ) -> Result<Vec<Agent>, RunError> {
     let mut agents = Vec::new();
     for group in &scenario.agents {
@@ -466,7 +543,13 @@ fn spawn_agents(
                 height_m: group.height_m,
                 excluded_connector_kinds: &group.excluded_connector_kinds,
             };
-            let planned = group_plan(scenario, route_start, group, closed_connectors);
+            let planned = group_plan(
+                scenario,
+                route_start,
+                group,
+                closed_connectors,
+                closed_exits,
+            );
             let waiting_for_route = planned.is_none();
             let (route, destination) = match planned {
                 Some(planned) => {
@@ -529,10 +612,13 @@ fn group_plan_becomes_available(
     scenario
         .connector_states
         .iter()
-        .filter(|change| change.at_s > 0.0)
-        .any(|change| {
-            let closed_connectors = closed_connectors_at(scenario, change.at_s);
-            group_plan(scenario, start, group, &closed_connectors).is_some()
+        .map(|change| change.at_s)
+        .chain(scenario.exit_states.iter().map(|change| change.at_s))
+        .filter(|&at_s| at_s > 0.0)
+        .any(|at_s| {
+            let closed_connectors = closed_connectors_at(scenario, at_s);
+            let closed_exits = closed_exits_at(scenario, at_s);
+            group_plan(scenario, start, group, &closed_connectors, &closed_exits).is_some()
         })
 }
 
@@ -541,6 +627,7 @@ fn group_plan(
     start: RouteStart<'_>,
     group: &crate::model::AgentGroup,
     blocked_connectors: &HashSet<String>,
+    closed_exits: &HashSet<String>,
 ) -> Option<PlannedTarget> {
     plan_for_stage(
         scenario,
@@ -548,6 +635,7 @@ fn group_plan(
         group.via.first().map(String::as_str),
         group.exit_candidates(),
         blocked_connectors,
+        closed_exits,
     )
 }
 
@@ -556,6 +644,7 @@ fn agent_plan(
     start: RouteStart<'_>,
     agent: &Agent,
     blocked_connectors: &HashSet<String>,
+    closed_exits: &HashSet<String>,
 ) -> Option<PlannedTarget> {
     plan_for_stage(
         scenario,
@@ -563,6 +652,7 @@ fn agent_plan(
         agent.via.get(agent.via_cursor).map(String::as_str),
         agent.exit_candidates.iter().map(String::as_str),
         blocked_connectors,
+        closed_exits,
     )
 }
 
@@ -572,13 +662,20 @@ fn plan_for_stage<'a>(
     waypoint_id: Option<&str>,
     destinations: impl IntoIterator<Item = &'a str>,
     blocked_connectors: &HashSet<String>,
+    closed_exits: &HashSet<String>,
 ) -> Option<PlannedTarget> {
     if let Some(waypoint_id) = waypoint_id {
         let target = waypoint_target(scenario, waypoint_id)?;
         let plan = route_to_target_avoiding(scenario, start, &target, blocked_connectors)?;
         return Some(PlannedTarget { target, plan });
     }
-    select_exit_plan(scenario, start, destinations, blocked_connectors)
+    select_exit_plan(
+        scenario,
+        start,
+        destinations,
+        blocked_connectors,
+        closed_exits,
+    )
 }
 
 fn select_exit_plan<'a>(
@@ -586,11 +683,15 @@ fn select_exit_plan<'a>(
     start: RouteStart<'_>,
     destinations: impl IntoIterator<Item = &'a str>,
     blocked_connectors: &HashSet<String>,
+    closed_exits: &HashSet<String>,
 ) -> Option<PlannedTarget> {
     destinations
         .into_iter()
         .enumerate()
         .filter_map(|(index, destination)| {
+            if closed_exits.contains(destination) {
+                return None;
+            }
             let target = exit_target(scenario, destination)?;
             let plan = route_to_target_avoiding(scenario, start, &target, blocked_connectors)?;
             Some((index, PlannedTarget { target, plan }))
@@ -971,6 +1072,7 @@ fn deliver_message(
     message: &crate::model::Message,
     events: &mut Vec<RunEvent>,
     closed_connectors: &HashSet<String>,
+    closed_exits: &HashSet<String>,
 ) {
     for agent in agents.iter_mut().filter(|agent| {
         agent.surface == message.surface && matches!(agent.motion, Motion::OnSurface)
@@ -981,7 +1083,14 @@ fn deliver_message(
                 accepts_information(scenario.seed, &agent.id, &message.id, message.trust);
             if accepted {
                 apply_claim(agent, &message.claim);
-                reroute(scenario, agent, message.at_s, events, closed_connectors);
+                reroute(
+                    scenario,
+                    agent,
+                    message.at_s,
+                    events,
+                    closed_connectors,
+                    closed_exits,
+                );
             }
             events.push(RunEvent {
                 time_s: message.at_s,
@@ -1010,6 +1119,7 @@ fn deliver_countermeasure(
     countermeasure: &crate::model::Countermeasure,
     events: &mut Vec<RunEvent>,
     closed_connectors: &HashSet<String>,
+    closed_exits: &HashSet<String>,
 ) {
     for agent in agents.iter_mut().filter(|agent| {
         agent.surface == countermeasure.surface && matches!(agent.motion, Motion::OnSurface)
@@ -1041,6 +1151,7 @@ fn deliver_countermeasure(
                     countermeasure.at_s,
                     events,
                     closed_connectors,
+                    closed_exits,
                 );
             }
             events.push(RunEvent {
@@ -1108,6 +1219,7 @@ fn reroute(
     time_s: f64,
     events: &mut Vec<RunEvent>,
     closed_connectors: &HashSet<String>,
+    closed_exits: &HashSet<String>,
 ) {
     if !matches!(agent.motion, Motion::OnSurface) {
         return;
@@ -1125,6 +1237,7 @@ fn reroute(
         },
         agent,
         &blocked_connectors,
+        closed_exits,
     ) {
         if planned.target.is_exit {
             agent.destination.clone_from(&planned.target.id);
@@ -1264,6 +1377,7 @@ fn integrate(
                             time_s,
                             events,
                             &resources.closed_connectors,
+                            &resources.closed_exits,
                         );
                     }
                 }
@@ -1332,6 +1446,7 @@ fn integrate(
                                 },
                                 agent,
                                 &blocked_connectors,
+                                &resources.closed_exits,
                             ) {
                                 if planned.target.is_exit {
                                     agent.destination.clone_from(&planned.target.id);
@@ -1385,6 +1500,10 @@ fn integrate(
                                 resources.queued_for_gate_agents.insert(agent.id.clone());
                             }
                         } else {
+                            if resources.closed_exits.contains(&agent.destination) {
+                                agent.waiting_for_route = true;
+                                continue;
+                            }
                             let exit = scenario
                                 .exits
                                 .iter()

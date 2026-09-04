@@ -76,6 +76,7 @@ ramp accessible_ramp from platform at (2m, 1m, 6m) to mezzanine at (2m, 1m, 3m) 
 escalator down_escalator from mezzanine at (2m, 1m, 3m) to concourse at (2m, 1m, 0m) width 1m belt 0.6m/s clearance 1.9m capacity 0.8/s
 lift accessible_lift from platform at (4m, 1m, 6m) to concourse at (4m, 1m, 0m) cabin 2m 2m capacity 4 cycle 5s clearance 2m
 connector-state escalator_closure connector down_escalator closed time 10s
+exit-state plaza_closure exit plaza closed time 15s
 agents passengers count 1 on platform at (1m, 1m, 6m) to street speed 1m/s radius 0.3m height 1.7m alternative plaza exclude lift exclude stair
 "#;
     let scenario = parse(source).expect("source parses");
@@ -168,6 +169,68 @@ agents passengers count 1 on upper at (1m, 1m, 3m) to primary speed 1m/s radius 
 }
 
 #[test]
+fn exit_closure_reroutes_an_agent_to_an_alternative_exit() {
+    let source = r#"
+scenario "exit-closure-reroute"
+seed 1
+duration 12s
+timestep 1s
+surface concourse at (0m, 0m, 0m) size (10m, 10m)
+exit primary on concourse at (2m, 1m, 0m) width 2m
+exit fallback on concourse at (6m, 1m, 0m) width 2m
+exit-state closure exit primary closed time 1s
+agents passengers count 1 on concourse at (1m, 1m, 0m) to primary speed 1m/s radius 0.3m height 1.7m alternative fallback
+"#;
+    let scenario = parse(source).expect("source parses");
+    let bundle = run(&scenario, RunOptions::default()).expect("rerouted fallback runs");
+    assert!(bundle.events.iter().any(|event| {
+        event.kind == "exit_state_changed"
+            && event.subject == "primary"
+            && event.detail == "closure: closed"
+    }));
+    assert!(
+        bundle
+            .events
+            .iter()
+            .any(|event| event.kind == "evacuated" && event.detail == "fallback")
+    );
+}
+
+#[test]
+fn exit_reopening_recovers_agents_waiting_for_a_route() {
+    let source = r#"
+scenario "exit-reopening"
+seed 1
+duration 12s
+timestep 1s
+surface concourse at (0m, 0m, 0m) size (10m, 10m)
+exit street on concourse at (4m, 1m, 0m) width 2m
+exit-state initially_closed exit street closed time 0s
+exit-state reopen exit street open time 3s
+agents passengers count 1 on concourse at (1m, 1m, 0m) to street speed 1m/s radius 0.3m height 1.7m
+"#;
+    let scenario = parse(source).expect("source parses");
+    let bundle = run(&scenario, RunOptions::default()).expect("waiting route recovers");
+    assert!(bundle.trace.iter().any(|frame| {
+        frame
+            .agents
+            .iter()
+            .any(|agent| agent.state == chiyoda_core::AgentState::WaitingForRoute)
+    }));
+    assert!(bundle.events.iter().any(|event| {
+        event.kind == "exit_state_changed"
+            && event.subject == "street"
+            && event.detail == "reopen: open"
+    }));
+    assert!(
+        bundle
+            .events
+            .iter()
+            .any(|event| event.kind == "evacuated" && event.detail == "street")
+    );
+}
+
+#[test]
 fn alternative_exit_ties_respect_declaration_order() {
     let source = r#"
 scenario "alternative-exit-tie"
@@ -206,6 +269,27 @@ agents passengers count 1 on concourse at (1m, 1m, 0m) to street speed 1m/s radi
         errors
             .iter()
             .any(|error| error.path == "agents[0].alternative_destinations[0]")
+    );
+}
+
+#[test]
+fn validation_rejects_an_exit_state_for_an_unknown_exit() {
+    let source = r#"
+scenario "unknown-exit-state"
+seed 1
+duration 10s
+timestep 1s
+surface concourse at (0m, 0m, 0m) size (10m, 10m)
+exit street on concourse at (5m, 1m, 0m) width 2m
+exit-state closure exit missing closed time 1s
+agents passengers count 1 on concourse at (1m, 1m, 0m) to street speed 1m/s radius 0.3m height 1.7m
+"#;
+    let scenario = parse(source).expect("source parses");
+    let errors = validate(&scenario).expect_err("unknown exit states must be rejected");
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.path == "exit_states[0].exit")
     );
 }
 

@@ -235,6 +235,24 @@ pub fn validate(scenario: &Scenario) -> Result<(), Vec<ValidationError>> {
         );
     }
 
+    let exit_ids: HashSet<&str> = scenario.exits.iter().map(|exit| exit.id.as_str()).collect();
+    for (index, change) in scenario.exit_states.iter().enumerate() {
+        let path = format!("exit_states[{index}]");
+        check_unique(&mut ids, &change.id, &path, &mut errors);
+        if !exit_ids.contains(change.exit.as_str()) {
+            errors.push(issue(
+                &format!("{path}.exit"),
+                format!("references unknown exit `{}`", change.exit),
+            ));
+        }
+        check_time(
+            &format!("{path}.at_s"),
+            change.at_s,
+            scenario.duration_s,
+            &mut errors,
+        );
+    }
+
     for (index, gate) in scenario.gates.iter().enumerate() {
         let path = format!("gates[{index}]");
         check_unique(&mut ids, &gate.id, &path, &mut errors);
@@ -269,7 +287,6 @@ pub fn validate(scenario: &Scenario) -> Result<(), Vec<ValidationError>> {
         }
     }
 
-    let exit_ids: HashSet<&str> = scenario.exits.iter().map(|exit| exit.id.as_str()).collect();
     let waypoint_ids: HashSet<&str> = scenario
         .waypoints
         .iter()

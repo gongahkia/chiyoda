@@ -26,6 +26,7 @@ ramp ID from SURFACE at (LENGTH, LENGTH, LENGTH) to SURFACE at (LENGTH, LENGTH, 
 escalator ID from SURFACE at (LENGTH, LENGTH, LENGTH) to SURFACE at (LENGTH, LENGTH, LENGTH) width LENGTH belt SPEED [capacity RATE|clearance LENGTH]...
 lift ID from SURFACE at (LENGTH, LENGTH, LENGTH) to SURFACE at (LENGTH, LENGTH, LENGTH) cabin LENGTH LENGTH capacity UNSIGNED_INTEGER cycle DURATION [clearance LENGTH]
 connector-state ID connector CONNECTOR (open|closed) time DURATION
+exit-state ID exit EXIT (open|closed) time DURATION
 gate ID on SURFACE at (LENGTH, LENGTH, LENGTH) width LENGTH capacity RATE to EXIT
 
 agents ID count UNSIGNED_INTEGER on SURFACE at (LENGTH, LENGTH, LENGTH) to EXIT speed SPEED radius LENGTH height LENGTH [via WAYPOINT]... [alternative EXIT]... [exclude (stair|ramp|escalator|lift)]... [release DURATION]
@@ -73,13 +74,18 @@ compiler checks that `truth true` agrees with the connector's declared physical
 state at the message time and that `truth false` disagrees. A belief never
 overrides a physical closure.
 
+Every exit is also physically open by default. `exit-state` changes its final
+stage availability; a closed exit is excluded from final-exit selection, and
+its closure recomputes on-surface routes just like a connector state change.
+Exit-state changes do not interrupt an agent already marked evacuated.
+
 ## Static checks
 
 The compiler enforces globally unique identifiers; positive geometry,
 durations, speeds, widths, rates, and capacities; in-surface coordinates;
 obstacle extents; unoccupied exit, connector, gate, every deterministic agent
 spawn (including the navigation radius clearance), and message coordinate; exit
-and connector references; connector-state times; message truth labels against
+and connector references; connector-state and exit-state times; message truth labels against
 the authored physical state; an agent-height- and connector-eligibility-aware
 directed surface path from every agent group through every required waypoint
 stage and to every declared final exit candidate; message timing; and

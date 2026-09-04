@@ -1,6 +1,7 @@
 use crate::model::{
-    AgentGroup, Connector, ConnectorKind, ConnectorStateChange, Countermeasure, Exit, Gate,
-    InformationSource, Message, Obstacle, Point3, Scenario, Surface, Waypoint,
+    AgentGroup, Connector, ConnectorKind, ConnectorStateChange, Countermeasure, Exit,
+    ExitStateChange, Gate, InformationSource, Message, Obstacle, Point3, Scenario, Surface,
+    Waypoint,
 };
 use std::{fmt, str::FromStr};
 
@@ -30,6 +31,7 @@ struct ScenarioBuilder {
     exits: Vec<Exit>,
     connectors: Vec<Connector>,
     connector_states: Vec<ConnectorStateChange>,
+    exit_states: Vec<ExitStateChange>,
     gates: Vec<Gate>,
     agents: Vec<AgentGroup>,
     messages: Vec<Message>,
@@ -65,6 +67,7 @@ impl ScenarioBuilder {
             exits: self.exits,
             connectors: self.connectors,
             connector_states: self.connector_states,
+            exit_states: self.exit_states,
             gates: self.gates,
             agents: self.agents,
             messages: self.messages,
@@ -287,8 +290,19 @@ fn parse_declaration(
             builder.connector_states.push(ConnectorStateChange {
                 id: tokens[1].clone(),
                 connector: tokens[3].clone(),
-                open: parse_connector_open(line, required(line, tokens, 4, "connector state")?)?,
+                open: parse_availability_open(line, required(line, tokens, 4, "connector state")?)?,
                 at_s: parse_duration(line, required(line, tokens, 6, "connector state time")?)?,
+            });
+        }
+        "exit-state" => {
+            require_exact_count(line, tokens, 7)?;
+            expect(line, tokens, 2, "exit")?;
+            expect(line, tokens, 5, "time")?;
+            builder.exit_states.push(ExitStateChange {
+                id: tokens[1].clone(),
+                exit: tokens[3].clone(),
+                open: parse_availability_open(line, required(line, tokens, 4, "exit state")?)?,
+                at_s: parse_duration(line, required(line, tokens, 6, "exit state time")?)?,
             });
         }
         "gate" => {
@@ -644,20 +658,20 @@ fn parse_claim(
             format!("unsupported claim kind `{kind}`; use `connector`"),
         ));
     }
-    let open = parse_connector_open(line, state)?;
+    let open = parse_availability_open(line, state)?;
     Ok(crate::model::Proposition::ConnectorAvailability {
         connector: subject.to_owned(),
         open,
     })
 }
 
-fn parse_connector_open(line: usize, state: &str) -> Result<bool, ParseError> {
+fn parse_availability_open(line: usize, state: &str) -> Result<bool, ParseError> {
     match state {
         "open" => Ok(true),
         "closed" => Ok(false),
         _ => Err(error(
             line,
-            format!("unknown connector state `{state}`; use `open` or `closed`"),
+            format!("unknown availability state `{state}`; use `open` or `closed`"),
         )),
     }
 }

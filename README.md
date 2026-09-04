@@ -47,13 +47,20 @@ $ cargo run -p chiyoda -- format example.chy -o example.formatted.chy
 $ cargo run -p chiyoda -- check example.chy
 $ cargo run -p chiyoda -- compile example.chy -o out/example.ir.json
 $ cargo run -p chiyoda -- run example.chy -o out/example
+$ cargo run -p chiyoda -- sweep --seed 73 --count 20 -o out/generated-sweep
+$ cargo run -p chiyoda -- verify-sweep out/generated-sweep
 $ cargo run -p chiyoda -- replay out/example/run.json
 $ cargo run -p chiyoda-replay -- out/example/run.json
 ```
 
 The first replay command verifies a bundle hash and prints a summary. The
 second opens the native replay viewer; it requires an available Linux display
-server.
+server. `sweep` is an uncalibrated structural experiment: it generates and
+runs a contiguous seed range, writes one independently hash-verifiable bundle
+per seed, and records their summaries in `summary.json`. `verify-sweep`
+cross-checks that summary against every bundle and its canonical source. The
+output directory must be empty, and the workflow does not require a benchmark
+manifest or research data.
 
 ## Research data intake
 

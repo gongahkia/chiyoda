@@ -379,6 +379,15 @@ pub struct ConnectorStateChange {
     pub at_s: f64,
 }
 
+/// An authored change to an exit's physical availability.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ExitStateChange {
+    pub id: String,
+    pub exit: String,
+    pub open: bool,
+    pub at_s: f64,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum InformationSource {
     Peer,
@@ -462,6 +471,7 @@ pub struct Scenario {
     pub exits: Vec<Exit>,
     pub connectors: Vec<Connector>,
     pub connector_states: Vec<ConnectorStateChange>,
+    pub exit_states: Vec<ExitStateChange>,
     pub gates: Vec<Gate>,
     pub agents: Vec<AgentGroup>,
     pub messages: Vec<Message>,
@@ -478,6 +488,24 @@ impl Scenario {
             .iter()
             .enumerate()
             .filter(|(_, change)| change.connector == connector_id && change.at_s <= time_s)
+            .collect();
+        changes.sort_by(|(left_index, left), (right_index, right)| {
+            left.at_s
+                .total_cmp(&right.at_s)
+                .then(left_index.cmp(right_index))
+        });
+        changes.into_iter().fold(true, |_, (_, change)| change.open)
+    }
+
+    /// Return an exit's authored physical state at an exact scenario time.
+    /// The default is open; same-time declarations apply in source order.
+    #[must_use]
+    pub fn exit_open_at(&self, exit_id: &str, time_s: f64) -> bool {
+        let mut changes: Vec<_> = self
+            .exit_states
+            .iter()
+            .enumerate()
+            .filter(|(_, change)| change.exit == exit_id && change.at_s <= time_s)
             .collect();
         changes.sort_by(|(left_index, left), (right_index, right)| {
             left.at_s

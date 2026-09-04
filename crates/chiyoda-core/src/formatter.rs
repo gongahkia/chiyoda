@@ -154,6 +154,17 @@ pub fn format_scenario(scenario: &Scenario) -> String {
         )
         .expect("writing to a string cannot fail");
     }
+    for change in &scenario.exit_states {
+        writeln!(
+            source,
+            "exit-state {} exit {} {} time {}",
+            change.id,
+            change.exit,
+            if change.open { "open" } else { "closed" },
+            duration(change.at_s),
+        )
+        .expect("writing to a string cannot fail");
+    }
     for gate in &scenario.gates {
         writeln!(
             source,

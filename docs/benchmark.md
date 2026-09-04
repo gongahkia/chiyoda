@@ -27,3 +27,17 @@ validator. It now also includes a content-locked candidate source and a
 descriptive 2D platform-trajectory intake path. It does not publish an
 empirical round: the source is neither a calibrated runtime nor independent
 facility/primitives validation. See the [evidence boundary](evidence.md).
+
+## Uncalibrated structural sweeps
+
+`chiyoda sweep --seed FIRST --count COUNT -o DIRECTORY` generates and runs a
+contiguous seed range without consulting any evidence catalog or benchmark
+manifest. It writes canonical source and a hash-verifiable run bundle under
+`seed-SEED/` for every run, plus `summary.json` listing each bundle hash and
+basic outcome metrics. `chiyoda verify-sweep DIRECTORY` cross-checks that
+summary against every bundle hash, metric, and canonical source. The supplied
+output directory must be empty so an existing experiment artifact cannot be
+silently overwritten.
+
+This command supports structural exploration and regression investigation. It
+does not produce a benchmark score, calibration result, or predictive claim.

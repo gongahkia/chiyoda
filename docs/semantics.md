@@ -11,14 +11,15 @@ agent group. Static validation checks every generated starting coordinate
 against the declared surface and the same radius-expanded obstacles used by the
 navigator before the interpreter starts. A simulation step at time `t` performs,
 in chronological event order. Events with equal timestamps run in this order:
-connector state, message, countermeasure; declaration order breaks any remaining
-tie.
+connector state, exit state, message, countermeasure; declaration order breaks
+any remaining tie within an event class.
 
-1. Apply each `connector-state` event whose declared time falls in
-   `(t - timestep, t]` to the physical connector state. State events at `0s`
-   are applied before the initial trace; same-time events apply in declaration
-   order. A state change immediately recomputes each on-surface agent's route.
-   It does not interrupt an agent already in connector transit.
+1. Apply each `connector-state` and `exit-state` event whose declared time falls
+   in `(t - timestep, t]` to physical availability. State events at `0s` are
+   applied before the initial trace; same-time events apply in declaration
+   order within their event class. A state change immediately recomputes each
+   on-surface agent's route. It does not interrupt an agent already in connector
+   transit or already evacuated through an exit.
 2. Deliver each message and countermeasure whose declared time falls in
    `(t - timestep, t]` to active agents on the same surface within the
    declared reach radius. A not-yet-released group is not a recipient.

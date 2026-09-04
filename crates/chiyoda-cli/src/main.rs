@@ -5,6 +5,7 @@ use chiyoda_core::{
     validate_catalog, validate_manifest, verify_catalog_files,
 };
 use clap::{Parser, Subcommand, ValueEnum};
+use serde::{Deserialize, Serialize};
 use std::{
     fs,
     path::{Path, PathBuf},
@@ -56,6 +57,22 @@ enum Command {
         #[arg(short, long)]
         output: PathBuf,
     },
+    /// Generate and execute a deterministic contiguous seed range.
+    Sweep {
+        /// First generated-scenario seed, included in the run.
+        #[arg(long)]
+        seed: u64,
+        /// Number of generated scenarios to execute.
+        #[arg(long)]
+        count: u32,
+        /// An empty directory that will receive one bundle per seed and a summary.
+        #[arg(short, long)]
+        output: PathBuf,
+        #[arg(long, default_value_t = 10)]
+        trace_every: u32,
+    },
+    /// Verify every run bundle and source recorded by a generated sweep.
+    VerifySweep { directory: PathBuf },
     /// Verify an empirical benchmark round's evidence and seed-release contract.
     Benchmark {
         #[command(subcommand)]
@@ -112,6 +129,26 @@ enum CalibrateCommand {
 enum EvidencePartition {
     Calibration,
     HeldOut,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct SweepSummary {
+    schema_version: String,
+    generator_version: String,
+    first_seed: u64,
+    count: u32,
+    trace_every_steps: u32,
+    runs: Vec<SweepRun>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct SweepRun {
+    seed: u64,
+    scenario_name: String,
+    bundle_hash: String,
+    total_agents: u32,
+    evacuated_agents: u32,
+    clearance_time_s: Option<f64>,
 }
 
 fn main() -> Result<()> {
@@ -184,6 +221,13 @@ fn main() -> Result<()> {
                 .with_context(|| format!("writing generated scenario {}", output.display()))?;
             println!("generated: {} ({})", output.display(), scenario.name);
         }
+        Command::Sweep {
+            seed,
+            count,
+            output,
+            trace_every,
+        } => run_sweep(seed, count, &output, trace_every)?,
+        Command::VerifySweep { directory } => verify_sweep(&directory)?,
         Command::Benchmark { command } => match command {
             BenchmarkCommand::Verify { manifest } => verify_benchmark(&manifest)?,
         },
@@ -247,6 +291,134 @@ fn handle_calibration(command: CalibrateCommand) -> Result<()> {
             println!("descriptive report: {}", output.display());
             println!("status: {}", report.status);
         }
+    }
+    Ok(())
+}
+
+fn run_sweep(first_seed: u64, count: u32, output: &Path, trace_every_steps: u32) -> Result<()> {
+    if count == 0 {
+        bail!("sweep count must be greater than zero");
+    }
+    if trace_every_steps == 0 {
+        bail!("trace-every must be greater than zero");
+    }
+    ensure_empty_directory(output)?;
+
+    let mut runs = Vec::with_capacity(usize::try_from(count).expect("u32 fits usize"));
+    for offset in 0..count {
+        let seed = first_seed
+            .checked_add(u64::from(offset))
+            .context("sweep seed range exceeds u64")?;
+        let source = generator::source(seed);
+        let scenario = generator::scenario(seed)?;
+        let bundle = run(&scenario, RunOptions { trace_every_steps })?;
+        let run_directory = output.join(format!("seed-{seed}"));
+        fs::create_dir(&run_directory)
+            .with_context(|| format!("creating {}", run_directory.display()))?;
+        fs::write(run_directory.join("scenario.chy"), source)
+            .with_context(|| format!("writing source into {}", run_directory.display()))?;
+        write_json(&run_directory.join("run.json"), &bundle)?;
+        runs.push(SweepRun {
+            seed,
+            scenario_name: scenario.name,
+            bundle_hash: bundle.bundle_hash,
+            total_agents: bundle.metrics.total_agents,
+            evacuated_agents: bundle.metrics.evacuated_agents,
+            clearance_time_s: bundle.metrics.clearance_time_s,
+        });
+    }
+    let summary = SweepSummary {
+        schema_version: "0.1".to_owned(),
+        generator_version: chiyoda_core::LANGUAGE_VERSION.to_owned(),
+        first_seed,
+        count,
+        trace_every_steps,
+        runs,
+    };
+    let summary_path = output.join("summary.json");
+    write_json(&summary_path, &summary)?;
+    println!("sweep: {}", summary_path.display());
+    Ok(())
+}
+
+fn verify_sweep(directory: &Path) -> Result<()> {
+    let summary: SweepSummary = read_json(&directory.join("summary.json"))?;
+    if summary.schema_version != "0.1" {
+        bail!(
+            "unsupported sweep summary schema `{}`",
+            summary.schema_version
+        );
+    }
+    if summary.generator_version.trim().is_empty() {
+        bail!("sweep summary must declare a generator version");
+    }
+    if summary.trace_every_steps == 0 {
+        bail!("sweep summary trace interval must be greater than zero");
+    }
+    if summary.runs.len() != usize::try_from(summary.count).expect("u32 fits usize") {
+        bail!(
+            "sweep summary count {} does not match {} recorded runs",
+            summary.count,
+            summary.runs.len()
+        );
+    }
+    for (offset, record) in summary.runs.iter().enumerate() {
+        let expected_seed = summary
+            .first_seed
+            .checked_add(u64::try_from(offset).expect("usize index fits u64"))
+            .context("sweep summary seed range exceeds u64")?;
+        if record.seed != expected_seed {
+            bail!(
+                "sweep run at index {offset} has seed {}, expected {expected_seed}",
+                record.seed
+            );
+        }
+        let run_directory = directory.join(format!("seed-{}", record.seed));
+        let bundle: RunBundle = read_json(&run_directory.join("run.json"))?;
+        if !bundle.verifies_hash() || bundle_hash(&bundle) != bundle.bundle_hash {
+            bail!("bundle integrity check failed: {}", run_directory.display());
+        }
+        let source = read_text(&run_directory.join("scenario.chy"))?;
+        let scenario = parse(&source).map_err(|error| anyhow::anyhow!(error))?;
+        validate(&scenario).map_err(|errors| validation_error(&errors))?;
+        if CanonicalScenario::from(scenario) != bundle.scenario {
+            bail!(
+                "source and canonical scenario disagree: {}",
+                run_directory.display()
+            );
+        }
+        if record.scenario_name != bundle.scenario.scenario.name
+            || record.bundle_hash != bundle.bundle_hash
+            || record.total_agents != bundle.metrics.total_agents
+            || record.evacuated_agents != bundle.metrics.evacuated_agents
+            || record.clearance_time_s != bundle.metrics.clearance_time_s
+        {
+            bail!(
+                "summary and run bundle disagree: {}",
+                run_directory.display()
+            );
+        }
+    }
+    println!("verified sweep: {}", directory.display());
+    Ok(())
+}
+
+fn ensure_empty_directory(path: &Path) -> Result<()> {
+    match fs::metadata(path) {
+        Ok(metadata) if !metadata.is_dir() => bail!("{} must be a directory", path.display()),
+        Ok(_) => {
+            if fs::read_dir(path)
+                .with_context(|| format!("reading {}", path.display()))?
+                .next()
+                .is_some()
+            {
+                bail!("{} must be empty", path.display());
+            }
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            fs::create_dir_all(path).with_context(|| format!("creating {}", path.display()))?;
+        }
+        Err(error) => return Err(error).with_context(|| format!("checking {}", path.display())),
     }
     Ok(())
 }
