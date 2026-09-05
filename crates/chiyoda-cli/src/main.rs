@@ -2,13 +2,15 @@ use anyhow::{Context, Result, bail};
 use chiyoda_core::{
     BenchmarkManifest, BundleVerification, CanonicalScenario, EvidenceCatalog, ExperimentManifest,
     GeographicPoint, InformationDeliveryMetrics, OpenStreetMapLayoutReport,
-    OpenStreetMapLocalProjectionReport, OsmInspectionLimits, QueueMetrics, QueueResourceMetrics,
-    RunBundle, RunOptions, SensitivityFactor, SensitivityManifest, calibrate_eindhoven_platform,
+    OpenStreetMapLocalProjectionReport, OsmInspectionLimits, OsmScenarioAnchorManifest,
+    OsmScenarioAnchorReport, QueueMetrics, QueueResourceMetrics, RunBundle, RunOptions,
+    SensitivityFactor, SensitivityManifest, anchor_osm_scenario, calibrate_eindhoven_platform,
     format_scenario, generator, inspect_openstreetmap_layout, parse, plan_sensitivity,
     project_openstreetmap_layout_report, run, summarize_crowd_queue_reference,
     summarize_vru_trajectory_reference, validate, validate_catalog, validate_experiment_manifest,
-    validate_manifest, verify_catalog_files, verify_openstreetmap_layout_catalog_contract,
-    verify_openstreetmap_layout_report, verify_openstreetmap_local_projection_report,
+    validate_manifest, validate_osm_scenario_anchor_manifest, verify_catalog_files,
+    verify_openstreetmap_layout_catalog_contract, verify_openstreetmap_layout_report,
+    verify_openstreetmap_local_projection_report, verify_osm_scenario_anchor_report,
     verify_run_bundle,
 };
 use chiyoda_core::{bundle::RunMetrics, experiment::ExperimentSourceAttestation};
@@ -240,6 +242,36 @@ enum LayoutCommand {
         report: PathBuf,
         /// Existing local-coordinate reference JSON report to reconstruct and compare.
         projection: PathBuf,
+        #[arg(long, default_value = "data/raw")]
+        data_root: PathBuf,
+    },
+    /// Prove selected scenario x/y points equal selected projected OSM points without importing geometry.
+    AnchorOsm {
+        /// The `ODbL` source catalog used to generate the observation report.
+        catalog: PathBuf,
+        /// Existing source-observation JSON report to verify before anchoring.
+        observation: PathBuf,
+        /// Existing local-coordinate reference JSON report to verify before anchoring.
+        projection: PathBuf,
+        /// JSON anchor manifest; its scenario path resolves relative to this file.
+        manifest: PathBuf,
+        #[arg(long, default_value = "data/raw")]
+        data_root: PathBuf,
+        #[arg(short, long)]
+        output: PathBuf,
+    },
+    /// Reconstruct an OSM scenario-anchor report from its manifest, scenario, and verified local projection.
+    VerifyAnchorOsm {
+        /// The `ODbL` source catalog used to generate the observation report.
+        catalog: PathBuf,
+        /// Existing source-observation JSON report to verify before anchoring.
+        observation: PathBuf,
+        /// Existing local-coordinate reference JSON report to verify before anchoring.
+        projection: PathBuf,
+        /// JSON anchor manifest; its scenario path resolves relative to this file.
+        manifest: PathBuf,
+        /// Existing OSM scenario-anchor JSON report to reconstruct and compare.
+        anchor_report: PathBuf,
         #[arg(long, default_value = "data/raw")]
         data_root: PathBuf,
     },
@@ -1039,6 +1071,7 @@ fn handle_evidence(command: EvidenceCommand) -> Result<()> {
     Ok(())
 }
 
+#[allow(clippy::too_many_lines)] // one exhaustive layout-command dispatch keeps CLI routing inspectable
 fn handle_layout(command: LayoutCommand) -> Result<()> {
     match command {
         LayoutCommand::Osm {
@@ -1110,7 +1143,104 @@ fn handle_layout(command: LayoutCommand) -> Result<()> {
                 projection.source.dataset_id
             );
         }
+        LayoutCommand::AnchorOsm {
+            catalog,
+            observation,
+            projection,
+            manifest,
+            data_root,
+            output,
+        } => anchor_osm_scenario_command(
+            &catalog,
+            &observation,
+            &projection,
+            &manifest,
+            &data_root,
+            &output,
+        )?,
+        LayoutCommand::VerifyAnchorOsm {
+            catalog,
+            observation,
+            projection,
+            manifest,
+            anchor_report,
+            data_root,
+        } => verify_osm_scenario_anchor_command(
+            &catalog,
+            &observation,
+            &projection,
+            &manifest,
+            &anchor_report,
+            &data_root,
+        )?,
     }
+    Ok(())
+}
+
+fn anchor_osm_scenario_command(
+    catalog_path: &Path,
+    observation_path: &Path,
+    projection_path: &Path,
+    manifest_path: &Path,
+    data_root: &Path,
+    output: &Path,
+) -> Result<()> {
+    let catalog: EvidenceCatalog = read_json(catalog_path)?;
+    let observation: OpenStreetMapLayoutReport = read_json(observation_path)?;
+    let projection_bytes = fs::read(projection_path)
+        .with_context(|| format!("reading {}", projection_path.display()))?;
+    let projection: OpenStreetMapLocalProjectionReport = serde_json::from_slice(&projection_bytes)
+        .with_context(|| format!("parsing {}", projection_path.display()))?;
+    verify_openstreetmap_layout_report(&catalog, data_root, &observation)?;
+    verify_openstreetmap_local_projection_report(&observation, &projection)?;
+    let (manifest, manifest_bytes, scenario_source, scenario) =
+        load_osm_scenario_anchor(manifest_path)?;
+    let anchored = anchor_osm_scenario(
+        &manifest,
+        &sha256_hex(&manifest_bytes),
+        &scenario,
+        &sha256_hex(scenario_source.as_bytes()),
+        &projection,
+        &sha256_hex(&projection_bytes),
+    )?;
+    write_json(output, &anchored)?;
+    println!("OSM scenario-anchor report: {}", output.display());
+    println!("status: {}", anchored.status);
+    Ok(())
+}
+
+fn verify_osm_scenario_anchor_command(
+    catalog_path: &Path,
+    observation_path: &Path,
+    projection_path: &Path,
+    manifest_path: &Path,
+    anchor_report_path: &Path,
+    data_root: &Path,
+) -> Result<()> {
+    let catalog: EvidenceCatalog = read_json(catalog_path)?;
+    let observation: OpenStreetMapLayoutReport = read_json(observation_path)?;
+    let projection_bytes = fs::read(projection_path)
+        .with_context(|| format!("reading {}", projection_path.display()))?;
+    let projection: OpenStreetMapLocalProjectionReport = serde_json::from_slice(&projection_bytes)
+        .with_context(|| format!("parsing {}", projection_path.display()))?;
+    verify_openstreetmap_layout_report(&catalog, data_root, &observation)?;
+    verify_openstreetmap_local_projection_report(&observation, &projection)?;
+    let (manifest, manifest_bytes, scenario_source, scenario) =
+        load_osm_scenario_anchor(manifest_path)?;
+    let anchored: OsmScenarioAnchorReport = read_json(anchor_report_path)?;
+    verify_osm_scenario_anchor_report(
+        &manifest,
+        &sha256_hex(&manifest_bytes),
+        &scenario,
+        &sha256_hex(scenario_source.as_bytes()),
+        &projection,
+        &sha256_hex(&projection_bytes),
+        &anchored,
+    )?;
+    println!(
+        "verified OSM scenario-anchor report: {}",
+        anchored.source.dataset_id
+    );
     Ok(())
 }
 
@@ -1289,6 +1419,35 @@ fn load_experiment(
     let scenario = parse(&source).map_err(|error| anyhow::anyhow!(error))?;
     validate(&scenario).map_err(|errors| validation_error(&errors))?;
     Ok((manifest, source, scenario))
+}
+
+fn load_osm_scenario_anchor(
+    manifest_path: &Path,
+) -> Result<(
+    OsmScenarioAnchorManifest,
+    Vec<u8>,
+    String,
+    chiyoda_core::Scenario,
+)> {
+    let manifest_bytes =
+        fs::read(manifest_path).with_context(|| format!("reading {}", manifest_path.display()))?;
+    let manifest: OsmScenarioAnchorManifest = serde_json::from_slice(&manifest_bytes)
+        .with_context(|| format!("parsing {}", manifest_path.display()))?;
+    validate_osm_scenario_anchor_manifest(&manifest).map_err(|errors| {
+        anyhow::anyhow!(
+            "invalid OSM scenario-anchor manifest:\n{}",
+            errors
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>()
+                .join("\n")
+        )
+    })?;
+    let parent = manifest_path.parent().unwrap_or_else(|| Path::new("."));
+    let source = read_text(&parent.join(&manifest.scenario_source))?;
+    let scenario = parse(&source).map_err(|error| anyhow::anyhow!(error))?;
+    validate(&scenario).map_err(|errors| validation_error(&errors))?;
+    Ok((manifest, manifest_bytes, source, scenario))
 }
 
 fn declared_experiment_source_reports(
@@ -2887,7 +3046,7 @@ fn validate_bundle_metrics(bundle: &RunBundle, directory: &Path) -> Result<()> {
     }
     if matches!(
         bundle.bundle_version.as_str(),
-        "0.17" | "0.18" | "0.19" | "0.20" | "0.21" | "0.22" | "0.23"
+        "0.17" | "0.18" | "0.19" | "0.20" | "0.21" | "0.22" | "0.23" | "0.24"
     ) {
         let fully_evacuated = metrics.evacuated_agents == metrics.total_agents;
         if metrics.clearance_time_s.is_some() != fully_evacuated {
@@ -2965,7 +3124,7 @@ fn validate_bundle_metrics(bundle: &RunBundle, directory: &Path) -> Result<()> {
     }
     if matches!(
         bundle.bundle_version.as_str(),
-        "0.18" | "0.19" | "0.20" | "0.21" | "0.22" | "0.23"
+        "0.18" | "0.19" | "0.20" | "0.21" | "0.22" | "0.23" | "0.24"
     ) && !expected_interventions.is_empty()
     {
         bail!(
@@ -3012,7 +3171,7 @@ fn validate_bundle_metrics(bundle: &RunBundle, directory: &Path) -> Result<()> {
             directory.display()
         );
     }
-    if matches!(bundle.bundle_version.as_str(), "0.22" | "0.23") {
+    if matches!(bundle.bundle_version.as_str(), "0.22" | "0.23" | "0.24") {
         let queue_metrics = metrics.queue_metrics.as_ref().ok_or_else(|| {
             anyhow::anyhow!(
                 "current bundle omits queue telemetry: {}",
@@ -3046,7 +3205,7 @@ fn validate_bundle_metrics(bundle: &RunBundle, directory: &Path) -> Result<()> {
                 );
             }
         }
-        if bundle.bundle_version == "0.23" {
+        if matches!(bundle.bundle_version.as_str(), "0.23" | "0.24") {
             let by_resource = queue_metrics.by_resource.as_ref().ok_or_else(|| {
                 anyhow::anyhow!(
                     "current bundle omits resource-level queue telemetry: {}",
@@ -3100,7 +3259,144 @@ fn validate_bundle_metrics(bundle: &RunBundle, directory: &Path) -> Result<()> {
                 &queue_metrics.exit,
                 metrics.total_agents,
             )?;
+            if bundle.bundle_version == "0.24" {
+                validate_queue_entry_events(bundle, directory, by_resource, queue_metrics)?;
+            }
         }
+    }
+    Ok(())
+}
+
+#[derive(Default)]
+struct QueueEntryEventSets {
+    lifts: BTreeMap<String, BTreeSet<String>>,
+    connectors: BTreeMap<String, BTreeSet<String>>,
+    gates: BTreeMap<String, BTreeSet<String>>,
+    exits: BTreeMap<String, BTreeSet<String>>,
+}
+
+fn validate_queue_entry_events(
+    bundle: &RunBundle,
+    directory: &Path,
+    by_resource: &chiyoda_core::QueueResourceBreakdown,
+    aggregate: &QueueMetrics,
+) -> Result<()> {
+    let mut entries = QueueEntryEventSets::default();
+    for event in &bundle.events {
+        let (resource_kind, resources, entries) = match event.kind.as_str() {
+            "queue_entered_lift" => ("lift", &by_resource.lifts, &mut entries.lifts),
+            "queue_entered_connector" => (
+                "connector",
+                &by_resource.connectors,
+                &mut entries.connectors,
+            ),
+            "queue_entered_gate" => ("gate", &by_resource.gates, &mut entries.gates),
+            "queue_entered_exit" => ("exit", &by_resource.exits, &mut entries.exits),
+            _ => continue,
+        };
+        if !event.time_s.is_finite() || event.time_s < 0.0 || event.subject.is_empty() {
+            bail!(
+                "bundle has invalid queue-entry event metadata: {}",
+                directory.display()
+            );
+        }
+        if event.detail.is_empty() {
+            bail!(
+                "bundle has queue-entry event without a resource identifier: {}",
+                directory.display()
+            );
+        }
+        record_queue_entry_event(
+            entries,
+            resources,
+            &event.detail,
+            &event.subject,
+            resource_kind,
+            directory,
+        )?;
+    }
+    validate_queue_entry_event_group(
+        directory,
+        "lift",
+        &entries.lifts,
+        &by_resource.lifts,
+        &aggregate.lift,
+    )?;
+    validate_queue_entry_event_group(
+        directory,
+        "connector",
+        &entries.connectors,
+        &by_resource.connectors,
+        &aggregate.connector,
+    )?;
+    validate_queue_entry_event_group(
+        directory,
+        "gate",
+        &entries.gates,
+        &by_resource.gates,
+        &aggregate.gate,
+    )?;
+    validate_queue_entry_event_group(
+        directory,
+        "exit",
+        &entries.exits,
+        &by_resource.exits,
+        &aggregate.exit,
+    )?;
+    Ok(())
+}
+
+fn record_queue_entry_event(
+    entries: &mut BTreeMap<String, BTreeSet<String>>,
+    resources: &BTreeMap<String, QueueResourceMetrics>,
+    resource_id: &str,
+    agent_id: &str,
+    resource_kind: &str,
+    directory: &Path,
+) -> Result<()> {
+    if !resources.contains_key(resource_id) {
+        bail!(
+            "bundle has queue-entry event for unknown {resource_kind} `{resource_id}`: {}",
+            directory.display()
+        );
+    }
+    if !entries
+        .entry(resource_id.to_owned())
+        .or_default()
+        .insert(agent_id.to_owned())
+    {
+        bail!(
+            "bundle repeats a queue-entry event for {resource_kind} `{resource_id}` and agent `{agent_id}`: {}",
+            directory.display()
+        );
+    }
+    Ok(())
+}
+
+fn validate_queue_entry_event_group(
+    directory: &Path,
+    resource_kind: &str,
+    entries: &BTreeMap<String, BTreeSet<String>>,
+    resources: &BTreeMap<String, QueueResourceMetrics>,
+    aggregate: &QueueResourceMetrics,
+) -> Result<()> {
+    let mut agents = BTreeSet::new();
+    for (resource_id, telemetry) in resources {
+        let resource_agents = entries.get(resource_id).map_or(0, BTreeSet::len);
+        if resource_agents != usize::try_from(telemetry.ever_queued_agents).expect("u32 fits usize")
+        {
+            bail!(
+                "bundle {resource_kind} queue-entry events disagree with `{resource_id}` telemetry: {}",
+                directory.display()
+            );
+        }
+        agents.extend(entries.get(resource_id).into_iter().flatten().cloned());
+    }
+    if agents.len() != usize::try_from(aggregate.ever_queued_agents).expect("u32 fits usize") {
+        bail!(
+            "bundle {resource_kind} queue-entry events disagree with aggregate telemetry: {}",
+            directory.display()
+        );
     }
     Ok(())
 }
@@ -4046,20 +4342,26 @@ mod tests {
             gate: resource(gate),
             exit: resource(exit),
             by_resource: Some(QueueResourceBreakdown {
-                lifts: (lift.0 > 0)
-                    .then(|| BTreeMap::from([("fixture_lift".to_owned(), resource(lift))]))
-                    .unwrap_or_default(),
-                connectors: (connector.0 > 0)
-                    .then(|| {
-                        BTreeMap::from([("fixture_connector".to_owned(), resource(connector))])
-                    })
-                    .unwrap_or_default(),
-                gates: (gate.0 > 0)
-                    .then(|| BTreeMap::from([("fixture_gate".to_owned(), resource(gate))]))
-                    .unwrap_or_default(),
-                exits: (exit.0 > 0)
-                    .then(|| BTreeMap::from([("fixture_exit".to_owned(), resource(exit))]))
-                    .unwrap_or_default(),
+                lifts: if lift.0 > 0 {
+                    BTreeMap::from([("fixture_lift".to_owned(), resource(lift))])
+                } else {
+                    BTreeMap::new()
+                },
+                connectors: if connector.0 > 0 {
+                    BTreeMap::from([("fixture_connector".to_owned(), resource(connector))])
+                } else {
+                    BTreeMap::new()
+                },
+                gates: if gate.0 > 0 {
+                    BTreeMap::from([("fixture_gate".to_owned(), resource(gate))])
+                } else {
+                    BTreeMap::new()
+                },
+                exits: if exit.0 > 0 {
+                    BTreeMap::from([("fixture_exit".to_owned(), resource(exit))])
+                } else {
+                    BTreeMap::new()
+                },
             }),
         }
     }
@@ -4086,7 +4388,9 @@ mod tests {
         );
         super::finalize_attributed_queue_resource_delta(&mut deltas, &peaks);
 
-        let east = deltas.get("east_gate").expect("removed resource is reported");
+        let east = deltas
+            .get("east_gate")
+            .expect("removed resource is reported");
         assert!(east.baseline_resource_declared);
         assert!(!east.candidate_resource_declared);
         assert_eq!(east.ever_queued_agents, -1);
@@ -4204,6 +4508,126 @@ mod tests {
             projection["features"][1]["geometry"]["kind"],
             "way_node_sequence"
         );
+    }
+
+    #[test]
+    #[allow(clippy::too_many_lines)] // one end-to-end fixture creates and reconstructs the complete OSM anchor chain
+    fn layout_anchor_osm_reconstructs_exact_scenario_point_provenance() {
+        let directory = test_directory("layout-anchor-osm");
+        let data_root = directory.0.join("raw");
+        fs::create_dir_all(&data_root).expect("creating layout data root");
+        let source = br#"<osm version="0.6">
+  <node id="1" lat="1.3" lon="103.8"><tag k="entrance" v="yes"/></node>
+  <node id="2" lat="1.3001" lon="103.8001"/>
+  <way id="9"><nd ref="1"/><nd ref="2"/><tag k="highway" v="steps"/></way>
+</osm>"#;
+        let source_path = data_root.join("station.osm");
+        fs::write(&source_path, source).expect("writing OSM source");
+        let catalog_path = directory.0.join("catalog.json");
+        let catalog = serde_json::json!({
+            "schema_version": "0.1",
+            "purpose": "uncalibrated_reference",
+            "dataset_id": "cli-anchor-osm-fixture",
+            "title": "CLI OSM anchor fixture",
+            "landing_page": "https://www.openstreetmap.org/",
+            "license": "ODbL-1.0",
+            "redistributable": true,
+            "attribution": "© OpenStreetMap contributors",
+            "citation": "OpenStreetMap contributors",
+            "files": [{
+                "id": "station",
+                "source_url": "https://example.test/station.osm",
+                "local_path": "station.osm",
+                "sha256": format!("{:x}", Sha256::digest(source)),
+                "size_bytes": source.len(),
+                "transformation": "inspect geographic map observations only"
+            }],
+            "supported_primitives": "mapped tags only",
+            "exclusions": "scenario geometry and operational claims"
+        });
+        fs::write(
+            &catalog_path,
+            serde_json::to_vec_pretty(&catalog).expect("serializing catalog"),
+        )
+        .expect("writing catalog");
+        let observation_path = directory.0.join("observation.json");
+        handle_layout(LayoutCommand::Osm {
+            catalog: catalog_path.clone(),
+            data_root: data_root.clone(),
+            max_nodes: 2,
+            max_ways: 1,
+            output: observation_path.clone(),
+        })
+        .expect("creating OSM observation report");
+        let projection_path = directory.0.join("projection.json");
+        handle_layout(LayoutCommand::ProjectOsm {
+            catalog: catalog_path.clone(),
+            report: observation_path.clone(),
+            data_root: data_root.clone(),
+            origin_latitude: 1.3,
+            origin_longitude: 103.8,
+            output: projection_path.clone(),
+        })
+        .expect("creating local projection report");
+        let scenario_path = directory.0.join("scenario.chy");
+        let scenario = r#"
+scenario "source-anchored CLI fixture"
+seed 1
+duration 5s
+timestep 1s
+surface concourse at (-1m, -1m, 0m) size (10m, 10m)
+exit main_entrance on concourse at (0m, 0m, 0m) width 1m capacity 1/s
+agents passengers count 1 on concourse at (1m, 1m, 0m) to main_entrance speed 1m/s radius 0.2m height 1.7m
+"#;
+        fs::write(&scenario_path, scenario).expect("writing scenario source");
+        let manifest_path = directory.0.join("anchors.json");
+        let manifest = serde_json::json!({
+            "schema_version": "0.1",
+            "name": "CLI OSM anchor fixture",
+            "description": "one point anchored without importing geometry",
+            "scenario_source": "scenario.chy",
+            "anchors": [{
+                "id": "main_entrance",
+                "target": {"kind": "exit", "id": "main_entrance"},
+                "source": {
+                    "kind": "node_feature",
+                    "object_id": 1,
+                    "category": "entrance"
+                },
+                "rationale": "the point preserves source provenance only"
+            }],
+            "claim_boundary": "the map does not establish geometry or operations"
+        });
+        fs::write(
+            &manifest_path,
+            serde_json::to_vec_pretty(&manifest).expect("serializing anchor manifest"),
+        )
+        .expect("writing anchor manifest");
+        let anchor_path = directory.0.join("anchor-report.json");
+        handle_layout(LayoutCommand::AnchorOsm {
+            catalog: catalog_path.clone(),
+            observation: observation_path.clone(),
+            projection: projection_path.clone(),
+            manifest: manifest_path.clone(),
+            data_root: data_root.clone(),
+            output: anchor_path.clone(),
+        })
+        .expect("creating anchor report");
+        handle_layout(LayoutCommand::VerifyAnchorOsm {
+            catalog: catalog_path,
+            observation: observation_path,
+            projection: projection_path,
+            manifest: manifest_path,
+            anchor_report: anchor_path.clone(),
+            data_root,
+        })
+        .expect("anchor report verifies");
+        let report: serde_json::Value =
+            serde_json::from_slice(&fs::read(&anchor_path).expect("reading anchor report"))
+                .expect("parsing anchor report");
+        assert_eq!(report["status"], "source_anchored_scenario_only");
+        assert_eq!(report["anchors"][0]["source_coordinate"]["east_m"], 0.0);
+        assert_eq!(report["anchors"][0]["scenario_coordinate"]["north_m"], 0.0);
     }
 
     #[test]
@@ -5558,5 +5982,34 @@ agents slow count 1 on concourse at (12m, 1m, 0m) to street speed 1m/s radius 0.
             .expect_err("acceptance cannot exceed delivery");
 
         assert!(error.to_string().contains("acceptance exceeds delivery"));
+    }
+
+    #[test]
+    fn sweep_verification_rejects_queue_telemetry_without_its_entry_audit_event() {
+        let source = r#"
+scenario "queue-entry-audit"
+seed 1
+duration 4s
+timestep 1s
+surface concourse at (0m, 0m, 0m) size (10m, 10m)
+exit street:west on concourse at (1m, 1m, 0m) width 2m capacity 0.5/s
+agents passengers count 1 on concourse at (1m, 1m, 0m) to street:west speed 1m/s radius 0.3m height 1.7m
+"#;
+        let scenario = parse(source).expect("source parses");
+        let mut bundle = run(&scenario, RunOptions::default()).expect("run succeeds");
+        validate_bundle_metrics(&bundle, Path::new("fixture"))
+            .expect("current queue-entry audit verifies");
+        bundle
+            .events
+            .retain(|event| event.kind != "queue_entered_exit");
+
+        let error = validate_bundle_metrics(&bundle, Path::new("fixture"))
+            .expect_err("missing queue-entry audit event must be rejected");
+
+        assert!(
+            error
+                .to_string()
+                .contains("queue-entry events disagree with `street:west` telemetry")
+        );
     }
 }

@@ -35,9 +35,13 @@ pub use experiment::{
 pub use formatter::format_scenario;
 pub use layout::{
     GeographicPoint, OpenStreetMapLayoutReport, OpenStreetMapLocalProjectionReport,
-    OsmInspectionLimits, OsmLayoutError, inspect_openstreetmap_layout,
-    project_openstreetmap_layout_report, verify_openstreetmap_layout_catalog_contract,
+    OsmInspectionLimits, OsmLayoutError, OsmScenarioAnchorManifest, OsmScenarioAnchorReport,
+    OsmScenarioAnchorSource, OsmScenarioAnchorTarget, OsmScenarioAnchorValidationError,
+    OsmScenarioCoordinateAnchor, ResolvedOsmScenarioCoordinateAnchor, anchor_osm_scenario,
+    inspect_openstreetmap_layout, project_openstreetmap_layout_report,
+    validate_osm_scenario_anchor_manifest, verify_openstreetmap_layout_catalog_contract,
     verify_openstreetmap_layout_report, verify_openstreetmap_local_projection_report,
+    verify_osm_scenario_anchor_report,
 };
 pub use model::{CanonicalScenario, Scenario};
 pub use parser::{ParseError, parse};

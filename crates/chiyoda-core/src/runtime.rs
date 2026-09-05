@@ -417,7 +417,7 @@ impl RuntimeResources {
         resource_kind: &str,
         resource_id: &str,
         agent_id: &str,
-    ) {
+    ) -> bool {
         queued_agents.insert(agent_id.to_owned());
         resources
             .get_mut(resource_id)
@@ -425,7 +425,7 @@ impl RuntimeResources {
                 panic!("validated {resource_kind} queue resource `{resource_id}` exists")
             })
             .queued_agents
-            .insert(agent_id.to_owned());
+            .insert(agent_id.to_owned())
     }
 
     fn queue_metrics(&self) -> QueueMetrics {
@@ -1063,7 +1063,7 @@ pub fn run(scenario: &Scenario, options: RunOptions) -> Result<RunBundle, RunErr
         ),
         (
             "integration".to_owned(),
-            "deterministic-euler-0.23".to_owned(),
+            "deterministic-euler-0.24".to_owned(),
         ),
     ]);
     Ok(RunBundle::new(canonical, options, trace, events, metrics))
@@ -2238,13 +2238,17 @@ fn integrate(
                                     detail: gate_id,
                                 });
                             } else {
-                                RuntimeResources::record_queue_entry(
+                                if RuntimeResources::record_queue_entry(
                                     &mut resources.queued_for_gate_agents,
                                     &mut resources.gate_queue_resources,
                                     "gate",
                                     &gate_id,
                                     &agent.id,
-                                );
+                                ) {
+                                    events.push(queue_entered_event(
+                                        time_s, &agent.id, "gate", &gate_id,
+                                    ));
+                                }
                                 agent.waiting_for_gate = true;
                             }
                         } else {
@@ -2271,13 +2275,17 @@ fn integrate(
                                 let tokens =
                                     resources.exit_tokens.entry(exit.id.clone()).or_default();
                                 if *tokens < 1.0 {
-                                    RuntimeResources::record_queue_entry(
+                                    if RuntimeResources::record_queue_entry(
                                         &mut resources.queued_for_exit_agents,
                                         &mut resources.exit_queue_resources,
                                         "exit",
                                         &exit.id,
                                         &agent.id,
-                                    );
+                                    ) {
+                                        events.push(queue_entered_event(
+                                            time_s, &agent.id, "exit", &exit.id,
+                                        ));
+                                    }
                                     agent.waiting_for_exit = true;
                                     continue;
                                 }
@@ -2312,13 +2320,20 @@ fn integrate(
                                 .unwrap_or_default()
                                 >= connector.capacity().expect("lift has capacity")
                         {
-                            RuntimeResources::record_queue_entry(
+                            if RuntimeResources::record_queue_entry(
                                 &mut resources.queued_for_lift_agents,
                                 &mut resources.lift_queue_resources,
                                 "lift",
                                 connector.id(),
                                 &agent.id,
-                            );
+                            ) {
+                                events.push(queue_entered_event(
+                                    time_s,
+                                    &agent.id,
+                                    "lift",
+                                    connector.id(),
+                                ));
+                            }
                             agent.waiting_connector = Some(ConnectorWait::Lift);
                             continue;
                         }
@@ -2331,13 +2346,20 @@ fn integrate(
                                 .entry(connector_index)
                                 .or_default();
                             if *tokens < 1.0 {
-                                RuntimeResources::record_queue_entry(
+                                if RuntimeResources::record_queue_entry(
                                     &mut resources.queued_for_connector_agents,
                                     &mut resources.connector_queue_resources,
                                     "connector",
                                     connector.id(),
                                     &agent.id,
-                                );
+                                ) {
+                                    events.push(queue_entered_event(
+                                        time_s,
+                                        &agent.id,
+                                        "connector",
+                                        connector.id(),
+                                    ));
+                                }
                                 agent.waiting_connector = Some(ConnectorWait::Capacity);
                                 continue;
                             }
@@ -2381,6 +2403,20 @@ fn current_lift_loads(agents: &[Agent]) -> HashMap<usize, u32> {
         }
     }
     loads
+}
+
+fn queue_entered_event(
+    time_s: f64,
+    agent_id: &str,
+    resource_kind: &str,
+    resource_id: &str,
+) -> RunEvent {
+    RunEvent {
+        time_s,
+        kind: format!("queue_entered_{resource_kind}"),
+        subject: agent_id.to_owned(),
+        detail: resource_id.to_owned(),
+    }
 }
 
 #[allow(clippy::cast_possible_truncation)] // validated finite radii determine a bounded local-cell query

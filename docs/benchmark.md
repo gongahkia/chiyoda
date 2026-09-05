@@ -22,7 +22,7 @@ scope.
 
 ## Current status
 
-`0.23.0-alpha.1` includes the generator, fixture-seed protocol, and manifest
+`0.24.0-alpha.1` includes the generator, fixture-seed protocol, and manifest
 validator. It now also includes a content-locked candidate source and a
 descriptive 2D platform-trajectory intake path. It does not publish an
 empirical round: the source is neither a calibrated runtime nor independent
@@ -38,7 +38,9 @@ basic outcome metrics, evacuations attributed to each final exit, and current
 queue-exposure counts plus discrete queue telemetry for each modeled wait
 state. Current telemetry also maps each modeled wait to the individual
 capacity-constrained resource that denied it, retaining zero-valued entries for
-unreached constrained resources.
+unreached constrained resources. Current bundles record a first-entry audit
+event for each agent/resource queue pair; sweep verification cross-checks those
+events against both the per-resource and aggregate exposure telemetry.
 `chiyoda verify-sweep DIRECTORY` cross-checks that summary against every
 bundle hash, metric, and canonical source. For bundles with the installed
 runtime and bundle versions, it also reruns the scenario and rejects a

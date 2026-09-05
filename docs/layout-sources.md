@@ -159,3 +159,119 @@ This provides a reproducible reference frame for independent authoring. Before
 using any value in `.chy`, still survey or verify the facility and author its
 local geometry, elevations, connectivity, widths, accessibility, capacities,
 demand, destinations, and behavioral assumptions explicitly.
+
+## Anchor selected scenario points
+
+After independently authoring a valid scenario in the same local coordinate
+frame, `layout anchor-osm` can prove that individual authored x/y points equal
+individual selected projected OSM points. It is intentionally an anchor
+contract, not an import: there is no option to derive a surface, obstacle,
+width, z coordinate, connector, access route, capacity, or demand from map
+data.
+
+The anchor manifest is strict JSON. It names a scenario source relative to the
+manifest, an author claim boundary, and one or more distinct targets. A target
+can be an exit, gate, waypoint, agent spawn, or one endpoint of a connector.
+Its source is either a selected OSM node feature or one explicitly named source
+node preserved within a selected OSM way. `category` must be one of the actual
+categories carried by that selected source feature; it records the author’s
+selection without asserting that the OSM category supplies the scenario
+semantics.
+
+```json
+{
+  "schema_version": "0.1",
+  "name": "reviewed entrance-point reference",
+  "description": "retain one map point in an otherwise independently authored structural scenario",
+  "scenario_source": "scenario.chy",
+  "anchors": [{
+    "id": "main_entrance_point",
+    "target": { "kind": "exit", "id": "main_entrance" },
+    "source": {
+      "kind": "node_feature",
+      "object_id": 123456789,
+      "category": "entrance"
+    },
+    "rationale": "the chosen exit x/y is retained as a source-point reference only"
+  }],
+  "claim_boundary": "This proves selected coordinate provenance only; it does not model or predict the mapped facility."
+}
+```
+
+For a selected way vertex instead, use `"kind": "way_node"` with both the
+selected way’s `object_id` and its preserved `node_id`. The command verifies
+the catalog, locked XML, observation report, and local projection before it
+reads the scenario and produces the compact anchor report:
+
+```console
+$ cargo run -p chiyoda -- layout anchor-osm layout-catalog.json \
+    observations.json local-reference.json scenario-anchors.json \
+    --data-root data/raw -o out/scenario-anchors.json
+$ cargo run -p chiyoda -- layout verify-anchor-osm layout-catalog.json \
+    observations.json local-reference.json scenario-anchors.json \
+    out/scenario-anchors.json --data-root data/raw
+```
+
+The scenario coordinate must equal the selected local easting/northing within
+the projection’s persisted one-micrometre representation. The command rejects
+a shifted coordinate, a missing target, an unknown source feature/category, a
+way node absent from the selected source way, modified reports, or changed raw
+OSM bytes. It does not permit an implicit translation, scale, or rotation:
+choose the desired local tangent-plane origin first, then author the scenario
+in that frame.
+
+The resulting status is `source_anchored_scenario_only`. It records hashes of
+the exact anchor manifest, scenario source, and projection-report bytes and
+retains both coordinates side by side. An experiment may retain it as a hashed
+derived source report alongside the separately attested local projection. The
+anchor still proves only planar coordinate equality; its report cannot elevate
+an uncalibrated scenario to facility representation, calibration, operational
+guidance, or safety evidence.
+
+### Checked-in Eindhoven Centraal point example
+
+The repository includes
+[`examples/eindhoven-centraal-main-entrance-point.chy`](../examples/eindhoven-centraal-main-entrance-point.chy)
+and its adjacent anchor manifest. It is deliberately small: it anchors only an
+authored exit’s x/y to source node `8907822531`, whose selected category is
+`entrance`. The surface extent, exit width/capacity, agent starts/demand, body
+dimensions, speed, z coordinate, and even the interpretation of the selected
+point are explicitly uncalibrated assumptions. It is not an Eindhoven Centraal
+layout, route model, or facility analysis.
+
+With the exact content-locked raw OSM XML declared by
+[`eindhoven-centraal-layout-osm-2026.json`](../benchmarks/evidence/eindhoven-centraal-layout-osm-2026.json)
+available under `data/raw/`, reproduce the source chain and anchor it with the
+main-entrance point as the authored local origin:
+
+```console
+$ cargo run -p chiyoda -- evidence lock \
+    benchmarks/evidence/eindhoven-centraal-layout-osm-2026.json
+$ cargo run -p chiyoda -- layout osm \
+    benchmarks/evidence/eindhoven-centraal-layout-osm-2026.json \
+    -o out/eindhoven-layout-observations.json
+$ cargo run -p chiyoda -- layout project-osm \
+    benchmarks/evidence/eindhoven-centraal-layout-osm-2026.json \
+    out/eindhoven-layout-observations.json \
+    --origin-latitude 51.4435843 --origin-longitude 5.4795455 \
+    -o out/eindhoven-main-entrance-reference.json
+$ cargo run -p chiyoda -- layout anchor-osm \
+    benchmarks/evidence/eindhoven-centraal-layout-osm-2026.json \
+    out/eindhoven-layout-observations.json \
+    out/eindhoven-main-entrance-reference.json \
+    examples/eindhoven-centraal-main-entrance-point-anchors.json \
+    -o out/eindhoven-main-entrance-anchor.json
+$ cargo run -p chiyoda -- layout verify-anchor-osm \
+    benchmarks/evidence/eindhoven-centraal-layout-osm-2026.json \
+    out/eindhoven-layout-observations.json \
+    out/eindhoven-main-entrance-reference.json \
+    examples/eindhoven-centraal-main-entrance-point-anchors.json \
+    out/eindhoven-main-entrance-anchor.json
+```
+
+The map API URL in that catalog is mutable. A later download that does not
+match the catalog’s exact byte count and SHA-256 is intentionally rejected;
+obtain the archived/previously locked source rather than substituting a later
+map response. The checked-in scenario can still be parsed and run without the
+raw map file, but it must not be described as source-anchored unless the above
+verification succeeds.

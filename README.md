@@ -5,7 +5,7 @@ Chiyoda is an Apache-2.0 research platform for deterministic, reproducible
 is a standalone experiment language and executable reference semantics—not a
 real-time operations dashboard or a certified evacuation product.
 
-The current `0.23.0-alpha.1` release establishes the language/runtime contract:
+The current `0.24.0-alpha.1` release establishes the language/runtime contract:
 
 - a typed textual DSL with static unit, topology, reachability, capacity, and
   deterministic-replay checks;
@@ -15,7 +15,11 @@ The current `0.23.0-alpha.1` release establishes the language/runtime contract:
   escalators, lifts, gates, capacity-limited exits, scheduled availability and
   service-capacity states, and typed information interventions;
 - immutable JSON run bundles with source, canonical IR, events, traces,
-  per-intervention reach/acceptance metrics, and SHA-256 integrity hashes;
+  per-intervention reach/acceptance metrics, queue-entry audit events, and
+  SHA-256 integrity hashes;
+- a source-anchoring workflow that can prove selected scenario coordinates
+  match a content-locked, explicitly projected OSM point without importing map
+  geometry;
 - a deterministic, constraint-preserving scenario generator; and
 - a native Linux trace replay application.
 
@@ -62,6 +66,8 @@ $ cargo run -p chiyoda -- layout osm my-layout-catalog.json -o out/layout-observ
 $ cargo run -p chiyoda -- layout verify-osm my-layout-catalog.json out/layout-observations.json
 $ cargo run -p chiyoda -- layout project-osm my-layout-catalog.json out/layout-observations.json --origin-latitude 1.300000 --origin-longitude 103.800000 -o out/layout-local-reference.json
 $ cargo run -p chiyoda -- layout verify-projection my-layout-catalog.json out/layout-observations.json out/layout-local-reference.json
+$ cargo run -p chiyoda -- layout anchor-osm my-layout-catalog.json out/layout-observations.json out/layout-local-reference.json my-scenario-anchors.json -o out/layout-scenario-anchors.json
+$ cargo run -p chiyoda -- layout verify-anchor-osm my-layout-catalog.json out/layout-observations.json out/layout-local-reference.json my-scenario-anchors.json out/layout-scenario-anchors.json
 $ cargo run -p chiyoda -- replay out/example/run.json
 $ cargo run -p chiyoda-replay -- out/example/run.json
 ```
@@ -78,9 +84,10 @@ uncalibrated structural experiment: it generates and
 runs a contiguous seed range, writes one independently hash-verifiable bundle
 per seed, and records their summaries in `summary.json`, including final-exit
 attribution, modeled queue-exposure counts, and current per-run discrete queue
-telemetry attributed to individual constrained resources. Generated cases include a
-declared alternative exit and a scheduled primary-exit closure, so the output
-also exercises rerouting.
+telemetry attributed to individual constrained resources. Current bundles also
+contain one auditable event for each agent's first entry to each modeled
+resource queue. Generated cases include a declared alternative exit and a
+scheduled primary-exit closure, so the output also exercises rerouting.
 `verify-sweep` cross-checks that summary against every bundle and its canonical
 source, and reruns each bundle compatible with the installed runtime to reject
 self-hashed fabricated results. `analyze-sweep` performs that same verification before producing exact
@@ -178,7 +185,10 @@ the token-service runtime a calibrated queue model.
 An acquired OpenStreetMap XML extract can also be content-locked as an ODbL
 `uncalibrated_reference` and inspected with `layout osm`. It emits attributed
 geographic tag observations—not a scenario or inferred station geometry. See
-[open-layout source observations](docs/layout-sources.md).
+[open-layout source observations](docs/layout-sources.md). A later
+`layout anchor-osm` artifact can prove a deliberately selected scenario point
+equals one selected projected OSM point; it still cannot infer a usable layout
+or any physical/operational property from the map.
 
 ## Language at a glance
 

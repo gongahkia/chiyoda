@@ -240,6 +240,80 @@ class BundleTests(unittest.TestCase):
         with self.assertRaises(BundleError):
             summarize(bundle)
 
+    def test_current_summary_requires_queue_entry_events_to_match_telemetry(self) -> None:
+        queue_metrics = {
+            "lift": {
+                "ever_queued_agents": 0,
+                "cumulative_wait_agent_seconds": 0.0,
+                "peak_waiting_agents": 0,
+            },
+            "connector": {
+                "ever_queued_agents": 0,
+                "cumulative_wait_agent_seconds": 0.0,
+                "peak_waiting_agents": 0,
+            },
+            "gate": {
+                "ever_queued_agents": 0,
+                "cumulative_wait_agent_seconds": 0.0,
+                "peak_waiting_agents": 0,
+            },
+            "exit": {
+                "ever_queued_agents": 1,
+                "cumulative_wait_agent_seconds": 1.0,
+                "peak_waiting_agents": 1,
+            },
+            "by_resource": {
+                "lifts": {},
+                "connectors": {},
+                "gates": {},
+                "exits": {
+                    "street:west": {
+                        "ever_queued_agents": 1,
+                        "cumulative_wait_agent_seconds": 1.0,
+                        "peak_waiting_agents": 1,
+                    }
+                },
+            },
+        }
+        bundle = {
+            "bundle_version": "0.24",
+            "scenario": {
+                "scenario": {
+                    "name": "fixture",
+                    "messages": [],
+                    "countermeasures": [],
+                    "connectors": [],
+                    "gates": [],
+                    "exits": [{"id": "street:west", "capacity_per_s": 0.5}],
+                }
+            },
+            "events": [
+                {
+                    "time_s": 1.0,
+                    "kind": "queue_entered_exit",
+                    "subject": "passengers:0",
+                    "detail": "street:west",
+                }
+            ],
+            "metrics": {
+                "total_agents": 1,
+                "evacuated_agents": 0,
+                "remaining_by_state": {"waiting_for_exit": 1},
+                "clearance_time_s": None,
+                "last_exit_time_s": None,
+                "queued_for_lift_agents": 0,
+                "queued_for_connector_agents": 0,
+                "queued_for_gate_agents": 0,
+                "queued_for_exit_agents": 1,
+                "queue_metrics": queue_metrics,
+            },
+        }
+
+        self.assertEqual(summarize(bundle)["queue_metrics"]["exit"]["ever_queued_agents"], 1)
+        bundle["events"] = []
+        with self.assertRaises(BundleError):
+            summarize(bundle)
+
     def test_summary_rejects_information_acceptance_above_delivery(self) -> None:
         bundle = {
             "scenario": {"scenario": {"name": "fixture"}},

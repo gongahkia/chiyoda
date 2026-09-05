@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{collections::BTreeMap, fmt::Write};
 
-pub const BUNDLE_VERSION: &str = "0.23";
+pub const BUNDLE_VERSION: &str = "0.24";
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AgentSnapshot {

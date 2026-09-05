@@ -13,10 +13,11 @@ class BundleError(ValueError):
     """A run bundle is malformed or fails its integrity contract."""
 
 
-_CURRENT_BUNDLE_VERSIONS = frozenset({"0.17", "0.18", "0.19", "0.20", "0.21", "0.22", "0.23"})
-_INFORMATION_DELIVERY_BUNDLE_VERSIONS = frozenset({"0.18", "0.19", "0.20", "0.21", "0.22", "0.23"})
-_QUEUE_METRIC_BUNDLE_VERSIONS = frozenset({"0.22", "0.23"})
-_RESOURCE_QUEUE_METRIC_BUNDLE_VERSIONS = frozenset({"0.23"})
+_CURRENT_BUNDLE_VERSIONS = frozenset({"0.17", "0.18", "0.19", "0.20", "0.21", "0.22", "0.23", "0.24"})
+_INFORMATION_DELIVERY_BUNDLE_VERSIONS = frozenset({"0.18", "0.19", "0.20", "0.21", "0.22", "0.23", "0.24"})
+_QUEUE_METRIC_BUNDLE_VERSIONS = frozenset({"0.22", "0.23", "0.24"})
+_RESOURCE_QUEUE_METRIC_BUNDLE_VERSIONS = frozenset({"0.23", "0.24"})
+_QUEUE_ENTRY_EVENT_BUNDLE_VERSIONS = frozenset({"0.24"})
 _REMAINING_AGENT_STATES = frozenset(
     {
         "moving",
@@ -200,6 +201,8 @@ def _queue_metrics(bundle: dict[str, Any], metrics: dict[str, Any]) -> dict[str,
         normalized["by_resource"] = _queue_resource_breakdown(
             queue_metrics["by_resource"], normalized, _queue_resource_ids(bundle)
         )
+    if bundle.get("bundle_version") in _QUEUE_ENTRY_EVENT_BUNDLE_VERSIONS:
+        _queue_entry_events(bundle, normalized)
     return normalized
 
 
@@ -314,6 +317,61 @@ def _queue_resource_breakdown(
             )
         normalized[collection] = normalized_resources
     return normalized
+
+
+def _queue_entry_events(bundle: dict[str, Any], queue_metrics: dict[str, Any]) -> None:
+    """Cross-check current queue exposure telemetry against its event audit trail."""
+
+    events = bundle.get("events")
+    if not isinstance(events, list):
+        raise BundleError("current bundle events must be a list for queue-entry audit")
+    by_resource = queue_metrics["by_resource"]
+    event_collections = {
+        "queue_entered_lift": ("lift", "lifts"),
+        "queue_entered_connector": ("connector", "connectors"),
+        "queue_entered_gate": ("gate", "gates"),
+        "queue_entered_exit": ("exit", "exits"),
+    }
+    entries: dict[str, dict[str, set[str]]] = {
+        collection: {} for _, collection in event_collections.values()
+    }
+    for event in events:
+        if not isinstance(event, dict):
+            continue
+        event_spec = event_collections.get(event.get("kind"))
+        if event_spec is None:
+            continue
+        _, collection = event_spec
+        time_s = event.get("time_s")
+        subject = event.get("subject")
+        resource_id = event.get("detail")
+        if (
+            not isinstance(time_s, (int, float))
+            or isinstance(time_s, bool)
+            or not math.isfinite(time_s)
+            or time_s < 0
+            or not isinstance(subject, str)
+            or not subject
+            or not isinstance(resource_id, str)
+            or not resource_id
+        ):
+            raise BundleError("queue-entry event is malformed")
+        if resource_id not in by_resource[collection]:
+            raise BundleError("queue_entered event names an unknown queue resource")
+        resource_entries = entries[collection].setdefault(resource_id, set())
+        if subject in resource_entries:
+            raise BundleError("queue_entered event repeats one agent/resource pair")
+        resource_entries.add(subject)
+    for kind, collection in (value for value in event_collections.values()):
+        aggregate = queue_metrics[kind]
+        all_agents: set[str] = set()
+        for resource_id, telemetry in by_resource[collection].items():
+            resource_agents = entries[collection].get(resource_id, set())
+            if len(resource_agents) != telemetry["ever_queued_agents"]:
+                raise BundleError("queue_entered events disagree with resource queue telemetry")
+            all_agents.update(resource_agents)
+        if len(all_agents) != aggregate["ever_queued_agents"]:
+            raise BundleError("queue_entered events disagree with aggregate queue telemetry")
 
 
 def _validate_exit_time_semantics(

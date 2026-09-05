@@ -1,0 +1,11 @@
+# The only map-derived property in this scenario is the exit's x/y point. It
+# equals the explicit OSM anchor in the adjacent manifest after projecting the
+# locked source with that manifest's documented origin. Every other field is an
+# uncalibrated structural assumption.
+scenario "eindhoven-centraal source-point structural abstraction"
+seed 733
+duration 30s
+timestep 1s
+surface authored_reference at (-10m, -10m, 0m) size (20m, 20m)
+exit mapped_main_entrance on authored_reference at (0m, 0m, 0m) width 1.5m capacity 1/s
+agents structural_passengers count 4 on authored_reference at (5m, 0m, 0m) to mapped_main_entrance speed 1.2m/s radius 0.3m height 1.7m release 0s every 1s

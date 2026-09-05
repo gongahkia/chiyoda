@@ -1573,6 +1573,11 @@ agents passengers count 1 on upper at (1m, 1m, 3m) to street speed 1m/s radius 0
         .expect("current run attributes queue telemetry to resources");
     assert_eq!(attributed.connectors.len(), 1);
     assert_eq!(attributed.connectors["down"], queue_metrics.connector);
+    assert!(bundle.events.iter().any(|event| {
+        event.kind == "queue_entered_connector"
+            && event.subject == "passengers:0"
+            && event.detail == "down"
+    }));
 }
 
 #[test]
@@ -1641,6 +1646,11 @@ agents passengers count 1 on concourse at (1m, 1m, 0m) to street speed 1m/s radi
         .expect("current run attributes queue telemetry to resources");
     assert_eq!(attributed.exits.len(), 1);
     assert_eq!(attributed.exits["street"], queue_metrics.exit);
+    assert!(bundle.events.iter().any(|event| {
+        event.kind == "queue_entered_exit"
+            && event.subject == "passengers:0"
+            && event.detail == "street"
+    }));
 }
 
 #[test]
@@ -1932,6 +1942,12 @@ agents passengers count 2 on platform at (1m, 1m, 6m) to street speed 1m/s radiu
         .expect("current run attributes queue telemetry to resources");
     assert_eq!(attributed.lifts.len(), 1);
     assert_eq!(attributed.lifts["lift_a"], queue_metrics.lift);
+    assert!(
+        bundle
+            .events
+            .iter()
+            .any(|event| { event.kind == "queue_entered_lift" && event.detail == "lift_a" })
+    );
 }
 
 #[test]
@@ -1979,6 +1995,15 @@ agents passengers count 10 on concourse at (1m, 1m, 0m) to street speed 1m/s rad
         .expect("current run attributes queue telemetry to resources");
     assert_eq!(attributed.gates.len(), 1);
     assert_eq!(attributed.gates["fare_gate"], queue_metrics.gate);
+    let gate_queue_entries = bundle
+        .events
+        .iter()
+        .filter(|event| event.kind == "queue_entered_gate" && event.detail == "fare_gate")
+        .count();
+    assert_eq!(
+        u32::try_from(gate_queue_entries).expect("event count fits u32"),
+        queue_metrics.gate.ever_queued_agents
+    );
     assert!(
         bundle
             .events

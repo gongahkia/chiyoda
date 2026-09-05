@@ -8,7 +8,11 @@
 //! geometry, or DSL source.
 
 use crate::{
-    EvidenceCatalog, EvidencePurpose, calibration::verify_catalog_files, evidence::validate_catalog,
+    EvidenceCatalog, EvidencePurpose,
+    bundle::canonical_hash,
+    calibration::verify_catalog_files,
+    evidence::validate_catalog,
+    model::{CanonicalScenario, Scenario},
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -38,6 +42,9 @@ const LOCAL_PROJECTION_METHOD: &str =
 const LOCAL_PROJECTION_REFERENCE: &str =
     "https://proj.org/en/stable/operations/conversions/topocentric.html";
 const LOCAL_PROJECTION_PRECISION_M: f64 = 1_000_000.0;
+const OSM_SCENARIO_ANCHOR_SCHEMA_VERSION: &str = "0.1";
+const OSM_SCENARIO_ANCHOR_STATUS: &str = "source_anchored_scenario_only";
+const OSM_SCENARIO_ANCHOR_TOLERANCE_M: f64 = 1.0 / LOCAL_PROJECTION_PRECISION_M;
 const RELEVANT_TAG_KEYS: &[&str] = &[
     "building",
     "building:part",
@@ -162,6 +169,57 @@ pub enum OsmLayoutError {
         "local coordinate projection does not match reconstruction from its source-observation report"
     )]
     ProjectionMismatch,
+    #[error("OSM scenario-anchor manifest is invalid: {0}")]
+    InvalidScenarioAnchorManifest(String),
+    #[error(
+        "OSM scenario anchor `{anchor_id}` references an unknown scenario {target_kind} `{target_id}`"
+    )]
+    UnknownScenarioAnchorTarget {
+        anchor_id: String,
+        target_kind: &'static str,
+        target_id: String,
+    },
+    #[error(
+        "OSM scenario anchor `{anchor_id}` references an unknown OSM {object_type} `{object_id}`"
+    )]
+    UnknownScenarioAnchorSource {
+        anchor_id: String,
+        object_type: &'static str,
+        object_id: i64,
+    },
+    #[error(
+        "OSM scenario anchor `{anchor_id}` requires category `{category}` on OSM {object_type} `{object_id}`"
+    )]
+    ScenarioAnchorCategoryMismatch {
+        anchor_id: String,
+        category: String,
+        object_type: &'static str,
+        object_id: i64,
+    },
+    #[error(
+        "OSM scenario anchor `{anchor_id}` references node `{node_id}` absent from OSM way `{way_id}`"
+    )]
+    ScenarioAnchorMissingWayNode {
+        anchor_id: String,
+        way_id: i64,
+        node_id: i64,
+    },
+    #[error(
+        "OSM scenario anchor `{anchor_id}` requires point geometry on OSM {object_type} `{object_id}`"
+    )]
+    ScenarioAnchorUnsupportedGeometry {
+        anchor_id: String,
+        object_type: &'static str,
+        object_id: i64,
+    },
+    #[error(
+        "OSM scenario anchor `{anchor_id}` does not match its selected source point within one micrometre"
+    )]
+    ScenarioAnchorCoordinateMismatch { anchor_id: String },
+    #[error(
+        "OSM scenario-anchor report does not match reconstruction from its manifest, scenario, and local source projection"
+    )]
+    ScenarioAnchorReportMismatch,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -326,6 +384,111 @@ pub struct OpenStreetMapLocalProjectionReport {
     pub claim_boundary: String,
     pub required_authoring: Vec<String>,
 }
+
+/// A manifest for proving that specifically selected authored scenario points
+/// use coordinates from a verified local OSM reference. It does not infer any
+/// other scenario property from map data.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct OsmScenarioAnchorManifest {
+    pub schema_version: String,
+    pub name: String,
+    pub description: String,
+    /// Path interpreted by the CLI relative to this manifest.
+    pub scenario_source: String,
+    pub anchors: Vec<OsmScenarioCoordinateAnchor>,
+    /// The author's intended-use and interpretation boundary.
+    pub claim_boundary: String,
+}
+
+/// One selected point in a scenario that must exactly match a selected local
+/// OSM point. The point match is provenance only: it neither makes the source
+/// feature walkable nor supplies width, elevation, access, or capacity.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct OsmScenarioCoordinateAnchor {
+    pub id: String,
+    pub target: OsmScenarioAnchorTarget,
+    pub source: OsmScenarioAnchorSource,
+    pub rationale: String,
+}
+
+/// A point-bearing authored scenario field eligible for OSM coordinate
+/// anchoring. Surface extents and obstacle dimensions intentionally have no
+/// variants because map observations cannot establish them.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum OsmScenarioAnchorTarget {
+    Exit { id: String },
+    Gate { id: String },
+    Waypoint { id: String },
+    AgentSpawn { id: String },
+    ConnectorFrom { id: String },
+    ConnectorTo { id: String },
+}
+
+/// A point from a projected OSM observation. A way source requires an explicit
+/// preserved source-node identifier; a way as a whole is never treated as a
+/// path, polygon, or geometry import.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum OsmScenarioAnchorSource {
+    NodeFeature {
+        object_id: i64,
+        category: String,
+    },
+    WayNode {
+        object_id: i64,
+        node_id: i64,
+        category: String,
+    },
+}
+
+/// A validated anchor with the two equal local coordinates retained for review.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ResolvedOsmScenarioCoordinateAnchor {
+    pub id: String,
+    pub target: OsmScenarioAnchorTarget,
+    pub source: OsmScenarioAnchorSource,
+    pub source_coordinate: LocalMetrePoint,
+    pub scenario_coordinate: LocalMetrePoint,
+    pub rationale: String,
+}
+
+/// A compact, reproducible link between an authored scenario and selected map
+/// points. It is not a layout import or an assertion that the scenario models
+/// the mapped facility.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct OsmScenarioAnchorReport {
+    pub schema_version: String,
+    pub adapter_version: String,
+    pub anchor_manifest_sha256: String,
+    pub scenario_source_sha256: String,
+    pub scenario_hash: String,
+    pub source_projection_report_sha256: String,
+    pub source: OpenStreetMapLayoutSource,
+    pub anchors: Vec<ResolvedOsmScenarioCoordinateAnchor>,
+    pub status: String,
+    pub author_claim_boundary: String,
+    pub claim_boundary: String,
+    pub required_authoring: Vec<String>,
+}
+
+/// One author-facing manifest problem. Validation deliberately accumulates
+/// independent static errors before a command reads the OSM source or scenario.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OsmScenarioAnchorValidationError {
+    pub path: String,
+    pub message: String,
+}
+
+impl std::fmt::Display for OsmScenarioAnchorValidationError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "{}: {}", self.path, self.message)
+    }
+}
+
+impl std::error::Error for OsmScenarioAnchorValidationError {}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct OsmInspectionLimitsReport {
@@ -644,6 +807,388 @@ pub fn verify_openstreetmap_local_projection_report(
         return Err(OsmLayoutError::ProjectionMismatch);
     }
     Ok(())
+}
+
+/// Validate a static OSM scenario-anchor manifest before resolving its source
+/// points or scenario targets. This does not inspect a map or create a run.
+pub fn validate_osm_scenario_anchor_manifest(
+    manifest: &OsmScenarioAnchorManifest,
+) -> Result<(), Vec<OsmScenarioAnchorValidationError>> {
+    let mut errors = Vec::new();
+    if manifest.schema_version != OSM_SCENARIO_ANCHOR_SCHEMA_VERSION {
+        errors.push(anchor_manifest_issue(
+            "schema_version",
+            format!("must be `{OSM_SCENARIO_ANCHOR_SCHEMA_VERSION}`"),
+        ));
+    }
+    for (field, value) in [
+        ("name", &manifest.name),
+        ("description", &manifest.description),
+        ("scenario_source", &manifest.scenario_source),
+        ("claim_boundary", &manifest.claim_boundary),
+    ] {
+        if value.trim().is_empty() {
+            errors.push(anchor_manifest_issue(field, "must not be empty"));
+        }
+    }
+    if !is_safe_relative_path(&manifest.scenario_source) {
+        errors.push(anchor_manifest_issue(
+            "scenario_source",
+            "must be a non-empty relative path without `.` or `..` components",
+        ));
+    }
+    if manifest.anchors.is_empty() {
+        errors.push(anchor_manifest_issue("anchors", "must not be empty"));
+    }
+
+    let mut anchor_ids = BTreeSet::new();
+    let mut targets = BTreeSet::new();
+    for (index, anchor) in manifest.anchors.iter().enumerate() {
+        let path = format!("anchors[{index}]");
+        if !is_safe_identifier(&anchor.id) {
+            errors.push(anchor_manifest_issue(
+                format!("{path}.id"),
+                "must be a safe identifier",
+            ));
+        }
+        if !anchor_ids.insert(anchor.id.as_str()) {
+            errors.push(anchor_manifest_issue(
+                format!("{path}.id"),
+                "must be unique",
+            ));
+        }
+        if anchor.rationale.trim().is_empty() {
+            errors.push(anchor_manifest_issue(
+                format!("{path}.rationale"),
+                "must not be empty",
+            ));
+        }
+        let (target_kind, target_id) = anchor_target_identity(&anchor.target);
+        if target_id.trim().is_empty() {
+            errors.push(anchor_manifest_issue(
+                format!("{path}.target.id"),
+                "must not be empty",
+            ));
+        }
+        let target_key = format!("{target_kind}\u{0}{target_id}");
+        if !targets.insert(target_key) {
+            errors.push(anchor_manifest_issue(
+                format!("{path}.target"),
+                "must not be anchored more than once",
+            ));
+        }
+        match &anchor.source {
+            OsmScenarioAnchorSource::NodeFeature {
+                object_id,
+                category,
+            } => {
+                validate_anchor_source_reference(&mut errors, &path, *object_id, category, None);
+            }
+            OsmScenarioAnchorSource::WayNode {
+                object_id,
+                node_id,
+                category,
+            } => {
+                validate_anchor_source_reference(
+                    &mut errors,
+                    &path,
+                    *object_id,
+                    category,
+                    Some(*node_id),
+                );
+            }
+        }
+    }
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(errors)
+    }
+}
+
+/// Resolve explicit OSM coordinate anchors against a previously verified local
+/// projection and a separately validated scenario. The caller owns validation
+/// of the catalog-to-observation-to-projection chain; this function verifies
+/// the final map-point-to-scenario-point link without importing geometry.
+pub fn anchor_osm_scenario(
+    manifest: &OsmScenarioAnchorManifest,
+    anchor_manifest_sha256: &str,
+    scenario: &Scenario,
+    scenario_source_sha256: &str,
+    projection: &OpenStreetMapLocalProjectionReport,
+    source_projection_report_sha256: &str,
+) -> Result<OsmScenarioAnchorReport, OsmLayoutError> {
+    validate_osm_scenario_anchor_manifest(manifest).map_err(|errors| {
+        OsmLayoutError::InvalidScenarioAnchorManifest(
+            errors
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>()
+                .join("; "),
+        )
+    })?;
+    if projection.status != "source_projection_only" {
+        return Err(OsmLayoutError::InvalidScenarioAnchorManifest(
+            "projection must have status `source_projection_only`".to_owned(),
+        ));
+    }
+    if !is_sha256(anchor_manifest_sha256)
+        || !is_sha256(scenario_source_sha256)
+        || !is_sha256(source_projection_report_sha256)
+    {
+        return Err(OsmLayoutError::InvalidScenarioAnchorManifest(
+            "manifest, scenario, and projection source hashes must be SHA-256 hexadecimal digests"
+                .to_owned(),
+        ));
+    }
+
+    let anchors = manifest
+        .anchors
+        .iter()
+        .map(|anchor| resolve_osm_scenario_anchor(anchor, scenario, projection))
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(OsmScenarioAnchorReport {
+        schema_version: OSM_SCENARIO_ANCHOR_SCHEMA_VERSION.to_owned(),
+        adapter_version: crate::RUNTIME_VERSION.to_owned(),
+        anchor_manifest_sha256: anchor_manifest_sha256.to_ascii_lowercase(),
+        scenario_source_sha256: scenario_source_sha256.to_ascii_lowercase(),
+        scenario_hash: canonical_hash(&CanonicalScenario::from(scenario.clone())),
+        source_projection_report_sha256: source_projection_report_sha256.to_ascii_lowercase(),
+        source: projection.source.clone(),
+        anchors,
+        status: OSM_SCENARIO_ANCHOR_STATUS.to_owned(),
+        author_claim_boundary: manifest.claim_boundary.clone(),
+        claim_boundary: "This report proves only that selected authored scenario x/y points equal selected points in one content-locked, locally projected OpenStreetMap observation. It does not import a layout or establish access, walkability, geometry, elevations, widths, capacities, demand, behavior, calibration, runtime validity, operational suitability, or safety.".to_owned(),
+        required_authoring: vec![
+            "Retain and verify the OSM catalog, observation report, local projection, anchor manifest, and scenario source together; this report cannot revalidate omitted raw source data by itself.".to_owned(),
+            "Treat every non-anchored scenario property, including surfaces, obstacles, z coordinates, connectivity, widths, capacities, releases, destinations, and behavior, as an independently authored and disclosed assumption.".to_owned(),
+            "An anchor to an OSM point does not establish public access, a traversable path, a facility entrance, an elevator connection, or any physical or operational property beyond the preserved map-point coordinate.".to_owned(),
+        ],
+    })
+}
+
+/// Reconstruct an anchor report and compare it exactly with a persisted one.
+/// The caller must first verify the local projection against its source report
+/// and locked OSM bytes when that stronger check is available.
+pub fn verify_osm_scenario_anchor_report(
+    manifest: &OsmScenarioAnchorManifest,
+    anchor_manifest_sha256: &str,
+    scenario: &Scenario,
+    scenario_source_sha256: &str,
+    projection: &OpenStreetMapLocalProjectionReport,
+    source_projection_report_sha256: &str,
+    anchored: &OsmScenarioAnchorReport,
+) -> Result<(), OsmLayoutError> {
+    let rebuilt = anchor_osm_scenario(
+        manifest,
+        anchor_manifest_sha256,
+        scenario,
+        scenario_source_sha256,
+        projection,
+        source_projection_report_sha256,
+    )?;
+    if anchored != &rebuilt {
+        return Err(OsmLayoutError::ScenarioAnchorReportMismatch);
+    }
+    Ok(())
+}
+
+fn resolve_osm_scenario_anchor(
+    anchor: &OsmScenarioCoordinateAnchor,
+    scenario: &Scenario,
+    projection: &OpenStreetMapLocalProjectionReport,
+) -> Result<ResolvedOsmScenarioCoordinateAnchor, OsmLayoutError> {
+    let source_coordinate = anchor_source_coordinate(anchor, projection)?;
+    let scenario_coordinate = anchor_target_coordinate(anchor, scenario)?;
+    if (source_coordinate.east_m - scenario_coordinate.east_m).abs()
+        > OSM_SCENARIO_ANCHOR_TOLERANCE_M
+        || (source_coordinate.north_m - scenario_coordinate.north_m).abs()
+            > OSM_SCENARIO_ANCHOR_TOLERANCE_M
+    {
+        return Err(OsmLayoutError::ScenarioAnchorCoordinateMismatch {
+            anchor_id: anchor.id.clone(),
+        });
+    }
+    Ok(ResolvedOsmScenarioCoordinateAnchor {
+        id: anchor.id.clone(),
+        target: anchor.target.clone(),
+        source: anchor.source.clone(),
+        source_coordinate,
+        scenario_coordinate,
+        rationale: anchor.rationale.clone(),
+    })
+}
+
+fn anchor_source_coordinate(
+    anchor: &OsmScenarioCoordinateAnchor,
+    projection: &OpenStreetMapLocalProjectionReport,
+) -> Result<LocalMetrePoint, OsmLayoutError> {
+    let (object_type, object_id, category) = match &anchor.source {
+        OsmScenarioAnchorSource::NodeFeature {
+            object_id,
+            category,
+        } => ("node", *object_id, category),
+        OsmScenarioAnchorSource::WayNode {
+            object_id,
+            category,
+            ..
+        } => ("way", *object_id, category),
+    };
+    let feature = projection
+        .features
+        .iter()
+        .find(|feature| feature.object_type == object_type && feature.object_id == object_id)
+        .ok_or_else(|| OsmLayoutError::UnknownScenarioAnchorSource {
+            anchor_id: anchor.id.clone(),
+            object_type,
+            object_id,
+        })?;
+    if !feature.categories.iter().any(|actual| actual == category) {
+        return Err(OsmLayoutError::ScenarioAnchorCategoryMismatch {
+            anchor_id: anchor.id.clone(),
+            category: category.clone(),
+            object_type,
+            object_id,
+        });
+    }
+    match (&anchor.source, &feature.geometry) {
+        (
+            OsmScenarioAnchorSource::NodeFeature { .. },
+            ProjectedOsmFeatureGeometry::Point { coordinate },
+        ) => Ok(*coordinate),
+        (
+            OsmScenarioAnchorSource::WayNode { node_id, .. },
+            ProjectedOsmFeatureGeometry::WayNodeSequence { nodes },
+        ) => nodes
+            .iter()
+            .find(|node| node.node_id == *node_id)
+            .map(|node| node.coordinate)
+            .ok_or_else(|| OsmLayoutError::ScenarioAnchorMissingWayNode {
+                anchor_id: anchor.id.clone(),
+                way_id: object_id,
+                node_id: *node_id,
+            }),
+        _ => Err(OsmLayoutError::ScenarioAnchorUnsupportedGeometry {
+            anchor_id: anchor.id.clone(),
+            object_type,
+            object_id,
+        }),
+    }
+}
+
+fn anchor_target_coordinate(
+    anchor: &OsmScenarioCoordinateAnchor,
+    scenario: &Scenario,
+) -> Result<LocalMetrePoint, OsmLayoutError> {
+    let (target_kind, target_id) = anchor_target_identity(&anchor.target);
+    let point = match &anchor.target {
+        OsmScenarioAnchorTarget::Exit { id } => scenario
+            .exits
+            .iter()
+            .find(|exit| exit.id == *id)
+            .map(|exit| exit.at),
+        OsmScenarioAnchorTarget::Gate { id } => scenario
+            .gates
+            .iter()
+            .find(|gate| gate.id == *id)
+            .map(|gate| gate.at),
+        OsmScenarioAnchorTarget::Waypoint { id } => scenario
+            .waypoints
+            .iter()
+            .find(|waypoint| waypoint.id == *id)
+            .map(|waypoint| waypoint.at),
+        OsmScenarioAnchorTarget::AgentSpawn { id } => scenario
+            .agents
+            .iter()
+            .find(|agent| agent.id == *id)
+            .map(|agent| agent.at),
+        OsmScenarioAnchorTarget::ConnectorFrom { id } => scenario
+            .connectors
+            .iter()
+            .find(|connector| connector.id() == id)
+            .map(crate::model::Connector::from),
+        OsmScenarioAnchorTarget::ConnectorTo { id } => scenario
+            .connectors
+            .iter()
+            .find(|connector| connector.id() == id)
+            .map(crate::model::Connector::to),
+    }
+    .ok_or_else(|| OsmLayoutError::UnknownScenarioAnchorTarget {
+        anchor_id: anchor.id.clone(),
+        target_kind,
+        target_id: target_id.to_owned(),
+    })?;
+    Ok(LocalMetrePoint {
+        east_m: point.x_m,
+        north_m: point.y_m,
+    })
+}
+
+fn anchor_target_identity(target: &OsmScenarioAnchorTarget) -> (&'static str, &str) {
+    match target {
+        OsmScenarioAnchorTarget::Exit { id } => ("exit", id),
+        OsmScenarioAnchorTarget::Gate { id } => ("gate", id),
+        OsmScenarioAnchorTarget::Waypoint { id } => ("waypoint", id),
+        OsmScenarioAnchorTarget::AgentSpawn { id } => ("agent_spawn", id),
+        OsmScenarioAnchorTarget::ConnectorFrom { id } => ("connector_from", id),
+        OsmScenarioAnchorTarget::ConnectorTo { id } => ("connector_to", id),
+    }
+}
+
+fn validate_anchor_source_reference(
+    errors: &mut Vec<OsmScenarioAnchorValidationError>,
+    path: &str,
+    object_id: i64,
+    category: &str,
+    node_id: Option<i64>,
+) {
+    if object_id <= 0 {
+        errors.push(anchor_manifest_issue(
+            format!("{path}.source.object_id"),
+            "must be greater than zero",
+        ));
+    }
+    if category.trim().is_empty() {
+        errors.push(anchor_manifest_issue(
+            format!("{path}.source.category"),
+            "must not be empty",
+        ));
+    }
+    if node_id.is_some_and(|node_id| node_id <= 0) {
+        errors.push(anchor_manifest_issue(
+            format!("{path}.source.node_id"),
+            "must be greater than zero",
+        ));
+    }
+}
+
+fn anchor_manifest_issue(
+    path: impl Into<String>,
+    message: impl Into<String>,
+) -> OsmScenarioAnchorValidationError {
+    OsmScenarioAnchorValidationError {
+        path: path.into(),
+        message: message.into(),
+    }
+}
+
+fn is_safe_relative_path(path: &str) -> bool {
+    !path.trim().is_empty()
+        && !Path::new(path).is_absolute()
+        && Path::new(path)
+            .components()
+            .all(|component| matches!(component, std::path::Component::Normal(_)))
+}
+
+fn is_safe_identifier(value: &str) -> bool {
+    !value.is_empty()
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-'))
+}
+
+fn is_sha256(value: &str) -> bool {
+    value.len() == 64 && value.bytes().all(|byte| byte.is_ascii_hexdigit())
 }
 
 fn project_feature(
@@ -1347,12 +1892,14 @@ mod tests {
     use super::{
         EvidenceCatalog, EvidencePurpose, GeographicPoint, OpenStreetMapLayoutReport,
         OsmFeatureGeometry, OsmInspectionLimits, OsmLayoutError, OsmObservationSchema,
-        ProjectedOsmFeatureGeometry, inspect_openstreetmap_layout,
-        inspect_openstreetmap_layout_for_schema, project_openstreetmap_layout_report,
+        OsmScenarioAnchorManifest, OsmScenarioAnchorSource, OsmScenarioAnchorTarget,
+        OsmScenarioCoordinateAnchor, ProjectedOsmFeatureGeometry, anchor_osm_scenario,
+        inspect_openstreetmap_layout, inspect_openstreetmap_layout_for_schema,
+        project_openstreetmap_layout_report, validate_osm_scenario_anchor_manifest,
         verify_openstreetmap_layout_catalog_contract, verify_openstreetmap_layout_report,
-        verify_openstreetmap_local_projection_report,
+        verify_openstreetmap_local_projection_report, verify_osm_scenario_anchor_report,
     };
-    use crate::evidence::EvidenceFile;
+    use crate::{evidence::EvidenceFile, parse, validate};
     use sha2::{Digest, Sha256};
     use std::{
         fs,
@@ -1649,6 +2196,130 @@ mod tests {
 
         verify_openstreetmap_local_projection_report(&report, &projection)
             .expect("matching projection verifies");
+    }
+
+    #[test]
+    #[allow(clippy::too_many_lines)] // one fixture covers node and way-node anchors plus drift rejection
+    fn scenario_anchors_retain_selected_points_without_importing_geometry() {
+        let report = report_from_fixture(
+            br#"<osm version="0.6">
+  <node id="1" lat="1.3000" lon="103.8000"><tag k="entrance" v="yes"/></node>
+  <node id="2" lat="1.3001" lon="103.8000"/>
+  <way id="9"><nd ref="1"/><nd ref="2"/><tag k="highway" v="steps"/></way>
+</osm>"#,
+        );
+        let projection = project_openstreetmap_layout_report(
+            &report,
+            GeographicPoint {
+                latitude: 1.3,
+                longitude: 103.8,
+            },
+        )
+        .expect("projection succeeds");
+        let steps_coordinate = projection
+            .features
+            .iter()
+            .find(|feature| feature.object_type == "way" && feature.object_id == 9)
+            .and_then(|feature| match &feature.geometry {
+                ProjectedOsmFeatureGeometry::WayNodeSequence { nodes } => nodes
+                    .iter()
+                    .find(|node| node.node_id == 2)
+                    .map(|node| node.coordinate),
+                _ => None,
+            })
+            .expect("projected selected way node exists");
+        let source = format!(
+            r#"
+scenario "source-anchored fixture"
+seed 1
+duration 30s
+timestep 1s
+surface reference at (-20m, -20m, 0m) size (40m, 40m)
+waypoint steps_node on reference at ({}m, {}m, 0m)
+exit main_entrance on reference at (0m, 0m, 0m) width 1m capacity 1/s
+agents passengers count 1 on reference at (1m, 1m, 0m) to main_entrance speed 1m/s radius 0.2m height 1.7m via steps_node
+"#,
+            steps_coordinate.east_m, steps_coordinate.north_m
+        );
+        let scenario = parse(&source).expect("scenario parses");
+        validate(&scenario).expect("scenario validates");
+        let manifest = OsmScenarioAnchorManifest {
+            schema_version: "0.1".to_owned(),
+            name: "selected OSM point anchors".to_owned(),
+            description: "retain reviewed source points without importing a layout".to_owned(),
+            scenario_source: "scenario.chy".to_owned(),
+            anchors: vec![
+                OsmScenarioCoordinateAnchor {
+                    id: "main_entrance_point".to_owned(),
+                    target: OsmScenarioAnchorTarget::Exit {
+                        id: "main_entrance".to_owned(),
+                    },
+                    source: OsmScenarioAnchorSource::NodeFeature {
+                        object_id: 1,
+                        category: "entrance".to_owned(),
+                    },
+                    rationale: "the x/y point is a reviewed map reference only".to_owned(),
+                },
+                OsmScenarioCoordinateAnchor {
+                    id: "steps_node_point".to_owned(),
+                    target: OsmScenarioAnchorTarget::Waypoint {
+                        id: "steps_node".to_owned(),
+                    },
+                    source: OsmScenarioAnchorSource::WayNode {
+                        object_id: 9,
+                        node_id: 2,
+                        category: "steps".to_owned(),
+                    },
+                    rationale: "a preserved way vertex anchors this authored waypoint only"
+                        .to_owned(),
+                },
+            ],
+            claim_boundary: "source points do not establish facility geometry or behavior"
+                .to_owned(),
+        };
+
+        validate_osm_scenario_anchor_manifest(&manifest).expect("manifest validates");
+        let anchored = anchor_osm_scenario(
+            &manifest,
+            &"c".repeat(64),
+            &scenario,
+            &"a".repeat(64),
+            &projection,
+            &"b".repeat(64),
+        )
+        .expect("exact point anchors resolve");
+        assert_eq!(anchored.status, "source_anchored_scenario_only");
+        assert_eq!(anchored.anchors.len(), 2);
+        assert_eq!(anchored.anchors[1].source_coordinate, steps_coordinate);
+        verify_osm_scenario_anchor_report(
+            &manifest,
+            &"c".repeat(64),
+            &scenario,
+            &"a".repeat(64),
+            &projection,
+            &"b".repeat(64),
+            &anchored,
+        )
+        .expect("anchor report reconstructs");
+
+        let shifted_source = source.replacen(
+            "exit main_entrance on reference at (0m",
+            "exit main_entrance on reference at (0.01m",
+            1,
+        );
+        let shifted_scenario = parse(&shifted_source).expect("shifted scenario parses");
+        validate(&shifted_scenario).expect("shifted scenario validates");
+        assert!(matches!(
+            anchor_osm_scenario(
+                &manifest,
+                &"c".repeat(64),
+                &shifted_scenario,
+                &"a".repeat(64),
+                &projection,
+                &"b".repeat(64),
+            ),
+            Err(OsmLayoutError::ScenarioAnchorCoordinateMismatch { .. })
+        ));
     }
 
     #[test]

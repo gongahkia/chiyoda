@@ -1,0 +1,22 @@
+{
+  "schema_version": "0.1",
+  "name": "Eindhoven Centraal main-entrance point reference",
+  "description": "A source-anchored, uncalibrated structural abstraction with one selected OSM point.",
+  "scenario_source": "eindhoven-centraal-main-entrance-point.chy",
+  "anchors": [
+    {
+      "id": "main_entrance_point",
+      "target": {
+        "kind": "exit",
+        "id": "mapped_main_entrance"
+      },
+      "source": {
+        "kind": "node_feature",
+        "object_id": 8907822531,
+        "category": "entrance"
+      },
+      "rationale": "The exit x/y is retained as one reviewed OSM point reference only; width, capacity, walkability, demand, and all other scenario fields are independently authored assumptions."
+    }
+  ],
+  "claim_boundary": "This source-anchored structural abstraction does not model Eindhoven Centraal, establish access or geometry, or predict facility, crowd, operational, or safety outcomes."
+}
