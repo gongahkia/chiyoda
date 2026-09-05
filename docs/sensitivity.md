@@ -184,8 +184,10 @@ Message and countermeasure timing alternatives are zero or greater and then
 must pass the normal scenario validation after every condition is applied. In
 particular, a correction cannot precede the false message it corrects, and a
 message's declared truth must still agree with the physical state at its chosen
-time. This preserves the authored event contract; it does not estimate
-detection, staffing, delivery, or response delay.
+time. When a generated condition is invalid, planning reports both its case ID
+and its complete factor-value mapping, so the manifest can be corrected before
+any runs execute. This preserves the authored event contract; it does not
+estimate detection, staffing, delivery, or response delay.
 
 The ordinary `compare-sweeps` command continues to require identical authored
 agent declarations. A sensitivity condition may deliberately vary one of the

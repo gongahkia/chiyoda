@@ -353,6 +353,53 @@ countermeasure correction corrects false_closure source staff on concourse at (2
 }
 
 #[test]
+fn planner_identifies_invalid_factorial_timing_assignments() {
+    let baseline = parse(
+        r#"
+scenario "information-timing-error"
+seed 7
+duration 20s
+timestep 1s
+surface concourse at (0m, 0m, 0m) size (20m, 10m)
+exit street on concourse at (18m, 2m, 0m) width 2m capacity 2/s
+agents passengers count 2 on concourse at (1m, 2m, 0m) to street speed 1m/s radius 0.3m height 1.7m
+message false_closure source peer on concourse at (2m, 2m, 0m) claim exit street closed truth false time 4s reach 5m trust 0.5
+countermeasure correction corrects false_closure source staff on concourse at (2m, 2m, 0m) time 8s reach 5m trust 0.5
+"#,
+    )
+    .expect("fixture parses");
+    let error = plan_sensitivity(
+        &manifest(
+            SensitivityDesign::FullFactorial,
+            vec![
+                factor(
+                    "false_closure_time",
+                    SensitivityTarget::MessageAtS,
+                    "false_closure",
+                    &[4.0, 10.0],
+                ),
+                factor(
+                    "correction_time",
+                    SensitivityTarget::CountermeasureAtS,
+                    "correction",
+                    &[8.0, 12.0],
+                ),
+            ],
+        ),
+        &baseline,
+    )
+    .expect_err("one factorial timing combination precedes its message");
+
+    let message = error.to_string();
+    assert!(message.contains("case-0002"));
+    assert!(message.contains("false_closure_time"));
+    assert!(message.contains("10.0"));
+    assert!(message.contains("correction_time"));
+    assert!(message.contains("8.0"));
+    assert!(message.contains("must not precede the message it corrects"));
+}
+
+#[test]
 fn planner_rejects_unbounded_capacity_as_a_numeric_baseline() {
     let baseline = parse(SOURCE.replace("capacity 2/s", "").as_str())
         .expect("fixture without capacity parses");

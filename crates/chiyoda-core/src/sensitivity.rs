@@ -327,9 +327,12 @@ pub enum SensitivityError {
     },
     #[error("sensitivity alternatives do not differ from the baseline scenario")]
     NoAlternatives,
-    #[error("generated sensitivity condition `{condition_id}` is invalid: {message}")]
+    #[error(
+        "generated sensitivity condition `{condition_id}` with factor values {factor_values:?} is invalid: {message}"
+    )]
     InvalidCondition {
         condition_id: String,
+        factor_values: BTreeMap<String, f64>,
         message: String,
     },
 }
@@ -374,6 +377,7 @@ pub fn plan_sensitivity(
         if let Err(errors) = validate(&scenario) {
             return Err(SensitivityError::InvalidCondition {
                 condition_id: id,
+                factor_values,
                 message: errors
                     .iter()
                     .map(ToString::to_string)

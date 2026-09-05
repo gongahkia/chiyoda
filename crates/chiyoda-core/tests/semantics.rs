@@ -2173,6 +2173,45 @@ agents passengers count 10000 on concourse at (0m, 0m, 0m) to street speed 1m/s 
 }
 
 #[test]
+fn local_separation_keeps_converging_agents_outside_their_authored_radii() {
+    let source = r#"
+scenario "converging-agents"
+seed 1
+duration 1s
+timestep 1s
+surface concourse at (0m, 0m, 0m) size (20m, 10m)
+waypoint staging on concourse at (10m, 5m, 0m) dwell 1s
+exit street on concourse at (19m, 5m, 0m) width 2m
+agents north count 1 on concourse at (1m, 4m, 0m) to street speed 20m/s radius 0.3m height 1.7m via staging
+agents south count 1 on concourse at (1m, 6m, 0m) to street speed 20m/s radius 0.3m height 1.7m via staging
+"#;
+    let scenario = parse(source).expect("source parses");
+    validate(&scenario).expect("source validates");
+    let bundle = run(
+        &scenario,
+        RunOptions {
+            trace_every_steps: 1,
+        },
+    )
+    .expect("run succeeds");
+    let agents = &bundle.trace.last().expect("final trace frame").agents;
+    let north = agents
+        .iter()
+        .find(|agent| agent.id == "north:0")
+        .expect("north agent is traced");
+    let south = agents
+        .iter()
+        .find(|agent| agent.id == "south:0")
+        .expect("south agent is traced");
+
+    let separation = (north.x_m - south.x_m).hypot(north.y_m - south.y_m);
+    assert!(
+        separation >= 0.6,
+        "agents must remain at least the sum of their authored radii apart"
+    );
+}
+
+#[test]
 fn validation_rejects_unreachable_agents() {
     let source = r#"
 scenario "disconnected"

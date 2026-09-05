@@ -251,7 +251,7 @@ struct CellKey {
 }
 
 #[derive(Debug)]
-struct SpatialSnapshot {
+struct SpatialIndex {
     positions: Vec<Option<(String, Point3, f64)>>,
     cells: HashMap<CellKey, Vec<usize>>,
     max_radius_m: f64,
@@ -961,7 +961,7 @@ fn gate_state_event(change: &crate::model::GateStateChange) -> RunEvent {
     }
 }
 
-impl SpatialSnapshot {
+impl SpatialIndex {
     fn from_agents(agents: &[Agent]) -> Self {
         let positions: Vec<_> = agents
             .iter()
@@ -989,6 +989,50 @@ impl SpatialSnapshot {
             cells,
             max_radius_m,
         }
+    }
+
+    fn update(&mut self, index: usize, surface: &str, position: Point3, radius_m: f64) {
+        self.remove(index);
+        let cell = self.cells.entry(cell_key(surface, position)).or_default();
+        match cell.binary_search(&index) {
+            Ok(_) => unreachable!("an agent index occupies one spatial cell"),
+            Err(insertion) => cell.insert(insertion, index),
+        }
+        self.positions[index] = Some((surface.to_owned(), position, radius_m));
+    }
+
+    fn remove(&mut self, index: usize) {
+        let Some((surface, position, _)) = self.positions[index].take() else {
+            return;
+        };
+        let key = cell_key(&surface, position);
+        let empty = self.cells.get_mut(&key).is_some_and(|cell| {
+            cell.retain(|candidate| *candidate != index);
+            cell.is_empty()
+        });
+        if empty {
+            self.cells.remove(&key);
+        }
+    }
+
+    fn nearby_indices(&self, surface: &str, point: Point3, radius_m: f64) -> Vec<usize> {
+        let cell_range = ((radius_m + self.max_radius_m) / SPATIAL_CELL_M).ceil() as i64;
+        let center = cell_key(surface, point);
+        let mut candidates = Vec::new();
+        for offset_y in -cell_range..=cell_range {
+            for offset_x in -cell_range..=cell_range {
+                let key = CellKey {
+                    surface: surface.to_owned(),
+                    x: center.x + offset_x,
+                    y: center.y + offset_y,
+                };
+                if let Some(cell) = self.cells.get(&key) {
+                    candidates.extend(cell);
+                }
+            }
+        }
+        candidates.sort_unstable();
+        candidates
     }
 }
 
@@ -2097,7 +2141,7 @@ fn integrate(
             _ => {}
         }
     }
-    let spatial_snapshot = SpatialSnapshot::from_agents(agents);
+    let mut spatial_index = SpatialIndex::from_agents(agents);
     let mut lift_loads = current_lift_loads(agents);
     for (index, connector) in scenario.connectors.iter().enumerate() {
         let Some(service_rate_per_s) = scenario.connector_service_rate_at(connector.id(), time_s)
@@ -2146,6 +2190,16 @@ fn integrate(
                     agent.surface = next_surface.clone();
                     agent.route_cursor += 1;
                     agent.motion = Motion::OnSurface;
+                    agent.position = resolve_local_position(
+                        agent,
+                        agent.position,
+                        index,
+                        surface_for(scenario, &agent.surface),
+                        &scenario.obstacles,
+                        &spatial_index,
+                    )
+                    .unwrap_or(agent.position);
+                    spatial_index.update(index, &agent.surface, agent.position, agent.radius_m);
                     events.push(RunEvent {
                         time_s,
                         kind: "connector_arrival".to_owned(),
@@ -2213,7 +2267,7 @@ fn integrate(
                     agent,
                     target,
                     step_elapsed_s,
-                    &spatial_snapshot,
+                    &mut spatial_index,
                     index,
                     surface,
                     &scenario.obstacles,
@@ -2360,6 +2414,7 @@ fn integrate(
                             }
                             agent.waiting_for_exit = false;
                             agent.motion = Motion::Evacuated { at_s: time_s };
+                            spatial_index.remove(index);
                             events.push(RunEvent {
                                 time_s,
                                 kind: "evacuated".to_owned(),
@@ -2446,6 +2501,7 @@ fn integrate(
                             end: connector.to(),
                             next_surface: connector.to_surface().to_owned(),
                         };
+                        spatial_index.remove(index);
                         events.push(RunEvent {
                             time_s,
                             kind: "connector_boarding".to_owned(),
@@ -2472,6 +2528,14 @@ fn current_lift_loads(agents: &[Agent]) -> HashMap<usize, u32> {
     loads
 }
 
+fn surface_for<'a>(scenario: &'a Scenario, surface_id: &str) -> &'a Surface {
+    scenario
+        .surfaces
+        .iter()
+        .find(|surface| surface.id == surface_id)
+        .expect("validated surface exists")
+}
+
 fn queue_entered_event(
     time_s: f64,
     agent_id: &str,
@@ -2491,7 +2555,7 @@ fn move_toward(
     agent: &mut Agent,
     target: Point3,
     timestep_s: f64,
-    spatial_snapshot: &SpatialSnapshot,
+    spatial_index: &mut SpatialIndex,
     own_index: usize,
     surface: &Surface,
     obstacles: &[Obstacle],
@@ -2507,44 +2571,71 @@ fn move_toward(
     let dz = waypoint.z_m - agent.position.z_m;
     let distance = (dx.mul_add(dx, dy.mul_add(dy, dz * dz))).sqrt();
     let travel = agent.speed_mps * timestep_s;
-    if distance <= travel {
-        agent.position = waypoint;
-        return path.len() <= 2;
-    }
-    let mut next = Point3 {
-        x_m: agent.position.x_m + (dx / distance) * travel,
-        y_m: agent.position.y_m + (dy / distance) * travel,
-        z_m: agent.position.z_m + (dz / distance) * travel,
+    let reached_waypoint = distance <= travel;
+    let planned_next = if reached_waypoint {
+        waypoint
+    } else {
+        Point3 {
+            x_m: agent.position.x_m + (dx / distance) * travel,
+            y_m: agent.position.y_m + (dy / distance) * travel,
+            z_m: agent.position.z_m + (dz / distance) * travel,
+        }
     };
-    let planned_next = next;
-    let cell_range =
-        ((agent.radius_m + spatial_snapshot.max_radius_m) / SPATIAL_CELL_M).ceil() as i64;
-    let center = cell_key(&agent.surface, next);
-    for offset_y in -cell_range..=cell_range {
-        for offset_x in -cell_range..=cell_range {
-            let key = CellKey {
-                surface: agent.surface.clone(),
-                x: center.x + offset_x,
-                y: center.y + offset_y,
-            };
-            let Some(candidates) = spatial_snapshot.cells.get(&key) else {
+    let next = resolve_local_position(
+        agent,
+        planned_next,
+        own_index,
+        surface,
+        obstacles,
+        spatial_index,
+    )
+    .unwrap_or(agent.position);
+    let reached =
+        reached_waypoint && path.len() <= 2 && next.distance(waypoint) <= NAVIGATION_EPSILON_M;
+    agent.position = next;
+    spatial_index.update(own_index, &agent.surface, agent.position, agent.radius_m);
+    reached
+}
+
+const LOCAL_SEPARATION_PASSES: u8 = 4;
+
+fn resolve_local_position(
+    agent: &Agent,
+    planned: Point3,
+    own_index: usize,
+    surface: &Surface,
+    obstacles: &[Obstacle],
+    spatial_index: &SpatialIndex,
+) -> Option<Point3> {
+    let mut next = planned;
+    for _ in 0..LOCAL_SEPARATION_PASSES {
+        let mut corrected = false;
+        for candidate in spatial_index.nearby_indices(&agent.surface, next, agent.radius_m) {
+            if candidate == own_index {
+                continue;
+            }
+            let Some((_, position, radius_m)) = &spatial_index.positions[candidate] else {
                 continue;
             };
-            for candidate in candidates {
-                if *candidate == own_index {
-                    continue;
-                }
-                let Some((_, position, radius)) = &spatial_snapshot.positions[*candidate] else {
-                    continue;
-                };
-                let separation = next.distance(*position);
-                let minimum = agent.radius_m + radius;
-                if separation > 0.0 && separation < minimum {
-                    let correction = (minimum - separation) / minimum * agent.radius_m;
-                    next.x_m += (next.x_m - position.x_m) / separation * correction;
-                    next.y_m += (next.y_m - position.y_m) / separation * correction;
-                }
+            let dx = next.x_m - position.x_m;
+            let dy = next.y_m - position.y_m;
+            let separation = dx.hypot(dy);
+            let minimum = agent.radius_m + radius_m;
+            if separation + NAVIGATION_EPSILON_M >= minimum {
+                continue;
             }
+            let (unit_x, unit_y) = if separation > NAVIGATION_EPSILON_M {
+                (dx / separation, dy / separation)
+            } else {
+                coincident_separation_direction(own_index, candidate)
+            };
+            let correction = minimum - separation + NAVIGATION_EPSILON_M;
+            next.x_m += unit_x * correction;
+            next.y_m += unit_y * correction;
+            corrected = true;
+        }
+        if !corrected {
+            break;
         }
     }
     next.x_m = next
@@ -2554,11 +2645,43 @@ fn move_toward(
         .y_m
         .clamp(surface.origin.y_m, surface.origin.y_m + surface.depth_m);
     next.z_m = surface.origin.z_m;
-    if !point_is_clear(next, surface, obstacles, agent.radius_m) {
-        next = planned_next;
-    }
-    agent.position = next;
-    false
+    (point_is_clear(next, surface, obstacles, agent.radius_m)
+        && local_position_is_clear(agent, next, own_index, spatial_index))
+    .then_some(next)
+}
+
+fn local_position_is_clear(
+    agent: &Agent,
+    point: Point3,
+    own_index: usize,
+    spatial_index: &SpatialIndex,
+) -> bool {
+    spatial_index
+        .nearby_indices(&agent.surface, point, agent.radius_m)
+        .into_iter()
+        .filter(|candidate| *candidate != own_index)
+        .all(|candidate| {
+            let (_, other, radius_m) = spatial_index.positions[candidate]
+                .as_ref()
+                .expect("spatial cell only retains occupied agent indices");
+            point.distance(*other) + NAVIGATION_EPSILON_M >= agent.radius_m + radius_m
+        })
+}
+
+fn coincident_separation_direction(own_index: usize, other_index: usize) -> (f64, f64) {
+    let (first, second, sign) = if own_index < other_index {
+        (own_index, other_index, 1.0)
+    } else {
+        (other_index, own_index, -1.0)
+    };
+    let direction = first.wrapping_mul(31).wrapping_add(second.wrapping_mul(17)) % 4;
+    let (x, y) = match direction {
+        0 => (1.0, 0.0),
+        1 => (0.0, 1.0),
+        2 => (-1.0, 0.0),
+        _ => (0.0, -1.0),
+    };
+    (x * sign, y * sign)
 }
 
 fn point_is_clear(point: Point3, surface: &Surface, obstacles: &[Obstacle], radius_m: f64) -> bool {
