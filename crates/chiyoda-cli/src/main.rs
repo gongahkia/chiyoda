@@ -5129,7 +5129,7 @@ mod tests {
         handle_layout, information_sampling_alignment, validate_bundle_metrics,
     };
     use chiyoda_core::{
-        InformationDeliveryMetrics, InformationInterventionKind, QueueMetrics,
+        InformationDeliveryMetrics, InformationInterventionKind, MovementMetrics, QueueMetrics,
         QueueResourceBreakdown, QueueResourceMetrics, RunBundle, RunOptions, SensitivityManifest,
         generator, parse, plan_sensitivity, run,
     };
@@ -5201,6 +5201,20 @@ mod tests {
                     BTreeMap::new()
                 },
             }),
+        }
+    }
+
+    fn test_movement_metrics(
+        agents_with_local_clearance_adjustments: u32,
+        local_clearance_adjustment_steps: u64,
+        cumulative_local_clearance_adjustment_m: f64,
+        maximum_local_clearance_adjustment_m: f64,
+    ) -> MovementMetrics {
+        MovementMetrics {
+            agents_with_local_clearance_adjustments,
+            local_clearance_adjustment_steps,
+            cumulative_local_clearance_adjustment_m,
+            maximum_local_clearance_adjustment_m,
         }
     }
 
@@ -6027,6 +6041,7 @@ agents passengers count 1 on concourse at (1m, 1m, 0m) to street speed 1.2m/s ra
     }
 
     #[test]
+    #[allow(clippy::too_many_lines)] // the fixture retains all legacy-coverage counters together
     fn sweep_analysis_keeps_counts_exact_and_labels_legacy_attribution() {
         let summary = SweepSummary {
             schema_version: "0.1".to_owned(),
@@ -6052,6 +6067,7 @@ agents passengers count 1 on concourse at (1m, 1m, 0m) to street speed 1.2m/s ra
                     information_delivery: BTreeMap::new(),
                     queue_experience: None,
                     queue_metrics: None,
+                    movement_metrics: None,
                     clearance_time_s: Some(2.0),
                     last_exit_time_s: None,
                 },
@@ -6068,6 +6084,7 @@ agents passengers count 1 on concourse at (1m, 1m, 0m) to street speed 1.2m/s ra
                     information_delivery: BTreeMap::new(),
                     queue_experience: None,
                     queue_metrics: None,
+                    movement_metrics: None,
                     clearance_time_s: None,
                     last_exit_time_s: None,
                 },
@@ -6084,6 +6101,7 @@ agents passengers count 1 on concourse at (1m, 1m, 0m) to street speed 1.2m/s ra
                     information_delivery: BTreeMap::new(),
                     queue_experience: None,
                     queue_metrics: None,
+                    movement_metrics: None,
                     clearance_time_s: Some(4.0),
                     last_exit_time_s: None,
                 },
@@ -6117,6 +6135,8 @@ agents passengers count 1 on concourse at (1m, 1m, 0m) to street speed 1.2m/s ra
         assert_eq!(analysis.queue_experience.queued_for_exit_agents, 0);
         assert_eq!(analysis.queue_telemetry.observed_runs, 0);
         assert_eq!(analysis.queue_telemetry.unobserved_legacy_runs, 3);
+        assert_eq!(analysis.movement_telemetry.observed_runs, 0);
+        assert_eq!(analysis.movement_telemetry.unobserved_legacy_runs, 3);
         let clearance_time = analysis
             .clearance_time_s
             .expect("one run reached full clearance");
@@ -6362,6 +6382,18 @@ agents passengers count 1 on concourse at (1m, 1m, 0m) to street speed 1m/s radi
                 .is_object(),
             "current sweeps attribute queue telemetry to constrained resources"
         );
+        assert!(
+            baseline_summary["runs"][0]["movement_metrics"].is_object(),
+            "current sweeps persist local-clearance telemetry"
+        );
+        assert!(
+            comparison["aggregate"]["candidate_minus_baseline"]["movement_telemetry"].is_object(),
+            "current comparisons retain local-clearance telemetry deltas"
+        );
+        assert!(
+            report["conditions"][0]["outcome"]["movement_telemetry_delta"].is_object(),
+            "current sensitivity reports retain local-clearance telemetry deltas"
+        );
         let baseline_summary_for_analysis: SweepSummary =
             super::read_json(&baseline_summary_path).expect("baseline summary deserializes");
         let baseline_analysis = describe_sweep(&baseline_summary_for_analysis);
@@ -6400,6 +6432,21 @@ agents passengers count 1 on concourse at (1m, 1m, 0m) to street speed 1m/s radi
         assert!(
             format!("{queue_error:#}").contains("summary queue experience"),
             "unexpected queue-experience verification error: {queue_error:#}"
+        );
+        fs::write(&baseline_summary_path, original_summary).expect("restoring baseline summary");
+
+        let original_summary = fs::read(&baseline_summary_path).expect("reading baseline summary");
+        let mut altered_summary: serde_json::Value =
+            super::read_json(&baseline_summary_path).expect("baseline summary parses");
+        altered_summary["runs"][0]["movement_metrics"]["local_clearance_adjustment_steps"] =
+            serde_json::Value::from(99);
+        super::write_json(&baseline_summary_path, &altered_summary)
+            .expect("altering local-clearance telemetry summary");
+        let movement_telemetry_error = super::verify_sweep(&output.join("baseline"))
+            .expect_err("altered local-clearance telemetry must not verify");
+        assert!(
+            format!("{movement_telemetry_error:#}").contains("summary local-clearance telemetry"),
+            "unexpected local-clearance telemetry verification error: {movement_telemetry_error:#}"
         );
         fs::write(&baseline_summary_path, original_summary).expect("restoring baseline summary");
 
@@ -6504,6 +6551,7 @@ agents passengers count 1 on concourse at (1m, 1m, 0m) to street speed 1m/s radi
                 information_delivery: BTreeMap::new(),
                 queue_experience: None,
                 queue_metrics: None,
+                movement_metrics: None,
                 clearance_time_s: Some(8.0),
                 last_exit_time_s: None,
             }],
@@ -6560,6 +6608,7 @@ agents passengers count 1 on concourse at (1m, 1m, 0m) to street speed 1m/s radi
                         (0, 0.0, 0),
                         (0, 0.0, 0),
                     )),
+                    movement_metrics: Some(test_movement_metrics(1, 2, 0.8, 0.5)),
                     clearance_time_s: Some(10.0),
                     last_exit_time_s: Some(10.0),
                 },
@@ -6593,6 +6642,7 @@ agents passengers count 1 on concourse at (1m, 1m, 0m) to street speed 1m/s radi
                         (1, 1.0, 1),
                         (0, 0.0, 0),
                     )),
+                    movement_metrics: Some(test_movement_metrics(0, 0, 0.0, 0.0)),
                     clearance_time_s: Some(20.0),
                     last_exit_time_s: Some(20.0),
                 },
@@ -6641,6 +6691,7 @@ agents passengers count 1 on concourse at (1m, 1m, 0m) to street speed 1m/s radi
                         (0, 0.0, 0),
                         (0, 0.0, 0),
                     )),
+                    movement_metrics: Some(test_movement_metrics(2, 3, 1.5, 0.8)),
                     clearance_time_s: Some(9.0),
                     last_exit_time_s: Some(9.0),
                 },
@@ -6674,6 +6725,7 @@ agents passengers count 1 on concourse at (1m, 1m, 0m) to street speed 1m/s radi
                         (3, 4.0, 3),
                         (0, 0.0, 0),
                     )),
+                    movement_metrics: Some(test_movement_metrics(1, 1, 0.3, 0.3)),
                     clearance_time_s: None,
                     last_exit_time_s: Some(14.0),
                 },
@@ -6780,6 +6832,25 @@ agents passengers count 1 on concourse at (1m, 1m, 0m) to street speed 1m/s radi
         assert_eq!(queue_telemetry_delta.gate.ever_queued_agents, 2);
         assert!(
             (queue_telemetry_delta.gate.cumulative_wait_agent_seconds - 3.0).abs() < f64::EPSILON
+        );
+        let movement_telemetry_delta = comparison
+            .aggregate
+            .candidate_minus_baseline
+            .movement_telemetry
+            .as_ref()
+            .expect("current local-clearance telemetry difference is reported");
+        assert_eq!(
+            movement_telemetry_delta.agents_with_local_clearance_adjustments,
+            2
+        );
+        assert_eq!(movement_telemetry_delta.local_clearance_adjustment_steps, 2);
+        assert!(
+            (movement_telemetry_delta.cumulative_local_clearance_adjustment_m - 1.0).abs()
+                < f64::EPSILON
+        );
+        assert!(
+            (movement_telemetry_delta.maximum_local_clearance_adjustment_m - 0.3).abs()
+                < f64::EPSILON
         );
         assert_eq!(queue_telemetry_delta.gate.maximum_peak_waiting_agents, 2);
         let attributed_queue_delta = queue_telemetry_delta
@@ -6912,6 +6983,7 @@ agents passengers count 1 on concourse at (1m, 1m, 0m) to street speed 1m/s radi
                 information_delivery: BTreeMap::new(),
                 queue_experience: None,
                 queue_metrics: None,
+                movement_metrics: None,
                 clearance_time_s: Some(1.0),
                 last_exit_time_s: Some(1.0),
             }],
@@ -6964,6 +7036,7 @@ agents passengers count 1 on concourse at (1m, 1m, 0m) to street speed 1m/s radi
                 information_delivery: BTreeMap::new(),
                 queue_experience: None,
                 queue_metrics: None,
+                movement_metrics: None,
                 clearance_time_s: Some(1.0),
                 last_exit_time_s: Some(1.0),
             }],

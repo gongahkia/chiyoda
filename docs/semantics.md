@@ -116,6 +116,20 @@ remain, `last_exit_time_s` records the final observed evacuation instead. The
 two measurements must not be substituted for each other: a partial run has no
 system clearance time.
 
+Current bundles also retain `movement_metrics`, an audit record for the
+local-clearance resolver. `agents_with_local_clearance_adjustments` counts
+distinct agents whose planned ordinary on-surface movement, waypoint arrival,
+or connector arrival was changed or deferred by that resolver.
+`local_clearance_adjustment_steps` counts those individual attempted-position
+adjustments larger than the navigation clearance epsilon;
+`cumulative_local_clearance_adjustment_m` sums the Euclidean
+distance from planned to resolved position, and
+`maximum_local_clearance_adjustment_m` is the largest one-attempt distance.
+Resource-target arrivals that use the abstract connector, gate, and exit token
+queues are excluded because those queues have no authored geometric location.
+This telemetry is not a count of contacts or collisions, a density measure, a
+physical crowd model, an observed delay, or calibration evidence.
+
 Current bundles also retain discrete `queue_metrics` for lift, non-lift
 connector, gate, and exit capacity queues. `ever_queued_agents` is the number
 of agents that entered a queue at least once; it mirrors the older top-level

@@ -2217,9 +2217,11 @@ agents south count 1 on concourse at (1m, 6m, 0m) to street speed 20m/s radius 0
     assert_eq!(movement.agents_with_local_clearance_adjustments, 1);
     assert_eq!(movement.local_clearance_adjustment_steps, 1);
     assert!(movement.cumulative_local_clearance_adjustment_m >= 0.6);
-    assert_eq!(
-        movement.cumulative_local_clearance_adjustment_m,
-        movement.maximum_local_clearance_adjustment_m
+    assert!(
+        (movement.cumulative_local_clearance_adjustment_m
+            - movement.maximum_local_clearance_adjustment_m)
+            .abs()
+            < f64::EPSILON
     );
 }
 

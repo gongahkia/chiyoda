@@ -2926,4 +2926,21 @@ mod tests {
                 .is_none()
         );
     }
+
+    #[test]
+    fn pre_028_bundle_without_local_clearance_telemetry_remains_deserializable() {
+        let scenario = generator::scenario(73).expect("generated scenario is valid");
+        let bundle = run(&scenario, RunOptions::default()).expect("runtime succeeds");
+        let mut encoded = serde_json::to_value(bundle).expect("current bundle serializes");
+        encoded["bundle_version"] = serde_json::Value::String("0.27".to_owned());
+        encoded["metrics"]
+            .as_object_mut()
+            .expect("metrics is an object")
+            .remove("movement_metrics");
+
+        let legacy: crate::RunBundle =
+            serde_json::from_value(encoded).expect("pre-0.28 bundle remains readable");
+
+        assert!(legacy.metrics.movement_metrics.is_none());
+    }
 }
