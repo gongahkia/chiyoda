@@ -13,6 +13,25 @@ class BundleError(ValueError):
     """A run bundle is malformed or fails its integrity contract."""
 
 
+_CURRENT_BUNDLE_VERSIONS = frozenset({"0.17", "0.18", "0.19", "0.20", "0.21", "0.22", "0.23"})
+_INFORMATION_DELIVERY_BUNDLE_VERSIONS = frozenset({"0.18", "0.19", "0.20", "0.21", "0.22", "0.23"})
+_QUEUE_METRIC_BUNDLE_VERSIONS = frozenset({"0.22", "0.23"})
+_RESOURCE_QUEUE_METRIC_BUNDLE_VERSIONS = frozenset({"0.23"})
+_REMAINING_AGENT_STATES = frozenset(
+    {
+        "moving",
+        "waiting_to_depart",
+        "waiting_at_waypoint",
+        "waiting_for_route",
+        "waiting_for_lift",
+        "waiting_for_connector",
+        "waiting_for_gate",
+        "waiting_for_exit",
+        "in_transit",
+    }
+)
+
+
 def load_bundle(path: str | Path, *, verify: bool = True) -> dict[str, Any]:
     """Load a `run.json` bundle and optionally verify its SHA-256 digest.
 
@@ -49,10 +68,18 @@ def summarize(bundle: dict[str, Any]) -> dict[str, Any]:
     evacuated_by_exit = _count_map(metrics, "evacuated_by_exit", "exit identifiers")
     remaining_by_state = _count_map(metrics, "remaining_by_state", "state identifiers")
     information_delivery = _information_delivery(metrics)
+    queue_metrics = _queue_metrics(bundle, metrics)
     clearance_time_s = _optional_time(metrics, "clearance_time_s")
     last_exit_time_s = _optional_time(metrics, "last_exit_time_s")
     _validate_exit_time_semantics(bundle, metrics, clearance_time_s, last_exit_time_s)
     _validate_information_delivery_semantics(bundle, scenario_body, information_delivery)
+    _validate_metric_attribution(
+        bundle,
+        scenario_body,
+        metrics,
+        evacuated_by_exit,
+        remaining_by_state,
+    )
     return {
         "bundle_hash": bundle.get("bundle_hash"),
         "scenario_hash": bundle.get("scenario_hash"),
@@ -63,6 +90,7 @@ def summarize(bundle: dict[str, Any]) -> dict[str, Any]:
         "evacuated_by_exit": evacuated_by_exit,
         "remaining_by_state": remaining_by_state,
         "information_delivery": information_delivery,
+        "queue_metrics": queue_metrics,
         "clearance_time_s": clearance_time_s,
         "last_exit_time_s": last_exit_time_s,
         "metrics": metrics,
@@ -121,6 +149,173 @@ def _information_delivery(metrics: dict[str, Any]) -> dict[str, dict[str, int | 
     return normalized
 
 
+def _queue_metrics(bundle: dict[str, Any], metrics: dict[str, Any]) -> dict[str, Any]:
+    """Validate current discrete queue telemetry without treating it as observed flow."""
+
+    if bundle.get("bundle_version") not in _QUEUE_METRIC_BUNDLE_VERSIONS:
+        return {}
+    queue_metrics = metrics.get("queue_metrics")
+    expected_fields = {"lift", "connector", "gate", "exit"}
+    if bundle.get("bundle_version") in _RESOURCE_QUEUE_METRIC_BUNDLE_VERSIONS:
+        expected_fields.add("by_resource")
+    if not isinstance(queue_metrics, dict) or set(queue_metrics) != expected_fields:
+        raise BundleError("current metrics.queue_metrics must cover lift, connector, gate, and exit")
+    total_agents, _ = _current_agent_counts(metrics)
+    legacy_fields = {
+        "lift": "queued_for_lift_agents",
+        "connector": "queued_for_connector_agents",
+        "gate": "queued_for_gate_agents",
+        "exit": "queued_for_exit_agents",
+    }
+    normalized: dict[str, Any] = {}
+    for resource, legacy_field in legacy_fields.items():
+        value = queue_metrics[resource]
+        if not isinstance(value, dict):
+            raise BundleError(f"metrics.queue_metrics.{resource} must be an object")
+        ever_queued = value.get("ever_queued_agents")
+        cumulative_wait = value.get("cumulative_wait_agent_seconds")
+        peak_waiting = value.get("peak_waiting_agents")
+        if (
+            isinstance(ever_queued, bool)
+            or not isinstance(ever_queued, int)
+            or ever_queued < 0
+            or ever_queued > total_agents
+            or isinstance(cumulative_wait, bool)
+            or not isinstance(cumulative_wait, (int, float))
+            or not math.isfinite(cumulative_wait)
+            or cumulative_wait < 0
+            or isinstance(peak_waiting, bool)
+            or not isinstance(peak_waiting, int)
+            or peak_waiting < 0
+            or peak_waiting > ever_queued
+            or metrics.get(legacy_field) != ever_queued
+        ):
+            raise BundleError(f"metrics.queue_metrics.{resource} is invalid or disagrees with its exposure count")
+        normalized[resource] = {
+            "ever_queued_agents": ever_queued,
+            "cumulative_wait_agent_seconds": float(cumulative_wait),
+            "peak_waiting_agents": peak_waiting,
+        }
+    if bundle.get("bundle_version") in _RESOURCE_QUEUE_METRIC_BUNDLE_VERSIONS:
+        normalized["by_resource"] = _queue_resource_breakdown(
+            queue_metrics["by_resource"], normalized, _queue_resource_ids(bundle)
+        )
+    return normalized
+
+
+def _queue_resource_ids(bundle: dict[str, Any]) -> dict[str, set[str]]:
+    """Derive the exact current queueable-resource sets from canonical IR."""
+
+    canonical = bundle.get("scenario")
+    scenario = canonical.get("scenario") if isinstance(canonical, dict) else None
+    if not isinstance(scenario, dict):
+        raise BundleError("current bundle must contain a canonical scenario for queue attribution")
+    connectors = scenario.get("connectors")
+    gates = scenario.get("gates")
+    exits = scenario.get("exits")
+    if not isinstance(connectors, list) or not isinstance(gates, list) or not isinstance(exits, list):
+        raise BundleError("current canonical scenario lacks resource declarations for queue attribution")
+
+    resource_ids = {"lifts": set(), "connectors": set(), "gates": set(), "exits": set()}
+    for connector in connectors:
+        if not isinstance(connector, dict) or len(connector) != 1:
+            raise BundleError("current canonical connector declaration is malformed")
+        kind, properties = next(iter(connector.items()))
+        if kind not in {"Stair", "Ramp", "Escalator", "Lift"} or not isinstance(properties, dict):
+            raise BundleError("current canonical connector kind is malformed")
+        identifier = properties.get("id")
+        if not isinstance(identifier, str) or not identifier:
+            raise BundleError("current canonical connector has an invalid identifier")
+        if kind == "Lift":
+            resource_ids["lifts"].add(identifier)
+        elif properties.get("capacity_per_s") is not None:
+            resource_ids["connectors"].add(identifier)
+    for gate in gates:
+        if not isinstance(gate, dict) or not isinstance(gate.get("id"), str) or not gate["id"]:
+            raise BundleError("current canonical gate has an invalid identifier")
+        resource_ids["gates"].add(gate["id"])
+    for exit_ in exits:
+        if not isinstance(exit_, dict) or not isinstance(exit_.get("id"), str) or not exit_["id"]:
+            raise BundleError("current canonical exit has an invalid identifier")
+        if exit_.get("capacity_per_s") is not None:
+            resource_ids["exits"].add(exit_["id"])
+    return resource_ids
+
+
+def _queue_resource_breakdown(
+    value: Any, aggregate: dict[str, Any], expected_ids: dict[str, set[str]]
+) -> dict[str, dict[str, dict[str, int | float]]]:
+    """Validate queue-resource attribution without interpreting it as field data."""
+
+    expected_fields = {
+        "lifts": "lift",
+        "connectors": "connector",
+        "gates": "gate",
+        "exits": "exit",
+    }
+    if not isinstance(value, dict) or set(value) != set(expected_fields):
+        raise BundleError("current metrics.queue_metrics.by_resource has invalid resource groups")
+
+    normalized: dict[str, dict[str, dict[str, int | float]]] = {}
+    for collection, aggregate_name in expected_fields.items():
+        resources = value[collection]
+        if not isinstance(resources, dict) or not all(isinstance(identifier, str) for identifier in resources):
+            raise BundleError(f"metrics.queue_metrics.by_resource.{collection} must map identifiers")
+        if set(resources) != expected_ids[collection]:
+            raise BundleError(
+                f"metrics.queue_metrics.by_resource.{collection} identifiers disagree with the scenario"
+            )
+        cumulative_wait = 0.0
+        exposures = 0
+        normalized_resources: dict[str, dict[str, int | float]] = {}
+        for identifier, telemetry in resources.items():
+            if not isinstance(telemetry, dict) or set(telemetry) != {
+                "ever_queued_agents",
+                "cumulative_wait_agent_seconds",
+                "peak_waiting_agents",
+            }:
+                raise BundleError(
+                    f"metrics.queue_metrics.by_resource.{collection}.{identifier} is malformed"
+                )
+            ever_queued = telemetry["ever_queued_agents"]
+            cumulative = telemetry["cumulative_wait_agent_seconds"]
+            peak_waiting = telemetry["peak_waiting_agents"]
+            aggregate_telemetry = aggregate[aggregate_name]
+            if (
+                not isinstance(ever_queued, int)
+                or isinstance(ever_queued, bool)
+                or not isinstance(peak_waiting, int)
+                or isinstance(peak_waiting, bool)
+                or not isinstance(cumulative, (int, float))
+                or isinstance(cumulative, bool)
+                or ever_queued < 0
+                or peak_waiting < 0
+                or peak_waiting > ever_queued
+                or peak_waiting > aggregate_telemetry["peak_waiting_agents"]
+                or not math.isfinite(cumulative)
+                or cumulative < 0
+            ):
+                raise BundleError(
+                    f"metrics.queue_metrics.by_resource.{collection}.{identifier} is invalid"
+                )
+            exposures += ever_queued
+            cumulative_wait = round(cumulative_wait + float(cumulative), 9)
+            normalized_resources[identifier] = {
+                "ever_queued_agents": ever_queued,
+                "cumulative_wait_agent_seconds": float(cumulative),
+                "peak_waiting_agents": peak_waiting,
+            }
+        if (
+            cumulative_wait != aggregate[aggregate_name]["cumulative_wait_agent_seconds"]
+            or exposures < aggregate[aggregate_name]["ever_queued_agents"]
+        ):
+            raise BundleError(
+                f"metrics.queue_metrics.by_resource.{collection} disagrees with its aggregate"
+            )
+        normalized[collection] = normalized_resources
+    return normalized
+
+
 def _validate_exit_time_semantics(
     bundle: dict[str, Any],
     metrics: dict[str, Any],
@@ -129,20 +324,9 @@ def _validate_exit_time_semantics(
 ) -> None:
     """Apply the versioned clearance distinction without rejecting older bundles."""
 
-    if bundle.get("bundle_version") not in {"0.17", "0.18", "0.19"}:
+    if bundle.get("bundle_version") not in _CURRENT_BUNDLE_VERSIONS:
         return
-    total_agents = metrics.get("total_agents")
-    evacuated_agents = metrics.get("evacuated_agents")
-    if (
-        isinstance(total_agents, bool)
-        or not isinstance(total_agents, int)
-        or total_agents < 0
-        or isinstance(evacuated_agents, bool)
-        or not isinstance(evacuated_agents, int)
-        or evacuated_agents < 0
-        or evacuated_agents > total_agents
-    ):
-        raise BundleError("current metrics must contain valid total_agents and evacuated_agents counts")
+    total_agents, evacuated_agents = _current_agent_counts(metrics)
     if (clearance_time_s is not None) != (evacuated_agents == total_agents):
         raise BundleError("current clearance_time_s must be present exactly for a fully evacuated run")
     if (last_exit_time_s is not None) != (evacuated_agents > 0):
@@ -156,23 +340,69 @@ def _validate_information_delivery_semantics(
     scenario: dict[str, Any],
     delivery: dict[str, dict[str, int | str]],
 ) -> None:
-    if bundle.get("bundle_version") not in {"0.18", "0.19"}:
+    if bundle.get("bundle_version") not in _INFORMATION_DELIVERY_BUNDLE_VERSIONS:
         return
     messages = scenario.get("messages", [])
     countermeasures = scenario.get("countermeasures", [])
     if not isinstance(messages, list) or not isinstance(countermeasures, list):
-        raise BundleError("0.18 scenario must contain messages and countermeasures arrays")
+        raise BundleError("current scenario must contain messages and countermeasures arrays")
     expected: dict[str, str] = {}
     for kind, interventions in (("message", messages), ("countermeasure", countermeasures)):
         for intervention in interventions:
             if not isinstance(intervention, dict) or not isinstance(intervention.get("id"), str):
-                raise BundleError("0.18 scenario contains a malformed information intervention")
+                raise BundleError("current scenario contains a malformed information intervention")
             expected[intervention["id"]] = kind
     if set(delivery) != set(expected):
-        raise BundleError("0.18 information_delivery must cover every declared intervention")
+        raise BundleError("current information_delivery must cover every declared intervention")
     for intervention, expected_kind in expected.items():
         if delivery[intervention]["kind"] != expected_kind:
-            raise BundleError("0.18 information_delivery kind disagrees with the scenario")
+            raise BundleError("current information_delivery kind disagrees with the scenario")
+
+
+def _validate_metric_attribution(
+    bundle: dict[str, Any],
+    scenario: dict[str, Any],
+    metrics: dict[str, Any],
+    evacuated_by_exit: dict[str, int],
+    remaining_by_state: dict[str, int],
+) -> None:
+    """Mirror the current runtime's non-time metric invariants when available."""
+
+    if bundle.get("bundle_version") not in _CURRENT_BUNDLE_VERSIONS:
+        return
+    total_agents, evacuated_agents = _current_agent_counts(metrics)
+    if evacuated_by_exit:
+        exits = scenario.get("exits", [])
+        if not isinstance(exits, list) or any(
+            not isinstance(exit_, dict) or not isinstance(exit_.get("id"), str) for exit_ in exits
+        ):
+            raise BundleError("current scenario must contain exits with string identifiers")
+        exit_ids = {exit_["id"] for exit_ in exits}
+        if not set(evacuated_by_exit).issubset(exit_ids):
+            raise BundleError("metrics.evacuated_by_exit contains an unknown exit")
+        if sum(evacuated_by_exit.values()) != evacuated_agents:
+            raise BundleError("metrics.evacuated_by_exit must total evacuated_agents")
+    if remaining_by_state:
+        if not set(remaining_by_state).issubset(_REMAINING_AGENT_STATES):
+            raise BundleError("metrics.remaining_by_state contains an unknown agent state")
+        if sum(remaining_by_state.values()) != total_agents - evacuated_agents:
+            raise BundleError("metrics.remaining_by_state must total non-evacuated agents")
+
+
+def _current_agent_counts(metrics: dict[str, Any]) -> tuple[int, int]:
+    total_agents = metrics.get("total_agents")
+    evacuated_agents = metrics.get("evacuated_agents")
+    if (
+        isinstance(total_agents, bool)
+        or not isinstance(total_agents, int)
+        or total_agents < 0
+        or isinstance(evacuated_agents, bool)
+        or not isinstance(evacuated_agents, int)
+        or evacuated_agents < 0
+        or evacuated_agents > total_agents
+    ):
+        raise BundleError("current metrics must contain valid total_agents and evacuated_agents counts")
+    return total_agents, evacuated_agents
 
 
 def _verify_hash(bundle: dict[str, Any]) -> None:

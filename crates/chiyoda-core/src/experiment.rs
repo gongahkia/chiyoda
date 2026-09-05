@@ -12,7 +12,8 @@ use std::{
     path::{Component, Path},
 };
 
-const EXPERIMENT_SCHEMA_VERSION: &str = "0.1";
+const LEGACY_EXPERIMENT_SCHEMA_VERSION: &str = "0.1";
+const EXPERIMENT_SCHEMA_VERSION: &str = "0.2";
 const DEFAULT_TRACE_EVERY_STEPS: u32 = 10;
 
 /// An authored, uncalibrated scenario and the assumptions used to interpret it.
@@ -31,8 +32,28 @@ pub struct ExperimentManifest {
     /// Open sources that informed assumptions. They do not calibrate the run.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub sources: Vec<SensitivityReference>,
+    /// Optional source-specific verification declarations. Schema 0.2 makes
+    /// one source-observation workflow reproducible at artifact creation.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub source_attestations: Vec<ExperimentSourceAttestation>,
     /// The author's intended-use and interpretation boundary.
     pub claim_boundary: String,
+}
+
+/// An external-source check that must succeed before an experiment artifact is
+/// created. It documents source provenance; it does not validate the scenario
+/// or upgrade the experiment beyond its uncalibrated claim boundary.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum ExperimentSourceAttestation {
+    /// Rebuild a content-locked OSM observation from its XML, then rebuild the
+    /// source's declared local-coordinate projection from that observation.
+    OsmLocalProjection {
+        source_id: String,
+        catalog_path: String,
+        data_root: String,
+        observation_report_path: String,
+    },
 }
 
 fn default_trace_every_steps() -> u32 {
@@ -76,10 +97,23 @@ pub fn validate_experiment_manifest(
     manifest: &ExperimentManifest,
 ) -> Result<(), Vec<ExperimentValidationError>> {
     let mut errors = Vec::new();
-    if manifest.schema_version != EXPERIMENT_SCHEMA_VERSION {
+    if !matches!(
+        manifest.schema_version.as_str(),
+        LEGACY_EXPERIMENT_SCHEMA_VERSION | EXPERIMENT_SCHEMA_VERSION
+    ) {
         errors.push(issue(
             "schema_version",
-            format!("must be `{EXPERIMENT_SCHEMA_VERSION}`"),
+            format!(
+                "must be `{LEGACY_EXPERIMENT_SCHEMA_VERSION}` or `{EXPERIMENT_SCHEMA_VERSION}`"
+            ),
+        ));
+    }
+    if manifest.schema_version == LEGACY_EXPERIMENT_SCHEMA_VERSION
+        && !manifest.source_attestations.is_empty()
+    {
+        errors.push(issue(
+            "source_attestations",
+            "requires schema_version `0.2`",
         ));
     }
     for (field, value) in [
@@ -200,6 +234,60 @@ pub fn validate_experiment_manifest(
         }
     }
 
+    let mut attested_sources = BTreeSet::new();
+    for (index, attestation) in manifest.source_attestations.iter().enumerate() {
+        let path = format!("source_attestations[{index}]");
+        let (source_id, catalog_path, data_root, observation_report_path) = match attestation {
+            ExperimentSourceAttestation::OsmLocalProjection {
+                source_id,
+                catalog_path,
+                data_root,
+                observation_report_path,
+            } => (source_id, catalog_path, data_root, observation_report_path),
+        };
+        if !is_safe_identifier(source_id) {
+            errors.push(issue(
+                &format!("{path}.source_id"),
+                "must be a safe identifier",
+            ));
+        }
+        if !attested_sources.insert(source_id.as_str()) {
+            errors.push(issue(
+                &format!("{path}.source_id"),
+                "must not be attested more than once",
+            ));
+        }
+        let Some(source) = manifest
+            .sources
+            .iter()
+            .find(|source| source.id == *source_id)
+        else {
+            errors.push(issue(
+                &format!("{path}.source_id"),
+                format!("references unknown source `{source_id}`"),
+            ));
+            continue;
+        };
+        if source.derived_report.is_none() {
+            errors.push(issue(
+                &format!("{path}.source_id"),
+                "must reference a source with a derived_report",
+            ));
+        }
+        for (field, value) in [
+            ("catalog_path", catalog_path),
+            ("data_root", data_root),
+            ("observation_report_path", observation_report_path),
+        ] {
+            if !is_safe_relative_path(value) {
+                errors.push(issue(
+                    &format!("{path}.{field}"),
+                    "must be a non-empty relative path without `.` or `..` components",
+                ));
+            }
+        }
+    }
+
     if errors.is_empty() {
         Ok(())
     } else {
@@ -241,9 +329,10 @@ fn issue(path: &str, message: impl Into<String>) -> ExperimentValidationError {
 #[cfg(test)]
 mod tests {
     use super::{
-        AssumptionBasis, ExperimentAssumption, ExperimentManifest, SensitivityReference,
-        validate_experiment_manifest,
+        AssumptionBasis, ExperimentAssumption, ExperimentManifest, ExperimentSourceAttestation,
+        SensitivityReference, validate_experiment_manifest,
     };
+    use crate::SensitivityDerivedReport;
 
     fn manifest() -> ExperimentManifest {
         ExperimentManifest {
@@ -268,6 +357,7 @@ mod tests {
                 source_sha256: None,
                 derived_report: None,
             }],
+            source_attestations: Vec::new(),
             claim_boundary: "not predictive or operational".to_owned(),
         }
     }
@@ -280,5 +370,21 @@ mod tests {
         invalid.assumptions[0].source_ids = vec!["missing".to_owned()];
         invalid.scenario_source = "../scenario.chy".to_owned();
         assert!(validate_experiment_manifest(&invalid).is_err());
+
+        let mut attested = manifest();
+        attested.source_attestations = vec![ExperimentSourceAttestation::OsmLocalProjection {
+            source_id: "trajectory_report".to_owned(),
+            catalog_path: "catalog.json".to_owned(),
+            data_root: "data".to_owned(),
+            observation_report_path: "observation.json".to_owned(),
+        }];
+        assert!(validate_experiment_manifest(&attested).is_err());
+        attested.schema_version = "0.2".to_owned();
+        assert!(validate_experiment_manifest(&attested).is_err());
+        attested.sources[0].derived_report = Some(SensitivityDerivedReport {
+            path: "projection.json".to_owned(),
+            sha256: "a".repeat(64),
+        });
+        assert!(validate_experiment_manifest(&attested).is_ok());
     }
 }

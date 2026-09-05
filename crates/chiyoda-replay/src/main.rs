@@ -1,8 +1,9 @@
 use anyhow::{Context, Result, bail};
 use chiyoda_core::{
-    AgentState, RunBundle,
+    AgentState, BundleVerification, RunBundle,
     bundle::TraceFrame,
     model::{ConnectorKind, Scenario, Surface},
+    verify_run_bundle,
 };
 use clap::Parser;
 use minifb::{Key, KeyRepeat, Window, WindowOptions};
@@ -49,6 +50,9 @@ struct Cli {
     /// Simulation seconds shown per wall-clock second.
     #[arg(long, default_value_t = 1.0)]
     speed: f64,
+    /// Permit a hash-only display of an incompatible legacy runtime artifact.
+    #[arg(long)]
+    allow_legacy_hash_only: bool,
 }
 
 fn main() -> Result<()> {
@@ -57,8 +61,18 @@ fn main() -> Result<()> {
         .with_context(|| format!("reading {}", cli.bundle.display()))?;
     let bundle: RunBundle = serde_json::from_str(&source)
         .with_context(|| format!("parsing {}", cli.bundle.display()))?;
-    if !bundle.verifies_hash() {
-        bail!("bundle integrity check failed");
+    match verify_run_bundle(&bundle)? {
+        BundleVerification::Reconstructed => {}
+        BundleVerification::HashOnlyLegacy if cli.allow_legacy_hash_only => {
+            eprintln!(
+                "warning: bundle uses an incompatible runtime contract; only its hash was verified"
+            );
+        }
+        BundleVerification::HashOnlyLegacy => {
+            bail!(
+                "bundle uses an incompatible runtime contract and cannot be reconstructed; pass --allow-legacy-hash-only only to display its hash"
+            );
+        }
     }
     if bundle.trace.is_empty() {
         bail!("bundle contains no trace frames");
@@ -268,6 +282,7 @@ fn draw_frame(
             | AgentState::WaitingForRoute => WAITING_TO_DEPART,
             AgentState::WaitingForLift
             | AgentState::WaitingForConnector
+            | AgentState::WaitingForGate
             | AgentState::WaitingForExit
             | AgentState::InTransit => IN_TRANSIT,
             AgentState::Evacuated => EVACUATED,

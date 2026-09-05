@@ -1,7 +1,8 @@
-# Executable semantics 0.21
+# Executable semantics 0.23
 
-The Rust `chiyoda-core` runtime is the reference interpreter for language
-version 0.21. This document is normative where it describes public behavior;
+The Rust `chiyoda-core` runtime is the reference interpreter for language 0.21
+under runtime contract 0.23. This document is normative where it describes public
+behavior;
 the source and conformance tests make that behavior executable.
 
 ## State and step order
@@ -81,7 +82,8 @@ order breaks ties within one event kind.
    without that declaration remains unlimited. An exit with an authored service
    rate likewise consumes one token after any gate processing; an undeclared
    exit capacity remains unlimited. The trace distinguishes waiting for a lift,
-   an authored non-lift connector capacity, and an authored exit capacity.
+   an authored non-lift connector capacity, a gate capacity, and an authored
+   exit capacity.
 
 Ties resolve by declaration and generated-agent order. This is intentional:
 the complete order is recorded in canonical source and must not be replaced by
@@ -89,7 +91,7 @@ unordered map iteration.
 
 ## What this does not mean
 
-The `0.21` local-separation law, nominal routing cost and alternative-exit
+The `0.23` local-separation law, nominal routing cost and alternative-exit
 selection, scheduled-release and service-capacity semantics, operational-state
 transitions, escalator walking-rider assumption, and seeded information
 acceptance law are reference semantics, not calibrated behavioral claims. A
@@ -103,13 +105,38 @@ remain, `last_exit_time_s` records the final observed evacuation instead. The
 two measurements must not be substituted for each other: a partial run has no
 system clearance time.
 
+Current bundles also retain discrete `queue_metrics` for lift, non-lift
+connector, gate, and exit capacity queues. `ever_queued_agents` is the number
+of agents that entered a queue at least once; it mirrors the older top-level
+exposure count. `cumulative_wait_agent_seconds` adds one authored timestep for
+each agent that was in that queue during the preceding reference step, and
+`peak_waiting_agents` is the largest count seen at a step boundary. These are
+internally consistent telemetry for this discrete runtime, not physical queue
+lengths, observed delays, throughput measurements, or calibrated flow values.
+
+Current bundles additionally retain `queue_metrics.by_resource`. Its `lifts`,
+`connectors`, `gates`, and `exits` maps contain every authored resource whose
+semantics can create the corresponding wait state: every lift and gate, plus
+only non-lift connectors and exits with an authored capacity. An unreached
+constrained resource is retained with zero values. These entries attribute the
+same discrete wait observations to the resource that denied the agent at that
+step. Aggregate cumulative wait equals the sum of its resource entries, but an
+aggregate mechanism exposure may be lower than the resource-entry total when
+one agent queued at multiple resources. An aggregate mechanism peak is not
+reconstructed from resource peaks: it is the maximum simultaneous count across
+all resources of that mechanism at a step boundary. The breakdown does not
+identify a geometric queue, a real-world bottleneck, or a measured service rate.
+
 ## Reproducibility contract
 
 `chiyoda run` writes `scenario.chy` and `run.json`. A run bundle contains its
 canonical scenario, runtime version, options, trace, event log, metrics,
 scenario hash, and SHA-256 bundle hash. The bundle hash is computed from the
-entire bundle with the hash field blank. `chiyoda replay` and
-`chiyoda-replay` reject an invalid bundle hash before interpreting a trace.
+entire bundle with the hash field blank. For a bundle compatible with the
+installed runtime contract, `chiyoda replay` and `chiyoda-replay` rebuild the
+complete run from the embedded scenario and options before interpreting a
+trace. An incompatible legacy bundle is rejected by default; an explicit
+hash-only inspection mode is available for archival review.
 
 Given identical source, language/runtime version, options, and supported Linux
 environment, the reference runtime is expected to emit an identical bundle

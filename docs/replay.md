@@ -10,9 +10,12 @@ $ cargo run -p chiyoda-replay -- out/experiment/run.json --surface concourse
 $ cargo run -p chiyoda-replay -- out/experiment/run.json --speed 10
 ```
 
-The viewer checks the bundle hash before opening a window. The CLI rejects an
-unknown initial surface and an empty trace. It requires an available Linux
-display server.
+For a bundle made by the installed runtime, the viewer checks the bundle hash
+and reconstructs the complete deterministic run before opening a window. It
+rejects an incompatible legacy runtime by default; `--allow-legacy-hash-only`
+permits display after hash verification alone and emits a warning. The CLI also
+rejects an unknown initial surface and an empty trace. It requires an available
+Linux display server.
 
 ## Controls
 
@@ -35,7 +38,7 @@ For the selected surface the viewer draws its rectangular walkable boundary,
 rectangular obstacles, waypoints, exits, gates, and the endpoint of every
 authored stair, ramp, escalator, or lift on that surface. Agents are drawn only
 when their recorded `surface` matches the selected surface. Moving agents are
-blue, departure/route/waypoint waits grey, connector/lift/exit waits and
+blue, departure/route/waypoint waits grey, connector/lift/gate/exit waits and
 in-transit agents amber, and evacuated agents green. Static marker colours
 distinguish waypoints, exits, gates, and connector class.
 

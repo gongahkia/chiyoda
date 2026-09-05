@@ -1,6 +1,7 @@
 use crate::{
     bundle::{
-        AgentSnapshot, AgentState, InformationDeliveryMetrics, InformationInterventionKind,
+        AgentSnapshot, AgentState, BUNDLE_VERSION, InformationDeliveryMetrics,
+        InformationInterventionKind, QueueMetrics, QueueResourceBreakdown, QueueResourceMetrics,
         RunBundle, RunEvent, RunMetrics, TraceFrame,
     },
     model::{
@@ -36,6 +37,7 @@ pub enum RunError {
         destination: String,
     },
     InvalidOptions(String),
+    InvalidBundle(String),
 }
 
 impl fmt::Display for RunError {
@@ -52,8 +54,54 @@ impl fmt::Display for RunError {
                 "agent group `{agent_group}` has no route to `{destination}`"
             ),
             Self::InvalidOptions(message) => write!(formatter, "invalid run options: {message}"),
+            Self::InvalidBundle(message) => write!(formatter, "invalid run bundle: {message}"),
         }
     }
+}
+
+/// The strength of verification available for a persisted run bundle.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BundleVerification {
+    /// The bundle hash and a fresh deterministic execution both matched.
+    Reconstructed,
+    /// The bundle hash matched, but its runtime contract is not compatible with
+    /// this installed reference runtime and therefore cannot be reconstructed.
+    HashOnlyLegacy,
+}
+
+/// Verify a bundle's hash and, when it uses this runtime's contract, rebuild
+/// its execution from the embedded canonical scenario and persisted options.
+///
+/// Callers should require [`BundleVerification::Reconstructed`] for ordinary
+/// replay. [`BundleVerification::HashOnlyLegacy`] is deliberately explicit so
+/// an operator can make an informed compatibility decision for old artifacts.
+pub fn verify_run_bundle(bundle: &RunBundle) -> Result<BundleVerification, RunError> {
+    if !bundle.verifies_hash() {
+        return Err(RunError::InvalidBundle(
+            "bundle hash does not match its content".to_owned(),
+        ));
+    }
+    if bundle.bundle_version != BUNDLE_VERSION || bundle.runtime_version != crate::RUNTIME_VERSION {
+        return Ok(BundleVerification::HashOnlyLegacy);
+    }
+    let trace_every_steps = bundle
+        .options
+        .get("trace_every_steps")
+        .ok_or_else(|| RunError::InvalidBundle("missing trace_every_steps option".to_owned()))?
+        .parse::<u32>()
+        .map_err(|_| RunError::InvalidBundle("invalid trace_every_steps option".to_owned()))?;
+    if trace_every_steps == 0 {
+        return Err(RunError::InvalidBundle(
+            "trace_every_steps option must be greater than zero".to_owned(),
+        ));
+    }
+    let reconstructed = run(&bundle.scenario.scenario, RunOptions { trace_every_steps })?;
+    if &reconstructed != bundle {
+        return Err(RunError::InvalidBundle(
+            "bundle does not match deterministic reconstruction".to_owned(),
+        ));
+    }
+    Ok(BundleVerification::Reconstructed)
 }
 
 impl std::error::Error for RunError {}
@@ -108,6 +156,7 @@ struct Agent {
     passed_gates: HashSet<String>,
     waiting_connector: Option<ConnectorWait>,
     waiting_for_route: bool,
+    waiting_for_gate: bool,
     waiting_for_exit: bool,
 }
 
@@ -187,12 +236,59 @@ struct RuntimeResources {
     queued_for_connector_agents: HashSet<String>,
     queued_for_gate_agents: HashSet<String>,
     queued_for_exit_agents: HashSet<String>,
+    lift_wait_agent_seconds: f64,
+    connector_wait_agent_seconds: f64,
+    gate_wait_agent_seconds: f64,
+    exit_wait_agent_seconds: f64,
+    lift_peak_waiting_agents: u32,
+    connector_peak_waiting_agents: u32,
+    gate_peak_waiting_agents: u32,
+    exit_peak_waiting_agents: u32,
+    lift_queue_resources: BTreeMap<String, QueueResourceTracker>,
+    connector_queue_resources: BTreeMap<String, QueueResourceTracker>,
+    gate_queue_resources: BTreeMap<String, QueueResourceTracker>,
+    exit_queue_resources: BTreeMap<String, QueueResourceTracker>,
     closed_connectors: HashSet<String>,
     closed_exits: HashSet<String>,
     closed_gates: HashSet<String>,
     connector_tokens: HashMap<usize, f64>,
     gate_tokens: HashMap<String, f64>,
     exit_tokens: HashMap<String, f64>,
+}
+
+#[derive(Debug, Default)]
+struct QueueResourceTracker {
+    queued_agents: HashSet<String>,
+    cumulative_wait_agent_seconds: f64,
+    peak_waiting_agents: u32,
+}
+
+impl QueueResourceTracker {
+    fn record_wait(&mut self, waiting_agents: u32, elapsed_s: f64) {
+        self.cumulative_wait_agent_seconds += f64::from(waiting_agents) * elapsed_s;
+        self.peak_waiting_agents = self.peak_waiting_agents.max(waiting_agents);
+    }
+
+    fn metrics(&self) -> QueueResourceMetrics {
+        QueueResourceMetrics {
+            ever_queued_agents: u32::try_from(self.queued_agents.len())
+                .expect("agent count fits u32"),
+            cumulative_wait_agent_seconds: self.cumulative_wait_agent_seconds,
+            peak_waiting_agents: self.peak_waiting_agents,
+        }
+    }
+}
+
+#[derive(Default)]
+struct QueueStateCounts {
+    lift: u32,
+    connector: u32,
+    gate: u32,
+    exit: u32,
+    lifts: BTreeMap<String, u32>,
+    connectors: BTreeMap<String, u32>,
+    gates: BTreeMap<String, u32>,
+    exits: BTreeMap<String, u32>,
 }
 
 impl RuntimeResources {
@@ -202,6 +298,39 @@ impl RuntimeResources {
             queued_for_connector_agents: HashSet::new(),
             queued_for_gate_agents: HashSet::new(),
             queued_for_exit_agents: HashSet::new(),
+            lift_wait_agent_seconds: 0.0,
+            connector_wait_agent_seconds: 0.0,
+            gate_wait_agent_seconds: 0.0,
+            exit_wait_agent_seconds: 0.0,
+            lift_peak_waiting_agents: 0,
+            connector_peak_waiting_agents: 0,
+            gate_peak_waiting_agents: 0,
+            exit_peak_waiting_agents: 0,
+            lift_queue_resources: scenario
+                .connectors
+                .iter()
+                .filter(|connector| connector.is_lift())
+                .map(|connector| (connector.id().to_owned(), QueueResourceTracker::default()))
+                .collect(),
+            connector_queue_resources: scenario
+                .connectors
+                .iter()
+                .filter(|connector| {
+                    !connector.is_lift() && connector.service_rate_per_s().is_some()
+                })
+                .map(|connector| (connector.id().to_owned(), QueueResourceTracker::default()))
+                .collect(),
+            gate_queue_resources: scenario
+                .gates
+                .iter()
+                .map(|gate| (gate.id.clone(), QueueResourceTracker::default()))
+                .collect(),
+            exit_queue_resources: scenario
+                .exits
+                .iter()
+                .filter(|exit| exit.capacity_per_s.is_some())
+                .map(|exit| (exit.id.clone(), QueueResourceTracker::default()))
+                .collect(),
             closed_connectors: closed_connectors_at(scenario, 0.0),
             closed_exits: closed_exits_at(scenario, 0.0),
             closed_gates: closed_gates_at(scenario, 0.0),
@@ -225,6 +354,169 @@ impl RuntimeResources {
                 .collect(),
         }
     }
+
+    /// Account for the preceding integration interval, then retain a
+    /// step-boundary peak. Queue telemetry intentionally follows the discrete
+    /// reference state rather than interpolating a physical queue.
+    fn record_queue_wait(&mut self, scenario: &Scenario, agents: &[Agent], elapsed_s: f64) {
+        let counts = modeled_queue_state_counts(scenario, agents);
+        self.lift_wait_agent_seconds += f64::from(counts.lift) * elapsed_s;
+        self.connector_wait_agent_seconds += f64::from(counts.connector) * elapsed_s;
+        self.gate_wait_agent_seconds += f64::from(counts.gate) * elapsed_s;
+        self.exit_wait_agent_seconds += f64::from(counts.exit) * elapsed_s;
+        self.lift_peak_waiting_agents = self.lift_peak_waiting_agents.max(counts.lift);
+        self.connector_peak_waiting_agents =
+            self.connector_peak_waiting_agents.max(counts.connector);
+        self.gate_peak_waiting_agents = self.gate_peak_waiting_agents.max(counts.gate);
+        self.exit_peak_waiting_agents = self.exit_peak_waiting_agents.max(counts.exit);
+        Self::record_resource_wait(
+            &mut self.lift_queue_resources,
+            &counts.lifts,
+            elapsed_s,
+            "lift",
+        );
+        Self::record_resource_wait(
+            &mut self.connector_queue_resources,
+            &counts.connectors,
+            elapsed_s,
+            "connector",
+        );
+        Self::record_resource_wait(
+            &mut self.gate_queue_resources,
+            &counts.gates,
+            elapsed_s,
+            "gate",
+        );
+        Self::record_resource_wait(
+            &mut self.exit_queue_resources,
+            &counts.exits,
+            elapsed_s,
+            "exit",
+        );
+    }
+
+    fn record_resource_wait(
+        resources: &mut BTreeMap<String, QueueResourceTracker>,
+        counts: &BTreeMap<String, u32>,
+        elapsed_s: f64,
+        resource_kind: &str,
+    ) {
+        for (resource_id, waiting_agents) in counts {
+            resources
+                .get_mut(resource_id)
+                .unwrap_or_else(|| {
+                    panic!("validated {resource_kind} queue resource `{resource_id}` exists")
+                })
+                .record_wait(*waiting_agents, elapsed_s);
+        }
+    }
+
+    fn record_queue_entry(
+        queued_agents: &mut HashSet<String>,
+        resources: &mut BTreeMap<String, QueueResourceTracker>,
+        resource_kind: &str,
+        resource_id: &str,
+        agent_id: &str,
+    ) {
+        queued_agents.insert(agent_id.to_owned());
+        resources
+            .get_mut(resource_id)
+            .unwrap_or_else(|| {
+                panic!("validated {resource_kind} queue resource `{resource_id}` exists")
+            })
+            .queued_agents
+            .insert(agent_id.to_owned());
+    }
+
+    fn queue_metrics(&self) -> QueueMetrics {
+        QueueMetrics {
+            lift: QueueResourceMetrics {
+                ever_queued_agents: u32::try_from(self.queued_for_lift_agents.len())
+                    .expect("agent count fits u32"),
+                cumulative_wait_agent_seconds: self.lift_wait_agent_seconds,
+                peak_waiting_agents: self.lift_peak_waiting_agents,
+            },
+            connector: QueueResourceMetrics {
+                ever_queued_agents: u32::try_from(self.queued_for_connector_agents.len())
+                    .expect("agent count fits u32"),
+                cumulative_wait_agent_seconds: self.connector_wait_agent_seconds,
+                peak_waiting_agents: self.connector_peak_waiting_agents,
+            },
+            gate: QueueResourceMetrics {
+                ever_queued_agents: u32::try_from(self.queued_for_gate_agents.len())
+                    .expect("agent count fits u32"),
+                cumulative_wait_agent_seconds: self.gate_wait_agent_seconds,
+                peak_waiting_agents: self.gate_peak_waiting_agents,
+            },
+            exit: QueueResourceMetrics {
+                ever_queued_agents: u32::try_from(self.queued_for_exit_agents.len())
+                    .expect("agent count fits u32"),
+                cumulative_wait_agent_seconds: self.exit_wait_agent_seconds,
+                peak_waiting_agents: self.exit_peak_waiting_agents,
+            },
+            by_resource: Some(QueueResourceBreakdown {
+                lifts: Self::queue_resource_metrics(&self.lift_queue_resources),
+                connectors: Self::queue_resource_metrics(&self.connector_queue_resources),
+                gates: Self::queue_resource_metrics(&self.gate_queue_resources),
+                exits: Self::queue_resource_metrics(&self.exit_queue_resources),
+            }),
+        }
+    }
+
+    fn queue_resource_metrics(
+        resources: &BTreeMap<String, QueueResourceTracker>,
+    ) -> BTreeMap<String, QueueResourceMetrics> {
+        resources
+            .iter()
+            .map(|(resource_id, telemetry)| (resource_id.clone(), telemetry.metrics()))
+            .collect()
+    }
+}
+
+fn modeled_queue_state_counts(scenario: &Scenario, agents: &[Agent]) -> QueueStateCounts {
+    let mut counts = QueueStateCounts::default();
+    for agent in agents {
+        match agent_state(agent) {
+            AgentState::WaitingForLift => {
+                counts.lift += 1;
+                let connector_id = waiting_connector_id(scenario, agent);
+                *counts.lifts.entry(connector_id).or_default() += 1;
+            }
+            AgentState::WaitingForConnector => {
+                counts.connector += 1;
+                let connector_id = waiting_connector_id(scenario, agent);
+                *counts.connectors.entry(connector_id).or_default() += 1;
+            }
+            AgentState::WaitingForGate => {
+                counts.gate += 1;
+                let gate_id = agent
+                    .final_gate
+                    .as_ref()
+                    .expect("waiting gate agent retains selected gate")
+                    .clone();
+                *counts.gates.entry(gate_id).or_default() += 1;
+            }
+            AgentState::WaitingForExit => {
+                counts.exit += 1;
+                *counts.exits.entry(agent.destination.clone()).or_default() += 1;
+            }
+            AgentState::Moving
+            | AgentState::WaitingToDepart
+            | AgentState::WaitingAtWaypoint
+            | AgentState::WaitingForRoute
+            | AgentState::InTransit
+            | AgentState::Evacuated => {}
+        }
+    }
+    counts
+}
+
+fn waiting_connector_id(scenario: &Scenario, agent: &Agent) -> String {
+    let connector_index = *agent
+        .route
+        .get(agent.route_cursor)
+        .expect("waiting connector agent retains current route connector");
+    scenario.connectors[connector_index].id().to_owned()
 }
 
 fn closed_connectors_at(scenario: &Scenario, time_s: f64) -> HashSet<String> {
@@ -700,6 +992,7 @@ pub fn run(scenario: &Scenario, options: RunOptions) -> Result<RunBundle, RunErr
     let mut information_delivery = information_delivery_for_scenario(scenario);
 
     for step in 1..=step_count {
+        resources.record_queue_wait(scenario, &agents, scenario.timestep_s);
         let time_s = (step as f64) * scenario.timestep_s;
         apply_scheduled_events(
             scenario,
@@ -710,6 +1003,7 @@ pub fn run(scenario: &Scenario, options: RunOptions) -> Result<RunBundle, RunErr
             &mut information_delivery,
         );
         integrate(scenario, &mut agents, time_s, &mut events, &mut resources);
+        resources.record_queue_wait(scenario, &agents, 0.0);
         if step % u64::from(options.trace_every_steps) == 0 || step == step_count {
             trace.push(snapshot(step, time_s, &agents));
         }
@@ -746,6 +1040,7 @@ pub fn run(scenario: &Scenario, options: RunOptions) -> Result<RunBundle, RunErr
         .flatten();
     let mean_exit_time_s =
         (!exit_times.is_empty()).then(|| exit_times.iter().sum::<f64>() / exit_times.len() as f64);
+    let queue_metrics = resources.queue_metrics();
     let metrics = RunMetrics {
         total_agents,
         evacuated_agents,
@@ -755,14 +1050,11 @@ pub fn run(scenario: &Scenario, options: RunOptions) -> Result<RunBundle, RunErr
         clearance_time_s,
         last_exit_time_s,
         mean_exit_time_s,
-        queued_for_lift_agents: u32::try_from(resources.queued_for_lift_agents.len())
-            .expect("agent count fits u32"),
-        queued_for_connector_agents: u32::try_from(resources.queued_for_connector_agents.len())
-            .expect("agent count fits u32"),
-        queued_for_gate_agents: u32::try_from(resources.queued_for_gate_agents.len())
-            .expect("agent count fits u32"),
-        queued_for_exit_agents: u32::try_from(resources.queued_for_exit_agents.len())
-            .expect("agent count fits u32"),
+        queued_for_lift_agents: queue_metrics.lift.ever_queued_agents,
+        queued_for_connector_agents: queue_metrics.connector.ever_queued_agents,
+        queued_for_gate_agents: queue_metrics.gate.ever_queued_agents,
+        queued_for_exit_agents: queue_metrics.exit.ever_queued_agents,
+        queue_metrics: Some(queue_metrics),
     };
     let options = BTreeMap::from([
         (
@@ -771,7 +1063,7 @@ pub fn run(scenario: &Scenario, options: RunOptions) -> Result<RunBundle, RunErr
         ),
         (
             "integration".to_owned(),
-            "deterministic-euler-0.21".to_owned(),
+            "deterministic-euler-0.23".to_owned(),
         ),
     ]);
     Ok(RunBundle::new(canonical, options, trace, events, metrics))
@@ -855,6 +1147,7 @@ fn spawn_agents(
                 passed_gates: HashSet::new(),
                 waiting_connector: None,
                 waiting_for_route,
+                waiting_for_gate: false,
                 waiting_for_exit: false,
             });
         }
@@ -1656,6 +1949,7 @@ fn reroute(
         agent.route_cursor = 0;
         agent.waiting_connector = None;
         agent.waiting_for_route = false;
+        agent.waiting_for_gate = false;
         agent.waiting_for_exit = false;
         let mut blocked: Vec<_> = blocked_connectors
             .into_iter()
@@ -1935,6 +2229,7 @@ fn integrate(
                             let tokens = resources.gate_tokens.entry(gate_id.clone()).or_default();
                             if *tokens >= 1.0 {
                                 *tokens -= 1.0;
+                                agent.waiting_for_gate = false;
                                 agent.passed_gates.insert(gate_id.clone());
                                 events.push(RunEvent {
                                     time_s,
@@ -1943,7 +2238,14 @@ fn integrate(
                                     detail: gate_id,
                                 });
                             } else {
-                                resources.queued_for_gate_agents.insert(agent.id.clone());
+                                RuntimeResources::record_queue_entry(
+                                    &mut resources.queued_for_gate_agents,
+                                    &mut resources.gate_queue_resources,
+                                    "gate",
+                                    &gate_id,
+                                    &agent.id,
+                                );
+                                agent.waiting_for_gate = true;
                             }
                         } else {
                             if effective_blocked_exits(agent, &resources.closed_exits)
@@ -1969,7 +2271,13 @@ fn integrate(
                                 let tokens =
                                     resources.exit_tokens.entry(exit.id.clone()).or_default();
                                 if *tokens < 1.0 {
-                                    resources.queued_for_exit_agents.insert(agent.id.clone());
+                                    RuntimeResources::record_queue_entry(
+                                        &mut resources.queued_for_exit_agents,
+                                        &mut resources.exit_queue_resources,
+                                        "exit",
+                                        &exit.id,
+                                        &agent.id,
+                                    );
                                     agent.waiting_for_exit = true;
                                     continue;
                                 }
@@ -2004,7 +2312,13 @@ fn integrate(
                                 .unwrap_or_default()
                                 >= connector.capacity().expect("lift has capacity")
                         {
-                            resources.queued_for_lift_agents.insert(agent.id.clone());
+                            RuntimeResources::record_queue_entry(
+                                &mut resources.queued_for_lift_agents,
+                                &mut resources.lift_queue_resources,
+                                "lift",
+                                connector.id(),
+                                &agent.id,
+                            );
                             agent.waiting_connector = Some(ConnectorWait::Lift);
                             continue;
                         }
@@ -2017,9 +2331,13 @@ fn integrate(
                                 .entry(connector_index)
                                 .or_default();
                             if *tokens < 1.0 {
-                                resources
-                                    .queued_for_connector_agents
-                                    .insert(agent.id.clone());
+                                RuntimeResources::record_queue_entry(
+                                    &mut resources.queued_for_connector_agents,
+                                    &mut resources.connector_queue_resources,
+                                    "connector",
+                                    connector.id(),
+                                    &agent.id,
+                                );
                                 agent.waiting_connector = Some(ConnectorWait::Capacity);
                                 continue;
                             }
@@ -2182,6 +2500,7 @@ fn agent_state(agent: &Agent) -> AgentState {
         Motion::WaitingToDepart { .. } => AgentState::WaitingToDepart,
         Motion::WaitingAtWaypoint { .. } => AgentState::WaitingAtWaypoint,
         Motion::OnSurface if agent.waiting_for_route => AgentState::WaitingForRoute,
+        Motion::OnSurface if agent.waiting_for_gate => AgentState::WaitingForGate,
         Motion::OnSurface if agent.waiting_for_exit => AgentState::WaitingForExit,
         Motion::OnSurface => match agent.waiting_connector {
             Some(ConnectorWait::Lift) => AgentState::WaitingForLift,
@@ -2201,8 +2520,86 @@ fn agent_state_name(agent: &Agent) -> &'static str {
         AgentState::WaitingForRoute => "waiting_for_route",
         AgentState::WaitingForLift => "waiting_for_lift",
         AgentState::WaitingForConnector => "waiting_for_connector",
+        AgentState::WaitingForGate => "waiting_for_gate",
         AgentState::WaitingForExit => "waiting_for_exit",
         AgentState::InTransit => "in_transit",
         AgentState::Evacuated => "evacuated",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{BundleVerification, RunError, RunOptions, run, verify_run_bundle};
+    use crate::{bundle::bundle_hash, generator};
+
+    #[test]
+    fn bundle_verification_reconstructs_current_runs_and_labels_legacy_hash_only() {
+        let scenario = generator::scenario(73).expect("generated scenario is valid");
+        let mut bundle = run(
+            &scenario,
+            RunOptions {
+                trace_every_steps: 3,
+            },
+        )
+        .expect("runtime succeeds");
+
+        assert_eq!(
+            verify_run_bundle(&bundle).expect("current bundle verifies"),
+            BundleVerification::Reconstructed
+        );
+        bundle.metrics.queued_for_exit_agents = 99;
+        bundle.bundle_hash = bundle_hash(&bundle);
+        assert!(matches!(
+            verify_run_bundle(&bundle),
+            Err(RunError::InvalidBundle(_))
+        ));
+
+        bundle.runtime_version = "0.20.0".to_owned();
+        bundle.bundle_hash = bundle_hash(&bundle);
+        assert_eq!(
+            verify_run_bundle(&bundle).expect("legacy hash remains inspectable"),
+            BundleVerification::HashOnlyLegacy
+        );
+    }
+
+    #[test]
+    fn pre_022_bundle_without_queue_telemetry_remains_deserializable() {
+        let scenario = generator::scenario(73).expect("generated scenario is valid");
+        let bundle = run(&scenario, RunOptions::default()).expect("runtime succeeds");
+        let mut encoded = serde_json::to_value(bundle).expect("current bundle serializes");
+        encoded["bundle_version"] = serde_json::Value::String("0.21".to_owned());
+        encoded["metrics"]
+            .as_object_mut()
+            .expect("metrics is an object")
+            .remove("queue_metrics");
+
+        let legacy: crate::RunBundle =
+            serde_json::from_value(encoded).expect("pre-0.22 bundle remains readable");
+
+        assert!(legacy.metrics.queue_metrics.is_none());
+    }
+
+    #[test]
+    fn pre_023_bundle_without_resource_queue_telemetry_remains_deserializable() {
+        let scenario = generator::scenario(73).expect("generated scenario is valid");
+        let bundle = run(&scenario, RunOptions::default()).expect("runtime succeeds");
+        let mut encoded = serde_json::to_value(bundle).expect("current bundle serializes");
+        encoded["bundle_version"] = serde_json::Value::String("0.22".to_owned());
+        encoded["metrics"]["queue_metrics"]
+            .as_object_mut()
+            .expect("queue metrics is an object")
+            .remove("by_resource");
+
+        let legacy: crate::RunBundle =
+            serde_json::from_value(encoded).expect("pre-0.23 bundle remains readable");
+
+        assert!(legacy.metrics.queue_metrics.is_some());
+        assert!(
+            legacy
+                .metrics
+                .queue_metrics
+                .and_then(|metrics| metrics.by_resource)
+                .is_none()
+        );
     }
 }

@@ -71,6 +71,10 @@ canonical formatting writes them in connector-class order.
 Exit and non-lift connector `capacity` are optional and default to unlimited
 throughput. When declared, each is an authored people-per-second service limit;
 width is never silently converted to a flow rate.
+The run trace distinguishes capacity waits at lifts, non-lift connectors, gates,
+and final exits. Current run bundles also report discrete per-mechanism queue
+exposure, cumulative reference-step wait, and step-boundary peak telemetry;
+none is an inferred physical queue or measured flow.
 `connector-capacity-state` and `exit-capacity-state` change a resource's
 authored rate at a declared time; `gate-capacity-state` does the same for a
 gate. The referenced non-lift connector or exit must already have an authored

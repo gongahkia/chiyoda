@@ -5,7 +5,7 @@ Chiyoda is an Apache-2.0 research platform for deterministic, reproducible
 is a standalone experiment language and executable reference semantics—not a
 real-time operations dashboard or a certified evacuation product.
 
-The current `0.21.0-alpha.1` release establishes the language/runtime contract:
+The current `0.23.0-alpha.1` release establishes the language/runtime contract:
 
 - a typed textual DSL with static unit, topology, reachability, capacity, and
   deterministic-replay checks;
@@ -55,6 +55,7 @@ $ cargo run -p chiyoda -- compare-sweeps out/control out/intervention -o out/com
 $ cargo run -p chiyoda -- sensitivity-plan examples/sensitivity/exit-capacity-and-trust.json -o out/sensitivity-plan.json
 $ cargo run -p chiyoda -- sensitivity examples/sensitivity/exit-capacity-and-trust.json -o out/sensitivity
 $ cargo run -p chiyoda -- verify-sensitivity out/sensitivity
+$ cargo run -p chiyoda -- experiment plan examples/experiments/uncalibrated-interchange.json -o out/experiment-plan.json
 $ cargo run -p chiyoda -- experiment run examples/experiments/uncalibrated-interchange.json -o out/experiment
 $ cargo run -p chiyoda -- experiment verify out/experiment
 $ cargo run -p chiyoda -- layout osm my-layout-catalog.json -o out/layout-observations.json
@@ -65,22 +66,26 @@ $ cargo run -p chiyoda -- replay out/example/run.json
 $ cargo run -p chiyoda-replay -- out/example/run.json
 ```
 
-The first replay command verifies a bundle hash and prints a summary. The
-second opens the native replay viewer; it requires an available Linux display
-server. It renders the selected authored surface, obstacles, waypoints, exits,
-gates, and connector endpoints behind the agents. Pass `--surface <id>` to
-choose its initial floor or press Tab to cycle floors. Its visual scope and
-trace-position boundary are documented in the [native replay viewer guide](docs/replay.md).
+The first replay command reconstructs a compatible bundle before printing a
+summary. The second opens the native replay viewer; it also reconstructs a
+compatible bundle and requires an available Linux display server. It renders
+the selected authored surface, obstacles, waypoints, exits, gates, and connector
+endpoints behind the agents. Pass `--surface <id>` to choose its initial floor
+or press Tab to cycle floors. Its visual scope and trace-position boundary are
+documented in the [native replay viewer guide](docs/replay.md).
 `sweep` is an
 uncalibrated structural experiment: it generates and
 runs a contiguous seed range, writes one independently hash-verifiable bundle
 per seed, and records their summaries in `summary.json`, including final-exit
-attribution counts. Generated cases include a declared alternative exit and a
-scheduled primary-exit closure, so the output also exercises rerouting.
+attribution, modeled queue-exposure counts, and current per-run discrete queue
+telemetry attributed to individual constrained resources. Generated cases include a
+declared alternative exit and a scheduled primary-exit closure, so the output
+also exercises rerouting.
 `verify-sweep` cross-checks that summary against every bundle and its canonical
 source, and reruns each bundle compatible with the installed runtime to reject
 self-hashed fabricated results. `analyze-sweep` performs that same verification before producing exact
-cross-run counts, per-exit totals, intervention reach/acceptance totals, and
+cross-run counts, per-exit totals, intervention reach/acceptance totals, modeled
+queue-exposure and discrete queue-telemetry totals, and
 descriptive full-clearance and last-exit-time ranges. Its evacuation fraction is emitted as an exact numerator/denominator rather than a
 misleadingly precise estimate, and its final-state totals explain agents still
 in the system at the configured time limit. The output directory must be empty,
@@ -99,7 +104,7 @@ with different seed ranges, bundle or runtime versions, duration, timestep, or
 authored agent demand and journeys. The report records the shared execution
 contract, two template hashes, every changed scenario section, each seed's
 outcomes, exact aggregate count deltas, exit and terminal-state deltas,
-intervention reach/acceptance deltas, and clearance-time differences
+intervention reach/acceptance deltas, queue-telemetry deltas, and clearance-time differences
 only for seeds where both arms fully evacuated. A separately named last-exit-time
 metric remains available when agents still remain in the system. It is a deterministic structural
 comparison, not a control
@@ -116,11 +121,13 @@ does not require research data and does not invent probability distributions or
 confidence intervals for uncalibrated values. See the [sensitivity-study
 workflow](docs/sensitivity.md).
 
-`experiment run` is the corresponding single-scenario artifact workflow. It
-snapshots an authored scenario, disclosed assumptions, any retained JSON source
-reports, and its deterministic bundle; `experiment verify` reconstructs that
-artifact exactly. It is for uncalibrated structural work, not an empirical gate.
-See [uncalibrated experiment artifacts](docs/experiments.md).
+`experiment plan` is the non-mutating review step for the corresponding
+single-scenario artifact workflow. It checks the scenario, declared source
+reports, and any optional OSM attestation before showing the exact authored
+inventory. `experiment run` snapshots that contract and its deterministic
+bundle; `experiment verify` reconstructs the artifact exactly. It is for
+uncalibrated structural work, not an empirical gate. See [uncalibrated
+experiment artifacts](docs/experiments.md).
 
 ## Research data intake
 
@@ -210,7 +217,8 @@ $ make verify
 ```
 
 `make verify` formats, lints, tests, validates every checked-in evidence
-catalog, and builds every workspace member. It does not fetch raw data: source
+catalog, smoke-tests every checked-in uncalibrated experiment and sensitivity
+plan, and builds every workspace member. It does not fetch raw data: source
 locks remain an explicit local acquisition step. The CI workflow performs the
 same checks with a read-only token. Branch protection must be configured on the
 GitHub repository separately; repository files cannot enforce it.
@@ -223,7 +231,9 @@ GitHub repository separately; repository files cannot enforce it.
   benchmark, and bundle-verification commands.
 - `crates/chiyoda-replay` — native Linux trace viewer.
 - `python` — dependency-light bundle verification and analysis helpers; it is
-  intentionally outside the trusted simulation runtime.
+  intentionally outside the trusted simulation runtime. It independently checks
+  bundle hashes and current metric-attribution invariants, but it does not
+  reconstruct or execute the runtime.
 - `benchmarks` — public fixtures and round-protocol materials; no empirical
   result is published until its evidence manifest validates. Its source
   screening decisions are documented in [data scouting](docs/data-scouting.md).

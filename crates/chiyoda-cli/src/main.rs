@@ -1,20 +1,22 @@
 use anyhow::{Context, Result, bail};
-use chiyoda_core::bundle::RunMetrics;
 use chiyoda_core::{
-    BenchmarkManifest, CanonicalScenario, EvidenceCatalog, ExperimentManifest, GeographicPoint,
-    InformationDeliveryMetrics, OpenStreetMapLayoutReport, OpenStreetMapLocalProjectionReport,
-    OsmInspectionLimits, RunBundle, RunOptions, SensitivityFactor, SensitivityManifest,
-    bundle_hash, calibrate_eindhoven_platform, format_scenario, generator,
-    inspect_openstreetmap_layout, parse, plan_sensitivity, project_openstreetmap_layout_report,
-    run, summarize_crowd_queue_reference, summarize_vru_trajectory_reference, validate,
-    validate_catalog, validate_experiment_manifest, validate_manifest, verify_catalog_files,
+    BenchmarkManifest, BundleVerification, CanonicalScenario, EvidenceCatalog, ExperimentManifest,
+    GeographicPoint, InformationDeliveryMetrics, OpenStreetMapLayoutReport,
+    OpenStreetMapLocalProjectionReport, OsmInspectionLimits, QueueMetrics, QueueResourceMetrics,
+    RunBundle, RunOptions, SensitivityFactor, SensitivityManifest, calibrate_eindhoven_platform,
+    format_scenario, generator, inspect_openstreetmap_layout, parse, plan_sensitivity,
+    project_openstreetmap_layout_report, run, summarize_crowd_queue_reference,
+    summarize_vru_trajectory_reference, validate, validate_catalog, validate_experiment_manifest,
+    validate_manifest, verify_catalog_files, verify_openstreetmap_layout_catalog_contract,
     verify_openstreetmap_layout_report, verify_openstreetmap_local_projection_report,
+    verify_run_bundle,
 };
+use chiyoda_core::{bundle::RunMetrics, experiment::ExperimentSourceAttestation};
 use clap::{Parser, Subcommand, ValueEnum};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     fs,
     path::{Path, PathBuf},
 };
@@ -161,8 +163,13 @@ enum Command {
         #[command(subcommand)]
         command: CalibrateCommand,
     },
-    /// Verify a run bundle's trace-integrity hash and print its summary.
-    Replay { bundle: PathBuf },
+    /// Reconstruct and verify a run bundle before printing its summary.
+    Replay {
+        bundle: PathBuf,
+        /// Permit a hash-only inspection of an incompatible legacy runtime artifact.
+        #[arg(long)]
+        allow_legacy_hash_only: bool,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -240,6 +247,14 @@ enum LayoutCommand {
 
 #[derive(Debug, Subcommand)]
 enum ExperimentCommand {
+    /// Validate one experiment and its declared sources without executing the runtime.
+    Plan {
+        /// JSON experiment manifest; relative paths resolve from this file.
+        manifest: PathBuf,
+        /// Write the resolved plan as JSON instead of standard output.
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+    },
     /// Snapshot one scenario, its assumptions, and declared source reports with a run bundle.
     Run {
         /// JSON experiment manifest; relative paths resolve from this file.
@@ -339,6 +354,14 @@ struct SweepRun {
     remaining_by_state: BTreeMap<String, u32>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     information_delivery: BTreeMap<String, InformationDeliveryMetrics>,
+    /// Current sweeps retain whether an agent ever entered each modeled queue.
+    /// Older summaries lack these fields and remain explicitly distinguishable.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    queue_experience: Option<QueueExperience>,
+    /// Full discrete queue telemetry for current bundles. Older bundles omit
+    /// it rather than implying a physical or zero-valued queue.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    queue_metrics: Option<QueueMetrics>,
     clearance_time_s: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     last_exit_time_s: Option<f64>,
@@ -363,6 +386,8 @@ struct SweepAnalysis {
     remaining_by_state: BTreeMap<String, u64>,
     unattributed_remaining_agents: u64,
     information_delivery: BTreeMap<String, AggregateInformationDelivery>,
+    queue_experience: AggregateQueueExperience,
+    queue_telemetry: AggregateQueueTelemetry,
     clearance_time_s: Option<DescriptiveRange>,
     last_exit_time_s: Option<DescriptiveRange>,
     claim_boundary: String,
@@ -386,6 +411,105 @@ struct DescriptiveRange {
 struct AggregateInformationDelivery {
     received_agents: u64,
     accepted_agents: u64,
+}
+
+/// Counts agents that entered a modeled wait state at least once in one run.
+/// It is not a peak queue length, a waiting-time distribution, or a physical
+/// flow measurement.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[allow(clippy::struct_field_names)] // fields intentionally mirror persisted runtime metrics
+struct QueueExperience {
+    queued_for_lift_agents: u32,
+    queued_for_connector_agents: u32,
+    queued_for_gate_agents: u32,
+    queued_for_exit_agents: u32,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct AggregateQueueExperience {
+    observed_runs: u32,
+    unobserved_legacy_runs: u32,
+    queued_for_lift_agents: u64,
+    queued_for_connector_agents: u64,
+    queued_for_gate_agents: u64,
+    queued_for_exit_agents: u64,
+}
+
+#[derive(Debug, Clone, Default, Serialize)]
+struct AggregateQueueTelemetry {
+    observed_runs: u32,
+    unobserved_legacy_runs: u32,
+    lift: AggregateQueueResourceTelemetry,
+    connector: AggregateQueueResourceTelemetry,
+    gate: AggregateQueueResourceTelemetry,
+    exit: AggregateQueueResourceTelemetry,
+    by_resource: AggregateQueueResourceAttribution,
+}
+
+#[derive(Debug, Clone, Default, Serialize)]
+struct AggregateQueueResourceTelemetry {
+    ever_queued_agents: u64,
+    cumulative_wait_agent_seconds: f64,
+    maximum_peak_waiting_agents: u32,
+}
+
+/// Resource-attributed queue aggregates are separately coverage-labeled because
+/// 0.22 detailed telemetry did not include the resource identity.
+#[derive(Debug, Clone, Default, Serialize)]
+struct AggregateQueueResourceAttribution {
+    observed_runs: u32,
+    unobserved_legacy_runs: u32,
+    lifts: BTreeMap<String, AggregateQueueResourceTelemetry>,
+    connectors: BTreeMap<String, AggregateQueueResourceTelemetry>,
+    gates: BTreeMap<String, AggregateQueueResourceTelemetry>,
+    exits: BTreeMap<String, AggregateQueueResourceTelemetry>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[allow(clippy::struct_field_names)] // fields intentionally mirror persisted runtime metrics
+struct QueueExperienceDelta {
+    queued_for_lift_agents: i64,
+    queued_for_connector_agents: i64,
+    queued_for_gate_agents: i64,
+    queued_for_exit_agents: i64,
+}
+
+#[derive(Debug, Clone, Default, Serialize)]
+struct QueueTelemetryDelta {
+    lift: QueueResourceTelemetryDelta,
+    connector: QueueResourceTelemetryDelta,
+    gate: QueueResourceTelemetryDelta,
+    exit: QueueResourceTelemetryDelta,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    by_resource: Option<QueueResourceTelemetryDeltaBreakdown>,
+}
+
+#[derive(Debug, Clone, Default, Serialize)]
+struct QueueResourceTelemetryDelta {
+    ever_queued_agents: i64,
+    cumulative_wait_agent_seconds: f64,
+    maximum_peak_waiting_agents: i64,
+}
+
+/// Candidate-minus-baseline queue deltas for individual resource identifiers.
+/// A resource introduced or removed by an authored intervention has an explicit
+/// declaration flag instead of being presented as a shared resource with zero
+/// activity.
+#[derive(Debug, Clone, Default, Serialize)]
+struct QueueResourceTelemetryDeltaBreakdown {
+    lifts: BTreeMap<String, AttributedQueueResourceTelemetryDelta>,
+    connectors: BTreeMap<String, AttributedQueueResourceTelemetryDelta>,
+    gates: BTreeMap<String, AttributedQueueResourceTelemetryDelta>,
+    exits: BTreeMap<String, AttributedQueueResourceTelemetryDelta>,
+}
+
+#[derive(Debug, Clone, Default, Serialize)]
+struct AttributedQueueResourceTelemetryDelta {
+    baseline_resource_declared: bool,
+    candidate_resource_declared: bool,
+    ever_queued_agents: i64,
+    cumulative_wait_agent_seconds: f64,
+    maximum_peak_waiting_agents: i64,
 }
 
 #[derive(Debug, Serialize)]
@@ -472,7 +596,57 @@ struct CapturedExperimentSourceReport {
     bytes: Vec<u8>,
 }
 
+#[derive(Debug)]
+struct CapturedExperimentOsmAttestation {
+    source_id: String,
+    catalog_bytes: Vec<u8>,
+    observation_bytes: Vec<u8>,
+}
+
+const EXPERIMENT_PLAN_SCHEMA_VERSION: &str = "0.1";
 const EXPERIMENT_REPORT_SCHEMA_VERSION: &str = "0.2";
+
+/// A reviewable, non-mutating preflight for one uncalibrated experiment.
+#[derive(Debug, Serialize)]
+struct ExperimentPlanReport {
+    schema_version: String,
+    experiment_name: String,
+    description: String,
+    manifest: String,
+    scenario_source: String,
+    scenario_hash: String,
+    trace_every_steps: u32,
+    scenario: ExperimentScenarioInventory,
+    assumptions: Vec<chiyoda_core::ExperimentAssumption>,
+    sources: Vec<chiyoda_core::SensitivityReference>,
+    source_report_snapshots: Vec<ExperimentSourceReportSnapshot>,
+    source_attestations: Vec<ExperimentSourceAttestation>,
+    verified_osm_source_attestations: Vec<String>,
+    author_claim_boundary: String,
+    claim_boundary: String,
+}
+
+/// Counts only declared scenario structure; it does not estimate a facility,
+/// population, or outcome before the runtime is invoked.
+#[derive(Debug, Serialize)]
+struct ExperimentScenarioInventory {
+    surfaces: usize,
+    obstacles: usize,
+    waypoints: usize,
+    exits: usize,
+    connectors: usize,
+    gates: usize,
+    agent_groups: usize,
+    declared_agents: u64,
+    connector_state_changes: usize,
+    exit_state_changes: usize,
+    connector_capacity_changes: usize,
+    exit_capacity_changes: usize,
+    gate_state_changes: usize,
+    gate_capacity_changes: usize,
+    messages: usize,
+    countermeasures: usize,
+}
 
 #[derive(Debug, Serialize)]
 struct ExperimentReportBase {
@@ -554,6 +728,8 @@ struct SensitivityOutcome {
     un_evacuated_agents_delta: i64,
     baseline_fully_evacuated_runs: u32,
     candidate_fully_evacuated_runs: u32,
+    queue_experience_delta: Option<QueueExperienceDelta>,
+    queue_telemetry_delta: Option<QueueTelemetryDelta>,
     clearance_time_s: SensitivityTiming,
     last_exit_time_s: SensitivityTiming,
 }
@@ -627,6 +803,7 @@ struct PairedRunArm {
     evacuated_by_exit: BTreeMap<String, u32>,
     remaining_by_state: BTreeMap<String, u32>,
     information_delivery: BTreeMap<String, InformationDeliveryMetrics>,
+    queue_metrics: Option<QueueMetrics>,
     clearance_time_s: Option<f64>,
     last_exit_time_s: Option<f64>,
 }
@@ -656,6 +833,8 @@ struct AggregateDelta {
     evacuated_by_exit: BTreeMap<String, i64>,
     remaining_by_state: BTreeMap<String, i64>,
     information_delivery: BTreeMap<String, InformationDeliveryDelta>,
+    queue_experience: Option<QueueExperienceDelta>,
+    queue_telemetry: Option<QueueTelemetryDelta>,
 }
 
 #[derive(Debug, Serialize)]
@@ -808,12 +987,23 @@ fn main() -> Result<()> {
         Command::Calibrate { command } => handle_calibration(command)?,
         Command::Replay {
             bundle: bundle_path,
+            allow_legacy_hash_only,
         } => {
             let bundle: RunBundle = read_json(&bundle_path)?;
-            if !bundle.verifies_hash() || bundle_hash(&bundle) != bundle.bundle_hash {
-                bail!("bundle integrity check failed");
+            match verify_run_bundle(&bundle)? {
+                BundleVerification::Reconstructed => {}
+                BundleVerification::HashOnlyLegacy if allow_legacy_hash_only => {
+                    eprintln!(
+                        "warning: bundle uses an incompatible runtime contract; only its hash was verified"
+                    );
+                }
+                BundleVerification::HashOnlyLegacy => {
+                    bail!(
+                        "bundle uses an incompatible runtime contract and cannot be reconstructed; pass --allow-legacy-hash-only only to inspect its hash"
+                    );
+                }
             }
-            println!("verified: {}", bundle.bundle_hash);
+            println!("verified reconstruction: {}", bundle.bundle_hash);
             println!("scenario: {}", bundle.scenario.scenario.name);
             println!("frames: {}", bundle.trace.len());
             println!(
@@ -926,8 +1116,68 @@ fn handle_layout(command: LayoutCommand) -> Result<()> {
 
 fn handle_experiment(command: ExperimentCommand) -> Result<()> {
     match command {
+        ExperimentCommand::Plan { manifest, output } => {
+            plan_experiment(&manifest, output.as_deref())?;
+        }
         ExperimentCommand::Run { manifest, output } => run_experiment(&manifest, &output)?,
         ExperimentCommand::Verify { directory } => verify_experiment(&directory)?,
+    }
+    Ok(())
+}
+
+fn plan_experiment(manifest_path: &Path, output: Option<&Path>) -> Result<()> {
+    let (manifest, _, scenario) = load_experiment(manifest_path)?;
+    let source_reports = capture_experiment_source_reports(&manifest, manifest_path)?;
+    let source_attestations =
+        capture_experiment_osm_attestations(&manifest, manifest_path, &source_reports)?;
+    let report = ExperimentPlanReport {
+        schema_version: EXPERIMENT_PLAN_SCHEMA_VERSION.to_owned(),
+        experiment_name: manifest.name.clone(),
+        description: manifest.description.clone(),
+        manifest: manifest_path.display().to_string(),
+        scenario_source: manifest.scenario_source.clone(),
+        scenario_hash: chiyoda_core::bundle::canonical_hash(&CanonicalScenario::from(scenario.clone())),
+        trace_every_steps: manifest.trace_every_steps,
+        scenario: ExperimentScenarioInventory {
+            surfaces: scenario.surfaces.len(),
+            obstacles: scenario.obstacles.len(),
+            waypoints: scenario.waypoints.len(),
+            exits: scenario.exits.len(),
+            connectors: scenario.connectors.len(),
+            gates: scenario.gates.len(),
+            agent_groups: scenario.agents.len(),
+            declared_agents: scenario.agents.iter().map(|group| u64::from(group.count)).sum(),
+            connector_state_changes: scenario.connector_states.len(),
+            exit_state_changes: scenario.exit_states.len(),
+            connector_capacity_changes: scenario.connector_capacity_states.len(),
+            exit_capacity_changes: scenario.exit_capacity_states.len(),
+            gate_state_changes: scenario.gate_states.len(),
+            gate_capacity_changes: scenario.gate_capacity_states.len(),
+            messages: scenario.messages.len(),
+            countermeasures: scenario.countermeasures.len(),
+        },
+        assumptions: manifest.assumptions.clone(),
+        sources: manifest.sources.clone(),
+        source_report_snapshots: source_reports
+            .iter()
+            .map(|report| report.snapshot.clone())
+            .collect(),
+        source_attestations: manifest.source_attestations.clone(),
+        verified_osm_source_attestations: source_attestations
+            .into_iter()
+            .map(|attestation| attestation.source_id)
+            .collect(),
+        author_claim_boundary: manifest.claim_boundary,
+        claim_boundary: "This plan validates one authored, uncalibrated scenario and checks its declared source reports and optional OSM source attestations at planning time. It does not execute the runtime, produce outcomes, estimate likelihoods, validate a facility, or support predictive, operational, or safety claims.".to_owned(),
+    };
+    if let Some(output) = output {
+        write_json(output, &report)?;
+        println!("uncalibrated experiment plan: {}", output.display());
+    } else {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&report).context("serializing experiment plan")?
+        );
     }
     Ok(())
 }
@@ -935,12 +1185,15 @@ fn handle_experiment(command: ExperimentCommand) -> Result<()> {
 fn run_experiment(manifest_path: &Path, output: &Path) -> Result<()> {
     let (manifest, scenario_source, scenario) = load_experiment(manifest_path)?;
     let source_reports = capture_experiment_source_reports(&manifest, manifest_path)?;
+    let source_attestations =
+        capture_experiment_osm_attestations(&manifest, manifest_path, &source_reports)?;
     ensure_empty_directory(output)?;
 
     write_json(&output.join("manifest.json"), &manifest)?;
     fs::write(output.join("scenario.chy"), &scenario_source)
         .with_context(|| format!("writing scenario snapshot into {}", output.display()))?;
     write_experiment_source_reports(output, &source_reports)?;
+    write_experiment_osm_attestations(output, &source_attestations)?;
     let bundle = run(
         &scenario,
         RunOptions {
@@ -971,14 +1224,16 @@ fn verify_experiment(directory: &Path) -> Result<()> {
     let manifest: ExperimentManifest = read_json(&directory.join("manifest.json"))?;
     validate_experiment_manifest(&manifest).map_err(|errors| experiment_error(&errors))?;
     let source_reports = verify_experiment_source_reports(directory, &manifest)?;
-    verify_experiment_layout(directory, !source_reports.is_empty())?;
+    verify_experiment_osm_attestations(directory, &manifest, &source_reports)?;
+    verify_experiment_layout(
+        directory,
+        !source_reports.is_empty(),
+        !manifest.source_attestations.is_empty(),
+    )?;
     let scenario_source = read_text(&directory.join("scenario.chy"))?;
     let scenario = parse(&scenario_source).map_err(|error| anyhow::anyhow!(error))?;
     validate(&scenario).map_err(|errors| validation_error(&errors))?;
     let bundle: RunBundle = read_json(&directory.join("run.json"))?;
-    if !bundle.verifies_hash() || bundle_hash(&bundle) != bundle.bundle_hash {
-        bail!("experiment run bundle integrity check failed");
-    }
     let canonical = CanonicalScenario::from(scenario.clone());
     if bundle.scenario != canonical
         || bundle.scenario_hash != chiyoda_core::bundle::canonical_hash(&bundle.scenario)
@@ -988,14 +1243,8 @@ fn verify_experiment(directory: &Path) -> Result<()> {
     if bundle.options.get("trace_every_steps") != Some(&manifest.trace_every_steps.to_string()) {
         bail!("experiment run bundle does not use the manifest trace_every_steps");
     }
-    let reconstructed_bundle = run(
-        &scenario,
-        RunOptions {
-            trace_every_steps: manifest.trace_every_steps,
-        },
-    )?;
-    if bundle != reconstructed_bundle {
-        bail!("experiment run bundle does not match deterministic reconstruction");
+    if verify_run_bundle(&bundle)? != BundleVerification::Reconstructed {
+        bail!("experiment run bundle uses an incompatible runtime contract");
     }
     let persisted_report: serde_json::Value = read_json(&directory.join("report.json"))?;
     let manifest_bytes =
@@ -1103,6 +1352,94 @@ fn write_experiment_source_reports(
     Ok(())
 }
 
+fn capture_experiment_osm_attestations(
+    manifest: &ExperimentManifest,
+    manifest_path: &Path,
+    source_reports: &[CapturedExperimentSourceReport],
+) -> Result<Vec<CapturedExperimentOsmAttestation>> {
+    let parent = manifest_path.parent().unwrap_or_else(|| Path::new("."));
+    manifest
+        .source_attestations
+        .iter()
+        .map(|attestation| {
+            let ExperimentSourceAttestation::OsmLocalProjection {
+                source_id,
+                catalog_path,
+                data_root,
+                observation_report_path,
+            } = attestation;
+            let source_report = source_reports
+                .iter()
+                .find(|report| report.snapshot.source_id == *source_id)
+                .context("validated source attestation has no captured projection report")?;
+            let catalog_path = parent.join(catalog_path);
+            let catalog_bytes = fs::read(&catalog_path)
+                .with_context(|| format!("reading OSM catalog {}", catalog_path.display()))?;
+            let catalog: EvidenceCatalog = serde_json::from_slice(&catalog_bytes)
+                .with_context(|| format!("parsing OSM catalog {}", catalog_path.display()))?;
+            let observation_path = parent.join(observation_report_path);
+            let observation_bytes = fs::read(&observation_path).with_context(|| {
+                format!(
+                    "reading OSM observation report {}",
+                    observation_path.display()
+                )
+            })?;
+            let observation: OpenStreetMapLayoutReport = serde_json::from_slice(&observation_bytes)
+                .with_context(|| {
+                    format!(
+                        "parsing OSM observation report {}",
+                        observation_path.display()
+                    )
+                })?;
+            let projection: OpenStreetMapLocalProjectionReport =
+                serde_json::from_slice(&source_report.bytes).with_context(|| {
+                    format!("parsing declared OSM projection report for source `{source_id}`")
+                })?;
+            verify_openstreetmap_layout_report(&catalog, &parent.join(data_root), &observation)
+                .with_context(|| format!("verifying OSM source attestation `{source_id}`"))?;
+            verify_openstreetmap_local_projection_report(&observation, &projection)
+                .with_context(|| format!("verifying OSM projection attestation `{source_id}`"))?;
+            Ok(CapturedExperimentOsmAttestation {
+                source_id: source_id.clone(),
+                catalog_bytes,
+                observation_bytes,
+            })
+        })
+        .collect()
+}
+
+fn write_experiment_osm_attestations(
+    output: &Path,
+    attestations: &[CapturedExperimentOsmAttestation],
+) -> Result<()> {
+    for attestation in attestations {
+        let directory = output
+            .join("source-attestations")
+            .join(&attestation.source_id);
+        fs::create_dir_all(&directory)
+            .with_context(|| format!("creating {}", directory.display()))?;
+        fs::write(directory.join("catalog.json"), &attestation.catalog_bytes).with_context(
+            || {
+                format!(
+                    "writing OSM catalog snapshot for `{}`",
+                    attestation.source_id
+                )
+            },
+        )?;
+        fs::write(
+            directory.join("observation.json"),
+            &attestation.observation_bytes,
+        )
+        .with_context(|| {
+            format!(
+                "writing OSM observation snapshot for `{}`",
+                attestation.source_id
+            )
+        })?;
+    }
+    Ok(())
+}
+
 fn verify_experiment_source_reports(
     directory: &Path,
     manifest: &ExperimentManifest,
@@ -1160,10 +1497,120 @@ fn verify_experiment_source_reports(
     Ok(expected)
 }
 
-fn verify_experiment_layout(directory: &Path, has_source_reports: bool) -> Result<()> {
+fn verify_experiment_osm_attestations(
+    directory: &Path,
+    manifest: &ExperimentManifest,
+    source_reports: &[ExperimentSourceReportSnapshot],
+) -> Result<()> {
+    let root = directory.join("source-attestations");
+    if manifest.source_attestations.is_empty() {
+        if root.exists() {
+            bail!("experiment has undeclared OSM source attestations");
+        }
+        return Ok(());
+    }
+    let expected_ids = manifest
+        .source_attestations
+        .iter()
+        .map(|attestation| match attestation {
+            ExperimentSourceAttestation::OsmLocalProjection { source_id, .. } => source_id.clone(),
+        })
+        .collect::<std::collections::BTreeSet<_>>();
+    let actual_ids = fs::read_dir(&root)
+        .with_context(|| format!("reading {}", root.display()))?
+        .map(|entry| {
+            let entry = entry.with_context(|| format!("reading {}", root.display()))?;
+            if !entry
+                .file_type()
+                .with_context(|| format!("reading {}", entry.path().display()))?
+                .is_dir()
+            {
+                bail!(
+                    "OSM source-attestation entry is not a directory: {}",
+                    entry.path().display()
+                );
+            }
+            entry
+                .file_name()
+                .into_string()
+                .map_err(|_| anyhow::anyhow!("OSM source-attestation identifier is not UTF-8"))
+        })
+        .collect::<Result<std::collections::BTreeSet<_>>>()?;
+    if actual_ids != expected_ids {
+        bail!("OSM source-attestation directories do not match manifest declarations");
+    }
+
+    for attestation in &manifest.source_attestations {
+        let ExperimentSourceAttestation::OsmLocalProjection { source_id, .. } = attestation;
+        let snapshot_directory = root.join(source_id);
+        let actual_files = fs::read_dir(&snapshot_directory)
+            .with_context(|| format!("reading {}", snapshot_directory.display()))?
+            .map(|entry| {
+                let entry =
+                    entry.with_context(|| format!("reading {}", snapshot_directory.display()))?;
+                if !entry
+                    .file_type()
+                    .with_context(|| format!("reading {}", entry.path().display()))?
+                    .is_file()
+                {
+                    bail!(
+                        "OSM source-attestation entry is not a file: {}",
+                        entry.path().display()
+                    );
+                }
+                entry
+                    .file_name()
+                    .into_string()
+                    .map_err(|_| anyhow::anyhow!("OSM source-attestation file name is not UTF-8"))
+            })
+            .collect::<Result<std::collections::BTreeSet<_>>>()?;
+        let expected_files = std::collections::BTreeSet::from([
+            "catalog.json".to_owned(),
+            "observation.json".to_owned(),
+        ]);
+        if actual_files != expected_files {
+            bail!("OSM source-attestation files do not match the artifact contract");
+        }
+
+        let catalog: EvidenceCatalog = read_json(&snapshot_directory.join("catalog.json"))?;
+        let observation: OpenStreetMapLayoutReport =
+            read_json(&snapshot_directory.join("observation.json"))?;
+        verify_openstreetmap_layout_catalog_contract(&catalog, &observation)
+            .with_context(|| format!("verifying OSM catalog snapshot `{source_id}`"))?;
+        let source_report = source_reports
+            .iter()
+            .find(|report| report.source_id == *source_id)
+            .context("validated OSM source attestation has no projection report snapshot")?;
+        let projection: OpenStreetMapLocalProjectionReport =
+            read_json(&directory.join(&source_report.snapshot_path))?;
+        verify_openstreetmap_local_projection_report(&observation, &projection)
+            .with_context(|| format!("verifying OSM projection snapshot `{source_id}`"))?;
+
+        let declared_source = manifest
+            .sources
+            .iter()
+            .find(|source| source.id == *source_id)
+            .context("validated OSM source attestation has no source declaration")?;
+        if let Some(expected_source_sha256) = &declared_source.source_sha256
+            && !expected_source_sha256.eq_ignore_ascii_case(&observation.source.source_sha256)
+        {
+            bail!(
+                "OSM observation snapshot source hash does not match declaration for `{source_id}`"
+            );
+        }
+    }
+    Ok(())
+}
+
+fn verify_experiment_layout(
+    directory: &Path,
+    has_source_reports: bool,
+    has_source_attestations: bool,
+) -> Result<()> {
     let expected = ["manifest.json", "scenario.chy", "run.json", "report.json"]
         .into_iter()
         .chain(has_source_reports.then_some("source-reports"))
+        .chain(has_source_attestations.then_some("source-attestations"))
         .map(str::to_owned)
         .collect::<std::collections::BTreeSet<_>>();
     let actual = fs::read_dir(directory)
@@ -1664,7 +2111,7 @@ fn verify_sensitivity(directory: &Path) -> Result<()> {
         let condition_summary = load_and_verify_sweep(&condition_directory)?;
         let persisted_template =
             authored_template(&condition_directory, &condition_summary, &condition.id)?;
-        if CanonicalScenario::from(persisted_template)
+        if CanonicalScenario::from(persisted_template.clone())
             != CanonicalScenario::from(condition.scenario.clone())
         {
             bail!(
@@ -1673,7 +2120,12 @@ fn verify_sensitivity(directory: &Path) -> Result<()> {
             );
         }
 
-        let comparison = build_sensitivity_comparison(&baseline_directory, &condition_directory)?;
+        let comparison = build_sensitivity_comparison_from_verified(
+            &baseline_summary,
+            &condition_summary,
+            &baseline_template,
+            &persisted_template,
+        )?;
         let comparison_path = format!("comparisons/{}.json", condition.id);
         let persisted_comparison: serde_json::Value = read_json(&directory.join(&comparison_path))?;
         let expected_comparison =
@@ -1889,6 +2341,16 @@ fn sensitivity_outcome(comparison: &SweepComparison) -> SensitivityOutcome {
             .un_evacuated_agents,
         baseline_fully_evacuated_runs: comparison.baseline.fully_evacuated_runs,
         candidate_fully_evacuated_runs: comparison.candidate.fully_evacuated_runs,
+        queue_experience_delta: comparison
+            .aggregate
+            .candidate_minus_baseline
+            .queue_experience
+            .clone(),
+        queue_telemetry_delta: comparison
+            .aggregate
+            .candidate_minus_baseline
+            .queue_telemetry
+            .clone(),
         clearance_time_s: sensitivity_timing(&comparison.aggregate.clearance_time_s),
         last_exit_time_s: sensitivity_timing(&comparison.aggregate.last_exit_time_s),
     }
@@ -1953,6 +2415,8 @@ where
             evacuated_by_exit: bundle.metrics.evacuated_by_exit.clone(),
             remaining_by_state: bundle.metrics.remaining_by_state.clone(),
             information_delivery: bundle.metrics.information_delivery.clone(),
+            queue_experience: Some(queue_experience_from_metrics(&bundle.metrics)),
+            queue_metrics: bundle.metrics.queue_metrics.clone(),
             clearance_time_s: bundle.metrics.clearance_time_s,
             last_exit_time_s: bundle.metrics.last_exit_time_s,
         });
@@ -2026,9 +2490,36 @@ fn build_sensitivity_comparison(
     baseline_directory: &Path,
     candidate_directory: &Path,
 ) -> Result<SweepComparison> {
-    build_sweep_comparison_with_policy(
-        baseline_directory,
-        candidate_directory,
+    let baseline = load_and_verify_sweep(baseline_directory)?;
+    let candidate = load_and_verify_sweep(candidate_directory)?;
+    let baseline_template = authored_template(baseline_directory, &baseline, "baseline")?;
+    let candidate_template = authored_template(candidate_directory, &candidate, "candidate")?;
+    build_sensitivity_comparison_from_verified(
+        &baseline,
+        &candidate,
+        &baseline_template,
+        &candidate_template,
+    )
+}
+
+fn build_sensitivity_comparison_from_verified(
+    baseline: &SweepSummary,
+    candidate: &SweepSummary,
+    baseline_template: &chiyoda_core::Scenario,
+    candidate_template: &chiyoda_core::Scenario,
+) -> Result<SweepComparison> {
+    let changed_scenario_sections = compatible_comparison_sections(
+        baseline_template,
+        candidate_template,
+        ComparisonPolicy::AllowSensitivityAgentDeclarationChanges,
+    )?;
+    let information_sampling =
+        information_sampling_alignment(baseline_template, candidate_template);
+    compare_sweep_summaries_with_policy(
+        baseline,
+        candidate,
+        changed_scenario_sections,
+        information_sampling,
         ComparisonPolicy::AllowSensitivityAgentDeclarationChanges,
     )
 }
@@ -2243,7 +2734,6 @@ fn load_and_verify_sweep(directory: &Path) -> Result<SweepSummary> {
             Some(template)
         }
     };
-    let trace_every_steps = summary.trace_every_steps;
     for (offset, record) in summary.runs.iter_mut().enumerate() {
         let expected_seed = summary
             .first_seed
@@ -2255,12 +2745,7 @@ fn load_and_verify_sweep(directory: &Path) -> Result<SweepSummary> {
                 record.seed
             );
         }
-        verify_sweep_run(
-            directory,
-            record,
-            trace_every_steps,
-            authored_template.as_ref(),
-        )?;
+        verify_sweep_run(directory, record, authored_template.as_ref())?;
     }
     Ok(summary)
 }
@@ -2268,14 +2753,12 @@ fn load_and_verify_sweep(directory: &Path) -> Result<SweepSummary> {
 fn verify_sweep_run(
     directory: &Path,
     record: &mut SweepRun,
-    trace_every_steps: u32,
     authored_template: Option<&chiyoda_core::Scenario>,
 ) -> Result<()> {
     let run_directory = directory.join(format!("seed-{}", record.seed));
     let bundle: RunBundle = read_json(&run_directory.join("run.json"))?;
-    if !bundle.verifies_hash() || bundle_hash(&bundle) != bundle.bundle_hash {
-        bail!("bundle integrity check failed: {}", run_directory.display());
-    }
+    let _verification = verify_run_bundle(&bundle)
+        .with_context(|| format!("verifying run bundle {}", run_directory.display()))?;
     validate_bundle_metrics(&bundle, &run_directory)?;
     let source = read_text(&run_directory.join("scenario.chy"))?;
     let scenario = parse(&source).map_err(|error| anyhow::anyhow!(error))?;
@@ -2283,16 +2766,6 @@ fn verify_sweep_run(
     if CanonicalScenario::from(scenario.clone()) != bundle.scenario {
         bail!(
             "source and canonical scenario disagree: {}",
-            run_directory.display()
-        );
-    }
-    let reconstructed_bundle = run(&scenario, RunOptions { trace_every_steps })?;
-    if bundle.bundle_version == reconstructed_bundle.bundle_version
-        && bundle.runtime_version == reconstructed_bundle.runtime_version
-        && bundle != reconstructed_bundle
-    {
-        bail!(
-            "sweep run bundle does not match deterministic reconstruction: {}",
             run_directory.display()
         );
     }
@@ -2322,7 +2795,41 @@ fn verify_sweep_run(
             run_directory.display()
         );
     }
+    let queue_experience = queue_experience_from_metrics(&bundle.metrics);
+    if let Some(persisted_queue_experience) = &record.queue_experience
+        && persisted_queue_experience != &queue_experience
+    {
+        bail!(
+            "summary queue experience and run bundle disagree: {}",
+            run_directory.display()
+        );
+    }
+    // Older summaries omit queue experience. Hydrate it from the verified
+    // bundle for downstream analysis without rewriting historical artifacts.
+    record.queue_experience = Some(queue_experience);
+    if let Some(persisted_queue_metrics) = &record.queue_metrics
+        && bundle.metrics.queue_metrics.as_ref() != Some(persisted_queue_metrics)
+    {
+        bail!(
+            "summary queue telemetry and run bundle disagree: {}",
+            run_directory.display()
+        );
+    }
+    // Older summaries and bundles may lack detailed queue telemetry. Preserve
+    // that absence instead of manufacturing a zero-valued record.
+    record
+        .queue_metrics
+        .clone_from(&bundle.metrics.queue_metrics);
     Ok(())
+}
+
+fn queue_experience_from_metrics(metrics: &RunMetrics) -> QueueExperience {
+    QueueExperience {
+        queued_for_lift_agents: metrics.queued_for_lift_agents,
+        queued_for_connector_agents: metrics.queued_for_connector_agents,
+        queued_for_gate_agents: metrics.queued_for_gate_agents,
+        queued_for_exit_agents: metrics.queued_for_exit_agents,
+    }
 }
 
 fn reconcile_run_provenance(
@@ -2380,7 +2887,7 @@ fn validate_bundle_metrics(bundle: &RunBundle, directory: &Path) -> Result<()> {
     }
     if matches!(
         bundle.bundle_version.as_str(),
-        "0.17" | "0.18" | "0.19" | "0.20" | "0.21"
+        "0.17" | "0.18" | "0.19" | "0.20" | "0.21" | "0.22" | "0.23"
     ) {
         let fully_evacuated = metrics.evacuated_agents == metrics.total_agents;
         if metrics.clearance_time_s.is_some() != fully_evacuated {
@@ -2458,7 +2965,7 @@ fn validate_bundle_metrics(bundle: &RunBundle, directory: &Path) -> Result<()> {
     }
     if matches!(
         bundle.bundle_version.as_str(),
-        "0.18" | "0.19" | "0.20" | "0.21"
+        "0.18" | "0.19" | "0.20" | "0.21" | "0.22" | "0.23"
     ) && !expected_interventions.is_empty()
     {
         bail!(
@@ -2479,6 +2986,7 @@ fn validate_bundle_metrics(bundle: &RunBundle, directory: &Path) -> Result<()> {
             "waiting_for_route",
             "waiting_for_lift",
             "waiting_for_connector",
+            "waiting_for_gate",
             "waiting_for_exit",
             "in_transit",
         ]
@@ -2504,9 +3012,153 @@ fn validate_bundle_metrics(bundle: &RunBundle, directory: &Path) -> Result<()> {
             directory.display()
         );
     }
+    if matches!(bundle.bundle_version.as_str(), "0.22" | "0.23") {
+        let queue_metrics = metrics.queue_metrics.as_ref().ok_or_else(|| {
+            anyhow::anyhow!(
+                "current bundle omits queue telemetry: {}",
+                directory.display()
+            )
+        })?;
+        for (resource, queue, legacy_exposure) in [
+            ("lift", &queue_metrics.lift, metrics.queued_for_lift_agents),
+            (
+                "connector",
+                &queue_metrics.connector,
+                metrics.queued_for_connector_agents,
+            ),
+            ("gate", &queue_metrics.gate, metrics.queued_for_gate_agents),
+            ("exit", &queue_metrics.exit, metrics.queued_for_exit_agents),
+        ] {
+            if queue.ever_queued_agents > metrics.total_agents
+                || queue.peak_waiting_agents > queue.ever_queued_agents
+                || !queue.cumulative_wait_agent_seconds.is_finite()
+                || queue.cumulative_wait_agent_seconds < 0.0
+            {
+                bail!(
+                    "bundle has invalid {resource} queue telemetry: {}",
+                    directory.display()
+                );
+            }
+            if queue.ever_queued_agents != legacy_exposure {
+                bail!(
+                    "bundle {resource} queue exposure disagrees with its legacy metric: {}",
+                    directory.display()
+                );
+            }
+        }
+        if bundle.bundle_version == "0.23" {
+            let by_resource = queue_metrics.by_resource.as_ref().ok_or_else(|| {
+                anyhow::anyhow!(
+                    "current bundle omits resource-level queue telemetry: {}",
+                    directory.display()
+                )
+            })?;
+            let scenario = &bundle.scenario.scenario;
+            validate_queue_resource_breakdown(
+                directory,
+                "lift",
+                &by_resource.lifts,
+                scenario
+                    .connectors
+                    .iter()
+                    .filter(|connector| connector.is_lift())
+                    .map(|connector| connector.id().to_owned()),
+                &queue_metrics.lift,
+                metrics.total_agents,
+            )?;
+            validate_queue_resource_breakdown(
+                directory,
+                "connector",
+                &by_resource.connectors,
+                scenario
+                    .connectors
+                    .iter()
+                    .filter(|connector| {
+                        !connector.is_lift() && connector.service_rate_per_s().is_some()
+                    })
+                    .map(|connector| connector.id().to_owned()),
+                &queue_metrics.connector,
+                metrics.total_agents,
+            )?;
+            validate_queue_resource_breakdown(
+                directory,
+                "gate",
+                &by_resource.gates,
+                scenario.gates.iter().map(|gate| gate.id.clone()),
+                &queue_metrics.gate,
+                metrics.total_agents,
+            )?;
+            validate_queue_resource_breakdown(
+                directory,
+                "exit",
+                &by_resource.exits,
+                scenario
+                    .exits
+                    .iter()
+                    .filter(|exit| exit.capacity_per_s.is_some())
+                    .map(|exit| exit.id.clone()),
+                &queue_metrics.exit,
+                metrics.total_agents,
+            )?;
+        }
+    }
     Ok(())
 }
 
+fn validate_queue_resource_breakdown(
+    directory: &Path,
+    resource_kind: &str,
+    observed: &BTreeMap<String, QueueResourceMetrics>,
+    expected_ids: impl Iterator<Item = String>,
+    aggregate: &QueueResourceMetrics,
+    total_agents: u32,
+) -> Result<()> {
+    let expected_ids: BTreeSet<_> = expected_ids.collect();
+    let observed_ids: BTreeSet<_> = observed.keys().cloned().collect();
+    if observed_ids != expected_ids {
+        bail!(
+            "bundle {resource_kind} queue-resource identifiers disagree with its scenario: {}",
+            directory.display()
+        );
+    }
+
+    let mut cumulative_wait_agent_seconds = 0.0;
+    let mut resource_exposures = 0_u64;
+    for (resource_id, queue) in observed {
+        if queue.ever_queued_agents > total_agents
+            || queue.peak_waiting_agents > queue.ever_queued_agents
+            || queue.peak_waiting_agents > aggregate.peak_waiting_agents
+            || !queue.cumulative_wait_agent_seconds.is_finite()
+            || queue.cumulative_wait_agent_seconds < 0.0
+        {
+            bail!(
+                "bundle has invalid {resource_kind} queue telemetry for `{resource_id}`: {}",
+                directory.display()
+            );
+        }
+        cumulative_wait_agent_seconds = canonical_report_number(
+            cumulative_wait_agent_seconds + queue.cumulative_wait_agent_seconds,
+        );
+        resource_exposures += u64::from(queue.ever_queued_agents);
+    }
+    if cumulative_wait_agent_seconds.total_cmp(&aggregate.cumulative_wait_agent_seconds)
+        != std::cmp::Ordering::Equal
+    {
+        bail!(
+            "bundle {resource_kind} queue-resource wait time does not add to its aggregate: {}",
+            directory.display()
+        );
+    }
+    if resource_exposures < u64::from(aggregate.ever_queued_agents) {
+        bail!(
+            "bundle {resource_kind} queue-resource exposures cannot cover its aggregate: {}",
+            directory.display()
+        );
+    }
+    Ok(())
+}
+
+#[allow(clippy::too_many_lines)] // one loop keeps every aggregate attribution auditable
 fn describe_sweep(summary: &SweepSummary) -> SweepAnalysis {
     let mut total_agents = 0_u64;
     let mut evacuated_agents = 0_u64;
@@ -2515,6 +3167,15 @@ fn describe_sweep(summary: &SweepSummary) -> SweepAnalysis {
     let mut evacuated_by_exit = BTreeMap::new();
     let mut remaining_by_state = BTreeMap::new();
     let mut information_delivery = BTreeMap::new();
+    let mut queue_experience = AggregateQueueExperience {
+        observed_runs: 0,
+        unobserved_legacy_runs: 0,
+        queued_for_lift_agents: 0,
+        queued_for_connector_agents: 0,
+        queued_for_gate_agents: 0,
+        queued_for_exit_agents: 0,
+    };
+    let mut queue_telemetry = AggregateQueueTelemetry::default();
     let mut clearance_times = Vec::new();
     let mut last_exit_times = Vec::new();
 
@@ -2542,6 +3203,41 @@ fn describe_sweep(summary: &SweepSummary) -> SweepAnalysis {
             );
             aggregate.received_agents += u64::from(delivery.received_agents);
             aggregate.accepted_agents += u64::from(delivery.accepted_agents);
+        }
+        if let Some(run_queue_experience) = &run.queue_experience {
+            queue_experience.observed_runs += 1;
+            queue_experience.queued_for_lift_agents +=
+                u64::from(run_queue_experience.queued_for_lift_agents);
+            queue_experience.queued_for_connector_agents +=
+                u64::from(run_queue_experience.queued_for_connector_agents);
+            queue_experience.queued_for_gate_agents +=
+                u64::from(run_queue_experience.queued_for_gate_agents);
+            queue_experience.queued_for_exit_agents +=
+                u64::from(run_queue_experience.queued_for_exit_agents);
+        } else {
+            queue_experience.unobserved_legacy_runs += 1;
+        }
+        if let Some(run_queue_metrics) = &run.queue_metrics {
+            queue_telemetry.observed_runs += 1;
+            accumulate_queue_resource_telemetry(&mut queue_telemetry.lift, &run_queue_metrics.lift);
+            accumulate_queue_resource_telemetry(
+                &mut queue_telemetry.connector,
+                &run_queue_metrics.connector,
+            );
+            accumulate_queue_resource_telemetry(&mut queue_telemetry.gate, &run_queue_metrics.gate);
+            accumulate_queue_resource_telemetry(&mut queue_telemetry.exit, &run_queue_metrics.exit);
+            if let Some(by_resource) = &run_queue_metrics.by_resource {
+                queue_telemetry.by_resource.observed_runs += 1;
+                accumulate_queue_resource_attribution(
+                    &mut queue_telemetry.by_resource,
+                    by_resource,
+                );
+            } else {
+                queue_telemetry.by_resource.unobserved_legacy_runs += 1;
+            }
+        } else {
+            queue_telemetry.unobserved_legacy_runs += 1;
+            queue_telemetry.by_resource.unobserved_legacy_runs += 1;
         }
         if let Some(clearance_time_s) = observed_clearance_time(run) {
             clearance_times.push(clearance_time_s);
@@ -2575,6 +3271,8 @@ fn describe_sweep(summary: &SweepSummary) -> SweepAnalysis {
             .saturating_sub(remaining_by_state.values().sum()),
         remaining_by_state,
         information_delivery,
+        queue_experience,
+        queue_telemetry,
         clearance_time_s: descriptive_range(&clearance_times),
         last_exit_time_s: descriptive_range(&last_exit_times),
         claim_boundary: "This report aggregates deterministic structural runs. It is not a benchmark score, calibration result, uncertainty estimate, or predictive claim.".to_owned(),
@@ -2740,6 +3438,8 @@ fn compare_sweep_summaries_with_policy(
                 evacuated_by_exit: evacuated_by_exit_delta,
                 remaining_by_state: remaining_by_state_delta,
                 information_delivery: information_delivery_delta,
+                queue_experience: queue_experience_delta(&baseline.runs, &candidate.runs),
+                queue_telemetry: queue_telemetry_delta(&baseline.runs, &candidate.runs),
             },
             runs_with_more_candidate_evacuations: more_candidate_evacuations,
             runs_with_fewer_candidate_evacuations: fewer_candidate_evacuations,
@@ -2828,6 +3528,7 @@ fn paired_run_arm(run: &SweepRun) -> PairedRunArm {
         evacuated_by_exit: run.evacuated_by_exit.clone(),
         remaining_by_state: run.remaining_by_state.clone(),
         information_delivery: run.information_delivery.clone(),
+        queue_metrics: run.queue_metrics.clone(),
         clearance_time_s: observed_clearance_time(run),
         last_exit_time_s: observed_last_exit_time(run),
     }
@@ -2948,6 +3649,244 @@ fn signed_count_delta(candidate: u32, baseline: u32) -> i64 {
     i64::from(candidate) - i64::from(baseline)
 }
 
+fn accumulate_queue_resource_telemetry(
+    aggregate: &mut AggregateQueueResourceTelemetry,
+    resource: &QueueResourceMetrics,
+) {
+    aggregate.ever_queued_agents += u64::from(resource.ever_queued_agents);
+    aggregate.cumulative_wait_agent_seconds = canonical_report_number(
+        aggregate.cumulative_wait_agent_seconds + resource.cumulative_wait_agent_seconds,
+    );
+    aggregate.maximum_peak_waiting_agents = aggregate
+        .maximum_peak_waiting_agents
+        .max(resource.peak_waiting_agents);
+}
+
+fn accumulate_queue_resource_attribution(
+    aggregate: &mut AggregateQueueResourceAttribution,
+    by_resource: &chiyoda_core::QueueResourceBreakdown,
+) {
+    accumulate_queue_resource_map(&mut aggregate.lifts, &by_resource.lifts);
+    accumulate_queue_resource_map(&mut aggregate.connectors, &by_resource.connectors);
+    accumulate_queue_resource_map(&mut aggregate.gates, &by_resource.gates);
+    accumulate_queue_resource_map(&mut aggregate.exits, &by_resource.exits);
+}
+
+fn accumulate_queue_resource_map(
+    aggregate: &mut BTreeMap<String, AggregateQueueResourceTelemetry>,
+    resources: &BTreeMap<String, QueueResourceMetrics>,
+) {
+    for (resource_id, telemetry) in resources {
+        accumulate_queue_resource_telemetry(
+            aggregate.entry(resource_id.clone()).or_default(),
+            telemetry,
+        );
+    }
+}
+
+fn queue_experience_delta(
+    baseline_runs: &[SweepRun],
+    candidate_runs: &[SweepRun],
+) -> Option<QueueExperienceDelta> {
+    if baseline_runs.len() != candidate_runs.len() {
+        return None;
+    }
+    let mut delta = QueueExperienceDelta {
+        queued_for_lift_agents: 0,
+        queued_for_connector_agents: 0,
+        queued_for_gate_agents: 0,
+        queued_for_exit_agents: 0,
+    };
+    for (baseline, candidate) in baseline_runs.iter().zip(candidate_runs) {
+        let (Some(baseline), Some(candidate)) =
+            (&baseline.queue_experience, &candidate.queue_experience)
+        else {
+            return None;
+        };
+        delta.queued_for_lift_agents += signed_count_delta(
+            candidate.queued_for_lift_agents,
+            baseline.queued_for_lift_agents,
+        );
+        delta.queued_for_connector_agents += signed_count_delta(
+            candidate.queued_for_connector_agents,
+            baseline.queued_for_connector_agents,
+        );
+        delta.queued_for_gate_agents += signed_count_delta(
+            candidate.queued_for_gate_agents,
+            baseline.queued_for_gate_agents,
+        );
+        delta.queued_for_exit_agents += signed_count_delta(
+            candidate.queued_for_exit_agents,
+            baseline.queued_for_exit_agents,
+        );
+    }
+    Some(delta)
+}
+
+fn queue_telemetry_delta(
+    baseline_runs: &[SweepRun],
+    candidate_runs: &[SweepRun],
+) -> Option<QueueTelemetryDelta> {
+    if baseline_runs.len() != candidate_runs.len() {
+        return None;
+    }
+    let mut delta = QueueTelemetryDelta::default();
+    let mut baseline_peaks = [0_u32; 4];
+    let mut candidate_peaks = [0_u32; 4];
+    let mut resource_delta = QueueResourceTelemetryDeltaBreakdown::default();
+    let mut resource_peaks = QueueResourcePeakBreakdown::default();
+    let mut has_complete_resource_attribution = true;
+    for (baseline, candidate) in baseline_runs.iter().zip(candidate_runs) {
+        let (Some(baseline), Some(candidate)) = (&baseline.queue_metrics, &candidate.queue_metrics)
+        else {
+            return None;
+        };
+        for (
+            (resource_delta, baseline_resource, candidate_resource),
+            (baseline_peak, candidate_peak),
+        ) in [
+            (&mut delta.lift, &baseline.lift, &candidate.lift),
+            (
+                &mut delta.connector,
+                &baseline.connector,
+                &candidate.connector,
+            ),
+            (&mut delta.gate, &baseline.gate, &candidate.gate),
+            (&mut delta.exit, &baseline.exit, &candidate.exit),
+        ]
+        .into_iter()
+        .zip(baseline_peaks.iter_mut().zip(candidate_peaks.iter_mut()))
+        {
+            accumulate_queue_resource_delta(resource_delta, candidate_resource, baseline_resource);
+            *baseline_peak = (*baseline_peak).max(baseline_resource.peak_waiting_agents);
+            *candidate_peak = (*candidate_peak).max(candidate_resource.peak_waiting_agents);
+        }
+        if has_complete_resource_attribution {
+            let (Some(baseline_by_resource), Some(candidate_by_resource)) =
+                (&baseline.by_resource, &candidate.by_resource)
+            else {
+                has_complete_resource_attribution = false;
+                continue;
+            };
+            accumulate_attributed_queue_resource_delta(
+                &mut resource_delta.lifts,
+                &mut resource_peaks.lifts,
+                &baseline_by_resource.lifts,
+                &candidate_by_resource.lifts,
+            );
+            accumulate_attributed_queue_resource_delta(
+                &mut resource_delta.connectors,
+                &mut resource_peaks.connectors,
+                &baseline_by_resource.connectors,
+                &candidate_by_resource.connectors,
+            );
+            accumulate_attributed_queue_resource_delta(
+                &mut resource_delta.gates,
+                &mut resource_peaks.gates,
+                &baseline_by_resource.gates,
+                &candidate_by_resource.gates,
+            );
+            accumulate_attributed_queue_resource_delta(
+                &mut resource_delta.exits,
+                &mut resource_peaks.exits,
+                &baseline_by_resource.exits,
+                &candidate_by_resource.exits,
+            );
+        }
+    }
+    for (resource_delta, (candidate_peak, baseline_peak)) in [
+        &mut delta.lift,
+        &mut delta.connector,
+        &mut delta.gate,
+        &mut delta.exit,
+    ]
+    .into_iter()
+    .zip(candidate_peaks.into_iter().zip(baseline_peaks))
+    {
+        resource_delta.maximum_peak_waiting_agents =
+            signed_count_delta(candidate_peak, baseline_peak);
+    }
+    if has_complete_resource_attribution {
+        finalize_attributed_queue_resource_delta(&mut resource_delta.lifts, &resource_peaks.lifts);
+        finalize_attributed_queue_resource_delta(
+            &mut resource_delta.connectors,
+            &resource_peaks.connectors,
+        );
+        finalize_attributed_queue_resource_delta(&mut resource_delta.gates, &resource_peaks.gates);
+        finalize_attributed_queue_resource_delta(&mut resource_delta.exits, &resource_peaks.exits);
+        delta.by_resource = Some(resource_delta);
+    }
+    Some(delta)
+}
+
+fn accumulate_queue_resource_delta(
+    delta: &mut QueueResourceTelemetryDelta,
+    candidate: &QueueResourceMetrics,
+    baseline: &QueueResourceMetrics,
+) {
+    delta.ever_queued_agents +=
+        signed_count_delta(candidate.ever_queued_agents, baseline.ever_queued_agents);
+    delta.cumulative_wait_agent_seconds = canonical_report_number(
+        delta.cumulative_wait_agent_seconds + candidate.cumulative_wait_agent_seconds
+            - baseline.cumulative_wait_agent_seconds,
+    );
+}
+
+#[derive(Default)]
+struct QueueResourcePeakBreakdown {
+    lifts: BTreeMap<String, (u32, u32)>,
+    connectors: BTreeMap<String, (u32, u32)>,
+    gates: BTreeMap<String, (u32, u32)>,
+    exits: BTreeMap<String, (u32, u32)>,
+}
+
+fn accumulate_attributed_queue_resource_delta(
+    deltas: &mut BTreeMap<String, AttributedQueueResourceTelemetryDelta>,
+    peaks: &mut BTreeMap<String, (u32, u32)>,
+    baseline: &BTreeMap<String, QueueResourceMetrics>,
+    candidate: &BTreeMap<String, QueueResourceMetrics>,
+) {
+    for resource_id in baseline.keys().chain(
+        candidate
+            .keys()
+            .filter(|resource_id| !baseline.contains_key(*resource_id)),
+    ) {
+        let baseline_resource = baseline.get(resource_id);
+        let candidate_resource = candidate.get(resource_id);
+        let delta = deltas.entry(resource_id.clone()).or_default();
+        delta.baseline_resource_declared |= baseline_resource.is_some();
+        delta.candidate_resource_declared |= candidate_resource.is_some();
+        delta.ever_queued_agents += signed_count_delta(
+            candidate_resource.map_or(0, |resource| resource.ever_queued_agents),
+            baseline_resource.map_or(0, |resource| resource.ever_queued_agents),
+        );
+        delta.cumulative_wait_agent_seconds = canonical_report_number(
+            delta.cumulative_wait_agent_seconds
+                + candidate_resource.map_or(0.0, |resource| resource.cumulative_wait_agent_seconds)
+                - baseline_resource.map_or(0.0, |resource| resource.cumulative_wait_agent_seconds),
+        );
+        let peak = peaks.entry(resource_id.clone()).or_default();
+        peak.0 = peak
+            .0
+            .max(baseline_resource.map_or(0, |resource| resource.peak_waiting_agents));
+        peak.1 = peak
+            .1
+            .max(candidate_resource.map_or(0, |resource| resource.peak_waiting_agents));
+    }
+}
+
+fn finalize_attributed_queue_resource_delta(
+    deltas: &mut BTreeMap<String, AttributedQueueResourceTelemetryDelta>,
+    peaks: &BTreeMap<String, (u32, u32)>,
+) {
+    for (resource_id, delta) in deltas {
+        let (baseline_peak, candidate_peak) = peaks
+            .get(resource_id)
+            .expect("every attributed queue delta has tracked peaks");
+        delta.maximum_peak_waiting_agents = signed_count_delta(*candidate_peak, *baseline_peak);
+    }
+}
+
 fn canonical_report_number(value: f64) -> f64 {
     (value * 1_000_000_000.0).round() / 1_000_000_000.0
 }
@@ -3052,13 +3991,13 @@ fn dataset_role(partition: EvidencePartition) -> chiyoda_core::benchmark::Datase
 #[cfg(test)]
 mod tests {
     use super::{
-        ExperimentCommand, InformationSamplingAlignment, LayoutCommand, SweepRun, SweepSource,
-        SweepSummary, compare_sweep_summaries, describe_sweep, handle_experiment, handle_layout,
-        information_sampling_alignment, validate_bundle_metrics,
+        ExperimentCommand, InformationSamplingAlignment, LayoutCommand, QueueExperience, SweepRun,
+        SweepSource, SweepSummary, compare_sweep_summaries, describe_sweep, handle_experiment,
+        handle_layout, information_sampling_alignment, validate_bundle_metrics,
     };
     use chiyoda_core::{
-        InformationDeliveryMetrics, InformationInterventionKind, RunBundle, RunOptions, generator,
-        parse, run,
+        InformationDeliveryMetrics, InformationInterventionKind, QueueMetrics,
+        QueueResourceBreakdown, QueueResourceMetrics, RunBundle, RunOptions, generator, parse, run,
     };
     use sha2::{Digest, Sha256};
     use std::{
@@ -3085,6 +4024,80 @@ mod tests {
             std::env::temp_dir().join(format!("chiyoda-{name}-{}-{nonce}", std::process::id()));
         fs::create_dir_all(&directory).expect("creating temporary test directory");
         TestDirectory(directory)
+    }
+
+    fn test_queue_metrics(
+        lift: (u32, f64, u32),
+        connector: (u32, f64, u32),
+        gate: (u32, f64, u32),
+        exit: (u32, f64, u32),
+    ) -> QueueMetrics {
+        let resource =
+            |(ever_queued_agents, cumulative_wait_agent_seconds, peak_waiting_agents)| {
+                QueueResourceMetrics {
+                    ever_queued_agents,
+                    cumulative_wait_agent_seconds,
+                    peak_waiting_agents,
+                }
+            };
+        QueueMetrics {
+            lift: resource(lift),
+            connector: resource(connector),
+            gate: resource(gate),
+            exit: resource(exit),
+            by_resource: Some(QueueResourceBreakdown {
+                lifts: (lift.0 > 0)
+                    .then(|| BTreeMap::from([("fixture_lift".to_owned(), resource(lift))]))
+                    .unwrap_or_default(),
+                connectors: (connector.0 > 0)
+                    .then(|| {
+                        BTreeMap::from([("fixture_connector".to_owned(), resource(connector))])
+                    })
+                    .unwrap_or_default(),
+                gates: (gate.0 > 0)
+                    .then(|| BTreeMap::from([("fixture_gate".to_owned(), resource(gate))]))
+                    .unwrap_or_default(),
+                exits: (exit.0 > 0)
+                    .then(|| BTreeMap::from([("fixture_exit".to_owned(), resource(exit))]))
+                    .unwrap_or_default(),
+            }),
+        }
+    }
+
+    #[test]
+    fn resource_queue_deltas_mark_resources_added_or_removed_by_an_arm() {
+        let telemetry = |ever_queued_agents, cumulative_wait_agent_seconds, peak_waiting_agents| {
+            QueueResourceMetrics {
+                ever_queued_agents,
+                cumulative_wait_agent_seconds,
+                peak_waiting_agents,
+            }
+        };
+        let baseline = BTreeMap::from([("east_gate".to_owned(), telemetry(1, 2.0, 1))]);
+        let candidate = BTreeMap::from([("west_gate".to_owned(), telemetry(3, 5.0, 2))]);
+        let mut deltas = BTreeMap::new();
+        let mut peaks = BTreeMap::new();
+
+        super::accumulate_attributed_queue_resource_delta(
+            &mut deltas,
+            &mut peaks,
+            &baseline,
+            &candidate,
+        );
+        super::finalize_attributed_queue_resource_delta(&mut deltas, &peaks);
+
+        let east = deltas.get("east_gate").expect("removed resource is reported");
+        assert!(east.baseline_resource_declared);
+        assert!(!east.candidate_resource_declared);
+        assert_eq!(east.ever_queued_agents, -1);
+        assert!((east.cumulative_wait_agent_seconds + 2.0).abs() < f64::EPSILON);
+        assert_eq!(east.maximum_peak_waiting_agents, -1);
+        let west = deltas.get("west_gate").expect("added resource is reported");
+        assert!(!west.baseline_resource_declared);
+        assert!(west.candidate_resource_declared);
+        assert_eq!(west.ever_queued_agents, 3);
+        assert!((west.cumulative_wait_agent_seconds - 5.0).abs() < f64::EPSILON);
+        assert_eq!(west.maximum_peak_waiting_agents, 2);
     }
 
     #[test]
@@ -3246,6 +4259,25 @@ agents passengers count 1 on concourse at (1m, 1m, 0m) to street speed 1.2m/s ra
         )
         .expect("writing experiment manifest");
         let output = directory.0.join("artifact");
+        let plan_output = directory.0.join("plan.json");
+
+        handle_experiment(ExperimentCommand::Plan {
+            manifest: manifest_path.clone(),
+            output: Some(plan_output.clone()),
+        })
+        .expect("experiment plan succeeds");
+        assert!(
+            !output.exists(),
+            "planning must not create the execution output directory"
+        );
+        let plan: serde_json::Value =
+            super::read_json(&plan_output).expect("parsing experiment plan");
+        assert_eq!(plan["schema_version"], "0.1");
+        assert_eq!(plan["scenario"]["declared_agents"], 1);
+        assert_eq!(
+            plan["source_report_snapshots"][0]["source_id"],
+            "fixture_reference"
+        );
 
         handle_experiment(ExperimentCommand::Run {
             manifest: manifest_path,
@@ -3318,6 +4350,182 @@ agents passengers count 1 on concourse at (1m, 1m, 0m) to street speed 1.2m/s ra
     }
 
     #[test]
+    #[allow(clippy::too_many_lines)] // the fixture verifies source creation and artifact replay boundaries together
+    fn experiment_osm_attestation_rechecks_raw_source_then_preserves_provenance() {
+        let directory = test_directory("experiment-osm-attestation");
+        let data_root = directory.0.join("raw");
+        fs::create_dir_all(&data_root).expect("creating OSM data root");
+        let source = br#"<osm version="0.6">
+  <node id="1" lat="1.3" lon="103.8"><tag k="entrance" v="yes"/></node>
+  <node id="2" lat="1.3001" lon="103.8001"/>
+  <way id="9"><nd ref="1"/><nd ref="2"/><tag k="highway" v="steps"/></way>
+</osm>"#;
+        let source_path = data_root.join("station.osm");
+        fs::write(&source_path, source).expect("writing OSM source");
+        let catalog_path = directory.0.join("catalog.json");
+        let catalog = serde_json::json!({
+            "schema_version": "0.1",
+            "purpose": "uncalibrated_reference",
+            "dataset_id": "attested-osm-fixture",
+            "title": "Attested OSM fixture",
+            "landing_page": "https://www.openstreetmap.org/",
+            "license": "ODbL-1.0",
+            "redistributable": true,
+            "attribution": "© OpenStreetMap contributors",
+            "citation": "OpenStreetMap contributors",
+            "files": [{
+                "id": "station",
+                "source_url": "https://example.test/station.osm",
+                "local_path": "station.osm",
+                "sha256": format!("{:x}", Sha256::digest(source)),
+                "size_bytes": source.len(),
+                "transformation": "inspect geographic map observations only"
+            }],
+            "supported_primitives": "mapped tags only",
+            "exclusions": "scenario geometry and operational claims"
+        });
+        fs::write(
+            &catalog_path,
+            serde_json::to_vec_pretty(&catalog).expect("serializing catalog"),
+        )
+        .expect("writing catalog");
+        let observation_path = directory.0.join("observation.json");
+        handle_layout(LayoutCommand::Osm {
+            catalog: catalog_path.clone(),
+            data_root: data_root.clone(),
+            max_nodes: 2,
+            max_ways: 1,
+            output: observation_path.clone(),
+        })
+        .expect("creating OSM observation report");
+        let projection_path = directory.0.join("projection.json");
+        handle_layout(LayoutCommand::ProjectOsm {
+            catalog: catalog_path.clone(),
+            report: observation_path.clone(),
+            data_root: data_root.clone(),
+            origin_latitude: 1.3,
+            origin_longitude: 103.8,
+            output: projection_path.clone(),
+        })
+        .expect("creating local OSM projection report");
+
+        fs::write(
+            directory.0.join("scenario.chy"),
+            r#"
+scenario "attested OSM experiment"
+seed 1
+duration 5s
+timestep 1s
+surface concourse at (0m, 0m, 0m) size (10m, 10m)
+exit street on concourse at (8m, 1m, 0m) width 1m capacity 1/s
+agents passengers count 1 on concourse at (1m, 1m, 0m) to street speed 1.2m/s radius 0.3m height 1.7m
+"#,
+        )
+        .expect("writing scenario source");
+        let projection = fs::read(&projection_path).expect("reading projection report");
+        let manifest_path = directory.0.join("experiment.json");
+        let manifest = serde_json::json!({
+            "schema_version": "0.2",
+            "name": "Attested OSM experiment fixture",
+            "description": "an uncalibrated structural run with source provenance",
+            "scenario_source": "scenario.chy",
+            "trace_every_steps": 1,
+            "assumptions": [{
+                "id": "exit_capacity",
+                "subject": "street.capacity",
+                "basis": "documented_estimate",
+                "rationale": "keep the chosen input and OSM source boundary visible",
+                "source_ids": ["station_layout"]
+            }],
+            "sources": [{
+                "id": "station_layout",
+                "citation": "OpenStreetMap contributors",
+                "url": "https://www.openstreetmap.org/",
+                "applicability": "map observation informs context only",
+                "limitation": "does not calibrate the runtime or author scenario geometry",
+                "source_sha256": format!("{:x}", Sha256::digest(source)),
+                "derived_report": {
+                    "path": "projection.json",
+                    "sha256": format!("{:x}", Sha256::digest(&projection))
+                }
+            }],
+            "source_attestations": [{
+                "kind": "osm_local_projection",
+                "source_id": "station_layout",
+                "catalog_path": "catalog.json",
+                "data_root": "raw",
+                "observation_report_path": "observation.json"
+            }],
+            "claim_boundary": "not predictive, operational, or safety guidance"
+        });
+        fs::write(
+            &manifest_path,
+            serde_json::to_vec_pretty(&manifest).expect("serializing experiment manifest"),
+        )
+        .expect("writing experiment manifest");
+        let output = directory.0.join("artifact");
+
+        fs::write(&source_path, b"<osm version=\"0.6\"/>").expect("tampering raw OSM source");
+        let error = handle_experiment(ExperimentCommand::Plan {
+            manifest: manifest_path.clone(),
+            output: Some(directory.0.join("plan.json")),
+        })
+        .expect_err("changed raw OSM source must block experiment planning");
+        assert!(format!("{error:#}").contains("OSM source attestation"));
+        let error = handle_experiment(ExperimentCommand::Run {
+            manifest: manifest_path.clone(),
+            output: output.clone(),
+        })
+        .expect_err("changed raw OSM source must block artifact creation");
+        assert!(format!("{error:#}").contains("OSM source attestation"));
+        fs::write(&source_path, source).expect("restoring raw OSM source");
+
+        let plan_output = directory.0.join("plan.json");
+        handle_experiment(ExperimentCommand::Plan {
+            manifest: manifest_path.clone(),
+            output: Some(plan_output.clone()),
+        })
+        .expect("attested experiment plan succeeds");
+        let plan: serde_json::Value =
+            super::read_json(&plan_output).expect("parsing experiment plan");
+        assert_eq!(
+            plan["verified_osm_source_attestations"],
+            serde_json::json!(["station_layout"])
+        );
+
+        handle_experiment(ExperimentCommand::Run {
+            manifest: manifest_path,
+            output: output.clone(),
+        })
+        .expect("attested experiment run succeeds");
+        handle_experiment(ExperimentCommand::Verify {
+            directory: output.clone(),
+        })
+        .expect("attested experiment artifact verifies");
+        assert!(
+            output
+                .join("source-attestations/station_layout/catalog.json")
+                .is_file()
+        );
+        assert!(
+            output
+                .join("source-attestations/station_layout/observation.json")
+                .is_file()
+        );
+
+        let mut altered_catalog = catalog;
+        altered_catalog["title"] = serde_json::json!("Altered OSM fixture");
+        super::write_json(
+            &output.join("source-attestations/station_layout/catalog.json"),
+            &altered_catalog,
+        )
+        .expect("tampering catalog snapshot");
+        let error = handle_experiment(ExperimentCommand::Verify { directory: output })
+            .expect_err("changed OSM catalog snapshot must not verify");
+        assert!(format!("{error:#}").contains("source metadata"));
+    }
+
+    #[test]
     fn sweep_analysis_keeps_counts_exact_and_labels_legacy_attribution() {
         let summary = SweepSummary {
             schema_version: "0.1".to_owned(),
@@ -3341,6 +4549,8 @@ agents passengers count 1 on concourse at (1m, 1m, 0m) to street speed 1.2m/s ra
                     ]),
                     remaining_by_state: BTreeMap::from([("moving".to_owned(), 2)]),
                     information_delivery: BTreeMap::new(),
+                    queue_experience: None,
+                    queue_metrics: None,
                     clearance_time_s: Some(2.0),
                     last_exit_time_s: None,
                 },
@@ -3355,6 +4565,8 @@ agents passengers count 1 on concourse at (1m, 1m, 0m) to street speed 1.2m/s ra
                     evacuated_by_exit: BTreeMap::new(),
                     remaining_by_state: BTreeMap::from([("waiting_for_route".to_owned(), 5)]),
                     information_delivery: BTreeMap::new(),
+                    queue_experience: None,
+                    queue_metrics: None,
                     clearance_time_s: None,
                     last_exit_time_s: None,
                 },
@@ -3369,6 +4581,8 @@ agents passengers count 1 on concourse at (1m, 1m, 0m) to street speed 1.2m/s ra
                     evacuated_by_exit: BTreeMap::from([("east".to_owned(), 5)]),
                     remaining_by_state: BTreeMap::new(),
                     information_delivery: BTreeMap::new(),
+                    queue_experience: None,
+                    queue_metrics: None,
                     clearance_time_s: Some(4.0),
                     last_exit_time_s: None,
                 },
@@ -3394,6 +4608,14 @@ agents passengers count 1 on concourse at (1m, 1m, 0m) to street speed 1.2m/s ra
             Some(&5)
         );
         assert_eq!(analysis.unattributed_remaining_agents, 0);
+        assert_eq!(analysis.queue_experience.observed_runs, 0);
+        assert_eq!(analysis.queue_experience.unobserved_legacy_runs, 3);
+        assert_eq!(analysis.queue_experience.queued_for_lift_agents, 0);
+        assert_eq!(analysis.queue_experience.queued_for_connector_agents, 0);
+        assert_eq!(analysis.queue_experience.queued_for_gate_agents, 0);
+        assert_eq!(analysis.queue_experience.queued_for_exit_agents, 0);
+        assert_eq!(analysis.queue_telemetry.observed_runs, 0);
+        assert_eq!(analysis.queue_telemetry.unobserved_legacy_runs, 3);
         let clearance_time = analysis
             .clearance_time_s
             .expect("one run reached full clearance");
@@ -3585,6 +4807,14 @@ agents passengers count 1 on concourse at (1m, 1m, 0m) to street speed 1m/s radi
         let comparison: serde_json::Value =
             super::read_json(&comparison_path).expect("comparison parses");
         assert_eq!(comparison["paired_runs"].as_array().map(Vec::len), Some(1));
+        assert!(comparison["aggregate"]["candidate_minus_baseline"]["queue_telemetry"].is_object());
+        assert!(
+            comparison["aggregate"]["candidate_minus_baseline"]["queue_telemetry"]
+                ["by_resource"]["exits"]["street"]
+                .is_object(),
+            "current comparisons retain resource-attributed queue deltas"
+        );
+        assert!(report["conditions"][0]["outcome"]["queue_telemetry_delta"].is_object());
         let agent_comparison: serde_json::Value =
             super::read_json(&output.join("comparisons/case-0002.json"))
                 .expect("agent comparison parses");
@@ -3615,9 +4845,92 @@ agents passengers count 1 on concourse at (1m, 1m, 0m) to street speed 1m/s radi
             demand_comparison["paired_runs"][0]["candidate_total_agents"],
             2
         );
+        let baseline_summary_path = output.join("baseline/summary.json");
+        let baseline_summary: serde_json::Value =
+            super::read_json(&baseline_summary_path).expect("baseline summary parses");
+        assert!(
+            baseline_summary["runs"][0]["queue_experience"].is_object(),
+            "current sweeps persist queue experience"
+        );
+        assert!(
+            baseline_summary["runs"][0]["queue_metrics"].is_object(),
+            "current sweeps persist detailed queue telemetry"
+        );
+        assert!(
+            baseline_summary["runs"][0]["queue_metrics"]["by_resource"]["exits"]["street"]
+                .is_object(),
+            "current sweeps attribute queue telemetry to constrained resources"
+        );
+        let baseline_summary_for_analysis: SweepSummary =
+            super::read_json(&baseline_summary_path).expect("baseline summary deserializes");
+        let baseline_analysis = describe_sweep(&baseline_summary_for_analysis);
+        assert_eq!(baseline_analysis.queue_telemetry.observed_runs, 1);
+        assert_eq!(baseline_analysis.queue_telemetry.unobserved_legacy_runs, 0);
+        assert_eq!(
+            baseline_analysis.queue_telemetry.by_resource.observed_runs,
+            1
+        );
+        assert_eq!(
+            baseline_analysis
+                .queue_telemetry
+                .by_resource
+                .unobserved_legacy_runs,
+            0
+        );
+        assert!(
+            baseline_analysis
+                .queue_telemetry
+                .by_resource
+                .exits
+                .contains_key("street")
+        );
         super::verify_sweep(&output.join("baseline")).expect("baseline verifies");
         super::verify_sweep(&output.join("conditions/case-0001")).expect("condition verifies");
         super::verify_sensitivity(&output).expect("sensitivity study verifies");
+
+        let original_summary = fs::read(&baseline_summary_path).expect("reading baseline summary");
+        let mut altered_summary = baseline_summary.clone();
+        altered_summary["runs"][0]["queue_experience"]["queued_for_exit_agents"] =
+            serde_json::Value::from(99);
+        super::write_json(&baseline_summary_path, &altered_summary)
+            .expect("altering queue-experience summary");
+        let queue_error = super::verify_sweep(&output.join("baseline"))
+            .expect_err("altered queue experience must not verify");
+        assert!(
+            format!("{queue_error:#}").contains("summary queue experience"),
+            "unexpected queue-experience verification error: {queue_error:#}"
+        );
+        fs::write(&baseline_summary_path, original_summary).expect("restoring baseline summary");
+
+        let original_summary = fs::read(&baseline_summary_path).expect("reading baseline summary");
+        let mut altered_summary: serde_json::Value =
+            super::read_json(&baseline_summary_path).expect("baseline summary parses");
+        altered_summary["runs"][0]["queue_metrics"]["gate"]["cumulative_wait_agent_seconds"] =
+            serde_json::Value::from(99.0);
+        super::write_json(&baseline_summary_path, &altered_summary)
+            .expect("altering queue telemetry summary");
+        let queue_telemetry_error = super::verify_sweep(&output.join("baseline"))
+            .expect_err("altered queue telemetry must not verify");
+        assert!(
+            format!("{queue_telemetry_error:#}").contains("summary queue telemetry"),
+            "unexpected queue-telemetry verification error: {queue_telemetry_error:#}"
+        );
+        fs::write(&baseline_summary_path, original_summary).expect("restoring baseline summary");
+
+        let original_summary = fs::read(&baseline_summary_path).expect("reading baseline summary");
+        let mut altered_summary: serde_json::Value =
+            super::read_json(&baseline_summary_path).expect("baseline summary parses");
+        altered_summary["runs"][0]["queue_metrics"]["by_resource"]["exits"]["street"]["peak_waiting_agents"] =
+            serde_json::Value::from(99);
+        super::write_json(&baseline_summary_path, &altered_summary)
+            .expect("altering resource queue telemetry summary");
+        let resource_queue_telemetry_error = super::verify_sweep(&output.join("baseline"))
+            .expect_err("altered resource queue telemetry must not verify");
+        assert!(
+            format!("{resource_queue_telemetry_error:#}").contains("summary queue telemetry"),
+            "unexpected resource queue-telemetry verification error: {resource_queue_telemetry_error:#}"
+        );
+        fs::write(&baseline_summary_path, original_summary).expect("restoring baseline summary");
 
         let baseline_run_path = output.join("baseline/seed-10/run.json");
         let original_bundle = fs::read(&baseline_run_path).expect("reading baseline bundle");
@@ -3688,6 +5001,8 @@ agents passengers count 1 on concourse at (1m, 1m, 0m) to street speed 1m/s radi
                 evacuated_by_exit: BTreeMap::new(),
                 remaining_by_state: BTreeMap::new(),
                 information_delivery: BTreeMap::new(),
+                queue_experience: None,
+                queue_metrics: None,
                 clearance_time_s: Some(8.0),
                 last_exit_time_s: None,
             }],
@@ -3732,6 +5047,18 @@ agents passengers count 1 on concourse at (1m, 1m, 0m) to street speed 1m/s radi
                             accepted_agents: 2,
                         },
                     )]),
+                    queue_experience: Some(QueueExperience {
+                        queued_for_lift_agents: 1,
+                        queued_for_connector_agents: 0,
+                        queued_for_gate_agents: 0,
+                        queued_for_exit_agents: 0,
+                    }),
+                    queue_metrics: Some(test_queue_metrics(
+                        (1, 2.0, 1),
+                        (0, 0.0, 0),
+                        (0, 0.0, 0),
+                        (0, 0.0, 0),
+                    )),
                     clearance_time_s: Some(10.0),
                     last_exit_time_s: Some(10.0),
                 },
@@ -3753,6 +5080,18 @@ agents passengers count 1 on concourse at (1m, 1m, 0m) to street speed 1m/s radi
                             accepted_agents: 0,
                         },
                     )]),
+                    queue_experience: Some(QueueExperience {
+                        queued_for_lift_agents: 0,
+                        queued_for_connector_agents: 0,
+                        queued_for_gate_agents: 1,
+                        queued_for_exit_agents: 0,
+                    }),
+                    queue_metrics: Some(test_queue_metrics(
+                        (0, 0.0, 0),
+                        (0, 0.0, 0),
+                        (1, 1.0, 1),
+                        (0, 0.0, 0),
+                    )),
                     clearance_time_s: Some(20.0),
                     last_exit_time_s: Some(20.0),
                 },
@@ -3789,6 +5128,18 @@ agents passengers count 1 on concourse at (1m, 1m, 0m) to street speed 1m/s radi
                             accepted_agents: 3,
                         },
                     )]),
+                    queue_experience: Some(QueueExperience {
+                        queued_for_lift_agents: 2,
+                        queued_for_connector_agents: 0,
+                        queued_for_gate_agents: 0,
+                        queued_for_exit_agents: 0,
+                    }),
+                    queue_metrics: Some(test_queue_metrics(
+                        (2, 5.0, 2),
+                        (0, 0.0, 0),
+                        (0, 0.0, 0),
+                        (0, 0.0, 0),
+                    )),
                     clearance_time_s: Some(9.0),
                     last_exit_time_s: Some(9.0),
                 },
@@ -3810,6 +5161,18 @@ agents passengers count 1 on concourse at (1m, 1m, 0m) to street speed 1m/s radi
                             accepted_agents: 1,
                         },
                     )]),
+                    queue_experience: Some(QueueExperience {
+                        queued_for_lift_agents: 0,
+                        queued_for_connector_agents: 0,
+                        queued_for_gate_agents: 3,
+                        queued_for_exit_agents: 0,
+                    }),
+                    queue_metrics: Some(test_queue_metrics(
+                        (0, 0.0, 0),
+                        (0, 0.0, 0),
+                        (3, 4.0, 3),
+                        (0, 0.0, 0),
+                    )),
                     clearance_time_s: None,
                     last_exit_time_s: Some(14.0),
                 },
@@ -3892,6 +5255,52 @@ agents passengers count 1 on concourse at (1m, 1m, 0m) to street speed 1m/s radi
             .expect("information-delivery difference is reported");
         assert_eq!(delivery_delta.received_agents, 1);
         assert_eq!(delivery_delta.accepted_agents, 2);
+        let queue_delta = comparison
+            .aggregate
+            .candidate_minus_baseline
+            .queue_experience
+            .as_ref()
+            .expect("current queue-experience difference is reported");
+        assert_eq!(queue_delta.queued_for_lift_agents, 1);
+        assert_eq!(queue_delta.queued_for_connector_agents, 0);
+        assert_eq!(queue_delta.queued_for_gate_agents, 2);
+        assert_eq!(queue_delta.queued_for_exit_agents, 0);
+        let queue_telemetry_delta = comparison
+            .aggregate
+            .candidate_minus_baseline
+            .queue_telemetry
+            .as_ref()
+            .expect("current queue telemetry difference is reported");
+        assert_eq!(queue_telemetry_delta.lift.ever_queued_agents, 1);
+        assert!(
+            (queue_telemetry_delta.lift.cumulative_wait_agent_seconds - 3.0).abs() < f64::EPSILON
+        );
+        assert_eq!(queue_telemetry_delta.lift.maximum_peak_waiting_agents, 1);
+        assert_eq!(queue_telemetry_delta.gate.ever_queued_agents, 2);
+        assert!(
+            (queue_telemetry_delta.gate.cumulative_wait_agent_seconds - 3.0).abs() < f64::EPSILON
+        );
+        assert_eq!(queue_telemetry_delta.gate.maximum_peak_waiting_agents, 2);
+        let attributed_queue_delta = queue_telemetry_delta
+            .by_resource
+            .as_ref()
+            .expect("resource-attributed queue difference is reported when every run supports it");
+        let lift_delta = attributed_queue_delta
+            .lifts
+            .get("fixture_lift")
+            .expect("shared lift attribution is reported");
+        assert!(lift_delta.baseline_resource_declared);
+        assert!(lift_delta.candidate_resource_declared);
+        assert_eq!(lift_delta.ever_queued_agents, 1);
+        assert!((lift_delta.cumulative_wait_agent_seconds - 3.0).abs() < f64::EPSILON);
+        assert_eq!(lift_delta.maximum_peak_waiting_agents, 1);
+        let gate_delta = attributed_queue_delta
+            .gates
+            .get("fixture_gate")
+            .expect("shared gate attribution is reported");
+        assert_eq!(gate_delta.ever_queued_agents, 2);
+        assert!((gate_delta.cumulative_wait_agent_seconds - 3.0).abs() < f64::EPSILON);
+        assert_eq!(gate_delta.maximum_peak_waiting_agents, 2);
         assert_eq!(
             comparison.baseline.information_delivery["notice"].received_agents,
             5
@@ -3899,6 +5308,37 @@ agents passengers count 1 on concourse at (1m, 1m, 0m) to street speed 1m/s radi
         assert_eq!(
             comparison.candidate.information_delivery["notice"].accepted_agents,
             4
+        );
+        assert_eq!(comparison.baseline.queue_telemetry.observed_runs, 2);
+        assert_eq!(
+            comparison
+                .baseline
+                .queue_telemetry
+                .by_resource
+                .observed_runs,
+            2
+        );
+        assert_eq!(
+            comparison.baseline.queue_telemetry.lift.ever_queued_agents,
+            1
+        );
+        assert!(
+            (comparison
+                .candidate
+                .queue_telemetry
+                .gate
+                .cumulative_wait_agent_seconds
+                - 4.0)
+                .abs()
+                < f64::EPSILON
+        );
+        assert_eq!(
+            comparison
+                .candidate
+                .queue_telemetry
+                .gate
+                .maximum_peak_waiting_agents,
+            3
         );
         assert_eq!(comparison.aggregate.runs_with_more_candidate_evacuations, 0);
         assert_eq!(
@@ -3969,6 +5409,8 @@ agents passengers count 1 on concourse at (1m, 1m, 0m) to street speed 1m/s radi
                 evacuated_by_exit: BTreeMap::from([("street".to_owned(), 1)]),
                 remaining_by_state: BTreeMap::new(),
                 information_delivery: BTreeMap::new(),
+                queue_experience: None,
+                queue_metrics: None,
                 clearance_time_s: Some(1.0),
                 last_exit_time_s: Some(1.0),
             }],
@@ -4019,6 +5461,8 @@ agents passengers count 1 on concourse at (1m, 1m, 0m) to street speed 1m/s radi
                 evacuated_by_exit: BTreeMap::from([("street".to_owned(), 1)]),
                 remaining_by_state: BTreeMap::new(),
                 information_delivery: BTreeMap::new(),
+                queue_experience: None,
+                queue_metrics: None,
                 clearance_time_s: Some(1.0),
                 last_exit_time_s: Some(1.0),
             }],

@@ -11,7 +11,9 @@ and what the result must not be used to claim.
 
 ## Manifest
 
-The manifest uses schema `0.1` and is strict JSON. `scenario_source` is
+The baseline manifest uses schema `0.1` and is strict JSON. Schema `0.2` adds
+optional source attestations for a content-locked OSM observation and local
+projection; use it only when declaring `source_attestations`. Every path is
 resolved relative to the manifest. Every experiment must state a non-empty
 `claim_boundary` and at least one assumption.
 
@@ -62,16 +64,17 @@ The command checks the report is JSON, verifies its declared byte hash, and
 copies its exact bytes. A URL or source checksum documents selection context; it
 does not transfer validity from a source to this scenario.
 
-### Retaining a local OSM reference
+### Retaining and attesting a local OSM reference
 
-An OSM local-coordinate reference can be retained in exactly the same way. Run
-both layout verifiers before computing the report hash, then declare the report
-as a source for the assumptions it informed:
+An OSM local-coordinate reference can be retained in exactly the same way.
+Schema `0.2` can also make its creation-time provenance check part of the
+experiment contract. Generate the observation and projection first:
 
 ```console
-$ cargo run -p chiyoda -- layout verify-osm layout-catalog.json observations.json
+$ cargo run -p chiyoda -- layout verify-osm layout-catalog.json observations.json \
+    --data-root data/raw
 $ cargo run -p chiyoda -- layout verify-projection layout-catalog.json \
-    observations.json local-reference.json
+    observations.json local-reference.json --data-root data/raw
 $ sha256sum local-reference.json
 ```
 
@@ -90,17 +93,56 @@ $ sha256sum local-reference.json
 }
 ```
 
-`experiment run` snapshots and rechecks the local-reference byte hash, but it
-does not fetch or revalidate external OSM XML. The two layout commands above
-are therefore required before attaching a report; the experiment remains an
-uncalibrated structural artifact even when the report verified successfully.
+To attest it, use schema `0.2` and add this root-level field. Its `source_id`
+must name the source declaring `local-reference.json` above.
 
-## Run and verify
+```json
+{
+  "schema_version": "0.2",
+  "source_attestations": [
+    {
+      "kind": "osm_local_projection",
+      "source_id": "station_layout_reference",
+      "catalog_path": "layout-catalog.json",
+      "data_root": "data/raw",
+      "observation_report_path": "observations.json"
+    }
+  ]
+}
+```
+
+At `experiment run`, Chiyoda checks the catalog and locked XML, reconstructs
+the observation report, then reconstructs the derived local projection. It
+copies the catalog and observation report into the artifact alongside the
+already content-locked local-reference report. Creation therefore fails if the
+local raw XML, its catalog lock, observation, or projection has changed.
+
+Later `experiment verify` validates the captured catalog and its exact link to
+the observation’s dataset identity, source URL, locked raw-file hash and size,
+license, attribution, and catalog hash; it then reconstructs the
+observation-to-projection link. It deliberately does not fetch a URL or
+revalidate raw XML: the raw file is not copied into an artifact and an offline
+verifier must not claim to have revalidated an external source. This proves the
+provenance chain captured at creation, not facility geometry, model calibration,
+or any operational result.
+
+## Plan, run, and verify
 
 ```console
+$ cargo run -p chiyoda -- experiment plan experiment.json -o out/gate-experiment-plan.json
 $ cargo run -p chiyoda -- experiment run experiment.json -o out/gate-experiment
 $ cargo run -p chiyoda -- experiment verify out/gate-experiment
 ```
+
+`experiment plan` is non-mutating except for its optional JSON output. It
+parses and validates the scenario; verifies declared derived-report hashes; and
+when schema `0.2` declares an OSM attestation, rechecks the local locked XML,
+observation, and projection before reporting success. The plan lists every
+assumption and source, the canonical scenario hash, the trace cadence, all
+authored structure counts, the declared agent count, state/capacity changes,
+and information interventions. Review it before treating a best guess as a
+chosen input or invoking the runtime. It does not create an artifact or produce
+an outcome.
 
 The output directory must be empty. It contains:
 
@@ -108,17 +150,21 @@ The output directory must be empty. It contains:
 - `scenario.chy` — exact authored source snapshot;
 - `run.json` — independently bundle-hash-verifiable runtime artifact;
 - `source-reports/SOURCE.json` — exact derived-report snapshots, when declared;
+- `source-attestations/SOURCE/{catalog,observation}.json` — OSM catalog and
+  source-observation snapshots, when a schema `0.2` OSM attestation is declared;
 - `report.json` — hashes, the bundle/scenario linkage, source-snapshot paths,
   both author/product claim boundaries, and a directly reconstructed mirror of
   the run's exact runtime metrics. The current report schema is `0.2`; its
   metric mirror includes agent and evacuation counts, final-exit and terminal
   state attribution, intervention delivery counts, timing fields, and queue
-  counts. These are deterministic observations from this one configured run,
+  exposure plus discrete wait/peak telemetry. These are deterministic
+  observations from this one configured run,
   not estimates, uncertainty measures, or real-world outcomes.
 
-`experiment verify` rejects unexpected files, altered source-report snapshots,
-a changed scenario/run pairing, a bundle hash failure, a trace-frequency mismatch,
-or a report (including its mirrored metrics) that does not exactly reconstruct.
+`experiment verify` rejects unexpected files, altered source-report snapshots
+or source attestations, a changed scenario/run pairing, a bundle hash failure,
+a trace-frequency mismatch, or a report (including its mirrored metrics) that
+does not exactly reconstruct.
 It reruns the deterministic reference runtime from the scenario snapshot and
 rejects even a self-hashed run bundle that differs from that reconstruction.
 Existing `0.1` reports without the metric mirror remain verifiable for audit.

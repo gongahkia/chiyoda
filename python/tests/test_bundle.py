@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import sys
 import tempfile
 import unittest
@@ -9,11 +10,20 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parents[1] / "src"))
 
+from chiyoda_analysis import bundle as bundle_reader
 from chiyoda_analysis.bundle import BundleError, load_bundle, summarize
 from chiyoda_analysis.evidence import EvidenceError, load_catalog, verify_catalog_files
 
 
 class BundleTests(unittest.TestCase):
+    def test_reader_covers_the_current_rust_bundle_contract(self) -> None:
+        bundle_source = (Path(__file__).parents[2] / "crates/chiyoda-core/src/bundle.rs").read_text(
+            encoding="utf-8"
+        )
+        match = re.search(r'pub const BUNDLE_VERSION: &str = "([^"]+)";', bundle_source)
+        self.assertIsNotNone(match, "Rust bundle version declaration must remain machine-readable")
+        self.assertIn(match.group(1), bundle_reader._CURRENT_BUNDLE_VERSIONS)
+
     def test_loads_and_summarizes_a_valid_bundle(self) -> None:
         bundle = {
             "bundle_version": "0.1",
@@ -72,6 +82,21 @@ class BundleTests(unittest.TestCase):
         with self.assertRaises(BundleError):
             summarize(bundle)
 
+    def test_summary_rejects_partial_current_run_labeled_as_cleared(self) -> None:
+        bundle = {
+            "bundle_version": "0.21",
+            "scenario": {"scenario": {"name": "fixture"}},
+            "metrics": {
+                "total_agents": 2,
+                "evacuated_agents": 1,
+                "clearance_time_s": 4.5,
+                "last_exit_time_s": 4.5,
+            },
+        }
+
+        with self.assertRaises(BundleError):
+            summarize(bundle)
+
     def test_summary_exposes_information_delivery_and_acceptance(self) -> None:
         bundle = {
             "scenario": {"scenario": {"name": "fixture"}},
@@ -89,6 +114,131 @@ class BundleTests(unittest.TestCase):
         summary = summarize(bundle)
 
         self.assertEqual(summary["information_delivery"]["notice"]["accepted_agents"], 5)
+
+    def test_current_summary_exposes_discrete_queue_telemetry(self) -> None:
+        queue_metrics = {
+            "lift": {
+                "ever_queued_agents": 1,
+                "cumulative_wait_agent_seconds": 1.5,
+                "peak_waiting_agents": 1,
+            },
+            "connector": {
+                "ever_queued_agents": 0,
+                "cumulative_wait_agent_seconds": 0.0,
+                "peak_waiting_agents": 0,
+            },
+            "gate": {
+                "ever_queued_agents": 2,
+                "cumulative_wait_agent_seconds": 3.0,
+                "peak_waiting_agents": 2,
+            },
+            "exit": {
+                "ever_queued_agents": 0,
+                "cumulative_wait_agent_seconds": 0.0,
+                "peak_waiting_agents": 0,
+            },
+        }
+        bundle = {
+            "bundle_version": "0.22",
+            "scenario": {"scenario": {"name": "fixture", "messages": [], "countermeasures": []}},
+            "metrics": {
+                "total_agents": 2,
+                "evacuated_agents": 0,
+                "remaining_by_state": {"waiting_for_gate": 2},
+                "clearance_time_s": None,
+                "last_exit_time_s": None,
+                "queued_for_lift_agents": 1,
+                "queued_for_connector_agents": 0,
+                "queued_for_gate_agents": 2,
+                "queued_for_exit_agents": 0,
+                "queue_metrics": queue_metrics,
+            },
+        }
+
+        summary = summarize(bundle)
+
+        self.assertEqual(summary["queue_metrics"]["gate"]["peak_waiting_agents"], 2)
+        self.assertEqual(summary["queue_metrics"]["lift"]["cumulative_wait_agent_seconds"], 1.5)
+        bundle["metrics"]["queued_for_gate_agents"] = 1
+        with self.assertRaises(BundleError):
+            summarize(bundle)
+
+    def test_current_summary_exposes_resource_attributed_queue_telemetry(self) -> None:
+        queue_metrics = {
+            "lift": {
+                "ever_queued_agents": 1,
+                "cumulative_wait_agent_seconds": 1.5,
+                "peak_waiting_agents": 1,
+            },
+            "connector": {
+                "ever_queued_agents": 0,
+                "cumulative_wait_agent_seconds": 0.0,
+                "peak_waiting_agents": 0,
+            },
+            "gate": {
+                "ever_queued_agents": 2,
+                "cumulative_wait_agent_seconds": 3.0,
+                "peak_waiting_agents": 2,
+            },
+            "exit": {
+                "ever_queued_agents": 0,
+                "cumulative_wait_agent_seconds": 0.0,
+                "peak_waiting_agents": 0,
+            },
+            "by_resource": {
+                "lifts": {
+                    "accessible_lift": {
+                        "ever_queued_agents": 1,
+                        "cumulative_wait_agent_seconds": 1.5,
+                        "peak_waiting_agents": 1,
+                    }
+                },
+                "connectors": {},
+                "gates": {
+                    "fare_gate": {
+                        "ever_queued_agents": 2,
+                        "cumulative_wait_agent_seconds": 3.0,
+                        "peak_waiting_agents": 2,
+                    }
+                },
+                "exits": {},
+            },
+        }
+        bundle = {
+            "bundle_version": "0.23",
+            "scenario": {
+                "scenario": {
+                    "name": "fixture",
+                    "messages": [],
+                    "countermeasures": [],
+                    "connectors": [{"Lift": {"id": "accessible_lift"}}],
+                    "gates": [{"id": "fare_gate"}],
+                    "exits": [],
+                }
+            },
+            "metrics": {
+                "total_agents": 2,
+                "evacuated_agents": 0,
+                "remaining_by_state": {"waiting_for_gate": 2},
+                "clearance_time_s": None,
+                "last_exit_time_s": None,
+                "queued_for_lift_agents": 1,
+                "queued_for_connector_agents": 0,
+                "queued_for_gate_agents": 2,
+                "queued_for_exit_agents": 0,
+                "queue_metrics": queue_metrics,
+            },
+        }
+
+        summary = summarize(bundle)
+
+        self.assertEqual(
+            summary["queue_metrics"]["by_resource"]["gates"]["fare_gate"]["peak_waiting_agents"],
+            2,
+        )
+        queue_metrics["by_resource"]["gates"]["fare_gate"]["cumulative_wait_agent_seconds"] = 2.0
+        with self.assertRaises(BundleError):
+            summarize(bundle)
 
     def test_summary_rejects_information_acceptance_above_delivery(self) -> None:
         bundle = {
@@ -110,6 +260,27 @@ class BundleTests(unittest.TestCase):
     def test_summary_rejects_missing_018_information_delivery(self) -> None:
         bundle = {
             "bundle_version": "0.18",
+            "scenario": {
+                "scenario": {
+                    "name": "fixture",
+                    "messages": [{"id": "notice"}],
+                    "countermeasures": [],
+                }
+            },
+            "metrics": {
+                "total_agents": 1,
+                "evacuated_agents": 0,
+                "clearance_time_s": None,
+                "last_exit_time_s": None,
+            },
+        }
+
+        with self.assertRaises(BundleError):
+            summarize(bundle)
+
+    def test_summary_rejects_missing_current_information_delivery(self) -> None:
+        bundle = {
+            "bundle_version": "0.21",
             "scenario": {
                 "scenario": {
                     "name": "fixture",
@@ -154,6 +325,35 @@ class BundleTests(unittest.TestCase):
         }
         with self.assertRaises(BundleError):
             summarize(bundle)
+
+    def test_current_summary_rejects_invalid_exit_and_remaining_attribution(self) -> None:
+        exit_bundle = {
+            "bundle_version": "0.21",
+            "scenario": {"scenario": {"name": "fixture", "exits": [{"id": "street"}]}},
+            "metrics": {
+                "total_agents": 1,
+                "evacuated_agents": 1,
+                "evacuated_by_exit": {"unknown": 1},
+                "clearance_time_s": 1.0,
+                "last_exit_time_s": 1.0,
+            },
+        }
+        remaining_bundle = {
+            "bundle_version": "0.21",
+            "scenario": {"scenario": {"name": "fixture"}},
+            "metrics": {
+                "total_agents": 2,
+                "evacuated_agents": 1,
+                "remaining_by_state": {"evacuated": 1},
+                "clearance_time_s": None,
+                "last_exit_time_s": 1.0,
+            },
+        }
+
+        with self.assertRaises(BundleError):
+            summarize(exit_bundle)
+        with self.assertRaises(BundleError):
+            summarize(remaining_bundle)
 
     def test_rejects_a_tampered_bundle(self) -> None:
         bundle = {

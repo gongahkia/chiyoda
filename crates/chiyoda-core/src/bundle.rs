@@ -3,6 +3,8 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{collections::BTreeMap, fmt::Write};
 
+pub const BUNDLE_VERSION: &str = "0.23";
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AgentSnapshot {
     pub id: String,
@@ -24,6 +26,7 @@ pub enum AgentState {
     WaitingForRoute,
     WaitingForLift,
     WaitingForConnector,
+    WaitingForGate,
     WaitingForExit,
     InTransit,
     Evacuated,
@@ -61,6 +64,49 @@ pub struct InformationDeliveryMetrics {
     pub accepted_agents: u32,
 }
 
+/// Discrete telemetry for one modeled capacity queue. These values describe
+/// only the reference runtime's timestep states; they are not measurements of
+/// a physical queue.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct QueueResourceMetrics {
+    /// Agents that entered this modeled queue at least once during the run.
+    pub ever_queued_agents: u32,
+    /// Sum of authored integration-step time spent in this modeled queue.
+    pub cumulative_wait_agent_seconds: f64,
+    /// Largest number of agents observed waiting in this modeled queue at one
+    /// reference-runtime step boundary.
+    pub peak_waiting_agents: u32,
+}
+
+/// Queue telemetry by capacity mechanism. Resources with no authored capacity
+/// remain present with zero values so a current run is unambiguous.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct QueueMetrics {
+    pub lift: QueueResourceMetrics,
+    pub connector: QueueResourceMetrics,
+    pub gate: QueueResourceMetrics,
+    pub exit: QueueResourceMetrics,
+    /// Per-authored-resource discrete telemetry for current bundles. The
+    /// aggregate fields remain unique-agent counts across a mechanism; an
+    /// agent may therefore appear in more than one entry in one map.
+    /// Omission preserves inspection of 0.22 telemetry bundles, which did not
+    /// expose the resource attribution needed to reconstruct this breakdown.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub by_resource: Option<QueueResourceBreakdown>,
+}
+
+/// Per-resource queue telemetry. Each map has every authored resource whose
+/// declared runtime semantics can queue: lifts, capacity-limited non-lift
+/// connectors, gates, and capacity-limited exits. Entries remain present at
+/// zero when a resource was not reached.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct QueueResourceBreakdown {
+    pub lifts: BTreeMap<String, QueueResourceMetrics>,
+    pub connectors: BTreeMap<String, QueueResourceMetrics>,
+    pub gates: BTreeMap<String, QueueResourceMetrics>,
+    pub exits: BTreeMap<String, QueueResourceMetrics>,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RunMetrics {
     pub total_agents: u32,
@@ -90,6 +136,11 @@ pub struct RunMetrics {
     pub queued_for_connector_agents: u32,
     pub queued_for_gate_agents: u32,
     pub queued_for_exit_agents: u32,
+    /// Detailed, discrete queue telemetry. The four legacy exposure fields
+    /// above mirror each resource's `ever_queued_agents` value for continuity.
+    /// Omission preserves inspection of bundles emitted before version 0.22.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub queue_metrics: Option<QueueMetrics>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -121,9 +172,31 @@ impl RunBundle {
         metrics.clearance_time_s = metrics.clearance_time_s.map(canonical_number);
         metrics.last_exit_time_s = metrics.last_exit_time_s.map(canonical_number);
         metrics.mean_exit_time_s = metrics.mean_exit_time_s.map(canonical_number);
+        if let Some(queue_metrics) = &mut metrics.queue_metrics {
+            queue_metrics.lift.cumulative_wait_agent_seconds =
+                canonical_number(queue_metrics.lift.cumulative_wait_agent_seconds);
+            queue_metrics.connector.cumulative_wait_agent_seconds =
+                canonical_number(queue_metrics.connector.cumulative_wait_agent_seconds);
+            queue_metrics.gate.cumulative_wait_agent_seconds =
+                canonical_number(queue_metrics.gate.cumulative_wait_agent_seconds);
+            queue_metrics.exit.cumulative_wait_agent_seconds =
+                canonical_number(queue_metrics.exit.cumulative_wait_agent_seconds);
+            if let Some(by_resource) = &mut queue_metrics.by_resource {
+                for resource in by_resource
+                    .lifts
+                    .values_mut()
+                    .chain(by_resource.connectors.values_mut())
+                    .chain(by_resource.gates.values_mut())
+                    .chain(by_resource.exits.values_mut())
+                {
+                    resource.cumulative_wait_agent_seconds =
+                        canonical_number(resource.cumulative_wait_agent_seconds);
+                }
+            }
+        }
         let scenario_hash = canonical_hash(&scenario);
         let mut bundle = Self {
-            bundle_version: "0.21".to_owned(),
+            bundle_version: BUNDLE_VERSION.to_owned(),
             runtime_version: RUNTIME_VERSION.to_owned(),
             scenario_hash,
             scenario,

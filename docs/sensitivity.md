@@ -43,8 +43,15 @@ The output directory must be empty. It contains:
 - `reference-reports/FACTOR/REFERENCE.json` — exact snapshots of any declared
   derived reference reports; and
 - `report.json` — factor rationale, declared basis, baseline values, exact
-  condition values, source/template hashes, outcome deltas, and interpretation
-  boundaries. For a one-at-a-time design it also indexes each factor's ordered
+  condition values, source/template hashes, outcome deltas (including queue
+  exposure and telemetry where both arms record it), and interpretation boundaries. The
+  constituent sweep summaries retain current per-run discrete queue telemetry
+  attributed to individual constrained resources. When every paired run
+  exposes the attribution, aggregate deltas also retain it. Each delta marks
+  whether the resource was declared in each arm; resource peaks still cannot
+  reconstruct a mechanism's simultaneous peak.
+  For a
+  one-at-a-time design it also indexes each factor's ordered
   alternatives and their structural responses; factorial designs retain the
   condition-level results instead of assigning an unsupported individual-factor
   attribution.
@@ -184,3 +191,11 @@ exact structural deltas, not an elasticity, derivative, or estimate of input
 importance. A sensitivity result exposes how declared assumptions affect this
 deterministic model; it does not establish which alternative is more plausible
 or predict a real crowd, facility, message response, or safety outcome.
+
+When present, a queue-exposure delta is the candidate-minus-baseline change in
+the number of agents that ever entered each modeled lift, connector, gate, or
+exit wait state. The accompanying telemetry delta records cumulative authored
+queue-wait agent-seconds and the difference between each arm's largest per-run
+step-boundary peak. Neither is a queue-length, observed delay, throughput, or
+physical-flow estimate. A comparison containing an older summary without the
+corresponding fields omits that delta rather than substituting zero.

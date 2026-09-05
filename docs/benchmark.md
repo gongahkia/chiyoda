@@ -22,7 +22,7 @@ scope.
 
 ## Current status
 
-`0.21.0-alpha.1` includes the generator, fixture-seed protocol, and manifest
+`0.23.0-alpha.1` includes the generator, fixture-seed protocol, and manifest
 validator. It now also includes a content-locked candidate source and a
 descriptive 2D platform-trajectory intake path. It does not publish an
 empirical round: the source is neither a calibrated runtime nor independent
@@ -34,7 +34,11 @@ facility/primitives validation. See the [evidence boundary](evidence.md).
 contiguous seed range without consulting any evidence catalog or benchmark
 manifest. It writes canonical source and a hash-verifiable run bundle under
 `seed-SEED/` for every run, plus `summary.json` listing each bundle hash,
-basic outcome metrics, and evacuations attributed to each final exit.
+basic outcome metrics, evacuations attributed to each final exit, and current
+queue-exposure counts plus discrete queue telemetry for each modeled wait
+state. Current telemetry also maps each modeled wait to the individual
+capacity-constrained resource that denied it, retaining zero-valued entries for
+unreached constrained resources.
 `chiyoda verify-sweep DIRECTORY` cross-checks that summary against every
 bundle hash, metric, and canonical source. For bundles with the installed
 runtime and bundle versions, it also reruns the scenario and rejects a
@@ -59,8 +63,22 @@ samples empirical observations.
 agent and evacuation counts, exact overall evacuation fraction numerator and
 denominator, per-exit totals, legacy unattributed evacuations, and a minimum,
 mean, and maximum clearance time over only fully evacuated runs, a separately
-named last-exit-time range over runs that recorded an evacuation, and aggregate
-per-intervention reach/acceptance counts. It does not
+named last-exit-time range over runs that recorded an evacuation, aggregate
+per-intervention reach/acceptance counts, aggregate queue exposure, cumulative
+queue-wait agent-seconds, and the largest per-run step-boundary queue peak for
+each mechanism. Each current constituent run also retains its resource-level
+breakdown. Analysis separately aggregates each authored lift, connector, gate,
+and exit across the runs that expose that attribution, with an observed versus
+legacy-unobserved run count. A resource's maximum peak is its largest
+single-run step-boundary peak; neither that number nor the resource peak set
+reconstructs a mechanism's simultaneous aggregate peak.
+Queue exposure is the number of agents that ever entered each modeled lift,
+connector, gate, or exit wait state. The telemetry reflects only the authored
+discrete runtime; it is neither an observed queue length, delay, throughput,
+nor physical-flow measurement. Older summaries without a field are
+distinguishable at deserialization; verified analysis hydrates exposure from a
+constituent bundle when available, but never invents absent detailed telemetry.
+It does not
 estimate uncertainty or turn generator seeds into a population sample. Final
 non-evacuated states are also summed, with legacy agents lacking state
 attribution reported separately rather than silently assigned a cause.
@@ -101,12 +119,14 @@ template hashes and shared execution contract so the actual intervention remains
 inspectable.
 
 The report has one row per common seed, with arm-specific bundle hashes,
-evacuation counts, final-exit attribution, remaining-state attribution, and a
+evacuation counts, final-exit attribution, remaining-state attribution, current
+queue telemetry (including current per-resource attribution and aggregate
+per-resource deltas when both arms expose it), and a
 clearance-time delta only if both runs completed; separately named last-exit
 times remain available for partially completed runs. It additionally reports exact
 aggregate candidate-minus-baseline count deltas and separates pairs with only
 one completed arm from comparable clearance-time pairs, including intervention
-reach/acceptance deltas. No confidence interval,
+reach/acceptance and queue-telemetry deltas. No confidence interval,
 significance label, causal conclusion, or predictive interpretation is
 emitted. A shared seed labels deterministic scenario variation; it is not an
 empirical sample. Information acceptance samples also incorporate the message

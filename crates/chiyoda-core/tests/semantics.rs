@@ -1559,6 +1559,20 @@ agents passengers count 1 on upper at (1m, 1m, 3m) to street speed 1m/s radius 0
         chiyoda_core::AgentState::WaitingForConnector
     );
     assert_eq!(bundle.metrics.queued_for_connector_agents, 1);
+    let queue_metrics = bundle
+        .metrics
+        .queue_metrics
+        .as_ref()
+        .expect("current run records queue telemetry");
+    assert_eq!(queue_metrics.connector.ever_queued_agents, 1);
+    assert!((queue_metrics.connector.cumulative_wait_agent_seconds - 1.0).abs() < 1e-9);
+    assert_eq!(queue_metrics.connector.peak_waiting_agents, 1);
+    let attributed = queue_metrics
+        .by_resource
+        .as_ref()
+        .expect("current run attributes queue telemetry to resources");
+    assert_eq!(attributed.connectors.len(), 1);
+    assert_eq!(attributed.connectors["down"], queue_metrics.connector);
 }
 
 #[test]
@@ -1613,6 +1627,20 @@ agents passengers count 1 on concourse at (1m, 1m, 0m) to street speed 1m/s radi
         chiyoda_core::AgentState::WaitingForExit
     );
     assert_eq!(bundle.metrics.queued_for_exit_agents, 1);
+    let queue_metrics = bundle
+        .metrics
+        .queue_metrics
+        .as_ref()
+        .expect("current run records queue telemetry");
+    assert_eq!(queue_metrics.exit.ever_queued_agents, 1);
+    assert!((queue_metrics.exit.cumulative_wait_agent_seconds - 1.0).abs() < 1e-9);
+    assert_eq!(queue_metrics.exit.peak_waiting_agents, 1);
+    let attributed = queue_metrics
+        .by_resource
+        .as_ref()
+        .expect("current run attributes queue telemetry to resources");
+    assert_eq!(attributed.exits.len(), 1);
+    assert_eq!(attributed.exits["street"], queue_metrics.exit);
 }
 
 #[test]
@@ -1893,6 +1921,17 @@ agents passengers count 2 on platform at (1m, 1m, 6m) to street speed 1m/s radiu
     assert_eq!(boardings.len(), 2);
     assert!(boardings[1].time_s > boardings[0].time_s);
     assert_eq!(bundle.metrics.queued_for_lift_agents, 1);
+    let queue_metrics = bundle
+        .metrics
+        .queue_metrics
+        .as_ref()
+        .expect("current run records queue telemetry");
+    let attributed = queue_metrics
+        .by_resource
+        .as_ref()
+        .expect("current run attributes queue telemetry to resources");
+    assert_eq!(attributed.lifts.len(), 1);
+    assert_eq!(attributed.lifts["lift_a"], queue_metrics.lift);
 }
 
 #[test]
@@ -1917,6 +1956,29 @@ agents passengers count 10 on concourse at (1m, 1m, 0m) to street speed 1m/s rad
     )
     .expect("run succeeds");
     assert!(bundle.metrics.queued_for_gate_agents > 0);
+    assert!(bundle.trace.iter().any(|frame| {
+        frame
+            .agents
+            .iter()
+            .any(|agent| agent.state == chiyoda_core::AgentState::WaitingForGate)
+    }));
+    let queue_metrics = bundle
+        .metrics
+        .queue_metrics
+        .as_ref()
+        .expect("current run records queue telemetry");
+    assert_eq!(
+        queue_metrics.gate.ever_queued_agents,
+        bundle.metrics.queued_for_gate_agents
+    );
+    assert!(queue_metrics.gate.cumulative_wait_agent_seconds > 0.0);
+    assert!(queue_metrics.gate.peak_waiting_agents > 0);
+    let attributed = queue_metrics
+        .by_resource
+        .as_ref()
+        .expect("current run attributes queue telemetry to resources");
+    assert_eq!(attributed.gates.len(), 1);
+    assert_eq!(attributed.gates["fare_gate"], queue_metrics.gate);
     assert!(
         bundle
             .events

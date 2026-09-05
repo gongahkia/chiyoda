@@ -1,7 +1,7 @@
 # Public-data scouting register
 
 This register documents the intake decision, rather than treating every public
-dataset as interchangeable evidence. It was reviewed on 2026-09-04. A listed
+dataset as interchangeable evidence. It was reviewed on 2026-09-05. A listed
 source is not a validated Chiyoda model component unless it appears in a
 content-locked catalog and passes the later protocol review.
 

@@ -274,7 +274,7 @@ checksum = "9330f8b2ff13f34540b44e946ef35111825727b38d33286ef986142615121801"
 
 [[package]]
 name = "chiyoda"
-version = "0.21.0-alpha.1"
+version = "0.23.0-alpha.1"
 dependencies = [
  "anyhow",
  "chiyoda-core",
@@ -286,7 +286,7 @@ dependencies = [
 
 [[package]]
 name = "chiyoda-core"
-version = "0.21.0-alpha.1"
+version = "0.23.0-alpha.1"
 dependencies = [
  "arrow-array",
  "flate2",
@@ -302,7 +302,7 @@ dependencies = [
 
 [[package]]
 name = "chiyoda-replay"
-version = "0.21.0-alpha.1"
+version = "0.23.0-alpha.1"
 dependencies = [
  "anyhow",
  "chiyoda-core",

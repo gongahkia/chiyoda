@@ -134,6 +134,8 @@ pub enum OsmLayoutError {
         "layout observation report does not match reconstruction from its catalog and locked source"
     )]
     ReportMismatch,
+    #[error("layout observation report source metadata does not match its catalog")]
+    CatalogReportSourceMismatch,
     #[error("unsupported OSM source-observation report schema `{version}`")]
     UnsupportedObservationReportSchema { version: String },
     #[error("local projection origin has an invalid `{field}` value: `{value}`")]
@@ -408,6 +410,52 @@ fn inspect_openstreetmap_layout_for_schema(
     schema: OsmObservationSchema,
 ) -> Result<OpenStreetMapLayoutReport, OsmLayoutError> {
     validate_limits(limits)?;
+    let report_source = openstreetmap_layout_source(catalog)?;
+    let source = &catalog.files[0];
+    verify_catalog_files(catalog, data_root)
+        .map_err(|error| OsmLayoutError::SourceLock(error.to_string()))?;
+
+    let source_path = data_root.join(&source.local_path);
+    let (counts, features) = inspect_osm_xml(&source_path, limits, schema)?;
+
+    Ok(OpenStreetMapLayoutReport {
+        schema_version: schema.version().to_owned(),
+        adapter_version: env!("CARGO_PKG_VERSION").to_owned(),
+        source: report_source,
+        coordinate_reference: OSM_GEOGRAPHIC_COORDINATE_REFERENCE.to_owned(),
+        inspection_limits: limits.into(),
+        counts,
+        features,
+        status: OSM_OBSERVATION_STATUS.to_owned(),
+        claim_boundary: "This report preserves a content-locked public map observation. It does not establish map completeness, legal access, indoor connectivity, geometry, elevation, widths, capacities, accessibility, demand, route choice, runtime validity, or any operational or safety outcome.".to_owned(),
+        required_authoring: vec![
+            "Confirm the source extract, ODbL obligations, and the stated OpenStreetMap attribution before reuse or publication.".to_owned(),
+            "Survey or otherwise verify every modeled walkable boundary, obstacle, entrance, connector, elevation, width, direction, and accessibility property.".to_owned(),
+            "Choose and document a local metre coordinate system; do not copy geographic degrees into Chiyoda geometry.".to_owned(),
+            "Author all capacities, agent demand, releases, destinations, and behavioral assumptions explicitly, then run sensitivity studies for material best guesses.".to_owned(),
+        ],
+    })
+}
+
+/// Validate the static catalog-to-observation link without reading the raw XML.
+///
+/// This is useful for an archived experiment artifact that preserves its catalog
+/// and observation report but intentionally does not copy the source data. It
+/// does not replace [`verify_openstreetmap_layout_report`], which is the only
+/// operation that rechecks the locked local XML itself.
+pub fn verify_openstreetmap_layout_catalog_contract(
+    catalog: &EvidenceCatalog,
+    report: &OpenStreetMapLayoutReport,
+) -> Result<(), OsmLayoutError> {
+    if report.source != openstreetmap_layout_source(catalog)? {
+        return Err(OsmLayoutError::CatalogReportSourceMismatch);
+    }
+    Ok(())
+}
+
+fn openstreetmap_layout_source(
+    catalog: &EvidenceCatalog,
+) -> Result<OpenStreetMapLayoutSource, OsmLayoutError> {
     validate_catalog(catalog).map_err(|errors| {
         OsmLayoutError::InvalidCatalog(
             errors
@@ -436,38 +484,16 @@ fn inspect_openstreetmap_layout_for_schema(
             path: source.local_path.clone(),
         });
     }
-    verify_catalog_files(catalog, data_root)
-        .map_err(|error| OsmLayoutError::SourceLock(error.to_string()))?;
-
-    let source_path = data_root.join(&source.local_path);
     let catalog_sha256 =
         sha256_bytes(&serde_json::to_vec(catalog).map_err(OsmLayoutError::CatalogSerialization)?);
-    let (counts, features) = inspect_osm_xml(&source_path, limits, schema)?;
-
-    Ok(OpenStreetMapLayoutReport {
-        schema_version: schema.version().to_owned(),
-        adapter_version: env!("CARGO_PKG_VERSION").to_owned(),
-        source: OpenStreetMapLayoutSource {
-            catalog_sha256,
-            dataset_id: catalog.dataset_id.clone(),
-            source_url: source.source_url.clone(),
-            source_sha256: source.sha256.clone(),
-            size_bytes: source.size_bytes,
-            license: catalog.license.clone(),
-            required_attribution: attribution.to_owned(),
-        },
-        coordinate_reference: OSM_GEOGRAPHIC_COORDINATE_REFERENCE.to_owned(),
-        inspection_limits: limits.into(),
-        counts,
-        features,
-        status: OSM_OBSERVATION_STATUS.to_owned(),
-        claim_boundary: "This report preserves a content-locked public map observation. It does not establish map completeness, legal access, indoor connectivity, geometry, elevation, widths, capacities, accessibility, demand, route choice, runtime validity, or any operational or safety outcome.".to_owned(),
-        required_authoring: vec![
-            "Confirm the source extract, ODbL obligations, and the stated OpenStreetMap attribution before reuse or publication.".to_owned(),
-            "Survey or otherwise verify every modeled walkable boundary, obstacle, entrance, connector, elevation, width, direction, and accessibility property.".to_owned(),
-            "Choose and document a local metre coordinate system; do not copy geographic degrees into Chiyoda geometry.".to_owned(),
-            "Author all capacities, agent demand, releases, destinations, and behavioral assumptions explicitly, then run sensitivity studies for material best guesses.".to_owned(),
-        ],
+    Ok(OpenStreetMapLayoutSource {
+        catalog_sha256,
+        dataset_id: catalog.dataset_id.clone(),
+        source_url: source.source_url.clone(),
+        source_sha256: source.sha256.clone(),
+        size_bytes: source.size_bytes,
+        license: catalog.license.clone(),
+        required_attribution: attribution.to_owned(),
     })
 }
 
@@ -1323,7 +1349,8 @@ mod tests {
         OsmFeatureGeometry, OsmInspectionLimits, OsmLayoutError, OsmObservationSchema,
         ProjectedOsmFeatureGeometry, inspect_openstreetmap_layout,
         inspect_openstreetmap_layout_for_schema, project_openstreetmap_layout_report,
-        verify_openstreetmap_layout_report, verify_openstreetmap_local_projection_report,
+        verify_openstreetmap_layout_catalog_contract, verify_openstreetmap_layout_report,
+        verify_openstreetmap_local_projection_report,
     };
     use crate::evidence::EvidenceFile;
     use sha2::{Digest, Sha256};
@@ -1426,6 +1453,21 @@ mod tests {
         assert!((nodes[2].coordinate.longitude - 103.8001).abs() < f64::EPSILON);
         assert!(report.coordinate_reference.contains("WGS84"));
         assert!(report.claim_boundary.contains("does not establish"));
+    }
+
+    #[test]
+    fn catalog_contract_rejects_source_metadata_that_does_not_match_the_report() {
+        let xml = br#"<osm version="0.6">
+  <node id="1" lat="1.3" lon="103.8"><tag k="entrance" v="yes"/></node>
+</osm>"#;
+        let report = report_from_fixture(xml);
+        let mut mismatched_catalog = catalog("station.osm", xml);
+        mismatched_catalog.files[0].source_url = "https://example.test/other.osm".to_owned();
+
+        assert!(matches!(
+            verify_openstreetmap_layout_catalog_contract(&mismatched_catalog, &report),
+            Err(OsmLayoutError::CatalogReportSourceMismatch)
+        ));
     }
 
     #[test]
