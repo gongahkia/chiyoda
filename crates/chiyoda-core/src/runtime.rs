@@ -1,12 +1,14 @@
 use crate::{
+    avoidance::{AvoidanceAgent, QueueAvoidancePriority, Vec2, choose_velocity},
     bundle::{
         AgentSnapshot, AgentState, BUNDLE_VERSION, InformationDeliveryMetrics,
-        InformationInterventionKind, MovementMetrics, QueueMetrics, QueueResourceBreakdown,
-        QueueResourceMetrics, RunBundle, RunEvent, RunMetrics, TraceFrame,
+        InformationInterventionKind, MovementMetrics, OnSurfaceClearanceMetrics, QueueMetrics,
+        QueueResourceBreakdown, QueueResourceMetrics, RunBundle, RunEvent, RunMetrics,
+        SweptOnSurfaceClearanceMetrics, TraceFrame,
     },
     model::{
-        CanonicalScenario, ConnectorKind, NAVIGATION_CLEARANCE_EPSILON_M, Obstacle, Point3,
-        Scenario, Surface,
+        CanonicalScenario, Connector, ConnectorKind, NAVIGATION_CLEARANCE_EPSILON_M, Obstacle,
+        Point3, PortalLanes, PortalResource, Scenario, Surface,
     },
     validate,
 };
@@ -136,6 +138,7 @@ impl std::error::Error for RunError {}
 enum Motion {
     WaitingToDepart {
         release_at_s: f64,
+        admission: ReleaseAdmission,
     },
     WaitingAtWaypoint {
         until_s: f64,
@@ -155,12 +158,23 @@ enum Motion {
     },
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ReleaseAdmission {
+    /// The authored release time has not yet encountered a blocked spawn.
+    Eligible,
+    /// The runtime recorded one clearance-deferral event and will retry on
+    /// every later integration boundary.
+    DeferredForClearance,
+}
+
 #[derive(Debug, Clone)]
 struct Agent {
     id: String,
     group: String,
     surface: String,
     position: Point3,
+    /// Actual on-surface velocity from the prior synchronized local-motion step.
+    velocity: Vec2,
     /// The final exit selected by the most recent route computation.
     destination: String,
     /// All declared final exits, in source order, for later rerouting.
@@ -182,15 +196,111 @@ struct Agent {
     blocked_gates: HashSet<String>,
     passed_gates: HashSet<String>,
     waiting_connector: Option<ConnectorWait>,
+    /// FIFO standing-slot assignment for an optional authored queue footprint.
+    queue_membership: Option<QueueMembership>,
+    /// A capacity token consumed at the head slot. The agent then makes its
+    /// physical approach to the resource without consuming a second token.
+    service_reservation: Option<PortalResource>,
     waiting_for_route: bool,
     waiting_for_gate: bool,
     waiting_for_exit: bool,
+}
+
+impl Agent {
+    /// A released agent waiting at an authored waypoint remains a stationary
+    /// physical occupant of its surface. Agents not yet released, in transit,
+    /// or evacuated do not occupy the local-motion plane.
+    fn occupies_surface(&self) -> bool {
+        matches!(
+            self.motion,
+            Motion::OnSurface | Motion::WaitingAtWaypoint { .. }
+        )
+    }
+
+    fn local_motion_speed_bound_mps(&self) -> f64 {
+        matches!(self.motion, Motion::OnSurface)
+            .then_some(self.speed_mps)
+            .unwrap_or(0.0)
+    }
+}
+
+/// One discrete on-surface state captured immediately before an integration
+/// transition. It supports the post-hoc linear interval audit only.
+#[derive(Debug, Clone)]
+struct OnSurfaceDiscStart {
+    surface: String,
+    position: Point3,
+    radius_m: f64,
+}
+
+fn on_surface_disc_starts(agents: &[Agent]) -> Vec<Option<OnSurfaceDiscStart>> {
+    agents
+        .iter()
+        .map(|agent| {
+            agent.occupies_surface().then(|| OnSurfaceDiscStart {
+                surface: agent.surface.clone(),
+                position: agent.position,
+                radius_m: agent.radius_m,
+            })
+        })
+        .collect()
 }
 
 #[derive(Debug, Clone, Copy)]
 enum ConnectorWait {
     Lift,
     Capacity,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct QueueMembership {
+    resource: PortalResource,
+    ticket: u64,
+    /// A ticket allocates an authored FIFO destination before motion. It does
+    /// not become a modeled wait or queue-entry event until the agent reaches
+    /// that standing slot.
+    entered: bool,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct QueueSlotAssignment {
+    rank: u32,
+}
+
+#[derive(Debug)]
+struct PhysicalQueueSnapshot {
+    assignments: Vec<Option<QueueSlotAssignment>>,
+}
+
+impl PhysicalQueueSnapshot {
+    fn from_agents(agents: &[Agent]) -> Self {
+        let mut by_resource: BTreeMap<PortalResource, Vec<(usize, u64, &str)>> = BTreeMap::new();
+        for (index, agent) in agents.iter().enumerate() {
+            let Some(membership) = &agent.queue_membership else {
+                continue;
+            };
+            by_resource
+                .entry(membership.resource.clone())
+                .or_default()
+                .push((index, membership.ticket, &agent.id));
+        }
+        let mut assignments = vec![None; agents.len()];
+        for members in by_resource.values_mut() {
+            members.sort_unstable_by(|left, right| {
+                left.1.cmp(&right.1).then_with(|| left.2.cmp(right.2))
+            });
+            for (rank, (agent_index, _, _)) in members.iter().enumerate() {
+                assignments[*agent_index] = Some(QueueSlotAssignment {
+                    rank: u32::try_from(rank).expect("queue rank fits u32"),
+                });
+            }
+        }
+        Self { assignments }
+    }
+
+    fn assignment(&self, agent_index: usize) -> Option<QueueSlotAssignment> {
+        self.assignments.get(agent_index).copied().flatten()
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -242,6 +352,8 @@ impl RouteStart<'_> {
 
 const SPATIAL_CELL_M: f64 = 1.0;
 const NAVIGATION_EPSILON_M: f64 = NAVIGATION_CLEARANCE_EPSILON_M;
+/// An explicit, uncalibrated ORCA prediction horizon for agent-agent motion.
+const ORCA_TIME_HORIZON_S: f64 = 2.5;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 struct CellKey {
@@ -265,15 +377,169 @@ struct OnSurfaceMovement<'a> {
     target_requires_local_clearance: bool,
 }
 
+#[derive(Debug)]
+struct LocalMotionSnapshot {
+    agents: Vec<Option<AvoidanceAgent>>,
+    /// A same-step velocity published only by an earlier member of an
+    /// authored queue grid. It is deliberately not a general sequential
+    /// update: ordinary reciprocal ORCA pairs continue to use the immutable
+    /// snapshot. A later FIFO ticket needs this value so its full
+    /// responsibility constraint is built around the leader's actual choice,
+    /// rather than around the leader's previous-step velocity.
+    committed_queue_grid_velocities: Vec<Option<Vec2>>,
+    maximum_speed_by_surface: HashMap<String, f64>,
+}
+
+impl LocalMotionSnapshot {
+    fn from_agents(scenario: &Scenario, agents: &[Agent]) -> Self {
+        let mut maximum_speed_by_surface: HashMap<String, f64> = HashMap::new();
+        let agents: Vec<_> = agents
+            .iter()
+            .map(|agent| {
+                if !agent.occupies_surface() {
+                    return None;
+                }
+                let max_speed_mps = agent.local_motion_speed_bound_mps();
+                maximum_speed_by_surface
+                    .entry(agent.surface.clone())
+                    .and_modify(|maximum| *maximum = maximum.max(max_speed_mps))
+                    .or_insert(max_speed_mps);
+                Some(AvoidanceAgent {
+                    id: agent.id.clone(),
+                    position: Vec2 {
+                        x: agent.position.x_m,
+                        y: agent.position.y_m,
+                    },
+                    velocity: agent.velocity,
+                    radius_m: agent.radius_m,
+                    max_speed_mps,
+                    queue_priority: agent.queue_membership.as_ref().and_then(|membership| {
+                        resource_uses_queue_grid(scenario, &membership.resource).then(|| {
+                            QueueAvoidancePriority {
+                                resource: format!(
+                                    "{}:{}",
+                                    membership.resource.kind(),
+                                    membership.resource.id()
+                                ),
+                                ticket: membership.ticket,
+                            }
+                        })
+                    }),
+                })
+            })
+            .collect();
+        let committed_queue_grid_velocities = vec![None; agents.len()];
+        Self {
+            agents,
+            committed_queue_grid_velocities,
+            maximum_speed_by_surface,
+        }
+    }
+
+    /// Publish one selected velocity for the later FIFO members of this exact
+    /// grid. The runtime calls this only after the agent's static clipping has
+    /// produced the velocity that will actually be integrated.
+    fn commit_queue_grid_velocity(&mut self, runtime_index: usize, velocity: Vec2) {
+        let Some(snapshot_agent) = self.agents.get(runtime_index).and_then(Option::as_ref) else {
+            return;
+        };
+        if snapshot_agent.queue_priority.is_some() {
+            self.committed_queue_grid_velocities[runtime_index] = Some(velocity);
+        }
+    }
+
+    fn nearby_agents(
+        &self,
+        spatial_index: &SpatialIndex,
+        agent: &Agent,
+        runtime_index: usize,
+        time_horizon_s: f64,
+    ) -> (Vec<AvoidanceAgent>, usize) {
+        let maximum_other_speed = self
+            .maximum_speed_by_surface
+            .get(&agent.surface)
+            .copied()
+            .unwrap_or(0.0);
+        let influence_distance_m = (agent.speed_mps + maximum_other_speed) * time_horizon_s
+            + agent.radius_m
+            + spatial_index.max_radius_m;
+        let own_queue_priority = self.agents[runtime_index]
+            .as_ref()
+            .and_then(|candidate| candidate.queue_priority.as_ref());
+        let mut own_index = None;
+        let agents = spatial_index
+            .nearby_indices_within(&agent.surface, agent.position, influence_distance_m)
+            .into_iter()
+            .filter_map(|runtime_index| {
+                let mut candidate = self.agents[runtime_index].as_ref()?.clone();
+                if queue_grid_predecessor(own_queue_priority, candidate.queue_priority.as_ref())
+                    && let Some(committed_velocity) =
+                        self.committed_queue_grid_velocities[runtime_index]
+                {
+                    candidate.velocity = committed_velocity;
+                }
+                if candidate.id == agent.id {
+                    own_index = Some(runtime_index);
+                }
+                (candidate.id == agent.id
+                    || potentially_interacting(
+                        &candidate,
+                        time_horizon_s,
+                        agent.radius_m,
+                        agent.speed_mps,
+                        agent.position,
+                    ))
+                .then_some((runtime_index, candidate))
+            })
+            .collect::<Vec<_>>();
+        let own_runtime_index = own_index.expect("current on-surface agent exists in snapshot");
+        let local_own_index = agents
+            .iter()
+            .position(|(runtime_index, _)| *runtime_index == own_runtime_index)
+            .expect("own snapshot agent is retained");
+        (
+            agents.into_iter().map(|(_, candidate)| candidate).collect(),
+            local_own_index,
+        )
+    }
+}
+
+fn potentially_interacting(
+    candidate: &AvoidanceAgent,
+    time_horizon_s: f64,
+    radius_m: f64,
+    max_speed_mps: f64,
+    position: Point3,
+) -> bool {
+    let combined_radius = radius_m + candidate.radius_m;
+    let maximum_closing_distance_m =
+        combined_radius + (max_speed_mps + candidate.max_speed_mps) * time_horizon_s;
+    let dx = candidate.position.x - position.x_m;
+    let dy = candidate.position.y - position.y_m;
+    dx.mul_add(dx, dy * dy)
+        <= maximum_closing_distance_m.mul_add(maximum_closing_distance_m, NAVIGATION_EPSILON_M)
+}
+
 #[derive(Debug, Default)]
 struct MovementTelemetry {
     adjusted_agents: HashSet<String>,
     adjustment_steps: u64,
+    constraint_fallback_steps: u64,
+    disc_overlap_agents: HashSet<String>,
+    disc_overlap_pair_steps: u64,
+    maximum_disc_overlap_m: f64,
+    swept_disc_overlap_agents: HashSet<String>,
+    swept_disc_overlap_pair_steps: u64,
+    maximum_swept_disc_overlap_m: f64,
     cumulative_adjustment_m: f64,
     maximum_adjustment_m: f64,
 }
 
 impl MovementTelemetry {
+    fn record_constraint_fallback(&mut self) {
+        self.constraint_fallback_steps += 1;
+    }
+
     fn record(&mut self, agent_id: &str, planned: Point3, resolved: Point3) {
         let adjustment_m = planned.distance(resolved);
         if adjustment_m <= NAVIGATION_EPSILON_M {
@@ -285,11 +551,118 @@ impl MovementTelemetry {
         self.maximum_adjustment_m = self.maximum_adjustment_m.max(adjustment_m);
     }
 
+    /// Audit the final synchronized state at one integration boundary. This
+    /// checks reference-disc overlap only; it neither sweeps the interval nor
+    /// interprets a pair-step as a physical contact.
+    fn record_on_surface_disc_overlaps(&mut self, agents: &[Agent]) {
+        let spatial_index = SpatialIndex::from_agents(agents);
+        for (index, agent) in agents.iter().enumerate() {
+            if !agent.occupies_surface() {
+                continue;
+            }
+            for candidate_index in
+                spatial_index.nearby_indices(&agent.surface, agent.position, agent.radius_m)
+            {
+                if candidate_index <= index {
+                    continue;
+                }
+                let candidate = &agents[candidate_index];
+                if !candidate.occupies_surface() || candidate.surface != agent.surface {
+                    continue;
+                }
+                let centre_distance_m = (agent.position.x_m - candidate.position.x_m)
+                    .hypot(agent.position.y_m - candidate.position.y_m);
+                let overlap_m = agent.radius_m + candidate.radius_m - centre_distance_m;
+                if overlap_m <= NAVIGATION_EPSILON_M {
+                    continue;
+                }
+                self.disc_overlap_agents.insert(agent.id.clone());
+                self.disc_overlap_agents.insert(candidate.id.clone());
+                self.disc_overlap_pair_steps = self
+                    .disc_overlap_pair_steps
+                    .checked_add(1)
+                    .expect("on-surface disc-overlap pair-step count fits u64");
+                self.maximum_disc_overlap_m = self.maximum_disc_overlap_m.max(overlap_m);
+            }
+        }
+    }
+
+    /// Audit linear movement between two synchronized integration boundaries.
+    /// An agent is eligible only if it occupies the same surface at both
+    /// boundaries. Portal, transit, release, and evacuation transitions are
+    /// intentionally excluded because their discrete reference transition is
+    /// not represented by one on-surface linear path.
+    fn record_swept_on_surface_disc_overlaps(
+        &mut self,
+        starts: &[Option<OnSurfaceDiscStart>],
+        agents: &[Agent],
+    ) {
+        debug_assert_eq!(starts.len(), agents.len());
+        let segments = starts
+            .iter()
+            .zip(agents)
+            .map(|(start, agent)| {
+                let start = start.as_ref()?;
+                (agent.occupies_surface() && agent.surface == start.surface).then_some(
+                    SweptOnSurfaceDiscSegment {
+                        surface: start.surface.clone(),
+                        start: start.position,
+                        end: agent.position,
+                        radius_m: start.radius_m,
+                    },
+                )
+            })
+            .collect::<Vec<_>>();
+        let spatial_index = SweptOnSurfaceDiscIndex::from_segments(&segments);
+        for (index, segment) in segments.iter().enumerate() {
+            let Some(segment) = segment else {
+                continue;
+            };
+            for candidate_index in spatial_index.candidate_indices(index, segment) {
+                if candidate_index <= index {
+                    continue;
+                }
+                let Some(candidate) = &segments[candidate_index] else {
+                    continue;
+                };
+                let overlap_m = swept_disc_overlap_m(segment, candidate);
+                if overlap_m <= NAVIGATION_EPSILON_M {
+                    continue;
+                }
+                self.swept_disc_overlap_agents
+                    .insert(agents[index].id.clone());
+                self.swept_disc_overlap_agents
+                    .insert(agents[candidate_index].id.clone());
+                self.swept_disc_overlap_pair_steps = self
+                    .swept_disc_overlap_pair_steps
+                    .checked_add(1)
+                    .expect("swept disc-overlap pair-step count fits u64");
+                self.maximum_swept_disc_overlap_m =
+                    self.maximum_swept_disc_overlap_m.max(overlap_m);
+            }
+        }
+    }
+
     fn metrics(&self) -> MovementMetrics {
         MovementMetrics {
             agents_with_local_clearance_adjustments: u32::try_from(self.adjusted_agents.len())
                 .expect("agent count fits u32"),
             local_clearance_adjustment_steps: self.adjustment_steps,
+            local_avoidance_constraint_fallback_steps: Some(self.constraint_fallback_steps),
+            on_surface_clearance_audit: Some(OnSurfaceClearanceMetrics {
+                agents_with_disc_overlaps: u32::try_from(self.disc_overlap_agents.len())
+                    .expect("agent count fits u32"),
+                disc_overlap_pair_steps: self.disc_overlap_pair_steps,
+                maximum_disc_overlap_m: self.maximum_disc_overlap_m,
+            }),
+            swept_on_surface_clearance_audit: Some(SweptOnSurfaceClearanceMetrics {
+                agents_with_swept_disc_overlaps: u32::try_from(
+                    self.swept_disc_overlap_agents.len(),
+                )
+                .expect("agent count fits u32"),
+                swept_disc_overlap_pair_steps: self.swept_disc_overlap_pair_steps,
+                maximum_swept_disc_overlap_m: self.maximum_swept_disc_overlap_m,
+            }),
             cumulative_local_clearance_adjustment_m: self.cumulative_adjustment_m,
             maximum_local_clearance_adjustment_m: self.maximum_adjustment_m,
         }
@@ -320,6 +693,7 @@ struct RuntimeResources {
     connector_tokens: HashMap<usize, f64>,
     gate_tokens: HashMap<String, f64>,
     exit_tokens: HashMap<String, f64>,
+    next_queue_ticket: u64,
 }
 
 #[derive(Debug, Default)]
@@ -418,7 +792,40 @@ impl RuntimeResources {
                 .iter()
                 .filter_map(|exit| exit.capacity_per_s.map(|_| (exit.id.clone(), 0.0)))
                 .collect(),
+            next_queue_ticket: 0,
         }
+    }
+
+    /// Record a legacy line-footprint wait after service denial. The agent is
+    /// already a modeled queue entrant even while it walks to its ranked slot.
+    fn assign_queue_membership(&mut self, agent: &mut Agent, resource: PortalResource) {
+        debug_assert!(agent.queue_membership.is_none());
+        agent.queue_membership = Some(QueueMembership {
+            resource,
+            ticket: self.next_queue_ticket,
+            entered: true,
+        });
+        self.next_queue_ticket = self
+            .next_queue_ticket
+            .checked_add(1)
+            .expect("queue ticket counter does not overflow");
+    }
+
+    /// Allocate a grid slot before local motion. This reservation is not yet a
+    /// physical queue entry or a modeled wait.
+    fn preallocate_queue_membership(&mut self, agent: &mut Agent, resource: PortalResource) -> u64 {
+        debug_assert!(agent.queue_membership.is_none());
+        let ticket = self.next_queue_ticket;
+        agent.queue_membership = Some(QueueMembership {
+            resource,
+            ticket,
+            entered: false,
+        });
+        self.next_queue_ticket = self
+            .next_queue_ticket
+            .checked_add(1)
+            .expect("queue ticket counter does not overflow");
+        ticket
     }
 
     /// Account for the preceding integration interval, then retain a
@@ -1005,7 +1412,8 @@ impl SpatialIndex {
         let positions: Vec<_> = agents
             .iter()
             .map(|agent| {
-                matches!(agent.motion, Motion::OnSurface)
+                agent
+                    .occupies_surface()
                     .then(|| (agent.surface.clone(), agent.position, agent.radius_m))
             })
             .collect();
@@ -1055,7 +1463,11 @@ impl SpatialIndex {
     }
 
     fn nearby_indices(&self, surface: &str, point: Point3, radius_m: f64) -> Vec<usize> {
-        let range_m = (radius_m + self.max_radius_m) / SPATIAL_CELL_M;
+        self.nearby_indices_within(surface, point, radius_m + self.max_radius_m)
+    }
+
+    fn nearby_indices_within(&self, surface: &str, point: Point3, range_m: f64) -> Vec<usize> {
+        let range_m = range_m / SPATIAL_CELL_M;
         if !range_m.is_finite() || range_m > 1024.0 {
             return self
                 .positions
@@ -1090,6 +1502,145 @@ impl SpatialIndex {
     }
 }
 
+/// One linear reference-disc path whose endpoints occupy the same surface.
+#[derive(Debug, Clone)]
+struct SweptOnSurfaceDiscSegment {
+    surface: String,
+    start: Point3,
+    end: Point3,
+    radius_m: f64,
+}
+
+impl SweptOnSurfaceDiscSegment {
+    fn displacement_m(&self) -> f64 {
+        self.start.distance(self.end)
+    }
+}
+
+/// Conservative start-position broad phase for the swept-disc audit. A pair
+/// that can overlap during a linear interval must start within the sum of both
+/// radii and both path lengths, so the exact narrow phase cannot be skipped.
+#[derive(Debug)]
+struct SweptOnSurfaceDiscIndex {
+    positions: Vec<Option<(String, Point3)>>,
+    cells: HashMap<CellKey, Vec<usize>>,
+    maximum_radius_by_surface: HashMap<String, f64>,
+    maximum_displacement_by_surface: HashMap<String, f64>,
+}
+
+impl SweptOnSurfaceDiscIndex {
+    fn from_segments(segments: &[Option<SweptOnSurfaceDiscSegment>]) -> Self {
+        let mut positions = Vec::with_capacity(segments.len());
+        let mut cells: HashMap<CellKey, Vec<usize>> = HashMap::new();
+        let mut maximum_radius_by_surface: HashMap<String, f64> = HashMap::new();
+        let mut maximum_displacement_by_surface: HashMap<String, f64> = HashMap::new();
+        for (index, segment) in segments.iter().enumerate() {
+            let Some(segment) = segment else {
+                positions.push(None);
+                continue;
+            };
+            maximum_radius_by_surface
+                .entry(segment.surface.clone())
+                .and_modify(|maximum| *maximum = maximum.max(segment.radius_m))
+                .or_insert(segment.radius_m);
+            maximum_displacement_by_surface
+                .entry(segment.surface.clone())
+                .and_modify(|maximum| *maximum = maximum.max(segment.displacement_m()))
+                .or_insert_with(|| segment.displacement_m());
+            cells
+                .entry(cell_key(&segment.surface, segment.start))
+                .or_default()
+                .push(index);
+            positions.push(Some((segment.surface.clone(), segment.start)));
+        }
+        Self {
+            positions,
+            cells,
+            maximum_radius_by_surface,
+            maximum_displacement_by_surface,
+        }
+    }
+
+    fn candidate_indices(&self, index: usize, segment: &SweptOnSurfaceDiscSegment) -> Vec<usize> {
+        let maximum_radius_m = self
+            .maximum_radius_by_surface
+            .get(&segment.surface)
+            .copied()
+            .unwrap_or(0.0);
+        let maximum_displacement_m = self
+            .maximum_displacement_by_surface
+            .get(&segment.surface)
+            .copied()
+            .unwrap_or(0.0);
+        let range_m =
+            segment.radius_m + maximum_radius_m + segment.displacement_m() + maximum_displacement_m;
+        self.nearby_indices_within(&segment.surface, segment.start, range_m)
+            .into_iter()
+            .filter(|candidate| *candidate != index)
+            .collect()
+    }
+
+    fn nearby_indices_within(&self, surface: &str, point: Point3, range_m: f64) -> Vec<usize> {
+        let range_m = range_m / SPATIAL_CELL_M;
+        if !range_m.is_finite() || range_m > 1024.0 {
+            return self
+                .positions
+                .iter()
+                .enumerate()
+                .filter_map(|(index, position)| {
+                    position
+                        .as_ref()
+                        .is_some_and(|(candidate_surface, _)| candidate_surface == surface)
+                        .then_some(index)
+                })
+                .collect();
+        }
+        #[allow(clippy::cast_possible_truncation)] // branch bounds this finite cell offset
+        let cell_range = range_m.ceil() as i64;
+        let center = cell_key(surface, point);
+        let mut candidates = Vec::new();
+        for offset_y in -cell_range..=cell_range {
+            for offset_x in -cell_range..=cell_range {
+                let key = CellKey {
+                    surface: surface.to_owned(),
+                    x: center.x + offset_x,
+                    y: center.y + offset_y,
+                };
+                if let Some(cell) = self.cells.get(&key) {
+                    candidates.extend(cell);
+                }
+            }
+        }
+        candidates.sort_unstable();
+        candidates
+    }
+}
+
+/// Positive reference-disc overlap at the closest point of two linearly
+/// interpolated paths. The returned value is zero or negative when the paths
+/// do not overlap; callers apply the reference runtime's clearance epsilon.
+fn swept_disc_overlap_m(
+    first: &SweptOnSurfaceDiscSegment,
+    second: &SweptOnSurfaceDiscSegment,
+) -> f64 {
+    let relative_start = Vec2 {
+        x: first.start.x_m - second.start.x_m,
+        y: first.start.y_m - second.start.y_m,
+    };
+    let relative_displacement = Vec2 {
+        x: (first.end.x_m - first.start.x_m) - (second.end.x_m - second.start.x_m),
+        y: (first.end.y_m - first.start.y_m) - (second.end.y_m - second.start.y_m),
+    };
+    let displacement_squared = relative_displacement.length_squared();
+    let closest_fraction = if displacement_squared <= NAVIGATION_EPSILON_M * NAVIGATION_EPSILON_M {
+        0.0
+    } else {
+        (-relative_start.dot(relative_displacement) / displacement_squared).clamp(0.0, 1.0)
+    };
+    let closest = relative_start + relative_displacement * closest_fraction;
+    first.radius_m + second.radius_m - closest.length_squared().sqrt()
+}
+
 /// Execute the reference small-step semantics deterministically.
 #[allow(
     clippy::cast_possible_truncation,
@@ -1117,6 +1668,7 @@ pub fn run(scenario: &Scenario, options: RunOptions) -> Result<RunBundle, RunErr
     let mut events = initial_state_events(scenario);
     let mut information_delivery = information_delivery_for_scenario(scenario);
     let mut movement_telemetry = MovementTelemetry::default();
+    movement_telemetry.record_on_surface_disc_overlaps(&agents);
     let mut previous_time_s = 0.0;
 
     for step in 1..=step_count {
@@ -1136,6 +1688,7 @@ pub fn run(scenario: &Scenario, options: RunOptions) -> Result<RunBundle, RunErr
             &mut resources,
             &mut information_delivery,
         );
+        let on_surface_starts = on_surface_disc_starts(&agents);
         integrate(
             scenario,
             &mut agents,
@@ -1145,6 +1698,8 @@ pub fn run(scenario: &Scenario, options: RunOptions) -> Result<RunBundle, RunErr
             &mut resources,
             &mut movement_telemetry,
         );
+        movement_telemetry.record_swept_on_surface_disc_overlaps(&on_surface_starts, &agents);
+        movement_telemetry.record_on_surface_disc_overlaps(&agents);
         resources.record_queue_wait(scenario, &agents, 0.0);
         if step % u64::from(options.trace_every_steps) == 0 || time_s >= scenario.duration_s {
             trace.push(snapshot(step, time_s, &agents));
@@ -1207,7 +1762,37 @@ pub fn run(scenario: &Scenario, options: RunOptions) -> Result<RunBundle, RunErr
         ),
         (
             "integration".to_owned(),
-            "deterministic-euler-0.28".to_owned(),
+            "deterministic-orca-euler-0.42".to_owned(),
+        ),
+        (
+            "local_motion".to_owned(),
+            "snapshot-orca-f64-horizon-2.5s-fifo-grid-predecessor-velocity-handoff-0.42"
+                .to_owned(),
+        ),
+        (
+            "portal_landing".to_owned(),
+            "authored-lanes-clear-or-retain-transit-0.42".to_owned(),
+        ),
+        (
+            "queue_geometry".to_owned(),
+            "authored-fifo-line-capacity-denial-or-serpentine-grid-preallocated-slots-fifo-priority-predecessor-velocity-handoff-physical-entry-reserve-lift-capacity-or-service-token-0.42"
+                .to_owned(),
+        ),
+        (
+            "initial_spawn_clearance".to_owned(),
+            "all-declared-spawn-discs-pairwise-clear-0.42".to_owned(),
+        ),
+        (
+            "release_admission".to_owned(),
+            "scheduled-eligibility-then-dynamic-spawn-disc-clearance-0.42".to_owned(),
+        ),
+        (
+            "on_surface_clearance_audit".to_owned(),
+            "reference-disc-overlap-at-every-integration-boundary-0.42".to_owned(),
+        ),
+        (
+            "swept_on_surface_clearance_audit".to_owned(),
+            "analytic-linear-reference-disc-overlap-for-same-surface-intervals-0.42".to_owned(),
         ),
     ]);
     Ok(RunBundle::new(canonical, options, trace, events, metrics))
@@ -1269,6 +1854,7 @@ fn spawn_agents(
                 group: group.id.clone(),
                 surface: group.surface.clone(),
                 position,
+                velocity: Vec2::ZERO,
                 destination,
                 exit_candidates: group.exit_candidates().map(str::to_owned).collect(),
                 final_gate,
@@ -1283,7 +1869,10 @@ fn spawn_agents(
                 motion: if release_at_s == 0.0 {
                     Motion::OnSurface
                 } else {
-                    Motion::WaitingToDepart { release_at_s }
+                    Motion::WaitingToDepart {
+                        release_at_s,
+                        admission: ReleaseAdmission::Eligible,
+                    }
                 },
                 beliefs: BTreeMap::new(),
                 blocked_connectors: HashSet::new(),
@@ -1291,6 +1880,8 @@ fn spawn_agents(
                 blocked_gates: HashSet::new(),
                 passed_gates: HashSet::new(),
                 waiting_connector: None,
+                queue_membership: None,
+                service_reservation: None,
                 waiting_for_route,
                 waiting_for_gate: false,
                 waiting_for_exit: false,
@@ -1505,6 +2096,33 @@ fn agent_target(scenario: &Scenario, agent: &Agent) -> Option<RouteTarget> {
         return waypoint_target(scenario, waypoint_id);
     }
     exit_target(scenario, &agent.destination)
+}
+
+fn current_service_resource(scenario: &Scenario, agent: &Agent) -> Option<PortalResource> {
+    if let Some(&connector_index) = agent.route.get(agent.route_cursor) {
+        return Some(PortalResource::Connector {
+            id: scenario.connectors[connector_index].id().to_owned(),
+        });
+    }
+    if agent.via.get(agent.via_cursor).is_some() {
+        return None;
+    }
+    if let Some(gate_id) = agent
+        .final_gate
+        .as_deref()
+        .filter(|gate_id| !agent.passed_gates.contains(*gate_id))
+    {
+        return Some(PortalResource::Gate {
+            id: gate_id.to_owned(),
+        });
+    }
+    scenario
+        .exits
+        .iter()
+        .any(|exit| exit.id == agent.destination)
+        .then(|| PortalResource::Exit {
+            id: agent.destination.clone(),
+        })
 }
 
 fn waypoint_target(scenario: &Scenario, waypoint_id: &str) -> Option<RouteTarget> {
@@ -2110,10 +2728,23 @@ fn reroute(
         agent.final_gate = planned.final_gate;
         agent.route = planned.plan.connector_indices;
         agent.route_cursor = 0;
-        agent.waiting_connector = None;
+        let active_resource = current_service_resource(scenario, agent);
+        let retains_service_place = agent
+            .queue_membership
+            .as_ref()
+            .is_some_and(|membership| Some(&membership.resource) == active_resource.as_ref())
+            || agent
+                .service_reservation
+                .as_ref()
+                .is_some_and(|reservation| Some(reservation) == active_resource.as_ref());
+        if !retains_service_place {
+            agent.queue_membership = None;
+            agent.service_reservation = None;
+            agent.waiting_connector = None;
+            agent.waiting_for_gate = false;
+            agent.waiting_for_exit = false;
+        }
         agent.waiting_for_route = false;
-        agent.waiting_for_gate = false;
-        agent.waiting_for_exit = false;
         let mut blocked: Vec<_> = blocked_connectors
             .into_iter()
             .map(|connector| format!("connector:{connector}"))
@@ -2128,6 +2759,11 @@ fn reroute(
             detail: blocked.join(","),
         });
     } else {
+        agent.queue_membership = None;
+        agent.service_reservation = None;
+        agent.waiting_connector = None;
+        agent.waiting_for_gate = false;
+        agent.waiting_for_exit = false;
         agent.waiting_for_route = true;
         events.push(RunEvent {
             time_s,
@@ -2170,13 +2806,37 @@ fn integrate(
     resources: &mut RuntimeResources,
     movement_telemetry: &mut MovementTelemetry,
 ) {
-    for agent in agents.iter_mut() {
-        match &agent.motion {
-            Motion::WaitingToDepart { release_at_s } if *release_at_s <= time_s => {
-                let release_at_s = *release_at_s;
+    let mut release_spatial_index = SpatialIndex::from_agents(agents);
+    for (index, agent) in agents.iter_mut().enumerate() {
+        match &mut agent.motion {
+            Motion::WaitingToDepart {
+                release_at_s,
+                admission,
+            } if *release_at_s <= time_s => {
+                let surface = surface_for(scenario, &agent.surface);
+                if !landing_position_is_clear(
+                    agent.radius_m,
+                    agent.position,
+                    surface,
+                    &scenario.obstacles,
+                    &release_spatial_index,
+                ) {
+                    if *admission == ReleaseAdmission::Eligible {
+                        *admission = ReleaseAdmission::DeferredForClearance;
+                        events.push(RunEvent {
+                            time_s,
+                            kind: "agent_release_deferred_for_clearance".to_owned(),
+                            subject: agent.id.clone(),
+                            detail: agent.group.clone(),
+                        });
+                    }
+                    continue;
+                }
                 agent.motion = Motion::OnSurface;
+                agent.velocity = Vec2::ZERO;
+                release_spatial_index.update(index, &agent.surface, agent.position, agent.radius_m);
                 events.push(RunEvent {
-                    time_s: release_at_s,
+                    time_s,
                     kind: "agent_released".to_owned(),
                     subject: agent.id.clone(),
                     detail: agent.group.clone(),
@@ -2189,6 +2849,7 @@ fn integrate(
                 let until_s = *until_s;
                 let waypoint_id = waypoint_id.clone();
                 agent.motion = Motion::OnSurface;
+                agent.velocity = Vec2::ZERO;
                 events.push(RunEvent {
                     time_s: until_s,
                     kind: "waypoint_wait_ended".to_owned(),
@@ -2199,8 +2860,12 @@ fn integrate(
             _ => {}
         }
     }
+    preassign_authored_queue_slots(scenario, resources, agents, time_s, events);
+    let local_motion_spatial_index = SpatialIndex::from_agents(agents);
+    let mut local_motion_snapshot = LocalMotionSnapshot::from_agents(scenario, agents);
+    let physical_queue_snapshot = PhysicalQueueSnapshot::from_agents(agents);
     let mut spatial_index = SpatialIndex::from_agents(agents);
-    let mut lift_loads = current_lift_loads(agents);
+    let mut lift_loads = current_lift_loads(scenario, agents);
     for (index, connector) in scenario.connectors.iter().enumerate() {
         let Some(service_rate_per_s) = scenario.connector_service_rate_at(connector.id(), time_s)
         else {
@@ -2224,6 +2889,8 @@ fn integrate(
         *token = (*token + capacity_per_s * step_elapsed_s).min(capacity_per_s.max(1.0));
     }
     for (index, agent) in agents.iter_mut().enumerate() {
+        let current_surface_id = agent.surface.clone();
+        let agent_radius_m = agent.radius_m;
         match &mut agent.motion {
             Motion::WaitingToDepart { .. }
             | Motion::WaitingAtWaypoint { .. }
@@ -2236,11 +2903,43 @@ fn integrate(
                 end,
                 next_surface,
             } => {
+                agent.velocity = Vec2::ZERO;
                 *elapsed_s += step_elapsed_s;
                 let ratio = (*elapsed_s / *duration_s).min(1.0);
                 agent.position = start.lerp(*end, ratio);
                 if ratio >= 1.0 {
                     let connector_id = scenario.connectors[*connector_index].id().to_owned();
+                    let landing_surface = surface_for(scenario, next_surface);
+                    let uses_portal_lanes =
+                        scenario.portal_lanes_for_connector(&connector_id).is_some();
+                    let planned_arrival = agent.position;
+                    let resolved_arrival = if uses_portal_lanes {
+                        if !landing_position_is_clear(
+                            agent_radius_m,
+                            planned_arrival,
+                            landing_surface,
+                            &scenario.obstacles,
+                            &spatial_index,
+                        ) {
+                            // An explicitly authored landing lane is occupied.
+                            // Retain transit state at the portal until it clears
+                            // rather than projecting an arrival into unrelated
+                            // walkable space.
+                            continue;
+                        }
+                        planned_arrival
+                    } else {
+                        resolve_local_position(
+                            &current_surface_id,
+                            agent_radius_m,
+                            planned_arrival,
+                            index,
+                            landing_surface,
+                            &scenario.obstacles,
+                            &spatial_index,
+                        )
+                        .unwrap_or(planned_arrival)
+                    };
                     if scenario.connectors[*connector_index].is_lift() {
                         let load = lift_loads.entry(*connector_index).or_default();
                         *load = load.saturating_sub(1);
@@ -2248,16 +2947,7 @@ fn integrate(
                     agent.surface = next_surface.clone();
                     agent.route_cursor += 1;
                     agent.motion = Motion::OnSurface;
-                    let planned_arrival = agent.position;
-                    let resolved_arrival = resolve_local_position(
-                        agent,
-                        planned_arrival,
-                        index,
-                        surface_for(scenario, &agent.surface),
-                        &scenario.obstacles,
-                        &spatial_index,
-                    )
-                    .unwrap_or(planned_arrival);
+                    agent.velocity = Vec2::ZERO;
                     movement_telemetry.record(&agent.id, planned_arrival, resolved_arrival);
                     agent.position = resolved_arrival;
                     spatial_index.update(index, &agent.surface, agent.position, agent.radius_m);
@@ -2292,13 +2982,17 @@ fn integrate(
                 if agent.waiting_for_route {
                     continue;
                 }
-                let (target, next_connector, final_gate, reached_waypoint) =
+                let (mut target, next_connector, final_gate, reached_waypoint, service_resource) =
                     if let Some(&connector_index) = agent.route.get(agent.route_cursor) {
+                        let connector = &scenario.connectors[connector_index];
                         (
-                            scenario.connectors[connector_index].from(),
+                            connector_portal_position(scenario, connector, true, &agent.id),
                             Some(connector_index),
                             None,
                             None,
+                            Some(PortalResource::Connector {
+                                id: connector.id().to_owned(),
+                            }),
                         )
                     } else {
                         let target =
@@ -2311,14 +3005,63 @@ fn integrate(
                                 .and_then(|gate_id| {
                                     scenario.gates.iter().find(|gate| gate.id == gate_id)
                                 });
-                            match gate {
-                                Some(gate) => (gate.at, None, Some(gate.id.clone()), None),
-                                None => (target.at, None, None, None),
+                            if let Some(gate) = gate {
+                                (
+                                    portal_position(
+                                        scenario.portal_lanes_for_gate(&gate.id),
+                                        gate.at,
+                                        gate.width_m,
+                                        &agent.id,
+                                    ),
+                                    None,
+                                    Some(gate.id.clone()),
+                                    None,
+                                    Some(PortalResource::Gate {
+                                        id: gate.id.clone(),
+                                    }),
+                                )
+                            } else {
+                                let exit = scenario
+                                    .exits
+                                    .iter()
+                                    .find(|exit| exit.id == target.id)
+                                    .expect("validated final exit exists");
+                                (
+                                    portal_position(
+                                        scenario.portal_lanes_for_exit(&exit.id),
+                                        exit.at,
+                                        exit.width_m,
+                                        &agent.id,
+                                    ),
+                                    None,
+                                    None,
+                                    None,
+                                    Some(PortalResource::Exit {
+                                        id: exit.id.clone(),
+                                    }),
+                                )
                             }
                         } else {
-                            (target.at, None, None, Some((target.id, target.dwell_s)))
+                            (
+                                target.at,
+                                None,
+                                None,
+                                Some((target.id, target.dwell_s)),
+                                None,
+                            )
                         }
                     };
+                let queue_slot = agent.queue_membership.as_ref().map(|membership| {
+                    debug_assert_eq!(Some(&membership.resource), service_resource.as_ref());
+                    let footprint = scenario
+                        .queue_footprint_for_resource(&membership.resource)
+                        .expect("validated queue membership has an authored footprint");
+                    let assignment = physical_queue_snapshot
+                        .assignment(index)
+                        .expect("queued agent has a snapshot assignment");
+                    target = footprint.position(assignment.rank);
+                    (membership.resource.clone(), assignment, membership.entered)
+                });
                 let surface = scenario
                     .surfaces
                     .iter()
@@ -2326,18 +3069,51 @@ fn integrate(
                     .expect("validated surface exists");
                 let reached = move_toward(
                     agent,
+                    index,
                     OnSurfaceMovement {
                         target,
                         surface,
                         obstacles: &scenario.obstacles,
-                        target_requires_local_clearance: reached_waypoint.is_some(),
+                        target_requires_local_clearance: reached_waypoint.is_some()
+                            || queue_slot.is_some(),
                     },
                     step_elapsed_s,
-                    &mut spatial_index,
-                    index,
+                    &local_motion_snapshot,
+                    &local_motion_spatial_index,
                     movement_telemetry,
                 );
-                if !reached {
+                local_motion_snapshot.commit_queue_grid_velocity(index, agent.velocity);
+                if reached.constraint_fallback {
+                    movement_telemetry.record_constraint_fallback();
+                    events.push(RunEvent {
+                        time_s,
+                        kind: "local_avoidance_constraint_fallback".to_owned(),
+                        subject: agent.id.clone(),
+                        detail: "the speed-bounded reciprocal constraints were infeasible"
+                            .to_owned(),
+                    });
+                }
+                spatial_index.update(index, &agent.surface, agent.position, agent.radius_m);
+                if !reached.reached {
+                    continue;
+                }
+                if let Some((resource, assignment, entered)) = queue_slot {
+                    if !entered {
+                        enter_authored_queue(scenario, resources, agent, &resource, time_s, events);
+                    }
+                    if assignment.rank == 0
+                        && reserve_queue_service(scenario, resources, &mut lift_loads, &resource)
+                    {
+                        agent.queue_membership = None;
+                        agent.service_reservation = Some(resource.clone());
+                        clear_queue_wait(agent, &resource);
+                        events.push(RunEvent {
+                            time_s,
+                            kind: "queue_service_reserved".to_owned(),
+                            subject: agent.id.clone(),
+                            detail: format!("{}:{}", resource.kind(), resource.id()),
+                        });
+                    }
                     continue;
                 }
                 match next_connector {
@@ -2382,6 +3158,7 @@ fn integrate(
                                             .expect("reached waypoint remains in journey")
                                             .clone(),
                                     };
+                                    agent.velocity = Vec2::ZERO;
                                     events.push(RunEvent {
                                         time_s,
                                         kind: "waypoint_wait_started".to_owned(),
@@ -2412,31 +3189,42 @@ fn integrate(
                                 );
                                 continue;
                             }
-                            let tokens = resources.gate_tokens.entry(gate_id.clone()).or_default();
-                            if *tokens >= 1.0 {
-                                *tokens -= 1.0;
-                                agent.waiting_for_gate = false;
-                                agent.passed_gates.insert(gate_id.clone());
-                                events.push(RunEvent {
-                                    time_s,
-                                    kind: "gate_processed".to_owned(),
-                                    subject: agent.id.clone(),
-                                    detail: gate_id,
-                                });
-                            } else {
-                                if RuntimeResources::record_queue_entry(
-                                    &mut resources.queued_for_gate_agents,
-                                    &mut resources.gate_queue_resources,
-                                    "gate",
-                                    &gate_id,
-                                    &agent.id,
-                                ) {
-                                    events.push(queue_entered_event(
-                                        time_s, &agent.id, "gate", &gate_id,
-                                    ));
+                            let resource = PortalResource::Gate {
+                                id: gate_id.clone(),
+                            };
+                            let reserved = agent.service_reservation.as_ref() == Some(&resource);
+                            if !reserved {
+                                let tokens =
+                                    resources.gate_tokens.entry(gate_id.clone()).or_default();
+                                if *tokens < 1.0 {
+                                    if RuntimeResources::record_queue_entry(
+                                        &mut resources.queued_for_gate_agents,
+                                        &mut resources.gate_queue_resources,
+                                        "gate",
+                                        &gate_id,
+                                        &agent.id,
+                                    ) {
+                                        events.push(queue_entered_event(
+                                            time_s, &agent.id, "gate", &gate_id,
+                                        ));
+                                    }
+                                    if scenario.queue_footprint_for_resource(&resource).is_some() {
+                                        resources.assign_queue_membership(agent, resource);
+                                    }
+                                    agent.waiting_for_gate = true;
+                                    continue;
                                 }
-                                agent.waiting_for_gate = true;
+                                *tokens -= 1.0;
                             }
+                            agent.service_reservation = None;
+                            agent.waiting_for_gate = false;
+                            agent.passed_gates.insert(gate_id.clone());
+                            events.push(RunEvent {
+                                time_s,
+                                kind: "gate_processed".to_owned(),
+                                subject: agent.id.clone(),
+                                detail: gate_id,
+                            });
                         } else {
                             if effective_blocked_exits(agent, &resources.closed_exits)
                                 .contains(&agent.destination)
@@ -2457,7 +3245,11 @@ fn integrate(
                                 .iter()
                                 .find(|exit| exit.id == agent.destination)
                                 .expect("validated exit exists");
-                            if scenario.exit_capacity_at(&exit.id, time_s).is_some() {
+                            let resource = PortalResource::Exit {
+                                id: exit.id.clone(),
+                            };
+                            let reserved = agent.service_reservation.as_ref() == Some(&resource);
+                            if scenario.exit_capacity_at(&exit.id, time_s).is_some() && !reserved {
                                 let tokens =
                                     resources.exit_tokens.entry(exit.id.clone()).or_default();
                                 if *tokens < 1.0 {
@@ -2472,11 +3264,15 @@ fn integrate(
                                             time_s, &agent.id, "exit", &exit.id,
                                         ));
                                     }
+                                    if scenario.queue_footprint_for_resource(&resource).is_some() {
+                                        resources.assign_queue_membership(agent, resource);
+                                    }
                                     agent.waiting_for_exit = true;
                                     continue;
                                 }
                                 *tokens -= 1.0;
                             }
+                            agent.service_reservation = None;
                             agent.waiting_for_exit = false;
                             agent.motion = Motion::Evacuated { at_s: time_s };
                             spatial_index.remove(index);
@@ -2500,7 +3296,12 @@ fn integrate(
                             agent.waiting_for_route = true;
                             continue;
                         }
+                        let resource = PortalResource::Connector {
+                            id: connector.id().to_owned(),
+                        };
+                        let reserved = agent.service_reservation.as_ref() == Some(&resource);
                         if connector.is_lift()
+                            && !reserved
                             && lift_loads
                                 .get(&connector_index)
                                 .copied()
@@ -2521,12 +3322,16 @@ fn integrate(
                                     connector.id(),
                                 ));
                             }
+                            if scenario.queue_footprint_for_resource(&resource).is_some() {
+                                resources.assign_queue_membership(agent, resource);
+                            }
                             agent.waiting_connector = Some(ConnectorWait::Lift);
                             continue;
                         }
                         if scenario
                             .connector_service_rate_at(connector.id(), time_s)
                             .is_some()
+                            && !reserved
                         {
                             let tokens = resources
                                 .connector_tokens
@@ -2547,6 +3352,9 @@ fn integrate(
                                         connector.id(),
                                     ));
                                 }
+                                if scenario.queue_footprint_for_resource(&resource).is_some() {
+                                    resources.assign_queue_membership(agent, resource);
+                                }
                                 agent.waiting_connector = Some(ConnectorWait::Capacity);
                                 continue;
                             }
@@ -2555,17 +3363,19 @@ fn integrate(
                         let duration_s = connector.traversal_duration_s(agent.speed_mps);
                         agent.waiting_connector = None;
                         agent.waiting_for_route = false;
-                        if connector.is_lift() {
+                        if connector.is_lift() && !reserved {
                             *lift_loads.entry(connector_index).or_insert(0) += 1;
                         }
+                        agent.service_reservation = None;
                         agent.motion = Motion::Transit {
                             connector_index,
                             elapsed_s: 0.0,
                             duration_s,
-                            start: connector.from(),
-                            end: connector.to(),
+                            start: connector_portal_position(scenario, connector, true, &agent.id),
+                            end: connector_portal_position(scenario, connector, false, &agent.id),
                             next_surface: connector.to_surface().to_owned(),
                         };
+                        agent.velocity = Vec2::ZERO;
                         spatial_index.remove(index);
                         events.push(RunEvent {
                             time_s,
@@ -2580,7 +3390,7 @@ fn integrate(
     }
 }
 
-fn current_lift_loads(agents: &[Agent]) -> HashMap<usize, u32> {
+fn current_lift_loads(scenario: &Scenario, agents: &[Agent]) -> HashMap<usize, u32> {
     let mut loads = HashMap::new();
     for agent in agents {
         if let Motion::Transit {
@@ -2588,6 +3398,19 @@ fn current_lift_loads(agents: &[Agent]) -> HashMap<usize, u32> {
         } = &agent.motion
         {
             *loads.entry(*connector_index).or_insert(0) += 1;
+        }
+        let Some(PortalResource::Connector { id }) = &agent.service_reservation else {
+            continue;
+        };
+        let Some(connector_index) = scenario
+            .connectors
+            .iter()
+            .position(|connector| connector.id() == id)
+        else {
+            continue;
+        };
+        if scenario.connectors[connector_index].is_lift() {
+            *loads.entry(connector_index).or_insert(0) += 1;
         }
     }
     loads
@@ -2599,6 +3422,251 @@ fn surface_for<'a>(scenario: &'a Scenario, surface_id: &str) -> &'a Surface {
         .iter()
         .find(|surface| surface.id == surface_id)
         .expect("validated surface exists")
+}
+
+fn connector_portal_position(
+    scenario: &Scenario,
+    connector: &Connector,
+    from: bool,
+    agent_id: &str,
+) -> Point3 {
+    let portal = if from {
+        connector.from()
+    } else {
+        connector.to()
+    };
+    portal_position(
+        scenario.portal_lanes_for_connector(connector.id()),
+        portal,
+        connector.width_m(),
+        agent_id,
+    )
+}
+
+fn portal_position(
+    lanes: Option<&PortalLanes>,
+    portal: Point3,
+    width_m: f64,
+    agent_id: &str,
+) -> Point3 {
+    let Some(lanes) = lanes else {
+        return portal;
+    };
+    lanes.position(portal, width_m, portal_lane_index(lanes, agent_id))
+}
+
+fn portal_lane_index(lanes: &PortalLanes, agent_id: &str) -> u32 {
+    debug_assert!(lanes.count > 0);
+    let hash = agent_id
+        .bytes()
+        .chain(std::iter::once(0))
+        .chain(lanes.id.bytes())
+        .fold(0xcbf2_9ce4_8422_2325_u64, |state, byte| {
+            (state ^ u64::from(byte)).wrapping_mul(0x0000_0100_0000_01b3)
+        });
+    u32::try_from(hash % u64::from(lanes.count)).expect("remainder fits the lane count")
+}
+
+fn resource_is_open(resources: &RuntimeResources, resource: &PortalResource) -> bool {
+    match resource {
+        PortalResource::Connector { id } => !resources.closed_connectors.contains(id),
+        PortalResource::Exit { id } => !resources.closed_exits.contains(id),
+        PortalResource::Gate { id } => !resources.closed_gates.contains(id),
+    }
+}
+
+fn resource_uses_queue_grid(scenario: &Scenario, resource: &PortalResource) -> bool {
+    scenario
+        .queue_footprint_for_resource(resource)
+        .is_some_and(|footprint| footprint.width_m.is_some())
+}
+
+/// `candidate` is an earlier member of the exact queue grid represented by
+/// `own`. This is intentionally narrower than resource equality elsewhere in
+/// the runtime: it only enables the same-step velocity hand-off used by the
+/// grid's explicit FIFO right-of-way rule.
+fn queue_grid_predecessor(
+    own: Option<&QueueAvoidancePriority>,
+    candidate: Option<&QueueAvoidancePriority>,
+) -> bool {
+    matches!(
+        (own, candidate),
+        (Some(own), Some(candidate))
+            if own.resource == candidate.resource && candidate.ticket < own.ticket
+    )
+}
+
+/// Allocate every eligible footprint-enabled service request before taking the
+/// immutable local-motion and queue snapshots. Tickets determine distinct FIFO
+/// destinations; they do not count as physical queue entry until the agent
+/// reaches its assigned standing slot.
+fn preassign_authored_queue_slots(
+    scenario: &Scenario,
+    resources: &mut RuntimeResources,
+    agents: &mut [Agent],
+    time_s: f64,
+    events: &mut Vec<RunEvent>,
+) {
+    for agent in agents {
+        if !matches!(agent.motion, Motion::OnSurface)
+            || agent.waiting_for_route
+            || agent.queue_membership.is_some()
+            || agent.service_reservation.is_some()
+        {
+            continue;
+        }
+        let Some(resource) = current_service_resource(scenario, agent) else {
+            continue;
+        };
+        if resource_is_open(resources, &resource) && resource_uses_queue_grid(scenario, &resource) {
+            let ticket = resources.preallocate_queue_membership(agent, resource.clone());
+            events.push(RunEvent {
+                time_s,
+                kind: "queue_slot_preallocated".to_owned(),
+                subject: agent.id.clone(),
+                detail: format!("{}:{}:{ticket}", resource.kind(), resource.id()),
+            });
+        }
+    }
+}
+
+/// Record the physical arrival that turns a preallocated slot into a modeled
+/// queue wait. The caller retains the ticket and its assigned rank.
+fn enter_authored_queue(
+    scenario: &Scenario,
+    resources: &mut RuntimeResources,
+    agent: &mut Agent,
+    resource: &PortalResource,
+    time_s: f64,
+    events: &mut Vec<RunEvent>,
+) {
+    let (resource_kind, resource_id) = match resource {
+        PortalResource::Connector { id } => {
+            let connector = scenario
+                .connectors
+                .iter()
+                .find(|connector| connector.id() == id)
+                .expect("validated queue connector exists");
+            if connector.is_lift() {
+                agent.waiting_connector = Some(ConnectorWait::Lift);
+                ("lift", id.as_str())
+            } else {
+                agent.waiting_connector = Some(ConnectorWait::Capacity);
+                ("connector", id.as_str())
+            }
+        }
+        PortalResource::Exit { id } => {
+            agent.waiting_for_exit = true;
+            ("exit", id.as_str())
+        }
+        PortalResource::Gate { id } => {
+            agent.waiting_for_gate = true;
+            ("gate", id.as_str())
+        }
+    };
+    let entered = match resource_kind {
+        "lift" => RuntimeResources::record_queue_entry(
+            &mut resources.queued_for_lift_agents,
+            &mut resources.lift_queue_resources,
+            resource_kind,
+            resource_id,
+            &agent.id,
+        ),
+        "connector" => RuntimeResources::record_queue_entry(
+            &mut resources.queued_for_connector_agents,
+            &mut resources.connector_queue_resources,
+            resource_kind,
+            resource_id,
+            &agent.id,
+        ),
+        "gate" => RuntimeResources::record_queue_entry(
+            &mut resources.queued_for_gate_agents,
+            &mut resources.gate_queue_resources,
+            resource_kind,
+            resource_id,
+            &agent.id,
+        ),
+        "exit" => RuntimeResources::record_queue_entry(
+            &mut resources.queued_for_exit_agents,
+            &mut resources.exit_queue_resources,
+            resource_kind,
+            resource_id,
+            &agent.id,
+        ),
+        _ => unreachable!("portal resources have one modeled queue mechanism"),
+    };
+    if entered {
+        events.push(queue_entered_event(
+            time_s,
+            &agent.id,
+            resource_kind,
+            resource_id,
+        ));
+    }
+    agent
+        .queue_membership
+        .as_mut()
+        .expect("physical queue entry retains its preallocated ticket")
+        .entered = true;
+}
+
+fn reserve_queue_service(
+    scenario: &Scenario,
+    resources: &mut RuntimeResources,
+    lift_loads: &mut HashMap<usize, u32>,
+    resource: &PortalResource,
+) -> bool {
+    match resource {
+        PortalResource::Connector { id } => {
+            let connector_index = scenario
+                .connectors
+                .iter()
+                .position(|connector| connector.id() == id)
+                .expect("validated queue connector exists");
+            let connector = &scenario.connectors[connector_index];
+            if connector.is_lift() {
+                let load = lift_loads.entry(connector_index).or_default();
+                if *load >= connector.capacity().expect("lift has capacity") {
+                    return false;
+                }
+                *load += 1;
+                return true;
+            }
+            let token = resources
+                .connector_tokens
+                .entry(connector_index)
+                .or_default();
+            if *token < 1.0 {
+                return false;
+            }
+            *token -= 1.0;
+            true
+        }
+        PortalResource::Exit { id } => {
+            let token = resources.exit_tokens.entry(id.clone()).or_default();
+            if *token < 1.0 {
+                return false;
+            }
+            *token -= 1.0;
+            true
+        }
+        PortalResource::Gate { id } => {
+            let token = resources.gate_tokens.entry(id.clone()).or_default();
+            if *token < 1.0 {
+                return false;
+            }
+            *token -= 1.0;
+            true
+        }
+    }
+}
+
+fn clear_queue_wait(agent: &mut Agent, resource: &PortalResource) {
+    match resource {
+        PortalResource::Connector { .. } => agent.waiting_connector = None,
+        PortalResource::Exit { .. } => agent.waiting_for_exit = false,
+        PortalResource::Gate { .. } => agent.waiting_for_gate = false,
+    }
 }
 
 fn queue_entered_event(
@@ -2615,15 +3683,21 @@ fn queue_entered_event(
     }
 }
 
-#[allow(clippy::cast_possible_truncation)] // validated finite radii determine a bounded local-cell query
+#[derive(Debug, Clone, Copy)]
+struct LocalMovementOutcome {
+    reached: bool,
+    constraint_fallback: bool,
+}
+
 fn move_toward(
     agent: &mut Agent,
+    runtime_index: usize,
     movement: OnSurfaceMovement<'_>,
     timestep_s: f64,
-    spatial_index: &mut SpatialIndex,
-    own_index: usize,
+    local_motion_snapshot: &LocalMotionSnapshot,
+    local_motion_spatial_index: &SpatialIndex,
     movement_telemetry: &mut MovementTelemetry,
-) -> bool {
+) -> LocalMovementOutcome {
     let Some(path) = shortest_walk_path_on_surface(
         movement.surface,
         movement.obstacles,
@@ -2631,7 +3705,10 @@ fn move_toward(
         movement.target,
         agent.radius_m,
     ) else {
-        return false;
+        return LocalMovementOutcome {
+            reached: false,
+            constraint_fallback: false,
+        };
     };
     let waypoint = path.get(1).copied().unwrap_or(movement.target);
     let dx = waypoint.x_m - agent.position.x_m;
@@ -2649,35 +3726,108 @@ fn move_toward(
             z_m: agent.position.z_m + (dz / distance) * travel,
         }
     };
-    // Connector, gate, and exit queues are authored as non-spatial token
-    // resources. Their target arrival therefore remains declaration-ordered;
-    // only ordinary movement and waypoint arrival use local clearance.
-    let next = if reached_waypoint && !movement.target_requires_local_clearance {
-        planned_next
-    } else {
-        let resolved = resolve_local_position(
-            agent,
-            planned_next,
-            own_index,
-            movement.surface,
-            movement.obstacles,
-            spatial_index,
-        )
-        .unwrap_or(agent.position);
-        movement_telemetry.record(&agent.id, planned_next, resolved);
-        resolved
+    let preferred_velocity = Vec2 {
+        x: (planned_next.x_m - agent.position.x_m) / timestep_s,
+        y: (planned_next.y_m - agent.position.y_m) / timestep_s,
     };
-    let reached =
-        reached_waypoint && path.len() <= 2 && next.distance(waypoint) <= NAVIGATION_EPSILON_M;
+    let (nearby_agents, own_index) = local_motion_snapshot.nearby_agents(
+        local_motion_spatial_index,
+        agent,
+        runtime_index,
+        ORCA_TIME_HORIZON_S,
+    );
+    let decision = choose_velocity(
+        &nearby_agents,
+        own_index,
+        preferred_velocity,
+        agent.speed_mps,
+        ORCA_TIME_HORIZON_S,
+        timestep_s,
+    );
+    let candidate = Point3 {
+        x_m: agent.position.x_m + decision.velocity.x * timestep_s,
+        y_m: agent.position.y_m + decision.velocity.y * timestep_s,
+        z_m: movement.surface.origin.z_m,
+    };
+    let next = static_safe_position(
+        agent.position,
+        candidate,
+        movement.surface,
+        movement.obstacles,
+        agent.radius_m,
+    );
+    agent.velocity = Vec2 {
+        x: (next.x_m - agent.position.x_m) / timestep_s,
+        y: (next.y_m - agent.position.y_m) / timestep_s,
+    };
+    movement_telemetry.record(&agent.id, planned_next, next);
+    // Waypoints require an exact center-point arrival. Connector, gate, and
+    // exit targets represent zero-geometry service points, so an agent is
+    // ready for their abstract service rule once its clearance disc contacts
+    // the target. Otherwise a locally separated front agent can remain just
+    // outside a point forever while its remaining travel is shorter than one
+    // integration step.
+    let target_reach_m = if movement.target_requires_local_clearance {
+        NAVIGATION_EPSILON_M
+    } else {
+        agent.radius_m + NAVIGATION_EPSILON_M
+    };
+    let reached = path.len() <= 2 && next.distance(waypoint) <= target_reach_m;
     agent.position = next;
-    spatial_index.update(own_index, &agent.surface, agent.position, agent.radius_m);
-    reached
+    LocalMovementOutcome {
+        reached,
+        constraint_fallback: decision.constraint_fallback,
+    }
+}
+
+fn static_safe_position(
+    start: Point3,
+    candidate: Point3,
+    surface: &Surface,
+    obstacles: &[Obstacle],
+    radius_m: f64,
+) -> Point3 {
+    if local_movement_segment_is_clear(start, candidate, surface, obstacles, radius_m) {
+        return candidate;
+    }
+    let mut lower = 0.0_f64;
+    let mut upper = 1.0_f64;
+    for _ in 0..48 {
+        let midpoint = lower.midpoint(upper);
+        let point = start.lerp(candidate, midpoint);
+        if local_movement_segment_is_clear(start, point, surface, obstacles, radius_m) {
+            lower = midpoint;
+        } else {
+            upper = midpoint;
+        }
+    }
+    start.lerp(candidate, lower)
+}
+
+fn local_movement_segment_is_clear(
+    start: Point3,
+    end: Point3,
+    surface: &Surface,
+    obstacles: &[Obstacle],
+    radius_m: f64,
+) -> bool {
+    point_has_static_clearance(end, surface, obstacles, radius_m)
+        && segment_is_clear(
+            start,
+            end,
+            &obstacles
+                .iter()
+                .filter(|obstacle| obstacle.surface == surface.id)
+                .map(|obstacle| InflatedObstacle::from_obstacle(obstacle, radius_m))
+                .collect::<Vec<_>>(),
+        )
 }
 
 const LOCAL_SEPARATION_PASSES: u8 = 4;
 
 fn resolve_local_position(
-    agent: &Agent,
+    surface_id: &str,
+    radius_m: f64,
     planned: Point3,
     own_index: usize,
     surface: &Surface,
@@ -2687,17 +3837,17 @@ fn resolve_local_position(
     let mut next = planned;
     for _ in 0..LOCAL_SEPARATION_PASSES {
         let mut corrected = false;
-        for candidate in spatial_index.nearby_indices(&agent.surface, next, agent.radius_m) {
+        for candidate in spatial_index.nearby_indices(surface_id, next, radius_m) {
             if candidate == own_index {
                 continue;
             }
-            let Some((_, position, radius_m)) = &spatial_index.positions[candidate] else {
+            let Some((_, position, other_radius_m)) = &spatial_index.positions[candidate] else {
                 continue;
             };
             let dx = next.x_m - position.x_m;
             let dy = next.y_m - position.y_m;
             let separation = dx.hypot(dy);
-            let minimum = agent.radius_m + radius_m;
+            let minimum = radius_m + other_radius_m;
             if separation + NAVIGATION_EPSILON_M >= minimum {
                 continue;
             }
@@ -2722,26 +3872,44 @@ fn resolve_local_position(
         .y_m
         .clamp(surface.origin.y_m, surface.origin.y_m + surface.depth_m);
     next.z_m = surface.origin.z_m;
-    (point_is_clear(next, surface, obstacles, agent.radius_m)
-        && local_position_is_clear(agent, next, own_index, spatial_index))
+    (point_has_static_clearance(next, surface, obstacles, radius_m)
+        && local_position_is_clear_on_surface(
+            surface_id,
+            radius_m,
+            next,
+            Some(own_index),
+            spatial_index,
+        ))
     .then_some(next)
 }
 
-fn local_position_is_clear(
-    agent: &Agent,
+fn landing_position_is_clear(
+    radius_m: f64,
     point: Point3,
-    own_index: usize,
+    surface: &Surface,
+    obstacles: &[Obstacle],
+    spatial_index: &SpatialIndex,
+) -> bool {
+    point_has_static_clearance(point, surface, obstacles, radius_m)
+        && local_position_is_clear_on_surface(&surface.id, radius_m, point, None, spatial_index)
+}
+
+fn local_position_is_clear_on_surface(
+    surface_id: &str,
+    radius_m: f64,
+    point: Point3,
+    own_index: Option<usize>,
     spatial_index: &SpatialIndex,
 ) -> bool {
     spatial_index
-        .nearby_indices(&agent.surface, point, agent.radius_m)
+        .nearby_indices(surface_id, point, radius_m)
         .into_iter()
-        .filter(|candidate| *candidate != own_index)
+        .filter(|candidate| Some(*candidate) != own_index)
         .all(|candidate| {
-            let (_, other, radius_m) = spatial_index.positions[candidate]
+            let (_, other, other_radius_m) = spatial_index.positions[candidate]
                 .as_ref()
                 .expect("spatial cell only retains occupied agent indices");
-            point.distance(*other) + NAVIGATION_EPSILON_M >= agent.radius_m + radius_m
+            point.distance(*other) + NAVIGATION_EPSILON_M >= radius_m + other_radius_m
         })
 }
 
@@ -2761,7 +3929,12 @@ fn coincident_separation_direction(own_index: usize, other_index: usize) -> (f64
     (x * sign, y * sign)
 }
 
-fn point_is_clear(point: Point3, surface: &Surface, obstacles: &[Obstacle], radius_m: f64) -> bool {
+fn point_has_static_clearance(
+    point: Point3,
+    surface: &Surface,
+    obstacles: &[Obstacle],
+    radius_m: f64,
+) -> bool {
     surface.contains(point)
         && obstacles
             .iter()
@@ -2833,9 +4006,17 @@ fn agent_state_name(agent: &Agent) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::{
-        BundleVerification, RunError, RunOptions, integration_step_count, run, verify_run_bundle,
+        BundleVerification, Motion, MovementTelemetry, ORCA_TIME_HORIZON_S, RunError, RunOptions,
+        integration_step_count, on_surface_disc_starts, potentially_interacting, run, spawn_agents,
+        verify_run_bundle,
     };
-    use crate::{bundle::bundle_hash, generator};
+    use crate::{
+        avoidance::{AvoidanceAgent, Vec2},
+        bundle::{RunBundle, bundle_hash},
+        generator,
+        model::Point3,
+    };
+    use std::collections::HashSet;
 
     #[test]
     fn bundle_verification_reconstructs_current_runs_and_labels_legacy_hash_only() {
@@ -2868,6 +4049,62 @@ mod tests {
     }
 
     #[test]
+    fn current_clearance_audit_metric_survives_json_hash_verification() {
+        let scenario = generator::scenario(73).expect("generated scenario is valid");
+        let mut generated = run(&scenario, RunOptions::default()).expect("runtime succeeds");
+        generated
+            .metrics
+            .movement_metrics
+            .as_mut()
+            .expect("current runs expose movement telemetry")
+            .on_surface_clearance_audit
+            .as_mut()
+            .expect("current runs expose the clearance audit")
+            .maximum_disc_overlap_m = 0.417_473_898_582_621_96;
+        generated
+            .metrics
+            .movement_metrics
+            .as_mut()
+            .expect("current runs expose movement telemetry")
+            .swept_on_surface_clearance_audit
+            .as_mut()
+            .expect("current runs expose the swept clearance audit")
+            .maximum_swept_disc_overlap_m = 0.417_473_898_582_621_96;
+        let bundle = RunBundle::new(
+            generated.scenario,
+            generated.options,
+            generated.trace,
+            generated.events,
+            generated.metrics,
+        );
+
+        let encoded = serde_json::to_string(&bundle).expect("current bundle serializes");
+        let round_trip: RunBundle =
+            serde_json::from_str(&encoded).expect("current bundle deserializes");
+        assert!(round_trip.verifies_hash());
+        let maximum_disc_overlap_m = round_trip
+            .metrics
+            .movement_metrics
+            .as_ref()
+            .expect("movement telemetry remains present")
+            .on_surface_clearance_audit
+            .as_ref()
+            .expect("clearance audit remains present")
+            .maximum_disc_overlap_m;
+        assert!((maximum_disc_overlap_m - 0.417_473_899).abs() < f64::EPSILON);
+        let maximum_swept_disc_overlap_m = round_trip
+            .metrics
+            .movement_metrics
+            .as_ref()
+            .expect("movement telemetry remains present")
+            .swept_on_surface_clearance_audit
+            .as_ref()
+            .expect("swept clearance audit remains present")
+            .maximum_swept_disc_overlap_m;
+        assert!((maximum_swept_disc_overlap_m - 0.417_473_899).abs() < f64::EPSILON);
+    }
+
+    #[test]
     fn prior_bundle_contract_remains_hash_only_legacy() {
         let scenario = generator::scenario(73).expect("generated scenario is valid");
         let mut bundle = run(&scenario, RunOptions::default()).expect("runtime succeeds");
@@ -2881,9 +4118,196 @@ mod tests {
     }
 
     #[test]
+    fn pre_038_bundle_with_current_metric_shape_remains_hash_only_legacy() {
+        let scenario = generator::scenario(73).expect("generated scenario is valid");
+        let mut bundle = run(&scenario, RunOptions::default()).expect("runtime succeeds");
+        bundle.bundle_version = "0.37".to_owned();
+        bundle.runtime_version = "0.37.0-alpha.1".to_owned();
+        bundle.bundle_hash = bundle_hash(&bundle);
+
+        assert_eq!(
+            verify_run_bundle(&bundle).expect("pre-0.38 bundle remains hash-inspectable"),
+            BundleVerification::HashOnlyLegacy
+        );
+    }
+
+    #[test]
+    fn pre_039_bundle_remains_hash_only_legacy() {
+        let scenario = generator::scenario(73).expect("generated scenario is valid");
+        let mut bundle = run(&scenario, RunOptions::default()).expect("runtime succeeds");
+        bundle.bundle_version = "0.38".to_owned();
+        bundle.runtime_version = "0.38.0-alpha.1".to_owned();
+        bundle.bundle_hash = bundle_hash(&bundle);
+
+        assert_eq!(
+            verify_run_bundle(&bundle).expect("pre-0.39 bundle remains hash-inspectable"),
+            BundleVerification::HashOnlyLegacy
+        );
+    }
+
+    #[test]
+    fn pre_040_bundle_remains_hash_only_legacy() {
+        let scenario = generator::scenario(73).expect("generated scenario is valid");
+        let mut bundle = run(&scenario, RunOptions::default()).expect("runtime succeeds");
+        bundle.bundle_version = "0.39".to_owned();
+        bundle.runtime_version = "0.39.0-alpha.1".to_owned();
+        bundle.bundle_hash = bundle_hash(&bundle);
+
+        assert_eq!(
+            verify_run_bundle(&bundle).expect("pre-0.40 bundle remains hash-inspectable"),
+            BundleVerification::HashOnlyLegacy
+        );
+    }
+
+    #[test]
+    fn pre_041_bundle_remains_hash_only_legacy() {
+        let scenario = generator::scenario(73).expect("generated scenario is valid");
+        let mut bundle = run(&scenario, RunOptions::default()).expect("runtime succeeds");
+        bundle.bundle_version = "0.40".to_owned();
+        bundle.runtime_version = "0.40.0-alpha.1".to_owned();
+        bundle.bundle_hash = bundle_hash(&bundle);
+
+        assert_eq!(
+            verify_run_bundle(&bundle).expect("pre-0.41 bundle remains hash-inspectable"),
+            BundleVerification::HashOnlyLegacy
+        );
+    }
+
+    #[test]
+    fn pre_042_bundle_remains_hash_only_legacy() {
+        let scenario = generator::scenario(73).expect("generated scenario is valid");
+        let mut bundle = run(&scenario, RunOptions::default()).expect("runtime succeeds");
+        bundle.bundle_version = "0.41".to_owned();
+        bundle.runtime_version = "0.41.0-alpha.1".to_owned();
+        bundle.bundle_hash = bundle_hash(&bundle);
+
+        assert_eq!(
+            verify_run_bundle(&bundle).expect("pre-0.42 bundle remains hash-inspectable"),
+            BundleVerification::HashOnlyLegacy
+        );
+    }
+
+    #[test]
     fn integration_step_count_includes_one_fractional_final_step() {
         assert_eq!(integration_step_count(1.5, 1.0), 2);
         assert_eq!(integration_step_count(2.0, 1.0), 2);
+    }
+
+    #[test]
+    fn local_motion_neighbor_screen_includes_agents_that_can_turn_toward_each_other() {
+        let candidate = AvoidanceAgent {
+            id: "candidate".to_owned(),
+            position: Vec2 { x: 3.0, y: 0.0 },
+            velocity: Vec2::ZERO,
+            radius_m: 0.3,
+            max_speed_mps: 1.0,
+            queue_priority: None,
+        };
+        let position = Point3 {
+            x_m: 0.0,
+            y_m: 0.0,
+            z_m: 0.0,
+        };
+
+        assert!(potentially_interacting(
+            &candidate,
+            ORCA_TIME_HORIZON_S,
+            0.3,
+            1.0,
+            position,
+        ));
+        let distant_candidate = AvoidanceAgent {
+            position: Vec2 { x: 6.0, y: 0.0 },
+            ..candidate
+        };
+        assert!(!potentially_interacting(
+            &distant_candidate,
+            ORCA_TIME_HORIZON_S,
+            0.3,
+            1.0,
+            position,
+        ));
+    }
+
+    #[test]
+    fn on_surface_clearance_audit_counts_each_overlapping_pair_at_each_boundary() {
+        let scenario = generator::scenario(73).expect("generated scenario is valid");
+        let mut agents = spawn_agents(&scenario, &HashSet::new(), &HashSet::new(), &HashSet::new())
+            .expect("generated agents spawn");
+        agents.truncate(2);
+        let surface = agents[0].surface.clone();
+        let position = agents[0].position;
+        for agent in &mut agents {
+            agent.motion = Motion::OnSurface;
+            agent.surface.clone_from(&surface);
+            agent.radius_m = 0.4;
+        }
+        agents[0].position = position;
+        agents[1].position = Point3 {
+            x_m: position.x_m + 0.5,
+            ..position
+        };
+
+        let mut telemetry = MovementTelemetry::default();
+        telemetry.record_on_surface_disc_overlaps(&agents);
+        telemetry.record_on_surface_disc_overlaps(&agents);
+        let audit = telemetry
+            .metrics()
+            .on_surface_clearance_audit
+            .expect("current telemetry exposes the audit");
+
+        assert_eq!(audit.agents_with_disc_overlaps, 2);
+        assert_eq!(audit.disc_overlap_pair_steps, 2);
+        assert!((audit.maximum_disc_overlap_m - 0.3).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn swept_clearance_audit_finds_an_interior_crossing_missed_at_boundaries() {
+        let scenario = generator::scenario(73).expect("generated scenario is valid");
+        let mut agents = spawn_agents(&scenario, &HashSet::new(), &HashSet::new(), &HashSet::new())
+            .expect("generated agents spawn");
+        agents.truncate(2);
+        let surface = agents[0].surface.clone();
+        let position = agents[0].position;
+        for agent in &mut agents {
+            agent.motion = Motion::OnSurface;
+            agent.surface.clone_from(&surface);
+            agent.radius_m = 0.3;
+        }
+        agents[0].position = Point3 {
+            x_m: position.x_m - 1.0,
+            ..position
+        };
+        agents[1].position = Point3 {
+            x_m: position.x_m + 1.0,
+            ..position
+        };
+        let starts = on_surface_disc_starts(&agents);
+        agents[0].position = Point3 {
+            x_m: position.x_m + 1.0,
+            ..position
+        };
+        agents[1].position = Point3 {
+            x_m: position.x_m - 1.0,
+            ..position
+        };
+
+        let mut telemetry = MovementTelemetry::default();
+        telemetry.record_on_surface_disc_overlaps(&agents);
+        telemetry.record_swept_on_surface_disc_overlaps(&starts, &agents);
+        let metrics = telemetry.metrics();
+        let boundary_audit = metrics
+            .on_surface_clearance_audit
+            .expect("current telemetry exposes the boundary audit");
+        let swept_audit = metrics
+            .swept_on_surface_clearance_audit
+            .expect("current telemetry exposes the swept audit");
+
+        assert_eq!(boundary_audit.agents_with_disc_overlaps, 0);
+        assert_eq!(boundary_audit.disc_overlap_pair_steps, 0);
+        assert_eq!(swept_audit.agents_with_swept_disc_overlaps, 2);
+        assert_eq!(swept_audit.swept_disc_overlap_pair_steps, 1);
+        assert!((swept_audit.maximum_swept_disc_overlap_m - 0.6).abs() < f64::EPSILON);
     }
 
     #[test]
@@ -2942,5 +4366,107 @@ mod tests {
             serde_json::from_value(encoded).expect("pre-0.28 bundle remains readable");
 
         assert!(legacy.metrics.movement_metrics.is_none());
+    }
+
+    #[test]
+    fn pre_031_bundle_without_orca_fallback_telemetry_remains_hash_verifiable() {
+        let scenario = generator::scenario(73).expect("generated scenario is valid");
+        let bundle = run(&scenario, RunOptions::default()).expect("runtime succeeds");
+        let mut encoded = serde_json::to_value(bundle).expect("current bundle serializes");
+        encoded["bundle_version"] = serde_json::Value::String("0.30".to_owned());
+        encoded["metrics"]["movement_metrics"]
+            .as_object_mut()
+            .expect("movement metrics is an object")
+            .remove("local_avoidance_constraint_fallback_steps");
+
+        let mut legacy: crate::RunBundle =
+            serde_json::from_value(encoded).expect("pre-0.31 bundle remains readable");
+        assert_eq!(
+            legacy
+                .metrics
+                .movement_metrics
+                .as_ref()
+                .expect("pre-0.31 bundle retains movement telemetry")
+                .local_avoidance_constraint_fallback_steps,
+            None
+        );
+        legacy.bundle_hash = bundle_hash(&legacy);
+        assert!(legacy.verifies_hash());
+        assert_eq!(
+            verify_run_bundle(&legacy).expect("pre-0.31 bundle remains hash-inspectable"),
+            BundleVerification::HashOnlyLegacy
+        );
+        let reencoded = serde_json::to_value(legacy).expect("legacy bundle serializes");
+        assert!(
+            reencoded["metrics"]["movement_metrics"]
+                .get("local_avoidance_constraint_fallback_steps")
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn pre_036_bundle_without_on_surface_clearance_audit_remains_hash_verifiable() {
+        let scenario = generator::scenario(73).expect("generated scenario is valid");
+        let bundle = run(&scenario, RunOptions::default()).expect("runtime succeeds");
+        let mut encoded = serde_json::to_value(bundle).expect("current bundle serializes");
+        encoded["bundle_version"] = serde_json::Value::String("0.35".to_owned());
+        encoded["metrics"]["movement_metrics"]
+            .as_object_mut()
+            .expect("movement metrics is an object")
+            .remove("on_surface_clearance_audit");
+
+        let mut legacy: crate::RunBundle =
+            serde_json::from_value(encoded).expect("pre-0.36 bundle remains readable");
+        assert!(
+            legacy
+                .metrics
+                .movement_metrics
+                .as_ref()
+                .expect("pre-0.36 bundle retains movement telemetry")
+                .on_surface_clearance_audit
+                .is_none()
+        );
+        legacy.bundle_hash = bundle_hash(&legacy);
+        assert!(legacy.verifies_hash());
+        assert_eq!(
+            verify_run_bundle(&legacy).expect("pre-0.36 bundle remains hash-inspectable"),
+            BundleVerification::HashOnlyLegacy
+        );
+    }
+
+    #[test]
+    fn pre_037_bundle_without_swept_on_surface_clearance_audit_remains_hash_verifiable() {
+        let scenario = generator::scenario(73).expect("generated scenario is valid");
+        let bundle = run(&scenario, RunOptions::default()).expect("runtime succeeds");
+        let mut encoded = serde_json::to_value(bundle).expect("current bundle serializes");
+        encoded["bundle_version"] = serde_json::Value::String("0.36".to_owned());
+        encoded["metrics"]["movement_metrics"]
+            .as_object_mut()
+            .expect("movement metrics is an object")
+            .remove("swept_on_surface_clearance_audit");
+
+        let mut legacy: crate::RunBundle =
+            serde_json::from_value(encoded).expect("pre-0.37 bundle remains readable");
+        assert!(
+            legacy
+                .metrics
+                .movement_metrics
+                .as_ref()
+                .expect("pre-0.37 bundle retains movement telemetry")
+                .swept_on_surface_clearance_audit
+                .is_none()
+        );
+        legacy.bundle_hash = bundle_hash(&legacy);
+        assert!(legacy.verifies_hash());
+        assert_eq!(
+            verify_run_bundle(&legacy).expect("pre-0.37 bundle remains hash-inspectable"),
+            BundleVerification::HashOnlyLegacy
+        );
+        let reencoded = serde_json::to_value(legacy).expect("legacy bundle serializes");
+        assert!(
+            reencoded["metrics"]["movement_metrics"]
+                .get("swept_on_surface_clearance_audit")
+                .is_none()
+        );
     }
 }

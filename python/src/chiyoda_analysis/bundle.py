@@ -13,12 +13,15 @@ class BundleError(ValueError):
     """A run bundle is malformed or fails its integrity contract."""
 
 
-_CURRENT_BUNDLE_VERSIONS = frozenset({"0.17", "0.18", "0.19", "0.20", "0.21", "0.22", "0.23", "0.24", "0.25", "0.26", "0.27", "0.28"})
-_INFORMATION_DELIVERY_BUNDLE_VERSIONS = frozenset({"0.18", "0.19", "0.20", "0.21", "0.22", "0.23", "0.24", "0.25", "0.26", "0.27", "0.28"})
-_QUEUE_METRIC_BUNDLE_VERSIONS = frozenset({"0.22", "0.23", "0.24", "0.25", "0.26", "0.27", "0.28"})
-_RESOURCE_QUEUE_METRIC_BUNDLE_VERSIONS = frozenset({"0.23", "0.24", "0.25", "0.26", "0.27", "0.28"})
-_QUEUE_ENTRY_EVENT_BUNDLE_VERSIONS = frozenset({"0.24", "0.25", "0.26", "0.27", "0.28"})
-_MOVEMENT_METRIC_BUNDLE_VERSIONS = frozenset({"0.28"})
+_CURRENT_BUNDLE_VERSIONS = frozenset({"0.17", "0.18", "0.19", "0.20", "0.21", "0.22", "0.23", "0.24", "0.25", "0.26", "0.27", "0.28", "0.29", "0.30", "0.31", "0.32", "0.33", "0.34", "0.35", "0.36", "0.37", "0.38", "0.39", "0.40", "0.41", "0.42"})
+_INFORMATION_DELIVERY_BUNDLE_VERSIONS = frozenset({"0.18", "0.19", "0.20", "0.21", "0.22", "0.23", "0.24", "0.25", "0.26", "0.27", "0.28", "0.29", "0.30", "0.31", "0.32", "0.33", "0.34", "0.35", "0.36", "0.37", "0.38", "0.39", "0.40", "0.41", "0.42"})
+_QUEUE_METRIC_BUNDLE_VERSIONS = frozenset({"0.22", "0.23", "0.24", "0.25", "0.26", "0.27", "0.28", "0.29", "0.30", "0.31", "0.32", "0.33", "0.34", "0.35", "0.36", "0.37", "0.38", "0.39", "0.40", "0.41", "0.42"})
+_RESOURCE_QUEUE_METRIC_BUNDLE_VERSIONS = frozenset({"0.23", "0.24", "0.25", "0.26", "0.27", "0.28", "0.29", "0.30", "0.31", "0.32", "0.33", "0.34", "0.35", "0.36", "0.37", "0.38", "0.39", "0.40", "0.41", "0.42"})
+_QUEUE_ENTRY_EVENT_BUNDLE_VERSIONS = frozenset({"0.24", "0.25", "0.26", "0.27", "0.28", "0.29", "0.30", "0.31", "0.32", "0.33", "0.34", "0.35", "0.36", "0.37", "0.38", "0.39", "0.40", "0.41", "0.42"})
+_MOVEMENT_METRIC_BUNDLE_VERSIONS = frozenset({"0.28", "0.29", "0.30", "0.31", "0.32", "0.33", "0.34", "0.35", "0.36", "0.37", "0.38", "0.39", "0.40", "0.41", "0.42"})
+_MOVEMENT_FALLBACK_METRIC_BUNDLE_VERSIONS = frozenset({"0.31", "0.32", "0.33", "0.34", "0.35", "0.36", "0.37", "0.38", "0.39", "0.40", "0.41", "0.42"})
+_ON_SURFACE_CLEARANCE_AUDIT_BUNDLE_VERSIONS = frozenset({"0.36", "0.37", "0.38", "0.39", "0.40", "0.41", "0.42"})
+_SWEPT_ON_SURFACE_CLEARANCE_AUDIT_BUNDLE_VERSIONS = frozenset({"0.37", "0.38", "0.39", "0.40", "0.41", "0.42"})
 _REMAINING_AGENT_STATES = frozenset(
     {
         "moving",
@@ -72,6 +75,8 @@ def summarize(bundle: dict[str, Any]) -> dict[str, Any]:
     information_delivery = _information_delivery(metrics)
     queue_metrics = _queue_metrics(bundle, metrics)
     movement_metrics = _movement_metrics(bundle, metrics)
+    if bundle.get("bundle_version") == "0.42":
+        _release_clearance_deferral_events(bundle)
     clearance_time_s = _optional_time(metrics, "clearance_time_s")
     last_exit_time_s = _optional_time(metrics, "last_exit_time_s")
     _validate_exit_time_semantics(bundle, metrics, clearance_time_s, last_exit_time_s)
@@ -206,10 +211,14 @@ def _queue_metrics(bundle: dict[str, Any], metrics: dict[str, Any]) -> dict[str,
         )
     if bundle.get("bundle_version") in _QUEUE_ENTRY_EVENT_BUNDLE_VERSIONS:
         _queue_entry_events(bundle, normalized)
+    if bundle.get("bundle_version") in {"0.33", "0.34", "0.35", "0.36", "0.37", "0.38", "0.39", "0.40", "0.41", "0.42"}:
+        _queue_service_reservation_events(bundle)
+    if bundle.get("bundle_version") in {"0.41", "0.42"}:
+        _queue_grid_preallocation_events(bundle)
     return normalized
 
 
-def _movement_metrics(bundle: dict[str, Any], metrics: dict[str, Any]) -> dict[str, int | float]:
+def _movement_metrics(bundle: dict[str, Any], metrics: dict[str, Any]) -> dict[str, Any]:
     """Validate local-clearance audit telemetry without relabeling it as physical data."""
 
     if bundle.get("bundle_version") not in _MOVEMENT_METRIC_BUNDLE_VERSIONS:
@@ -221,11 +230,25 @@ def _movement_metrics(bundle: dict[str, Any], metrics: dict[str, Any]) -> dict[s
         "cumulative_local_clearance_adjustment_m",
         "maximum_local_clearance_adjustment_m",
     }
+    has_fallback_metric = bundle.get("bundle_version") in _MOVEMENT_FALLBACK_METRIC_BUNDLE_VERSIONS
+    has_on_surface_clearance_audit = (
+        bundle.get("bundle_version") in _ON_SURFACE_CLEARANCE_AUDIT_BUNDLE_VERSIONS
+    )
+    has_swept_on_surface_clearance_audit = (
+        bundle.get("bundle_version") in _SWEPT_ON_SURFACE_CLEARANCE_AUDIT_BUNDLE_VERSIONS
+    )
+    if has_fallback_metric:
+        expected_fields.add("local_avoidance_constraint_fallback_steps")
+    if has_on_surface_clearance_audit:
+        expected_fields.add("on_surface_clearance_audit")
+    if has_swept_on_surface_clearance_audit:
+        expected_fields.add("swept_on_surface_clearance_audit")
     if not isinstance(value, dict) or set(value) != expected_fields:
         raise BundleError("current metrics.movement_metrics must contain complete local-clearance telemetry")
     total_agents, _ = _current_agent_counts(metrics)
     adjusted_agents = value["agents_with_local_clearance_adjustments"]
     adjustment_steps = value["local_clearance_adjustment_steps"]
+    fallback_steps = value.get("local_avoidance_constraint_fallback_steps")
     cumulative_adjustment = value["cumulative_local_clearance_adjustment_m"]
     maximum_adjustment = value["maximum_local_clearance_adjustment_m"]
     if (
@@ -236,6 +259,14 @@ def _movement_metrics(bundle: dict[str, Any], metrics: dict[str, Any]) -> dict[s
         or isinstance(adjustment_steps, bool)
         or not isinstance(adjustment_steps, int)
         or adjustment_steps < adjusted_agents
+        or (
+            has_fallback_metric
+            and (
+                isinstance(fallback_steps, bool)
+                or not isinstance(fallback_steps, int)
+                or fallback_steps < 0
+            )
+        )
         or isinstance(cumulative_adjustment, bool)
         or not isinstance(cumulative_adjustment, (int, float))
         or not math.isfinite(cumulative_adjustment)
@@ -251,12 +282,200 @@ def _movement_metrics(bundle: dict[str, Any], metrics: dict[str, Any]) -> dict[s
         adjusted_agents != 0 or cumulative_adjustment != 0 or maximum_adjustment != 0
     ):
         raise BundleError("zero local-clearance adjustments must have zero-valued telemetry")
-    return {
+    normalized: dict[str, Any] = {
         "agents_with_local_clearance_adjustments": adjusted_agents,
         "local_clearance_adjustment_steps": adjustment_steps,
         "cumulative_local_clearance_adjustment_m": float(cumulative_adjustment),
         "maximum_local_clearance_adjustment_m": float(maximum_adjustment),
     }
+    if has_fallback_metric:
+        normalized["local_avoidance_constraint_fallback_steps"] = fallback_steps
+        _local_avoidance_fallback_events(bundle, fallback_steps)
+    if has_on_surface_clearance_audit:
+        normalized["on_surface_clearance_audit"] = _on_surface_clearance_audit(
+            bundle, value["on_surface_clearance_audit"], total_agents
+        )
+    if has_swept_on_surface_clearance_audit:
+        normalized["swept_on_surface_clearance_audit"] = _swept_on_surface_clearance_audit(
+            bundle, value["swept_on_surface_clearance_audit"], total_agents
+        )
+    return normalized
+
+
+def _on_surface_clearance_audit(
+    bundle: dict[str, Any], value: Any, total_agents: int
+) -> dict[str, int | float]:
+    """Validate the 0.36 boundary-state reference-disc audit independently."""
+
+    expected_fields = {
+        "agents_with_disc_overlaps",
+        "disc_overlap_pair_steps",
+        "maximum_disc_overlap_m",
+    }
+    if not isinstance(value, dict) or set(value) != expected_fields:
+        raise BundleError("on-surface clearance audit must contain complete telemetry")
+    affected_agents = value["agents_with_disc_overlaps"]
+    pair_steps = value["disc_overlap_pair_steps"]
+    maximum_overlap = value["maximum_disc_overlap_m"]
+    if (
+        isinstance(affected_agents, bool)
+        or not isinstance(affected_agents, int)
+        or affected_agents < 0
+        or affected_agents > total_agents
+        or isinstance(pair_steps, bool)
+        or not isinstance(pair_steps, int)
+        or pair_steps < 0
+        or isinstance(maximum_overlap, bool)
+        or not isinstance(maximum_overlap, (int, float))
+        or not math.isfinite(maximum_overlap)
+        or maximum_overlap < 0
+    ):
+        raise BundleError("on-surface clearance audit telemetry is invalid")
+    maximum_pair_steps = _integration_step_count(bundle) * (total_agents * (total_agents - 1) // 2)
+    maximum_radius = _maximum_agent_radius(bundle)
+    if (
+        pair_steps > maximum_pair_steps
+        or maximum_overlap > maximum_radius * 2
+        or (pair_steps == 0 and (affected_agents != 0 or maximum_overlap != 0))
+        or (pair_steps > 0 and (affected_agents < 2 or maximum_overlap == 0))
+    ):
+        raise BundleError("on-surface clearance audit telemetry is inconsistent")
+    return {
+        "agents_with_disc_overlaps": affected_agents,
+        "disc_overlap_pair_steps": pair_steps,
+        "maximum_disc_overlap_m": float(maximum_overlap),
+    }
+
+
+def _swept_on_surface_clearance_audit(
+    bundle: dict[str, Any], value: Any, total_agents: int
+) -> dict[str, int | float]:
+    """Validate the 0.37-and-later analytic same-surface linear-interval audit independently."""
+
+    expected_fields = {
+        "agents_with_swept_disc_overlaps",
+        "swept_disc_overlap_pair_steps",
+        "maximum_swept_disc_overlap_m",
+    }
+    if not isinstance(value, dict) or set(value) != expected_fields:
+        raise BundleError("swept on-surface clearance audit must contain complete telemetry")
+    affected_agents = value["agents_with_swept_disc_overlaps"]
+    pair_steps = value["swept_disc_overlap_pair_steps"]
+    maximum_overlap = value["maximum_swept_disc_overlap_m"]
+    if (
+        isinstance(affected_agents, bool)
+        or not isinstance(affected_agents, int)
+        or affected_agents < 0
+        or affected_agents > total_agents
+        or isinstance(pair_steps, bool)
+        or not isinstance(pair_steps, int)
+        or pair_steps < 0
+        or isinstance(maximum_overlap, bool)
+        or not isinstance(maximum_overlap, (int, float))
+        or not math.isfinite(maximum_overlap)
+        or maximum_overlap < 0
+    ):
+        raise BundleError("swept on-surface clearance audit telemetry is invalid")
+    maximum_pair_steps = _integration_step_count(bundle) * (total_agents * (total_agents - 1) // 2)
+    maximum_radius = _maximum_agent_radius(bundle)
+    if (
+        pair_steps > maximum_pair_steps
+        or maximum_overlap > maximum_radius * 2
+        or (pair_steps == 0 and (affected_agents != 0 or maximum_overlap != 0))
+        or (pair_steps > 0 and (affected_agents < 2 or maximum_overlap == 0))
+    ):
+        raise BundleError("swept on-surface clearance audit telemetry is inconsistent")
+    return {
+        "agents_with_swept_disc_overlaps": affected_agents,
+        "swept_disc_overlap_pair_steps": pair_steps,
+        "maximum_swept_disc_overlap_m": float(maximum_overlap),
+    }
+
+
+def _integration_step_count(bundle: dict[str, Any]) -> int:
+    scenario = bundle.get("scenario")
+    scenario_body = scenario.get("scenario") if isinstance(scenario, dict) else None
+    if not isinstance(scenario_body, dict):
+        raise BundleError("on-surface clearance audit requires a canonical scenario")
+    duration = scenario_body.get("duration_s")
+    timestep = scenario_body.get("timestep_s")
+    if (
+        isinstance(duration, bool)
+        or not isinstance(duration, (int, float))
+        or not math.isfinite(duration)
+        or duration <= 0
+        or isinstance(timestep, bool)
+        or not isinstance(timestep, (int, float))
+        or not math.isfinite(timestep)
+        or timestep <= 0
+    ):
+        raise BundleError("on-surface clearance audit requires positive canonical timing")
+    upper_bound = math.ceil(duration / timestep)
+    if upper_bound > 1 and (upper_bound - 1) * timestep >= duration:
+        return upper_bound - 1
+    return upper_bound
+
+
+def _maximum_agent_radius(bundle: dict[str, Any]) -> float:
+    scenario = bundle.get("scenario")
+    scenario_body = scenario.get("scenario") if isinstance(scenario, dict) else None
+    groups = scenario_body.get("agents") if isinstance(scenario_body, dict) else None
+    if not isinstance(groups, list):
+        raise BundleError("on-surface clearance audit requires canonical agent groups")
+    radii: list[float] = []
+    for group in groups:
+        radius = group.get("radius_m") if isinstance(group, dict) else None
+        if (
+            isinstance(radius, bool)
+            or not isinstance(radius, (int, float))
+            or not math.isfinite(radius)
+            or radius <= 0
+        ):
+            raise BundleError("on-surface clearance audit requires positive agent radii")
+        radii.append(float(radius))
+    return max(radii, default=0.0)
+
+
+def _local_avoidance_fallback_events(bundle: dict[str, Any], expected_steps: int) -> None:
+    """Cross-check the 0.31-and-later fallback counter against its event trail."""
+
+    events = bundle.get("events")
+    if not isinstance(events, list):
+        raise BundleError("current bundle events must be a list for ORCA fallback audit")
+    agents: set[str] | None = None
+    observed_steps = 0
+    for event in events:
+        if not isinstance(event, dict) or event.get("kind") != "local_avoidance_constraint_fallback":
+            continue
+        time_s = event.get("time_s")
+        subject = event.get("subject")
+        if (
+            not isinstance(time_s, (int, float))
+            or isinstance(time_s, bool)
+            or not math.isfinite(time_s)
+            or time_s < 0
+            or not isinstance(subject, str)
+            or not subject
+            or event.get("detail") != "the speed-bounded reciprocal constraints were infeasible"
+        ):
+            raise BundleError("local-motion ORCA fallback event is malformed")
+        if agents is None:
+            trace = bundle.get("trace")
+            if not isinstance(trace, list) or not trace or not isinstance(trace[0], dict):
+                raise BundleError("local-motion ORCA fallback audit requires an initial trace frame")
+            initial_agents = trace[0].get("agents")
+            if not isinstance(initial_agents, list):
+                raise BundleError("local-motion ORCA fallback audit initial frame is malformed")
+            agents = {
+                agent.get("id")
+                for agent in initial_agents
+                if isinstance(agent, dict) and isinstance(agent.get("id"), str) and agent["id"]
+            }
+        if subject not in agents:
+            raise BundleError("local-motion ORCA fallback event names an unknown agent")
+        observed_steps += 1
+    if observed_steps != expected_steps:
+        raise BundleError("local-motion ORCA fallback events disagree with telemetry")
 
 
 def _queue_resource_ids(bundle: dict[str, Any]) -> dict[str, set[str]]:
@@ -425,6 +644,254 @@ def _queue_entry_events(bundle: dict[str, Any], queue_metrics: dict[str, Any]) -
             all_agents.update(resource_agents)
         if len(all_agents) != aggregate["ever_queued_agents"]:
             raise BundleError("queue_entered events disagree with aggregate queue telemetry")
+
+
+def _queue_service_reservation_events(bundle: dict[str, Any]) -> None:
+    """Require current reservation events to follow the resource's queue-entry audit."""
+
+    events = bundle.get("events")
+    canonical = bundle.get("scenario")
+    scenario = canonical.get("scenario") if isinstance(canonical, dict) else None
+    if not isinstance(events, list) or not isinstance(scenario, dict):
+        raise BundleError("current bundle lacks a queue-service reservation audit context")
+    footprints = scenario.get("queue_footprints", [])
+    if not isinstance(footprints, list):
+        raise BundleError("current canonical queue footprints must be a list")
+    connectors = scenario.get("connectors", [])
+    if not isinstance(connectors, list):
+        raise BundleError("current canonical connectors must be a list")
+    connector_entry_kinds: dict[str, str] = {}
+    for connector in connectors:
+        if not isinstance(connector, dict) or len(connector) != 1:
+            raise BundleError("current canonical connector is malformed")
+        connector_kind, properties = next(iter(connector.items()))
+        identifier = properties.get("id") if isinstance(properties, dict) else None
+        if connector_kind not in {"Stair", "Ramp", "Escalator", "Lift"} or not isinstance(identifier, str) or not identifier:
+            raise BundleError("current canonical connector is malformed")
+        if identifier in connector_entry_kinds:
+            raise BundleError("current canonical connector identifiers must be unique")
+        connector_entry_kinds[identifier] = (
+            "queue_entered_lift" if connector_kind == "Lift" else "queue_entered_connector"
+        )
+    authored_resources: dict[str, str] = {}
+    for footprint in footprints:
+        if not isinstance(footprint, dict):
+            raise BundleError("current canonical queue footprint is malformed")
+        resource = footprint.get("resource")
+        if not isinstance(resource, dict) or len(resource) != 1:
+            raise BundleError("current canonical queue footprint resource is malformed")
+        kind, properties = next(iter(resource.items()))
+        identifier = properties.get("id") if isinstance(properties, dict) else None
+        if kind not in {"connector", "gate", "exit"} or not isinstance(identifier, str) or not identifier:
+            raise BundleError("current canonical queue footprint resource is malformed")
+        if kind == "connector":
+            entry_kind = connector_entry_kinds.get(identifier)
+            if entry_kind is None:
+                raise BundleError("current canonical queue footprint references an unknown connector")
+        else:
+            entry_kind = f"queue_entered_{kind}"
+        resource_key = f"{kind}:{identifier}"
+        if resource_key in authored_resources:
+            raise BundleError("current canonical queue footprints repeat one resource")
+        authored_resources[resource_key] = entry_kind
+    reservations: set[tuple[str, str]] = set()
+    for event in events:
+        if not isinstance(event, dict) or event.get("kind") != "queue_service_reserved":
+            continue
+        time_s = event.get("time_s")
+        subject = event.get("subject")
+        detail = event.get("detail")
+        if (
+            not isinstance(time_s, (int, float))
+            or isinstance(time_s, bool)
+            or not math.isfinite(time_s)
+            or time_s < 0
+            or not isinstance(subject, str)
+            or not subject
+            or not isinstance(detail, str)
+            or detail not in authored_resources
+        ):
+            raise BundleError("queue-service reservation event is malformed or unauthored")
+        if (subject, detail) in reservations:
+            raise BundleError("queue-service reservation repeats one agent/resource pair")
+        reservations.add((subject, detail))
+        identifier = detail.split(":", 1)[1]
+        entry_kind = authored_resources[detail]
+        if not any(
+            isinstance(entry, dict)
+            and entry.get("kind") == entry_kind
+            and entry.get("subject") == subject
+            and entry.get("detail") == identifier
+            and isinstance(entry.get("time_s"), (int, float))
+            and not isinstance(entry.get("time_s"), bool)
+            and entry["time_s"] <= time_s
+            for entry in events
+        ):
+            raise BundleError("queue-service reservation lacks a prior matching queue entry")
+
+
+def _queue_grid_preallocation_events(bundle: dict[str, Any]) -> None:
+    """Verify the 0.41+ grid-ticket audit without treating it as a queue observation."""
+
+    events = bundle.get("events")
+    canonical = bundle.get("scenario")
+    scenario = canonical.get("scenario") if isinstance(canonical, dict) else None
+    if not isinstance(events, list) or not isinstance(scenario, dict):
+        raise BundleError("current bundle lacks a queue-grid preallocation audit context")
+    footprints = scenario.get("queue_footprints", [])
+    connectors = scenario.get("connectors", [])
+    if not isinstance(footprints, list) or not isinstance(connectors, list):
+        raise BundleError("current canonical queue-grid declarations are malformed")
+    connector_entry_kinds: dict[str, str] = {}
+    for connector in connectors:
+        if not isinstance(connector, dict) or len(connector) != 1:
+            raise BundleError("current canonical connector is malformed")
+        connector_kind, properties = next(iter(connector.items()))
+        identifier = properties.get("id") if isinstance(properties, dict) else None
+        if connector_kind not in {"Stair", "Ramp", "Escalator", "Lift"} or not isinstance(identifier, str) or not identifier:
+            raise BundleError("current canonical connector is malformed")
+        connector_entry_kinds[identifier] = (
+            "queue_entered_lift" if connector_kind == "Lift" else "queue_entered_connector"
+        )
+    grids: dict[str, str] = {}
+    for footprint in footprints:
+        if not isinstance(footprint, dict) or footprint.get("width_m") is None:
+            continue
+        resource = footprint.get("resource")
+        if not isinstance(resource, dict) or len(resource) != 1:
+            raise BundleError("current canonical queue-grid resource is malformed")
+        kind, properties = next(iter(resource.items()))
+        identifier = properties.get("id") if isinstance(properties, dict) else None
+        if kind not in {"connector", "gate", "exit"} or not isinstance(identifier, str) or not identifier:
+            raise BundleError("current canonical queue-grid resource is malformed")
+        entry_kind = connector_entry_kinds.get(identifier) if kind == "connector" else f"queue_entered_{kind}"
+        if entry_kind is None:
+            raise BundleError("current canonical queue-grid references an unknown connector")
+        resource_key = f"{kind}:{identifier}"
+        if resource_key in grids:
+            raise BundleError("current canonical queue-grid resources must be unique")
+        grids[resource_key] = entry_kind
+    trace = bundle.get("trace")
+    if not isinstance(trace, list) or not trace or not isinstance(trace[0], dict):
+        raise BundleError("queue-grid preallocation audit requires an initial trace")
+    initial_agents = trace[0].get("agents")
+    if not isinstance(initial_agents, list):
+        raise BundleError("queue-grid preallocation audit initial trace is malformed")
+    agent_ids = {
+        agent.get("id")
+        for agent in initial_agents
+        if isinstance(agent, dict) and isinstance(agent.get("id"), str) and agent["id"]
+    }
+    assignments: dict[tuple[str, str], float] = {}
+    previous_ticket = -1
+    for event in events:
+        if not isinstance(event, dict) or event.get("kind") != "queue_slot_preallocated":
+            continue
+        time_s = event.get("time_s")
+        subject = event.get("subject")
+        detail = event.get("detail")
+        if (
+            not isinstance(time_s, (int, float))
+            or isinstance(time_s, bool)
+            or not math.isfinite(time_s)
+            or time_s < 0
+            or not isinstance(subject, str)
+            or subject not in agent_ids
+            or not isinstance(detail, str)
+        ):
+            raise BundleError("queue-slot preallocation event is malformed")
+        resource, separator, raw_ticket = detail.rpartition(":")
+        if not separator or resource not in grids or not raw_ticket.isdecimal():
+            raise BundleError("queue-slot preallocation detail is malformed or unauthored")
+        ticket = int(raw_ticket)
+        if ticket <= previous_ticket or (resource, subject) in assignments:
+            raise BundleError("queue-slot preallocation tickets repeat or are out of order")
+        previous_ticket = ticket
+        assignments[(resource, subject)] = float(time_s)
+    event_resources = {
+        "queue_entered_lift": "connector",
+        "queue_entered_connector": "connector",
+        "queue_entered_gate": "gate",
+        "queue_entered_exit": "exit",
+    }
+    for event in events:
+        if not isinstance(event, dict):
+            continue
+        kind = event.get("kind")
+        if kind == "queue_service_reserved":
+            resource = event.get("detail")
+        elif kind in event_resources:
+            detail = event.get("detail")
+            resource = f"{event_resources[kind]}:{detail}" if isinstance(detail, str) else None
+        else:
+            continue
+        if resource not in grids:
+            continue
+        time_s = event.get("time_s")
+        subject = event.get("subject")
+        if (
+            not isinstance(time_s, (int, float))
+            or isinstance(time_s, bool)
+            or not math.isfinite(time_s)
+            or not isinstance(subject, str)
+            or (resource, subject) not in assignments
+            or assignments[(resource, subject)] > time_s
+        ):
+            raise BundleError("grid queue entry or reservation lacks a prior slot preallocation")
+        if kind != "queue_service_reserved" and kind != grids[resource]:
+            raise BundleError("grid queue entry uses an incompatible resource event kind")
+
+
+def _release_clearance_deferral_events(bundle: dict[str, Any]) -> None:
+    """Validate the 0.42 release-admission audit without inferring a queue."""
+
+    events = bundle.get("events")
+    canonical = bundle.get("scenario")
+    scenario = canonical.get("scenario") if isinstance(canonical, dict) else None
+    trace = bundle.get("trace")
+    initial = trace[0].get("agents") if isinstance(trace, list) and trace and isinstance(trace[0], dict) else None
+    duration_s = scenario.get("duration_s") if isinstance(scenario, dict) else None
+    if not isinstance(events, list) or not isinstance(initial, list) or not isinstance(duration_s, (int, float)):
+        raise BundleError("release-clearance audit lacks canonical scenario, initial trace, or events")
+    if isinstance(duration_s, bool) or not math.isfinite(duration_s) or duration_s <= 0:
+        raise BundleError("release-clearance audit scenario duration is invalid")
+    groups = {
+        agent.get("id"): agent.get("group")
+        for agent in initial
+        if isinstance(agent, dict) and isinstance(agent.get("id"), str) and isinstance(agent.get("group"), str)
+    }
+    deferred: dict[str, float] = {}
+    for event in events:
+        if not isinstance(event, dict) or event.get("kind") != "agent_release_deferred_for_clearance":
+            continue
+        time_s = event.get("time_s")
+        subject = event.get("subject")
+        detail = event.get("detail")
+        if (
+            isinstance(time_s, bool)
+            or not isinstance(time_s, (int, float))
+            or not math.isfinite(time_s)
+            or time_s < 0
+            or time_s > duration_s
+            or not isinstance(subject, str)
+            or not subject
+            or groups.get(subject) != detail
+            or subject in deferred
+        ):
+            raise BundleError("release-clearance deferral event is malformed or repeated")
+        deferred[subject] = float(time_s)
+    for event in events:
+        if not isinstance(event, dict) or event.get("kind") != "agent_released":
+            continue
+        time_s = event.get("time_s")
+        subject = event.get("subject")
+        if subject in deferred and (
+            isinstance(time_s, bool)
+            or not isinstance(time_s, (int, float))
+            or not math.isfinite(time_s)
+            or time_s < deferred[subject]
+        ):
+            raise BundleError("agent release precedes its clearance-deferral event")
 
 
 def _validate_exit_time_semantics(

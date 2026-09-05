@@ -3,7 +3,7 @@
 use crate::model::{Connector, Proposition, Scenario};
 use std::fmt::Write;
 
-/// Render a typed scenario as canonical version-0.23 source.
+/// Render a typed scenario as canonical version-0.27 source.
 #[must_use]
 #[allow(clippy::too_many_lines)] // mirrors the complete declaration grammar in one reviewable serializer
 pub fn format_scenario(scenario: &Scenario) -> String {
@@ -139,6 +139,47 @@ pub fn format_scenario(scenario: &Scenario) -> String {
                 length(*cabin_depth_m),
                 duration(*cycle_s),
                 connector_clearance(*clearance_height_m),
+            ),
+        }
+        .expect("writing to a string cannot fail");
+    }
+    for lanes in &scenario.portal_lanes {
+        writeln!(
+            source,
+            "portal-lanes {} {} {} axis {} count {}",
+            lanes.id,
+            lanes.resource.kind(),
+            lanes.resource.id(),
+            lanes.axis.as_str(),
+            lanes.count,
+        )
+        .expect("writing to a string cannot fail");
+    }
+    for footprint in &scenario.queue_footprints {
+        match (footprint.width_m, footprint.lanes) {
+            (Some(width_m), Some(lanes)) => writeln!(
+                source,
+                "queue-grid {} {} {} on {} from {} to {} width {} lanes {} slots {}",
+                footprint.id,
+                footprint.resource.kind(),
+                footprint.resource.id(),
+                footprint.surface,
+                point(footprint.head),
+                point(footprint.tail),
+                length(width_m),
+                lanes,
+                footprint.slots,
+            ),
+            _ => writeln!(
+                source,
+                "queue-footprint {} {} {} on {} from {} to {} slots {}",
+                footprint.id,
+                footprint.resource.kind(),
+                footprint.resource.id(),
+                footprint.surface,
+                point(footprint.head),
+                point(footprint.tail),
+                footprint.slots,
             ),
         }
         .expect("writing to a string cannot fail");

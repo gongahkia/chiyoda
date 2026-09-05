@@ -38,6 +38,10 @@ inputs. Each has the `best_guess` basis, no sources, and no probability
 distribution. It is a reviewable starting bracket, not an estimate of real
 people or operations. It uses eight deterministic replications per condition by default. Set
 `--sensitivity-runs COUNT` before creation to choose the workload deliberately.
+The generated schema-`0.4` experiment also links that companion manifest, so
+its plan identifies which typed best guesses are covered by those alternatives
+and which remain unexamined. This records a declared study contract only; run
+and verify `sensitivity` separately before describing any structural outcomes.
 
 ```console
 $ cargo run -p chiyoda -- experiment init \
@@ -52,14 +56,16 @@ $ cargo run -p chiyoda -- verify-sensitivity out/concourse-sensitivity
 
 The baseline manifest uses schema `0.1` and is strict JSON. Schema `0.2` adds
 optional OSM source attestations: a content-locked observation/local projection
-and, when wanted, selected source-point-to-scenario-point anchors. Use `0.2`
-only when declaring `source_attestations`. Every path is resolved relative to
-the manifest. Every experiment must state a non-empty `claim_boundary` and at
-least one assumption.
+and, when wanted, selected source-point-to-scenario-point anchors. Schema
+`0.3` additionally lets an assumption name its exact authored numeric inputs
+using the sensitivity target vocabulary. Schema `0.4` adds optional linked
+sensitivity-study contracts. Use `0.4` when declaring `sensitivity_studies`.
+Every path is resolved relative to the manifest. Every experiment must state a
+non-empty `claim_boundary` and at least one assumption.
 
 ```json
 {
-  "schema_version": "0.1",
+  "schema_version": "0.4",
   "name": "concourse gate structural exploration",
   "description": "inspect the deterministic response to one authored gate configuration",
   "scenario_source": "concourse.chy",
@@ -69,7 +75,16 @@ least one assumption.
       "id": "street_gate_capacity",
       "subject": "fare_gate.capacity",
       "basis": "best_guess",
-      "rationale": "there is no facility-specific measured service rate"
+      "rationale": "there is no facility-specific measured service rate",
+      "targets": [
+        {"target": "gate_service_rate_per_s", "subject": "fare_gate"}
+      ]
+    }
+  ],
+  "sensitivity_studies": [
+    {
+      "id": "gate_capacity_bracket",
+      "manifest_path": "gate-capacity-sensitivity.json"
     }
   ],
   "sources": [],
@@ -82,6 +97,45 @@ least one assumption.
 two evidence-oriented labels require `source_ids` referring to records in the
 manifest's `sources` array. Each source needs a citation, HTTPS URL,
 applicability and limitation statement, and may retain an exact source SHA-256.
+
+Beginning with schema `0.3`, `targets` is optional because some assumptions describe a
+structural choice rather than a mutable numeric field. Each target has a
+`target` (for example `agent_speed_mps` or `gate_service_rate_per_s`) and the
+authored resource `subject`. A target is resolved against the scenario when
+planning, running, and verifying; a nonexistent subject or unsupported field
+fails instead of leaving a prose reference that cannot be checked. One
+target/subject pair may appear under only one assumption, so competing
+justifications cannot silently describe the same input. The plan and current
+artifact report retain the exact baseline value and unit. This is input
+traceability—not a parameter distribution, uncertainty interval, calibration,
+or claim of model validity.
+
+### Linking declared sensitivity coverage
+
+Schema `0.4` may include `sensitivity_studies`. Each entry has an identifier
+and a path to a strict `sensitivity` manifest. At planning and artifact
+creation, Chiyoda parses that manifest, validates all of its conditions, and
+requires its baseline scenario to have the same canonical scenario hash as the
+experiment. Every linked factor must name one of the experiment's typed
+`target`/`subject` pairs. This prevents a bracket from silently varying a
+different or undisclosed input.
+
+The plan and schema-`0.4` artifact report retain the sensitivity manifest hash,
+design, condition count, factor alternatives, and a target-by-target crosswalk.
+An empty `sensitivity_factors` list explicitly means that the input is
+disclosed but no linked study varies it. Coverage does not mean that a
+simulation was run, that alternatives are likely, or that output uncertainty
+has been quantified. This distinction follows guidance that treats sensitivity
+analysis, verification/validation, and uncertainty quantification as distinct
+activities: [NIST IR 8298](https://www.nist.gov/publications/summary-industrial-verification-validation-and-uncertainty-quantification-procedures)
+and [ISPOR's modeling guidance](https://pubmed.ncbi.nlm.nih.gov/12535234/).
+
+For example, the checked-in
+`examples/experiments/uncalibrated-interchange.json` links
+`uncalibrated-interchange-sensitivity.json`. That companion varies release
+cadence and the scheduled gate reduction; passenger count, speed, body envelope,
+and baseline gate service remain explicitly listed as not covered by that one
+study. It remains an uncalibrated structural exercise.
 
 A source can also declare the exact local JSON report which informed the choice:
 
@@ -133,7 +187,7 @@ $ sha256sum local-reference.json
 }
 ```
 
-To attest it, use schema `0.2` and add this root-level field. Its `source_id`
+To attest it, use schema `0.2` or later and add this root-level field. Its `source_id`
 must name the source declaring `local-reference.json` above.
 
 ```json
@@ -245,7 +299,7 @@ $ cargo run -p chiyoda -- experiment verify out/gate-experiment
 
 `experiment plan` is non-mutating except for its optional JSON output. It
 parses and validates the scenario; verifies declared derived-report hashes; and
-when schema `0.2` declares an OSM attestation, rechecks the local locked XML,
+when schema `0.2` or later declares an OSM attestation, rechecks the local locked XML,
 observation, and projection before reporting success, and reconstructs any
 declared scenario anchors. The plan lists every assumption and source, the
 canonical scenario hash, the trace cadence, exact integration-step and stored
@@ -265,22 +319,28 @@ The output directory must be empty. It contains:
 - `source-attestations/SOURCE/anchor-manifest.json` — the exact manifest for an
   `osm_scenario_anchor` attestation; its report remains content-locked in
   `source-reports/SOURCE.json`;
+- `sensitivity-studies/ID/{manifest.json,baseline.chy}` — exact linked
+  sensitivity-contract and baseline-source snapshots, when schema `0.4`
+  declares that study;
 - `report.json` — hashes, the bundle/scenario linkage, source-snapshot paths,
   both author/product claim boundaries, and a directly reconstructed mirror of
-  the run's exact runtime metrics. The current report schema is `0.2`; its
-  metric mirror includes agent and evacuation counts, final-exit and terminal
-  state attribution, intervention delivery counts, timing fields, and queue
-  exposure plus discrete wait/peak telemetry. These are deterministic
-  observations from this one configured run,
+  the run's exact runtime metrics. The schema-`0.4` report additionally retains
+  each typed assumption target's resolved baseline value and unit, plus the
+  linked-study coverage crosswalk. Its metric mirror includes agent and
+  evacuation counts, final-exit and terminal state attribution, intervention
+  delivery counts, timing fields, and queue exposure plus discrete wait/peak
+  telemetry. These are deterministic observations from this one configured run,
   not estimates, uncertainty measures, or real-world outcomes.
 
-`experiment verify` rejects unexpected files, altered source-report snapshots
-or source attestations, a changed scenario/run pairing, a broken
+`experiment verify` rejects unexpected files, altered source-report snapshots,
+source attestations, or sensitivity-study contracts, a changed scenario/run pairing, a broken
 projection-to-anchor link, a bundle hash failure, a trace-frequency mismatch,
 or a report (including its mirrored metrics) that does not exactly reconstruct.
 It reruns the deterministic reference runtime from the scenario snapshot and
 rejects even a self-hashed run bundle that differs from that reconstruction.
-Existing `0.1` reports without the metric mirror remain verifiable for audit.
+Existing `0.1` reports without the metric mirror, `0.2` reports without typed
+assumption targets, and `0.3` reports without linked sensitivity coverage
+remain verifiable for audit.
 It does not validate a public source, prove the scenario represents a facility,
 or elevate the run beyond its uncalibrated boundary.
 

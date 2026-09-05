@@ -1,0 +1,13 @@
+# Explicitly uncalibrated queue-formation stress case.
+# The geometry, release cadence, and 25/s gate rate are structural assumptions,
+# not a station layout, demand profile, capacity estimate, or safety scenario.
+scenario "queue-grid-formation-stress"
+seed 73
+duration 150s
+timestep 100ms
+
+surface concourse at (0m, 0m, 0m) size (40m, 16m)
+exit street on concourse at (40m, 8m, 0m) width 3m
+gate fare_gate on concourse at (32m, 8m, 0m) width 2m capacity 25/s to street
+queue-grid fare_gate_queue gate fare_gate on concourse from (29m, 11m, 0m) to (2m, 11m, 0m) width 3.6m lanes 4 slots 152
+agents passengers count 152 on concourse at (1m, 1m, 0m) to street speed 1.2m/s radius 0.3m height 1.7m release 0s every 4s batch 8

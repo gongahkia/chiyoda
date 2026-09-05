@@ -2,7 +2,7 @@ use anyhow::{Context, Result, bail};
 use chiyoda_core::{
     AgentState, BundleVerification, RunBundle,
     bundle::TraceFrame,
-    model::{ConnectorKind, Scenario, Surface},
+    model::{ConnectorKind, PortalLanes, Scenario, Surface},
     verify_run_bundle,
 };
 use clap::Parser;
@@ -23,6 +23,8 @@ const OBSTACLE: u32 = 0x003d_4a56;
 const WAYPOINT: u32 = 0x00c6_8cff;
 const EXIT: u32 = 0x004a_de80;
 const GATE: u32 = 0x00ff_c857;
+const PORTAL_LANE: u32 = 0x00f8_f9fa;
+const QUEUE_FOOTPRINT: u32 = 0x00b5_6bff;
 const STAIR: u32 = 0x00ff_9f1c;
 const RAMP: u32 = 0x005c_d5f5;
 const ESCALATOR: u32 = 0x00e8_79f9;
@@ -228,11 +230,13 @@ fn draw_scene(
             );
         }
     }
+    draw_queue_footprints(buffer, scenario, surface, extent);
     for waypoint in &scenario.waypoints {
         if waypoint.surface == surface.id {
             draw_marker(buffer, waypoint.at.x_m, waypoint.at.y_m, WAYPOINT, extent);
         }
     }
+    draw_portal_lanes(buffer, scenario, surface, extent);
     for exit in &scenario.exits {
         if exit.surface == surface.id {
             draw_marker(buffer, exit.at.x_m, exit.at.y_m, EXIT, extent);
@@ -258,6 +262,108 @@ fn draw_scene(
             let point = connector.to();
             draw_marker(buffer, point.x_m, point.y_m, color, extent);
         }
+    }
+}
+
+fn draw_queue_footprints(
+    buffer: &mut [u32],
+    scenario: &Scenario,
+    surface: &Surface,
+    extent: (f64, f64, f64, f64),
+) {
+    for footprint in &scenario.queue_footprints {
+        if footprint.surface != surface.id {
+            continue;
+        }
+        if footprint.width_m.is_some() {
+            for rank in 1..footprint.slots {
+                draw_line(
+                    buffer,
+                    footprint.position(rank - 1),
+                    footprint.position(rank),
+                    QUEUE_FOOTPRINT,
+                    extent,
+                );
+            }
+        } else {
+            draw_line(
+                buffer,
+                footprint.head,
+                footprint.tail,
+                QUEUE_FOOTPRINT,
+                extent,
+            );
+        }
+        for rank in 0..footprint.slots {
+            let slot = footprint.position(rank);
+            let x = project(slot.x_m, extent.0, extent.1, WIDTH);
+            let y = project(slot.y_m, extent.2, extent.3, HEIGHT);
+            draw_square(buffer, x, y, 1, QUEUE_FOOTPRINT);
+        }
+    }
+}
+
+fn draw_portal_lanes(
+    buffer: &mut [u32],
+    scenario: &Scenario,
+    surface: &Surface,
+    extent: (f64, f64, f64, f64),
+) {
+    for lanes in &scenario.portal_lanes {
+        match &lanes.resource {
+            chiyoda_core::model::PortalResource::Connector { id } => {
+                let Some(connector) = scenario
+                    .connectors
+                    .iter()
+                    .find(|connector| connector.id() == id)
+                else {
+                    continue;
+                };
+                if connector.from_surface() == surface.id {
+                    draw_lane_positions(
+                        buffer,
+                        lanes,
+                        connector.from(),
+                        connector.width_m(),
+                        extent,
+                    );
+                }
+                if connector.to_surface() == surface.id {
+                    draw_lane_positions(buffer, lanes, connector.to(), connector.width_m(), extent);
+                }
+            }
+            chiyoda_core::model::PortalResource::Exit { id } => {
+                let Some(exit) = scenario.exits.iter().find(|exit| &exit.id == id) else {
+                    continue;
+                };
+                if exit.surface == surface.id {
+                    draw_lane_positions(buffer, lanes, exit.at, exit.width_m, extent);
+                }
+            }
+            chiyoda_core::model::PortalResource::Gate { id } => {
+                let Some(gate) = scenario.gates.iter().find(|gate| &gate.id == id) else {
+                    continue;
+                };
+                if gate.surface == surface.id {
+                    draw_lane_positions(buffer, lanes, gate.at, gate.width_m, extent);
+                }
+            }
+        }
+    }
+}
+
+fn draw_lane_positions(
+    buffer: &mut [u32],
+    lanes: &PortalLanes,
+    portal: chiyoda_core::model::Point3,
+    width_m: f64,
+    extent: (f64, f64, f64, f64),
+) {
+    for lane_index in 0..lanes.count {
+        let lane = lanes.position(portal, width_m, lane_index);
+        let x = project(lane.x_m, extent.0, extent.1, WIDTH);
+        let y = project(lane.y_m, extent.2, extent.3, HEIGHT);
+        draw_square(buffer, x, y, 1, PORTAL_LANE);
     }
 }
 
@@ -340,6 +446,39 @@ fn draw_marker(buffer: &mut [u32], x_m: f64, y_m: f64, color: u32, extent: (f64,
     draw_square(buffer, x, y, 3, color);
 }
 
+fn draw_line(
+    buffer: &mut [u32],
+    from: chiyoda_core::model::Point3,
+    to: chiyoda_core::model::Point3,
+    color: u32,
+    extent: (f64, f64, f64, f64),
+) {
+    let mut x = project(from.x_m, extent.0, extent.1, WIDTH);
+    let mut y = project(from.y_m, extent.2, extent.3, HEIGHT);
+    let end_x = project(to.x_m, extent.0, extent.1, WIDTH);
+    let end_y = project(to.y_m, extent.2, extent.3, HEIGHT);
+    let delta_x = (end_x - x).abs();
+    let step_x = if x < end_x { 1 } else { -1 };
+    let delta_y = -(end_y - y).abs();
+    let step_y = if y < end_y { 1 } else { -1 };
+    let mut error = delta_x + delta_y;
+    loop {
+        set_pixel(buffer, x, y, color);
+        if x == end_x && y == end_y {
+            break;
+        }
+        let double_error = 2 * error;
+        if double_error >= delta_y {
+            error += delta_y;
+            x += step_x;
+        }
+        if double_error <= delta_x {
+            error += delta_x;
+            y += step_y;
+        }
+    }
+}
+
 fn draw_square(buffer: &mut [u32], x: isize, y: isize, radius: isize, color: u32) {
     for offset_y in -radius..=radius {
         for offset_x in -radius..=radius {
@@ -369,7 +508,10 @@ mod tests {
     use super::*;
     use chiyoda_core::{
         bundle::TraceFrame,
-        model::{Connector, Exit, Gate, Obstacle, Point3, Scenario, Waypoint},
+        model::{
+            Connector, Exit, Gate, Obstacle, Point3, PortalAxis, PortalLanes, PortalResource,
+            QueueFootprint, Scenario, Waypoint,
+        },
     };
 
     fn surface(id: &str, x_m: f64, y_m: f64, width_m: f64, depth_m: f64) -> Surface {
@@ -390,6 +532,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::too_many_lines)] // one complete static-scene fixture makes the layer order explicit
     fn drawing_a_scene_preserves_static_geometry_beneath_agents() {
         let surface = surface("concourse", 0.0, 0.0, 10.0, 10.0);
         let scenario = Scenario {
@@ -448,6 +591,34 @@ mod tests {
                 capacity_per_s: None,
                 clearance_height_m: None,
             }],
+            portal_lanes: vec![PortalLanes {
+                id: "stairs_lanes".to_owned(),
+                resource: PortalResource::Connector {
+                    id: "stairs".to_owned(),
+                },
+                axis: PortalAxis::X,
+                count: 2,
+            }],
+            queue_footprints: vec![QueueFootprint {
+                id: "street_queue".to_owned(),
+                resource: PortalResource::Exit {
+                    id: "street".to_owned(),
+                },
+                surface: "concourse".to_owned(),
+                head: Point3 {
+                    x_m: 8.0,
+                    y_m: 8.0,
+                    z_m: 0.0,
+                },
+                tail: Point3 {
+                    x_m: 9.0,
+                    y_m: 8.0,
+                    z_m: 0.0,
+                },
+                slots: 4,
+                width_m: Some(1.0),
+                lanes: Some(2),
+            }],
             connector_states: Vec::new(),
             exit_states: Vec::new(),
             connector_capacity_states: Vec::new(),
@@ -487,6 +658,10 @@ mod tests {
         assert_eq!(buffer[location(4.0, 4.0)], WAYPOINT);
         assert_eq!(buffer[location(6.0, 6.0)], STAIR);
         assert_eq!(buffer[location(7.0, 7.0)], GATE);
+        assert_eq!(buffer[location(5.75, 6.0)], PORTAL_LANE);
+        assert_eq!(buffer[location(8.0, 8.0)], QUEUE_FOOTPRINT);
+        assert_eq!(buffer[location(8.0, 9.0)], QUEUE_FOOTPRINT);
+        assert_eq!(buffer[location(9.0, 8.5)], QUEUE_FOOTPRINT);
     }
 
     #[test]

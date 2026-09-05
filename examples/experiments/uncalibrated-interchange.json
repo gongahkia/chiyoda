@@ -1,39 +1,73 @@
 {
-  "schema_version": "0.1",
+  "schema_version": "0.4",
   "name": "uncalibrated interchange structural experiment",
   "description": "a reproducible reference-runtime exploration of one explicitly authored interchange configuration",
   "scenario_source": "uncalibrated-interchange.chy",
   "trace_every_steps": 10,
   "assumptions": [
     {
+      "id": "passenger_demand",
+      "subject": "passengers.count",
+      "basis": "best_guess",
+      "rationale": "the authored passenger count is a transparent structural input, not a population estimate",
+      "targets": [
+        {"target": "agent_count", "subject": "passengers"}
+      ]
+    },
+    {
       "id": "passenger_speed",
       "subject": "passengers.speed",
       "basis": "best_guess",
-      "rationale": "the authored walking speed is a transparent structural input, not a calibrated population estimate"
+      "rationale": "the authored walking speed is a transparent structural input, not a calibrated population estimate",
+      "targets": [
+        {"target": "agent_speed_mps", "subject": "passengers"}
+      ]
     },
     {
       "id": "fare_gate_capacity",
       "subject": "fare_gate.capacity",
       "basis": "best_guess",
-      "rationale": "the service rate is an explicit analytical constraint and not an observed facility throughput"
+      "rationale": "the service rate is an explicit analytical constraint and not an observed facility throughput",
+      "targets": [
+        {"target": "gate_service_rate_per_s", "subject": "fare_gate"}
+      ]
     },
     {
       "id": "fare_gate_capacity_change",
       "subject": "fare_gate_reduced.capacity at 30 seconds",
       "basis": "structural_assumption",
-      "rationale": "the scheduled reduction is an explicit operational stress condition and not a claim about staffing, equipment reliability, or observed throughput"
+      "rationale": "the scheduled reduction is an explicit operational stress condition and not a claim about staffing, equipment reliability, or observed throughput",
+      "targets": [
+        {"target": "gate_capacity_state_per_s", "subject": "fare_gate_reduced"},
+        {"target": "gate_capacity_state_at_s", "subject": "fare_gate_reduced"}
+      ]
     },
     {
       "id": "passenger_release_cadence",
       "subject": "passengers.release, passengers.release_interval, and passengers.release_batch_size",
       "basis": "structural_assumption",
-      "rationale": "the deterministic one-second cadence in four-person pulses exposes a staged-demand condition without claiming an observed arrival process"
+      "rationale": "the deterministic one-second cadence in four-person pulses exposes a staged-demand condition without claiming an observed arrival process",
+      "targets": [
+        {"target": "agent_release_at_s", "subject": "passengers"},
+        {"target": "agent_release_interval_s", "subject": "passengers"},
+        {"target": "agent_release_batch_size", "subject": "passengers"}
+      ]
     },
     {
       "id": "agent_body_envelope",
       "subject": "passengers.radius and passengers.height",
       "basis": "structural_assumption",
-      "rationale": "the reference runtime needs declared body dimensions but this example does not claim a population profile"
+      "rationale": "the reference runtime needs declared body dimensions but this example does not claim a population profile",
+      "targets": [
+        {"target": "agent_radius_m", "subject": "passengers"},
+        {"target": "agent_height_m", "subject": "passengers"}
+      ]
+    }
+  ],
+  "sensitivity_studies": [
+    {
+      "id": "arrival_cadence_and_gate_schedule",
+      "manifest_path": "uncalibrated-interchange-sensitivity.json"
     }
   ],
   "claim_boundary": "This is an uncalibrated deterministic structural experiment. It does not predict a real facility, population, evacuation outcome, operational response, or safety result."

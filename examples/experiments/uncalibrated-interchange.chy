@@ -7,6 +7,11 @@ surface concourse at (0m, 0m, 0m) size (30m, 10m)
 obstacle kiosk on concourse at (14m, 3m, 0m) size (3m, 3m)
 exit street on concourse at (28m, 5m, 0m) width 2m capacity 2/s
 stair central_stair from platform at (12m, 5m, 3m) to concourse at (12m, 5m, 0m) width 1.5m capacity 1.2/s clearance 2m
+portal-lanes central_stair_portal connector central_stair axis y count 2
+queue-footprint central_stair_queue connector central_stair on platform from (15m, 5m, 3m) to (1m, 5m, 3m) slots 24
 gate fare_gate on concourse at (22m, 5m, 0m) width 1.2m capacity 1.5/s to street
+portal-lanes fare_gate_portal gate fare_gate axis y count 2
+queue-footprint fare_gate_queue gate fare_gate on concourse from (24m, 8m, 0m) to (10m, 8m, 0m) slots 24
+portal-lanes street_portal exit street axis y count 2
 gate-capacity-state fare_gate_reduced gate fare_gate capacity 0.75/s time 30s
 agents passengers count 24 on platform at (3m, 5m, 3m) to street speed 1.2m/s radius 0.3m height 1.7m release 5s every 1s batch 4

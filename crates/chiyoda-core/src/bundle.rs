@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{collections::BTreeMap, fmt::Write};
 
-pub const BUNDLE_VERSION: &str = "0.28";
+pub const BUNDLE_VERSION: &str = "0.42";
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AgentSnapshot {
@@ -107,18 +107,67 @@ pub struct QueueResourceBreakdown {
     pub exits: BTreeMap<String, QueueResourceMetrics>,
 }
 
-/// Discrete audit telemetry for the reference runtime's local-clearance
-/// resolver. These values describe adjustments made by that algorithm; they
+/// Integration-boundary audit telemetry for on-surface reference discs. These
+/// values are not observed contacts, collision counts, crowd-density measures,
+/// or physical-model calibration data.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct OnSurfaceClearanceMetrics {
+    /// Distinct agents that were in a reference-disc overlap at one or more
+    /// integration boundaries while both agents occupied the same surface.
+    pub agents_with_disc_overlaps: u32,
+    /// Count of unordered overlapping disc pairs at integration boundaries.
+    /// The same pair can contribute once at each boundary where it overlaps.
+    pub disc_overlap_pair_steps: u64,
+    /// Largest positive radius-sum-minus-centre-distance value across those
+    /// pair-step observations, in metres.
+    pub maximum_disc_overlap_m: f64,
+}
+
+/// Linear-interval audit telemetry for on-surface reference discs. The audit
+/// analytically minimizes the separation of each eligible pair's start/end
+/// line segments; it is not a physical contact, collision, or safety measure.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SweptOnSurfaceClearanceMetrics {
+    /// Distinct agents whose reference discs overlap at some point along an
+    /// eligible same-surface integration interval.
+    pub agents_with_swept_disc_overlaps: u32,
+    /// Count of unordered disc pairs with a positive overlap along an eligible
+    /// interval. The same pair can contribute once per integration interval.
+    pub swept_disc_overlap_pair_steps: u64,
+    /// Largest positive radius-sum-minus-minimum-linear-separation value,
+    /// measured over eligible intervals in metres.
+    pub maximum_swept_disc_overlap_m: f64,
+}
+
+/// Discrete audit telemetry for the reference runtime's local-motion layer.
+/// These values describe adjustments made by that reference algorithm; they
 /// are not observed contacts, collision counts, crowd-density measures, or
 /// physical-model calibration data.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MovementMetrics {
     /// Distinct agents whose planned on-surface or connector-arrival position
-    /// was adjusted or deferred by local clearance at least once.
+    /// was adjusted or deferred by the local-motion layer at least once.
     pub agents_with_local_clearance_adjustments: u32,
     /// Number of individual position attempts altered or deferred by local
-    /// clearance.
+    /// local motion.
     pub local_clearance_adjustment_steps: u64,
+    /// Number of steps in which the local ORCA half-planes were infeasible
+    /// under the authored speed bound and the runtime selected its documented
+    /// deterministic least-penetrating fallback.
+    /// Omitted before runtime contract 0.31 so historical bundle hashes remain
+    /// independently verifiable after deserialization.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub local_avoidance_constraint_fallback_steps: Option<u64>,
+    /// An integration-boundary audit of simultaneously on-surface reference
+    /// discs. It is omitted before runtime contract 0.36 so historical bundle
+    /// hashes remain independently verifiable after deserialization.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub on_surface_clearance_audit: Option<OnSurfaceClearanceMetrics>,
+    /// An analytic linear-interval audit for on-surface reference discs. It is
+    /// omitted before runtime contract 0.37 so historical bundle hashes remain
+    /// independently verifiable after deserialization.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub swept_on_surface_clearance_audit: Option<SweptOnSurfaceClearanceMetrics>,
     /// Sum of Euclidean displacements between each planned and resolved
     /// position, in metres.
     pub cumulative_local_clearance_adjustment_m: f64,
@@ -161,7 +210,7 @@ pub struct RunMetrics {
     /// Omission preserves inspection of bundles emitted before version 0.22.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub queue_metrics: Option<QueueMetrics>,
-    /// Discrete local-clearance-resolver telemetry. Omission preserves
+    /// Discrete local-motion telemetry. Omission preserves
     /// inspection of bundles emitted before version 0.28.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub movement_metrics: Option<MovementMetrics>,
@@ -219,6 +268,18 @@ impl RunBundle {
             }
         }
         if let Some(movement_metrics) = &mut metrics.movement_metrics {
+            if let Some(on_surface_clearance_audit) =
+                &mut movement_metrics.on_surface_clearance_audit
+            {
+                on_surface_clearance_audit.maximum_disc_overlap_m =
+                    canonical_number(on_surface_clearance_audit.maximum_disc_overlap_m);
+            }
+            if let Some(swept_on_surface_clearance_audit) =
+                &mut movement_metrics.swept_on_surface_clearance_audit
+            {
+                swept_on_surface_clearance_audit.maximum_swept_disc_overlap_m =
+                    canonical_number(swept_on_surface_clearance_audit.maximum_swept_disc_overlap_m);
+            }
             movement_metrics.cumulative_local_clearance_adjustment_m =
                 canonical_number(movement_metrics.cumulative_local_clearance_adjustment_m);
             movement_metrics.maximum_local_clearance_adjustment_m =

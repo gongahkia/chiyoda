@@ -1,8 +1,9 @@
 use crate::model::{
-    Connector, NAVIGATION_CLEARANCE_EPSILON_M, Obstacle, Point3, Scenario, Surface,
+    Connector, NAVIGATION_CLEARANCE_EPSILON_M, Obstacle, Point3, PortalLanes, PortalResource,
+    QueueFootprint, Scenario, Surface,
 };
 use std::{
-    collections::{BTreeSet, HashMap, HashSet, VecDeque},
+    collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque},
     fmt,
 };
 
@@ -10,6 +11,15 @@ use std::{
 pub struct ValidationError {
     pub path: String,
     pub message: String,
+}
+
+type SpawnCellKey = (String, i64, i64);
+
+#[derive(Debug)]
+struct GeneratedSpawn {
+    position: Point3,
+    radius_m: f64,
+    path: String,
 }
 
 impl fmt::Display for ValidationError {
@@ -22,9 +32,10 @@ impl std::error::Error for ValidationError {}
 
 /// Check the source-level invariants required for a scenario to be meaningful.
 ///
-/// This verifies topology and declared resources, not real-world safety or
-/// evacuation outcomes. A successful validation is therefore a precondition
-/// for an experiment, not evidence that the experiment is calibrated.
+/// This verifies topology, declared resources, and deterministic initial-disc
+/// clearance, not real-world safety or evacuation outcomes. A successful
+/// validation is therefore a precondition for an experiment, not evidence that
+/// the experiment is calibrated.
 #[allow(clippy::too_many_lines)] // all public scenario invariants are intentionally visible together
 pub fn validate(scenario: &Scenario) -> Result<(), Vec<ValidationError>> {
     let mut errors = Vec::new();
@@ -384,6 +395,211 @@ pub fn validate(scenario: &Scenario) -> Result<(), Vec<ValidationError>> {
         );
     }
 
+    let maximum_agent_radius_m = scenario
+        .agents
+        .iter()
+        .map(|group| group.radius_m)
+        .filter(|radius_m| radius_m.is_finite() && *radius_m > 0.0)
+        .fold(0.0_f64, f64::max);
+    let mut portal_resources = HashSet::new();
+    for (index, lanes) in scenario.portal_lanes.iter().enumerate() {
+        let path = format!("portal_lanes[{index}]");
+        check_unique(&mut ids, &lanes.id, &path, &mut errors);
+        let resource_key = format!("{}:{}", lanes.resource.kind(), lanes.resource.id());
+        if !portal_resources.insert(resource_key) {
+            errors.push(issue(
+                &format!("{path}.resource"),
+                "may have only one authored portal-lanes declaration",
+            ));
+        }
+        if lanes.count == 0 {
+            errors.push(issue(&format!("{path}.count"), "must be greater than zero"));
+            continue;
+        }
+        match &lanes.resource {
+            PortalResource::Connector { id } => match scenario
+                .connectors
+                .iter()
+                .find(|connector| connector.id() == id)
+            {
+                Some(connector) => {
+                    check_portal_lane_positions(
+                        lanes,
+                        connector.from(),
+                        connector.width_m(),
+                        connector.from_surface(),
+                        "from",
+                        maximum_agent_radius_m,
+                        &surfaces,
+                        &scenario.obstacles,
+                        &path,
+                        &mut errors,
+                    );
+                    check_portal_lane_positions(
+                        lanes,
+                        connector.to(),
+                        connector.width_m(),
+                        connector.to_surface(),
+                        "to",
+                        maximum_agent_radius_m,
+                        &surfaces,
+                        &scenario.obstacles,
+                        &path,
+                        &mut errors,
+                    );
+                }
+                None => errors.push(issue(
+                    &format!("{path}.resource"),
+                    format!("references unknown connector `{id}`"),
+                )),
+            },
+            PortalResource::Exit { id } => {
+                match scenario.exits.iter().find(|exit| exit.id == *id) {
+                    Some(exit) => check_portal_lane_positions(
+                        lanes,
+                        exit.at,
+                        exit.width_m,
+                        &exit.surface,
+                        "at",
+                        maximum_agent_radius_m,
+                        &surfaces,
+                        &scenario.obstacles,
+                        &path,
+                        &mut errors,
+                    ),
+                    None => errors.push(issue(
+                        &format!("{path}.resource"),
+                        format!("references unknown exit `{id}`"),
+                    )),
+                }
+            }
+            PortalResource::Gate { id } => {
+                match scenario.gates.iter().find(|gate| gate.id == *id) {
+                    Some(gate) => check_portal_lane_positions(
+                        lanes,
+                        gate.at,
+                        gate.width_m,
+                        &gate.surface,
+                        "at",
+                        maximum_agent_radius_m,
+                        &surfaces,
+                        &scenario.obstacles,
+                        &path,
+                        &mut errors,
+                    ),
+                    None => errors.push(issue(
+                        &format!("{path}.resource"),
+                        format!("references unknown gate `{id}`"),
+                    )),
+                }
+            }
+        }
+    }
+
+    let total_declared_agents = scenario
+        .agents
+        .iter()
+        .map(|group| u64::from(group.count))
+        .sum::<u64>();
+    let mut queue_resources = HashSet::new();
+    for (index, footprint) in scenario.queue_footprints.iter().enumerate() {
+        let path = format!("queue_footprints[{index}]");
+        check_unique(&mut ids, &footprint.id, &path, &mut errors);
+        let resource_key = format!("{}:{}", footprint.resource.kind(), footprint.resource.id());
+        if !queue_resources.insert(resource_key) {
+            errors.push(issue(
+                &format!("{path}.resource"),
+                "may have only one authored queue-footprint declaration",
+            ));
+        }
+        if footprint.slots == 0 {
+            errors.push(issue(&format!("{path}.slots"), "must be greater than zero"));
+            continue;
+        }
+        if u64::from(footprint.slots) < total_declared_agents {
+            errors.push(issue(
+                &format!("{path}.slots"),
+                format!(
+                    "must provide at least {total_declared_agents} slots so every declared agent can wait without an unlocated overflow"
+                ),
+            ));
+        }
+        let resource_surface = match &footprint.resource {
+            PortalResource::Connector { id } => match scenario
+                .connectors
+                .iter()
+                .find(|connector| connector.id() == id)
+            {
+                Some(connector)
+                    if !connector.is_lift() && connector.service_rate_per_s().is_none() =>
+                {
+                    errors.push(issue(
+                        &format!("{path}.resource"),
+                        "requires a non-lift connector with an authored capacity or a lift",
+                    ));
+                    None
+                }
+                Some(connector) => Some(connector.from_surface()),
+                None => {
+                    errors.push(issue(
+                        &format!("{path}.resource"),
+                        format!("references unknown connector `{id}`"),
+                    ));
+                    None
+                }
+            },
+            PortalResource::Exit { id } => {
+                match scenario.exits.iter().find(|exit| exit.id == *id) {
+                    Some(exit) if exit.capacity_per_s.is_none() => {
+                        errors.push(issue(
+                            &format!("{path}.resource"),
+                            "requires an exit with an authored capacity",
+                        ));
+                        None
+                    }
+                    Some(exit) => Some(exit.surface.as_str()),
+                    None => {
+                        errors.push(issue(
+                            &format!("{path}.resource"),
+                            format!("references unknown exit `{id}`"),
+                        ));
+                        None
+                    }
+                }
+            }
+            PortalResource::Gate { id } => {
+                if let Some(gate) = scenario.gates.iter().find(|gate| gate.id == *id) {
+                    Some(gate.surface.as_str())
+                } else {
+                    errors.push(issue(
+                        &format!("{path}.resource"),
+                        format!("references unknown gate `{id}`"),
+                    ));
+                    None
+                }
+            }
+        };
+        if let Some(resource_surface) = resource_surface
+            && footprint.surface != resource_surface
+        {
+            errors.push(issue(
+                &format!("{path}.surface"),
+                format!(
+                    "must be on resource `{}` source surface `{resource_surface}`",
+                    footprint.resource.id()
+                ),
+            ));
+        }
+        check_queue_footprint_geometry(
+            footprint,
+            maximum_agent_radius_m,
+            &surfaces,
+            &scenario.obstacles,
+            &path,
+            &mut errors,
+        );
+    }
+
     let waypoint_ids: HashSet<&str> = scenario
         .waypoints
         .iter()
@@ -509,6 +725,7 @@ pub fn validate(scenario: &Scenario) -> Result<(), Vec<ValidationError>> {
     if scenario.agents.is_empty() {
         errors.push(issue("agents", "at least one agent group is required"));
     }
+    check_spawn_disc_separation(scenario, maximum_agent_radius_m, &mut errors);
 
     let message_ids: HashSet<&str> = scenario
         .messages
@@ -778,6 +995,264 @@ fn check_walkable_point(
     }
 }
 
+#[allow(clippy::too_many_arguments)] // this preserves one complete portal-lane invariant at its call site
+fn check_portal_lane_positions(
+    lanes: &PortalLanes,
+    portal: Point3,
+    width_m: f64,
+    surface_id: &str,
+    endpoint: &str,
+    maximum_agent_radius_m: f64,
+    surfaces: &HashMap<&str, &Surface>,
+    obstacles: &[Obstacle],
+    path: &str,
+    errors: &mut Vec<ValidationError>,
+) {
+    let lane_width_m = width_m / f64::from(lanes.count);
+    if maximum_agent_radius_m > 0.0
+        && lane_width_m + NAVIGATION_CLEARANCE_EPSILON_M < maximum_agent_radius_m * 2.0
+    {
+        errors.push(issue(
+            &format!("{path}.count"),
+            format!(
+                "creates {lane_width_m}m lanes narrower than the largest authored agent diameter {}m",
+                maximum_agent_radius_m * 2.0
+            ),
+        ));
+    }
+    for lane_index in 0..lanes.count {
+        let position = lanes.position(portal, width_m, lane_index);
+        let lane_path = format!("{path}.{endpoint}.lanes[{lane_index}]");
+        if maximum_agent_radius_m > 0.0 {
+            check_agent_spawn(
+                surfaces,
+                obstacles,
+                surface_id,
+                position,
+                maximum_agent_radius_m,
+                &lane_path,
+                errors,
+            );
+        } else {
+            check_walkable_point(
+                surfaces, obstacles, surface_id, position, &lane_path, errors,
+            );
+        }
+        if maximum_agent_radius_m > 0.0
+            && let Some(surface) = surfaces.get(surface_id)
+            && (position.x_m - surface.origin.x_m < maximum_agent_radius_m
+                || surface.origin.x_m + surface.width_m - position.x_m < maximum_agent_radius_m
+                || position.y_m - surface.origin.y_m < maximum_agent_radius_m
+                || surface.origin.y_m + surface.depth_m - position.y_m < maximum_agent_radius_m)
+        {
+            errors.push(issue(
+                &lane_path,
+                "does not clear the surface boundary by the largest authored agent radius",
+            ));
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments, clippy::too_many_lines)] // preserves the complete line/grid queue invariant at one call site
+fn check_queue_footprint_geometry(
+    footprint: &QueueFootprint,
+    maximum_agent_radius_m: f64,
+    surfaces: &HashMap<&str, &Surface>,
+    obstacles: &[Obstacle],
+    path: &str,
+    errors: &mut Vec<ValidationError>,
+) {
+    if footprint.slots == 0 {
+        return;
+    }
+    let slots_per_lane = match (footprint.width_m, footprint.lanes) {
+        (None, None) => footprint.slots,
+        (Some(width_m), Some(lanes)) => {
+            check_positive(&format!("{path}.width_m"), width_m, errors);
+            if lanes < 2 {
+                errors.push(issue(
+                    &format!("{path}.lanes"),
+                    "must be at least two for a queue grid",
+                ));
+                return;
+            }
+            let slots_per_lane = footprint.slots.div_ceil(lanes);
+            if maximum_agent_radius_m > 0.0 {
+                let lane_spacing_m = width_m / f64::from(lanes - 1);
+                if lane_spacing_m + NAVIGATION_CLEARANCE_EPSILON_M < maximum_agent_radius_m * 2.0 {
+                    errors.push(issue(
+                        &format!("{path}.lanes"),
+                        format!(
+                            "creates {lane_spacing_m}m lane spacing narrower than the largest authored agent diameter {}m",
+                            maximum_agent_radius_m * 2.0
+                        ),
+                    ));
+                }
+            }
+            slots_per_lane
+        }
+        _ => {
+            errors.push(issue(
+                path,
+                "queue grid width and lanes must either both be present or both be absent",
+            ));
+            return;
+        }
+    };
+    if slots_per_lane > 1 && maximum_agent_radius_m > 0.0 {
+        let spacing_m = footprint.head.distance(footprint.tail) / f64::from(slots_per_lane - 1);
+        if spacing_m + NAVIGATION_CLEARANCE_EPSILON_M < maximum_agent_radius_m * 2.0 {
+            errors.push(issue(
+                &format!("{path}.slots"),
+                format!(
+                    "creates {spacing_m}m along-queue slot spacing narrower than the largest authored agent diameter {}m",
+                    maximum_agent_radius_m * 2.0
+                ),
+            ));
+        }
+    }
+    for rank in 0..footprint.slots {
+        let position = footprint.position(rank);
+        let slot_path = format!("{path}.slots[{rank}]");
+        if maximum_agent_radius_m > 0.0 {
+            check_agent_spawn(
+                surfaces,
+                obstacles,
+                &footprint.surface,
+                position,
+                maximum_agent_radius_m,
+                &slot_path,
+                errors,
+            );
+        } else {
+            check_walkable_point(
+                surfaces,
+                obstacles,
+                &footprint.surface,
+                position,
+                &slot_path,
+                errors,
+            );
+        }
+        check_surface_boundary_clearance(
+            surfaces,
+            &footprint.surface,
+            position,
+            maximum_agent_radius_m,
+            &slot_path,
+            errors,
+        );
+    }
+    if maximum_agent_radius_m > 0.0
+        && let Some(surface) = surfaces.get(footprint.surface.as_str())
+    {
+        if footprint.width_m.is_none() {
+            if !queue_spine_is_clear(
+                footprint.head,
+                footprint.tail,
+                surface,
+                obstacles,
+                maximum_agent_radius_m,
+            ) {
+                errors.push(issue(
+                    &format!("{path}.from"),
+                    "segment to `to` does not clear obstacles by the largest authored agent radius",
+                ));
+            }
+        } else {
+            for rank in 1..footprint.slots {
+                if !queue_spine_is_clear(
+                    footprint.position(rank - 1),
+                    footprint.position(rank),
+                    surface,
+                    obstacles,
+                    maximum_agent_radius_m,
+                ) {
+                    errors.push(issue(
+                        &format!("{path}.slots[{rank}]"),
+                        "FIFO transition from the preceding slot does not clear obstacles by the largest authored agent radius",
+                    ));
+                }
+            }
+        }
+    }
+}
+
+fn check_surface_boundary_clearance(
+    surfaces: &HashMap<&str, &Surface>,
+    surface_id: &str,
+    position: Point3,
+    radius_m: f64,
+    path: &str,
+    errors: &mut Vec<ValidationError>,
+) {
+    if radius_m > 0.0
+        && let Some(surface) = surfaces.get(surface_id)
+        && (position.x_m - surface.origin.x_m < radius_m
+            || surface.origin.x_m + surface.width_m - position.x_m < radius_m
+            || position.y_m - surface.origin.y_m < radius_m
+            || surface.origin.y_m + surface.depth_m - position.y_m < radius_m)
+    {
+        errors.push(issue(
+            path,
+            "does not clear the surface boundary by the largest authored agent radius",
+        ));
+    }
+}
+
+fn queue_spine_is_clear(
+    start: Point3,
+    end: Point3,
+    surface: &Surface,
+    obstacles: &[Obstacle],
+    radius_m: f64,
+) -> bool {
+    obstacles
+        .iter()
+        .filter(|obstacle| obstacle.surface == surface.id)
+        .all(|obstacle| !segment_intersects_expanded_obstacle(start, end, obstacle, radius_m))
+}
+
+fn segment_intersects_expanded_obstacle(
+    start: Point3,
+    end: Point3,
+    obstacle: &Obstacle,
+    radius_m: f64,
+) -> bool {
+    let clearance_m = radius_m + NAVIGATION_CLEARANCE_EPSILON_M;
+    let mut entry = 0.0_f64;
+    let mut exit = 1.0_f64;
+    for (start_coordinate, delta, minimum, maximum) in [
+        (
+            start.x_m,
+            end.x_m - start.x_m,
+            obstacle.at.x_m - clearance_m,
+            obstacle.at.x_m + obstacle.width_m + clearance_m,
+        ),
+        (
+            start.y_m,
+            end.y_m - start.y_m,
+            obstacle.at.y_m - clearance_m,
+            obstacle.at.y_m + obstacle.depth_m + clearance_m,
+        ),
+    ] {
+        if delta.abs() <= NAVIGATION_CLEARANCE_EPSILON_M {
+            if start_coordinate < minimum || start_coordinate > maximum {
+                return false;
+            }
+            continue;
+        }
+        let first = (minimum - start_coordinate) / delta;
+        let second = (maximum - start_coordinate) / delta;
+        entry = entry.max(first.min(second));
+        exit = exit.min(first.max(second));
+        if entry > exit {
+            return false;
+        }
+    }
+    true
+}
+
 fn check_agent_spawn(
     surfaces: &HashMap<&str, &Surface>,
     obstacles: &[Obstacle],
@@ -804,6 +1279,80 @@ fn check_agent_spawn(
             ),
         ));
     }
+}
+
+fn check_spawn_disc_separation(
+    scenario: &Scenario,
+    maximum_agent_radius_m: f64,
+    errors: &mut Vec<ValidationError>,
+) {
+    if !maximum_agent_radius_m.is_finite() || maximum_agent_radius_m <= 0.0 {
+        return;
+    }
+    let cell_span_m = maximum_agent_radius_m.mul_add(2.0, NAVIGATION_CLEARANCE_EPSILON_M);
+    if !cell_span_m.is_finite() || cell_span_m <= 0.0 {
+        return;
+    }
+    let mut cells: BTreeMap<SpawnCellKey, Vec<GeneratedSpawn>> = BTreeMap::new();
+    for (group_index, group) in scenario.agents.iter().enumerate() {
+        if !group.radius_m.is_finite() || group.radius_m <= 0.0 {
+            continue;
+        }
+        for (ordinal, position) in group.spawn_positions().enumerate() {
+            if !position.x_m.is_finite() || !position.y_m.is_finite() {
+                continue;
+            }
+            let path = if ordinal == 0 {
+                format!("agents[{group_index}].at")
+            } else {
+                format!("agents[{group_index}].spawn[{ordinal}]")
+            };
+            let Some(cell_x) = spawn_cell_coordinate(position.x_m, cell_span_m) else {
+                continue;
+            };
+            let Some(cell_y) = spawn_cell_coordinate(position.y_m, cell_span_m) else {
+                continue;
+            };
+            for neighbor_x in cell_x.saturating_sub(1)..=cell_x.saturating_add(1) {
+                for neighbor_y in cell_y.saturating_sub(1)..=cell_y.saturating_add(1) {
+                    let Some(occupants) =
+                        cells.get(&(group.surface.clone(), neighbor_x, neighbor_y))
+                    else {
+                        continue;
+                    };
+                    for other in occupants {
+                        let clearance_m =
+                            group.radius_m + other.radius_m + NAVIGATION_CLEARANCE_EPSILON_M;
+                        let separation_m = (position.x_m - other.position.x_m)
+                            .hypot(position.y_m - other.position.y_m);
+                        if separation_m < clearance_m {
+                            errors.push(issue(
+                                &path,
+                                format!(
+                                    "overlaps deterministic spawn `{}` on surface `{}`",
+                                    other.path, group.surface
+                                ),
+                            ));
+                        }
+                    }
+                }
+            }
+            cells
+                .entry((group.surface.clone(), cell_x, cell_y))
+                .or_default()
+                .push(GeneratedSpawn {
+                    position,
+                    radius_m: group.radius_m,
+                    path,
+                });
+        }
+    }
+}
+
+#[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)] // bounds make the integer cell key safe for finite authored surface coordinates
+fn spawn_cell_coordinate(value_m: f64, cell_span_m: f64) -> Option<i64> {
+    let coordinate = (value_m / cell_span_m).floor();
+    (coordinate >= i64::MIN as f64 && coordinate <= i64::MAX as f64).then_some(coordinate as i64)
 }
 
 fn check_unique(

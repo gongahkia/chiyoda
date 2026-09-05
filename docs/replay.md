@@ -35,12 +35,16 @@ different duration.
 ## Rendering contract
 
 For the selected surface the viewer draws its rectangular walkable boundary,
-rectangular obstacles, waypoints, exits, gates, and the endpoint of every
-authored stair, ramp, escalator, or lift on that surface. Agents are drawn only
+rectangular obstacles, line-footprint or serpentine-grid queue paths and slot centres, waypoints, exits,
+gates, portal-lane centres, and the endpoint of every authored stair, ramp,
+escalator, or lift on that surface. Agents are drawn only
 when their recorded `surface` matches the selected surface. Moving agents are
 blue, departure/route/waypoint waits grey, connector/lift/gate/exit waits and
 in-transit agents amber, and evacuated agents green. Static marker colours
-distinguish waypoints, exits, gates, and connector class.
+distinguish waypoints, exits, gates, connector class, portal-lane centres, and
+queue geometry. The queue path and slots are authored placement
+geometry, not a measured queue, a claimed standing obstruction, or a density
+visualization.
 
 Connector endpoints are visual cues, not surveyed shapes or a claim that the
 space between floors is visible from above. During a connector traversal the

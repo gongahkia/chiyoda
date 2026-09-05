@@ -1,0 +1,22 @@
+{
+  "schema_version": "0.1",
+  "name": "queue-grid formation demand envelope",
+  "description": "An explicitly uncalibrated structural sweep over declared demand levels for the queue-grid formation stress case.",
+  "baseline_source": "queue-grid-stress.chy",
+  "first_seed": 73,
+  "count": 1,
+  "trace_every_steps": 10,
+  "design": "one_at_a_time",
+  "max_conditions": 4,
+  "factors": [
+    {
+      "id": "passenger_count",
+      "target": "agent_count",
+      "subject": "passengers",
+      "values": [32, 64, 96, 128],
+      "basis": "structural_assumption",
+      "rationale": "These discrete alternatives expose how the deterministic grid-formation and local-motion rules respond as the authored demand approaches the 152-agent structural baseline. They are not samples from demand data or estimates of a facility population."
+    }
+  ],
+  "claim_boundary": "This study reports deterministic responses to explicitly authored agent counts in an uncalibrated reference scenario. It does not establish a facility capacity, a crowd-density threshold, safety margin, demand forecast, or predictive crowd-flow result."
+}

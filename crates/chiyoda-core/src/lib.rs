@@ -4,6 +4,7 @@
 //! every parameter and records every state transition; it is not certified for
 //! regulatory, operational, or life-safety decisions.
 
+mod avoidance;
 pub mod benchmark;
 pub mod bundle;
 pub mod calibration;
@@ -22,15 +23,17 @@ pub mod validate;
 pub use benchmark::{BenchmarkManifest, BenchmarkValidationError, validate_manifest};
 pub use bundle::{
     AgentState, InformationDeliveryMetrics, InformationInterventionKind, MovementMetrics,
-    QueueMetrics, QueueResourceBreakdown, QueueResourceMetrics, RunBundle, bundle_hash,
+    OnSurfaceClearanceMetrics, QueueMetrics, QueueResourceBreakdown, QueueResourceMetrics,
+    RunBundle, SweptOnSurfaceClearanceMetrics, bundle_hash,
 };
 pub use calibration::{
     CalibrationError, PlatformCalibrationReport, calibrate_eindhoven_platform, verify_catalog_files,
 };
 pub use evidence::{EvidenceCatalog, EvidencePurpose, EvidenceValidationError, validate_catalog};
 pub use experiment::{
-    ExperimentAssumption, ExperimentManifest, ExperimentSourceAttestation,
-    ExperimentValidationError, validate_experiment_manifest,
+    ExperimentAssumption, ExperimentAssumptionTarget, ExperimentManifest,
+    ExperimentSensitivityStudy, ExperimentSourceAttestation, ExperimentValidationError,
+    validate_experiment_manifest,
 };
 pub use formatter::format_scenario;
 pub use layout::{
@@ -53,10 +56,10 @@ pub use runtime::{BundleVerification, RunOptions, integration_step_count, run, v
 pub use sensitivity::{
     AssumptionBasis, SensitivityCondition, SensitivityDerivedReport, SensitivityDesign,
     SensitivityError, SensitivityFactor, SensitivityManifest, SensitivityReference,
-    SensitivityStudy, SensitivityTarget, plan_sensitivity,
+    SensitivityStudy, SensitivityTarget, plan_sensitivity, resolve_sensitivity_target_value,
 };
 pub use validate::{ValidationError, validate};
 
 /// Increment this when the canonical IR or runtime trace contract changes.
-pub const LANGUAGE_VERSION: &str = "0.23";
+pub const LANGUAGE_VERSION: &str = "0.28";
 pub const RUNTIME_VERSION: &str = env!("CARGO_PKG_VERSION");

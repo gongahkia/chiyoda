@@ -1,0 +1,46 @@
+{
+  "schema_version": "0.1",
+  "name": "uncalibrated interchange arrival cadence and gate schedule",
+  "description": "inspect how explicitly authored deterministic arrival cadence, pulse size, and a timed gate-service reduction affect one constrained interchange configuration",
+  "baseline_source": "uncalibrated-interchange.chy",
+  "first_seed": 113,
+  "count": 4,
+  "trace_every_steps": 10,
+  "design": "one_at_a_time",
+  "max_conditions": 8,
+  "factors": [
+    {
+      "id": "passenger_release_interval",
+      "target": "agent_release_interval_s",
+      "subject": "passengers",
+      "values": [0.5, 1.0, 2.0],
+      "basis": "structural_assumption",
+      "rationale": "The 0.5 s, 1 s, and 2 s intervals expose deterministic demand-timing sensitivity without claiming an observed arrival process."
+    },
+    {
+      "id": "passenger_release_batch_size",
+      "target": "agent_release_batch_size",
+      "subject": "passengers",
+      "values": [1.0, 4.0, 8.0],
+      "basis": "structural_assumption",
+      "rationale": "The one-, four-, and eight-person pulses expose deterministic arrival-pulse sensitivity without claiming an observed demand distribution."
+    },
+    {
+      "id": "fare_gate_reduced_capacity",
+      "target": "gate_capacity_state_per_s",
+      "subject": "fare_gate_reduced",
+      "values": [0.5, 0.75, 1.0],
+      "basis": "structural_assumption",
+      "rationale": "The 0.5/s, 0.75/s, and 1.0/s post-change gate limits expose an explicitly authored operational stress schedule without claiming observed staffing or equipment performance."
+    },
+    {
+      "id": "fare_gate_reduced_time",
+      "target": "gate_capacity_state_at_s",
+      "subject": "fare_gate_reduced",
+      "values": [20.0, 30.0, 40.0],
+      "basis": "structural_assumption",
+      "rationale": "The 20 s, 30 s, and 40 s transition times expose deterministic timing sensitivity without claiming an observed shift, incident, equipment state, or operational response."
+    }
+  ],
+  "claim_boundary": "This deterministic sensitivity study explores declared staged-demand and service-limit schedules. It does not estimate an arrival distribution, passenger demand, observed staffing, equipment reliability, station performance, operational suitability, or safety outcome."
+}

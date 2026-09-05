@@ -1,7 +1,8 @@
 use crate::model::{
     AgentGroup, Connector, ConnectorCapacityChange, ConnectorKind, ConnectorStateChange,
     Countermeasure, Exit, ExitCapacityChange, ExitStateChange, Gate, GateCapacityChange,
-    GateStateChange, InformationSource, Message, Obstacle, Point3, Scenario, Surface, Waypoint,
+    GateStateChange, InformationSource, Message, Obstacle, Point3, PortalAxis, PortalLanes,
+    PortalResource, QueueFootprint, Scenario, Surface, Waypoint,
 };
 use std::{fmt, str::FromStr};
 
@@ -30,6 +31,8 @@ struct ScenarioBuilder {
     waypoints: Vec<Waypoint>,
     exits: Vec<Exit>,
     connectors: Vec<Connector>,
+    portal_lanes: Vec<PortalLanes>,
+    queue_footprints: Vec<QueueFootprint>,
     connector_states: Vec<ConnectorStateChange>,
     exit_states: Vec<ExitStateChange>,
     connector_capacity_states: Vec<ConnectorCapacityChange>,
@@ -72,6 +75,8 @@ impl ScenarioBuilder {
             waypoints: self.waypoints,
             exits: self.exits,
             connectors: self.connectors,
+            portal_lanes: self.portal_lanes,
+            queue_footprints: self.queue_footprints,
             connector_states: self.connector_states,
             exit_states: self.exit_states,
             connector_capacity_states: self.connector_capacity_states,
@@ -291,6 +296,114 @@ fn parse_declaration(
                 )?,
                 cycle_s: parse_duration(line, required(line, tokens, 20, "lift cycle")?)?,
                 clearance_height_m: optional_clearance(line, tokens, 21, "lift")?,
+            });
+        }
+        "portal-lanes" => {
+            require_exact_count(line, tokens, 8)?;
+            expect(line, tokens, 4, "axis")?;
+            expect(line, tokens, 6, "count")?;
+            let resource_id = tokens[3].clone();
+            let resource = match tokens[2].as_str() {
+                "connector" => PortalResource::Connector { id: resource_id },
+                "exit" => PortalResource::Exit { id: resource_id },
+                "gate" => PortalResource::Gate { id: resource_id },
+                actual => {
+                    return Err(error(
+                        line,
+                        format!(
+                            "portal lanes require connector, exit, or gate resource; found `{actual}`"
+                        ),
+                    ));
+                }
+            };
+            builder.portal_lanes.push(PortalLanes {
+                id: tokens[1].clone(),
+                resource,
+                axis: parse_portal_axis(line, required(line, tokens, 5, "portal lane axis")?)?,
+                count: parse_plain(
+                    line,
+                    required(line, tokens, 7, "portal lane count")?,
+                    "portal lane count",
+                )?,
+            });
+        }
+        "queue-footprint" => {
+            require_exact_count(line, tokens, 16)?;
+            expect(line, tokens, 4, "on")?;
+            expect(line, tokens, 6, "from")?;
+            expect(line, tokens, 10, "to")?;
+            expect(line, tokens, 14, "slots")?;
+            let resource_id = tokens[3].clone();
+            let resource = match tokens[2].as_str() {
+                "connector" => PortalResource::Connector { id: resource_id },
+                "exit" => PortalResource::Exit { id: resource_id },
+                "gate" => PortalResource::Gate { id: resource_id },
+                actual => {
+                    return Err(error(
+                        line,
+                        format!(
+                            "queue footprint requires connector, exit, or gate resource; found `{actual}`"
+                        ),
+                    ));
+                }
+            };
+            builder.queue_footprints.push(QueueFootprint {
+                id: tokens[1].clone(),
+                resource,
+                surface: tokens[5].clone(),
+                head: point(line, tokens, 7)?,
+                tail: point(line, tokens, 11)?,
+                slots: parse_plain(
+                    line,
+                    required(line, tokens, 15, "queue footprint slots")?,
+                    "queue footprint slots",
+                )?,
+                width_m: None,
+                lanes: None,
+            });
+        }
+        "queue-grid" => {
+            require_exact_count(line, tokens, 20)?;
+            expect(line, tokens, 4, "on")?;
+            expect(line, tokens, 6, "from")?;
+            expect(line, tokens, 10, "to")?;
+            expect(line, tokens, 14, "width")?;
+            expect(line, tokens, 16, "lanes")?;
+            expect(line, tokens, 18, "slots")?;
+            let resource_id = tokens[3].clone();
+            let resource = match tokens[2].as_str() {
+                "connector" => PortalResource::Connector { id: resource_id },
+                "exit" => PortalResource::Exit { id: resource_id },
+                "gate" => PortalResource::Gate { id: resource_id },
+                actual => {
+                    return Err(error(
+                        line,
+                        format!(
+                            "queue grid requires connector, exit, or gate resource; found `{actual}`"
+                        ),
+                    ));
+                }
+            };
+            builder.queue_footprints.push(QueueFootprint {
+                id: tokens[1].clone(),
+                resource,
+                surface: tokens[5].clone(),
+                head: point(line, tokens, 7)?,
+                tail: point(line, tokens, 11)?,
+                slots: parse_plain(
+                    line,
+                    required(line, tokens, 19, "queue grid slots")?,
+                    "queue grid slots",
+                )?,
+                width_m: Some(parse_length(
+                    line,
+                    required(line, tokens, 15, "queue grid width")?,
+                )?),
+                lanes: Some(parse_plain(
+                    line,
+                    required(line, tokens, 17, "queue grid lanes")?,
+                    "queue grid lanes",
+                )?),
             });
         }
         "connector-state" => {
@@ -795,6 +908,17 @@ fn parse_connector_kind(line: usize, value: &str) -> Result<ConnectorKind, Parse
         _ => Err(error(
             line,
             format!("unknown connector kind `{value}`; use stair, ramp, escalator, or lift"),
+        )),
+    }
+}
+
+fn parse_portal_axis(line: usize, value: &str) -> Result<PortalAxis, ParseError> {
+    match value {
+        "x" => Ok(PortalAxis::X),
+        "y" => Ok(PortalAxis::Y),
+        _ => Err(error(
+            line,
+            format!("unknown portal lane axis `{value}`; use x or y"),
         )),
     }
 }

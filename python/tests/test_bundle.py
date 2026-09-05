@@ -165,10 +165,13 @@ class BundleTests(unittest.TestCase):
 
     def test_current_summary_exposes_local_clearance_telemetry(self) -> None:
         bundle = {
-            "bundle_version": "0.28",
+            "bundle_version": "0.40",
             "scenario": {
                 "scenario": {
                     "name": "fixture",
+                    "duration_s": 1.0,
+                    "timestep_s": 1.0,
+                    "agents": [{"radius_m": 0.3}],
                     "messages": [],
                     "countermeasures": [],
                     "connectors": [],
@@ -197,6 +200,17 @@ class BundleTests(unittest.TestCase):
                 "movement_metrics": {
                     "agents_with_local_clearance_adjustments": 1,
                     "local_clearance_adjustment_steps": 2,
+                    "local_avoidance_constraint_fallback_steps": 0,
+                    "on_surface_clearance_audit": {
+                        "agents_with_disc_overlaps": 0,
+                        "disc_overlap_pair_steps": 0,
+                        "maximum_disc_overlap_m": 0.0,
+                    },
+                    "swept_on_surface_clearance_audit": {
+                        "agents_with_swept_disc_overlaps": 0,
+                        "swept_disc_overlap_pair_steps": 0,
+                        "maximum_swept_disc_overlap_m": 0.0,
+                    },
                     "cumulative_local_clearance_adjustment_m": 0.9,
                     "maximum_local_clearance_adjustment_m": 0.6,
                 },
@@ -206,7 +220,50 @@ class BundleTests(unittest.TestCase):
         summary = summarize(bundle)
 
         self.assertEqual(summary["movement_metrics"]["local_clearance_adjustment_steps"], 2)
+        self.assertEqual(
+            summary["movement_metrics"]["on_surface_clearance_audit"]["disc_overlap_pair_steps"], 0
+        )
+        self.assertEqual(
+            summary["movement_metrics"]["swept_on_surface_clearance_audit"]
+            ["swept_disc_overlap_pair_steps"],
+            0,
+        )
+        bundle["trace"] = [{"agents": [{"id": "agent-0"}]}]
+        bundle["events"] = [{
+            "time_s": 1.0,
+            "kind": "local_avoidance_constraint_fallback",
+            "subject": "agent-0",
+            "detail": "the speed-bounded reciprocal constraints were infeasible",
+        }]
+        bundle["metrics"]["movement_metrics"]["local_avoidance_constraint_fallback_steps"] = 1
+        self.assertEqual(
+            summarize(bundle)["movement_metrics"]["local_avoidance_constraint_fallback_steps"], 1
+        )
+        bundle["events"][0]["subject"] = "unknown-agent"
+        with self.assertRaises(BundleError):
+            summarize(bundle)
+        bundle["events"][0]["subject"] = "agent-0"
         bundle["metrics"]["movement_metrics"]["maximum_local_clearance_adjustment_m"] = 1.0
+        with self.assertRaises(BundleError):
+            summarize(bundle)
+        bundle["metrics"]["movement_metrics"]["maximum_local_clearance_adjustment_m"] = 0.6
+        bundle["metrics"]["movement_metrics"]["on_surface_clearance_audit"] = {
+            "agents_with_disc_overlaps": 1,
+            "disc_overlap_pair_steps": 1,
+            "maximum_disc_overlap_m": 0.1,
+        }
+        with self.assertRaises(BundleError):
+            summarize(bundle)
+        bundle["metrics"]["movement_metrics"]["on_surface_clearance_audit"] = {
+            "agents_with_disc_overlaps": 0,
+            "disc_overlap_pair_steps": 0,
+            "maximum_disc_overlap_m": 0.0,
+        }
+        bundle["metrics"]["movement_metrics"]["swept_on_surface_clearance_audit"] = {
+            "agents_with_swept_disc_overlaps": 1,
+            "swept_disc_overlap_pair_steps": 1,
+            "maximum_swept_disc_overlap_m": 0.1,
+        }
         with self.assertRaises(BundleError):
             summarize(bundle)
 
@@ -358,6 +415,140 @@ class BundleTests(unittest.TestCase):
 
         self.assertEqual(summarize(bundle)["queue_metrics"]["exit"]["ever_queued_agents"], 1)
         bundle["events"] = []
+        with self.assertRaises(BundleError):
+            summarize(bundle)
+
+    def test_current_summary_rejects_unauthored_queue_service_reservation(self) -> None:
+        bundle = {
+            "bundle_version": "0.33",
+            "scenario": {
+                "scenario": {
+                    "name": "fixture",
+                    "messages": [],
+                    "countermeasures": [],
+                    "connectors": [],
+                    "gates": [],
+                    "exits": [{"id": "street", "capacity_per_s": 0.5}],
+                    "queue_footprints": [
+                        {"id": "street_queue", "resource": {"exit": {"id": "street"}}}
+                    ],
+                }
+            },
+            "events": [
+                {
+                    "time_s": 1.0,
+                    "kind": "queue_entered_exit",
+                    "subject": "passengers:0",
+                    "detail": "street",
+                },
+                {
+                    "time_s": 2.0,
+                    "kind": "queue_service_reserved",
+                    "subject": "passengers:0",
+                    "detail": "exit:street",
+                },
+            ],
+            "metrics": {
+                "total_agents": 1,
+                "evacuated_agents": 0,
+                "remaining_by_state": {"waiting_for_exit": 1},
+                "clearance_time_s": None,
+                "last_exit_time_s": None,
+                "queued_for_lift_agents": 0,
+                "queued_for_connector_agents": 0,
+                "queued_for_gate_agents": 0,
+                "queued_for_exit_agents": 1,
+                "queue_metrics": {
+                    "lift": {"ever_queued_agents": 0, "cumulative_wait_agent_seconds": 0.0, "peak_waiting_agents": 0},
+                    "connector": {"ever_queued_agents": 0, "cumulative_wait_agent_seconds": 0.0, "peak_waiting_agents": 0},
+                    "gate": {"ever_queued_agents": 0, "cumulative_wait_agent_seconds": 0.0, "peak_waiting_agents": 0},
+                    "exit": {"ever_queued_agents": 1, "cumulative_wait_agent_seconds": 1.0, "peak_waiting_agents": 1},
+                    "by_resource": {
+                        "lifts": {},
+                        "connectors": {},
+                        "gates": {},
+                        "exits": {"street": {"ever_queued_agents": 1, "cumulative_wait_agent_seconds": 1.0, "peak_waiting_agents": 1}},
+                    },
+                },
+                "movement_metrics": {
+                    "agents_with_local_clearance_adjustments": 0,
+                    "local_clearance_adjustment_steps": 0,
+                    "local_avoidance_constraint_fallback_steps": 0,
+                    "cumulative_local_clearance_adjustment_m": 0.0,
+                    "maximum_local_clearance_adjustment_m": 0.0,
+                },
+            },
+        }
+
+        self.assertEqual(summarize(bundle)["queue_metrics"]["exit"]["ever_queued_agents"], 1)
+        bundle["events"][1]["detail"] = "exit:forged"
+        with self.assertRaises(BundleError):
+            summarize(bundle)
+
+    def test_current_summary_requires_lift_reservation_to_follow_lift_entry(self) -> None:
+        bundle = {
+            "bundle_version": "0.35",
+            "scenario": {
+                "scenario": {
+                    "name": "fixture",
+                    "messages": [],
+                    "countermeasures": [],
+                    "connectors": [{"Lift": {"id": "lift_a"}}],
+                    "gates": [],
+                    "exits": [],
+                    "queue_footprints": [
+                        {"id": "lift_queue", "resource": {"connector": {"id": "lift_a"}}}
+                    ],
+                }
+            },
+            "events": [
+                {
+                    "time_s": 1.0,
+                    "kind": "queue_entered_lift",
+                    "subject": "passengers:0",
+                    "detail": "lift_a",
+                },
+                {
+                    "time_s": 2.0,
+                    "kind": "queue_service_reserved",
+                    "subject": "passengers:0",
+                    "detail": "connector:lift_a",
+                },
+            ],
+            "metrics": {
+                "total_agents": 1,
+                "evacuated_agents": 0,
+                "remaining_by_state": {"waiting_for_lift": 1},
+                "clearance_time_s": None,
+                "last_exit_time_s": None,
+                "queued_for_lift_agents": 1,
+                "queued_for_connector_agents": 0,
+                "queued_for_gate_agents": 0,
+                "queued_for_exit_agents": 0,
+                "queue_metrics": {
+                    "lift": {"ever_queued_agents": 1, "cumulative_wait_agent_seconds": 1.0, "peak_waiting_agents": 1},
+                    "connector": {"ever_queued_agents": 0, "cumulative_wait_agent_seconds": 0.0, "peak_waiting_agents": 0},
+                    "gate": {"ever_queued_agents": 0, "cumulative_wait_agent_seconds": 0.0, "peak_waiting_agents": 0},
+                    "exit": {"ever_queued_agents": 0, "cumulative_wait_agent_seconds": 0.0, "peak_waiting_agents": 0},
+                    "by_resource": {
+                        "lifts": {"lift_a": {"ever_queued_agents": 1, "cumulative_wait_agent_seconds": 1.0, "peak_waiting_agents": 1}},
+                        "connectors": {},
+                        "gates": {},
+                        "exits": {},
+                    },
+                },
+                "movement_metrics": {
+                    "agents_with_local_clearance_adjustments": 0,
+                    "local_clearance_adjustment_steps": 0,
+                    "local_avoidance_constraint_fallback_steps": 0,
+                    "cumulative_local_clearance_adjustment_m": 0.0,
+                    "maximum_local_clearance_adjustment_m": 0.0,
+                },
+            },
+        }
+
+        self.assertEqual(summarize(bundle)["queue_metrics"]["lift"]["ever_queued_agents"], 1)
+        bundle["events"][0]["kind"] = "queue_entered_connector"
         with self.assertRaises(BundleError):
             summarize(bundle)
 
@@ -607,6 +798,74 @@ class BundleTests(unittest.TestCase):
             path.write_text(json.dumps(catalog), encoding="utf-8")
             with self.assertRaises(EvidenceError):
                 load_catalog(path)
+
+    def test_current_grid_preallocation_audit_requires_assignment_before_entry(self) -> None:
+        bundle = {
+            "scenario": {
+                "scenario": {
+                    "connectors": [],
+                    "queue_footprints": [
+                        {
+                            "resource": {"gate": {"id": "fare_gate"}},
+                            "width_m": 2.0,
+                        }
+                    ],
+                }
+            },
+            "trace": [{"agents": [{"id": "passengers:0"}]}],
+            "events": [
+                {
+                    "time_s": 1.0,
+                    "kind": "queue_slot_preallocated",
+                    "subject": "passengers:0",
+                    "detail": "gate:fare_gate:12",
+                },
+                {
+                    "time_s": 2.0,
+                    "kind": "queue_entered_gate",
+                    "subject": "passengers:0",
+                    "detail": "fare_gate",
+                },
+                {
+                    "time_s": 2.0,
+                    "kind": "queue_service_reserved",
+                    "subject": "passengers:0",
+                    "detail": "gate:fare_gate",
+                },
+            ],
+        }
+
+        bundle_reader._queue_grid_preallocation_events(bundle)
+
+        bundle["events"][0]["time_s"] = 3.0
+        with self.assertRaises(BundleError):
+            bundle_reader._queue_grid_preallocation_events(bundle)
+
+    def test_release_clearance_deferral_audit_requires_known_agent_and_order(self) -> None:
+        bundle = {
+            "scenario": {"scenario": {"duration_s": 4.0}},
+            "trace": [{"agents": [{"id": "passengers:0", "group": "passengers"}]}],
+            "events": [
+                {
+                    "time_s": 1.0,
+                    "kind": "agent_release_deferred_for_clearance",
+                    "subject": "passengers:0",
+                    "detail": "passengers",
+                },
+                {
+                    "time_s": 1.1,
+                    "kind": "agent_released",
+                    "subject": "passengers:0",
+                    "detail": "passengers",
+                },
+            ],
+        }
+
+        bundle_reader._release_clearance_deferral_events(bundle)
+
+        bundle["events"][1]["time_s"] = 0.9
+        with self.assertRaises(BundleError):
+            bundle_reader._release_clearance_deferral_events(bundle)
 
 
 def _hash(bundle: dict[str, object]) -> str:

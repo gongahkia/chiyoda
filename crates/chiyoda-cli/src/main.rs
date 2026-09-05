@@ -1,14 +1,17 @@
 use anyhow::{Context, Result, bail};
 use chiyoda_core::{
-    BenchmarkManifest, BundleVerification, CanonicalScenario, EvidenceCatalog, ExperimentManifest,
-    GeographicPoint, InformationDeliveryMetrics, MovementMetrics, OpenStreetMapLayoutReport,
-    OpenStreetMapLocalProjectionReport, OsmInspectionLimits, OsmScenarioAnchorManifest,
-    OsmScenarioAnchorReport, QueueMetrics, QueueResourceMetrics, RunBundle, RunOptions,
-    SensitivityFactor, SensitivityManifest, anchor_osm_scenario, calibrate_eindhoven_platform,
+    BenchmarkManifest, BundleVerification, CanonicalScenario, EvidenceCatalog,
+    ExperimentAssumptionTarget, ExperimentManifest, ExperimentSensitivityStudy, GeographicPoint,
+    InformationDeliveryMetrics, MovementMetrics, OnSurfaceClearanceMetrics,
+    OpenStreetMapLayoutReport, OpenStreetMapLocalProjectionReport, OsmInspectionLimits,
+    OsmScenarioAnchorManifest, OsmScenarioAnchorReport, QueueMetrics, QueueResourceMetrics,
+    RunBundle, RunOptions, SensitivityFactor, SensitivityManifest, SensitivityTarget,
+    SweptOnSurfaceClearanceMetrics, anchor_osm_scenario, calibrate_eindhoven_platform,
     format_scenario, generator, inspect_openstreetmap_layout, parse, plan_sensitivity,
-    project_openstreetmap_layout_report, run, summarize_crowd_queue_reference,
-    summarize_vru_trajectory_reference, validate, validate_catalog, validate_experiment_manifest,
-    validate_manifest, validate_osm_scenario_anchor_manifest, verify_catalog_files,
+    project_openstreetmap_layout_report, resolve_sensitivity_target_value, run,
+    summarize_crowd_queue_reference, summarize_vru_trajectory_reference, validate,
+    validate_catalog, validate_experiment_manifest, validate_manifest,
+    validate_osm_scenario_anchor_manifest, verify_catalog_files,
     verify_openstreetmap_layout_catalog_contract, verify_openstreetmap_layout_report,
     verify_openstreetmap_local_projection_report, verify_osm_scenario_anchor_report,
     verify_run_bundle,
@@ -172,6 +175,8 @@ enum Command {
         #[arg(long)]
         allow_legacy_hash_only: bool,
     },
+    /// Reconstruct a current run bundle and require zero reference-disc overlap audits.
+    VerifyReferenceClearance { bundle: PathBuf },
 }
 
 #[derive(Debug, Subcommand)]
@@ -519,6 +524,29 @@ struct AggregateMovementTelemetry {
     unobserved_legacy_runs: u32,
     agents_with_local_clearance_adjustments: u64,
     local_clearance_adjustment_steps: u64,
+    /// Coverage for the 0.31 ORCA infeasibility counter is separate from the
+    /// older local-motion telemetry contract.
+    constraint_fallback_observed_runs: u32,
+    constraint_fallback_unobserved_legacy_runs: u32,
+    local_avoidance_constraint_fallback_steps: u64,
+    /// Coverage for the 0.36 integration-boundary reference-disc audit is
+    /// independent from older local-motion telemetry.
+    on_surface_clearance_audit_observed_runs: u32,
+    on_surface_clearance_audit_unobserved_legacy_runs: u32,
+    /// Sum of per-run distinct-agent counts; this is not a cross-run unique
+    /// population count.
+    agents_with_on_surface_disc_overlaps: u64,
+    on_surface_disc_overlap_pair_steps: u64,
+    maximum_on_surface_disc_overlap_m: f64,
+    /// Coverage for the 0.37 analytic same-surface interval audit is distinct
+    /// from the 0.36 integration-boundary audit.
+    swept_on_surface_clearance_audit_observed_runs: u32,
+    swept_on_surface_clearance_audit_unobserved_legacy_runs: u32,
+    /// Sum of per-run distinct-agent counts; this is not a cross-run unique
+    /// population count.
+    agents_with_swept_disc_overlaps: u64,
+    swept_disc_overlap_pair_steps: u64,
+    maximum_swept_disc_overlap_m: f64,
     cumulative_local_clearance_adjustment_m: f64,
     maximum_local_clearance_adjustment_m: f64,
 }
@@ -561,15 +589,44 @@ struct QueueResourceTelemetryDelta {
     maximum_peak_waiting_agents: i64,
 }
 
-/// Candidate-minus-baseline change in local-clearance-resolver telemetry.
+/// Candidate-minus-baseline change in local-motion telemetry.
 /// The maximum field compares the largest per-attempt adjustment in each arm;
 /// the other fields sum per-run values across paired seed records.
 #[derive(Debug, Clone, Default, Serialize)]
 struct MovementTelemetryDelta {
     agents_with_local_clearance_adjustments: i64,
     local_clearance_adjustment_steps: i128,
+    /// Present only when every paired run has the 0.31 fallback counter.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    local_avoidance_constraint_fallback_steps: Option<i128>,
+    /// Present only when every paired run has the 0.36 reference-disc audit.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    on_surface_clearance_audit: Option<OnSurfaceClearanceAuditDelta>,
+    /// Present only when every paired run has the 0.37 analytic interval audit.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    swept_on_surface_clearance_audit: Option<SweptOnSurfaceClearanceAuditDelta>,
     cumulative_local_clearance_adjustment_m: f64,
     maximum_local_clearance_adjustment_m: f64,
+}
+
+/// Candidate-minus-baseline change in integration-boundary reference-disc
+/// audit telemetry. Counts sum per-run values; the maximum compares each arm's
+/// largest per-run overlap.
+#[derive(Debug, Clone, Default, Serialize)]
+struct OnSurfaceClearanceAuditDelta {
+    agents_with_disc_overlaps: i64,
+    disc_overlap_pair_steps: i128,
+    maximum_disc_overlap_m: f64,
+}
+
+/// Candidate-minus-baseline change in analytic same-surface linear-interval
+/// reference-disc audit telemetry. Counts sum per-run values; the maximum
+/// compares each arm's largest per-run overlap.
+#[derive(Debug, Clone, Default, Serialize)]
+struct SweptOnSurfaceClearanceAuditDelta {
+    agents_with_swept_disc_overlaps: i64,
+    swept_disc_overlap_pair_steps: i128,
+    maximum_swept_disc_overlap_m: f64,
 }
 
 /// Candidate-minus-baseline queue deltas for individual resource identifiers.
@@ -714,8 +771,8 @@ impl CapturedExperimentOsmAttestation {
     }
 }
 
-const EXPERIMENT_PLAN_SCHEMA_VERSION: &str = "0.1";
-const EXPERIMENT_REPORT_SCHEMA_VERSION: &str = "0.2";
+const EXPERIMENT_PLAN_SCHEMA_VERSION: &str = "0.3";
+const EXPERIMENT_REPORT_SCHEMA_VERSION: &str = "0.4";
 
 /// A reviewable, non-mutating preflight for one uncalibrated experiment.
 #[derive(Debug, Serialize)]
@@ -730,6 +787,10 @@ struct ExperimentPlanReport {
     execution: ExperimentPlanExecution,
     scenario: ExperimentScenarioInventory,
     assumptions: Vec<chiyoda_core::ExperimentAssumption>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    resolved_assumption_targets: Vec<ExperimentResolvedAssumptionTarget>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    sensitivity_coverage: Option<ExperimentSensitivityCoverage>,
     sources: Vec<chiyoda_core::SensitivityReference>,
     source_report_snapshots: Vec<ExperimentSourceReportSnapshot>,
     source_attestations: Vec<ExperimentSourceAttestation>,
@@ -782,6 +843,81 @@ struct ExperimentScenarioInventory {
     countermeasures: usize,
 }
 
+/// A resolved, exact baseline value for one optional typed assumption target.
+/// This makes an uncalibrated choice inspectable without assigning it a
+/// probability or an empirical interpretation.
+#[derive(Debug, Clone, Serialize)]
+struct ExperimentResolvedAssumptionTarget {
+    assumption_id: String,
+    target: SensitivityTarget,
+    subject: String,
+    baseline_value: f64,
+    unit: String,
+}
+
+/// A factor declared by a linked sensitivity-study manifest, resolved against
+/// the same canonical experiment scenario. Its values are authored
+/// alternatives, not a probability distribution or completed-study outcomes.
+#[derive(Debug, Clone, Serialize)]
+struct ExperimentSensitivityFactorCoverage {
+    factor_id: String,
+    target: SensitivityTarget,
+    subject: String,
+    baseline_value: f64,
+    unit: String,
+    values: Vec<f64>,
+}
+
+/// The exact factor that examines one typed experiment assumption target.
+#[derive(Debug, Clone, Serialize)]
+struct ExperimentSensitivityFactorLink {
+    study_id: String,
+    factor_id: String,
+}
+
+/// Coverage status for one typed assumption. An empty `sensitivity_factors`
+/// deliberately records a disclosed input that a linked study does not vary.
+#[derive(Debug, Clone, Serialize)]
+struct ExperimentAssumptionSensitivityCoverage {
+    assumption_id: String,
+    target: SensitivityTarget,
+    subject: String,
+    baseline_value: f64,
+    unit: String,
+    sensitivity_factors: Vec<ExperimentSensitivityFactorLink>,
+}
+
+/// One sensitivity-study contract captured beside an experiment artifact.
+#[derive(Debug, Clone, Serialize)]
+struct ExperimentSensitivityStudyCoverage {
+    study_id: String,
+    declared_manifest_path: String,
+    manifest_snapshot: String,
+    manifest_sha256: String,
+    baseline_source_snapshot: String,
+    baseline_source_sha256: String,
+    baseline_scenario_hash: String,
+    design: chiyoda_core::SensitivityDesign,
+    condition_count: usize,
+    factors: Vec<ExperimentSensitivityFactorCoverage>,
+}
+
+/// A reviewable crosswalk between best-guess experiment inputs and declared
+/// sensitivity factors. It reports coverage only; it does not assert that a
+/// study was executed or establish uncertainty quantification.
+#[derive(Debug, Clone, Serialize)]
+struct ExperimentSensitivityCoverage {
+    studies: Vec<ExperimentSensitivityStudyCoverage>,
+    assumption_targets: Vec<ExperimentAssumptionSensitivityCoverage>,
+}
+
+#[derive(Debug)]
+struct CapturedExperimentSensitivityStudy {
+    coverage: ExperimentSensitivityStudyCoverage,
+    manifest_bytes: Vec<u8>,
+    baseline_source_bytes: Vec<u8>,
+}
+
 #[derive(Debug, Serialize)]
 struct ExperimentReportBase {
     schema_version: String,
@@ -796,6 +932,10 @@ struct ExperimentReportBase {
     bundle_hash: String,
     trace_every_steps: u32,
     source_report_snapshots: Vec<ExperimentSourceReportSnapshot>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    resolved_assumption_targets: Vec<ExperimentResolvedAssumptionTarget>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    sensitivity_coverage: Option<ExperimentSensitivityCoverage>,
     author_claim_boundary: String,
     claim_boundary: String,
 }
@@ -1079,6 +1219,7 @@ fn main() -> Result<()> {
                 "evacuated: {}/{}",
                 bundle.metrics.evacuated_agents, bundle.metrics.total_agents
             );
+            print_local_clearance_summary(&bundle.metrics);
         }
         Command::Generate { seed, output } => {
             let source = generator::source(seed);
@@ -1147,10 +1288,94 @@ fn main() -> Result<()> {
                 "evacuated: {}/{}",
                 bundle.metrics.evacuated_agents, bundle.metrics.total_agents
             );
+            print_local_clearance_summary(&bundle.metrics);
             println!("open with: chiyoda-replay {}", bundle_path.display());
+        }
+        Command::VerifyReferenceClearance {
+            bundle: bundle_path,
+        } => {
+            let bundle: RunBundle = read_json(&bundle_path)?;
+            if verify_run_bundle(&bundle)? != BundleVerification::Reconstructed {
+                bail!(
+                    "reference-clearance acceptance requires a bundle compatible with this runtime"
+                );
+            }
+            require_zero_reference_clearance(&bundle)?;
+            println!("reference-clearance audits pass: {}", bundle.bundle_hash);
         }
     }
     Ok(())
+}
+
+/// Require the runtime's two reference-disc audits to contain no positive
+/// overlap. This is a deterministic acceptance boundary for a reconstructed
+/// reference run, not a contact model or a physical-safety certification.
+fn require_zero_reference_clearance(bundle: &RunBundle) -> Result<()> {
+    let movement = bundle
+        .metrics
+        .movement_metrics
+        .as_ref()
+        .context("bundle has no local-motion telemetry")?;
+    let boundary = movement
+        .on_surface_clearance_audit
+        .as_ref()
+        .context("bundle has no integration-boundary reference-disc audit")?;
+    let swept = movement
+        .swept_on_surface_clearance_audit
+        .as_ref()
+        .context("bundle has no swept reference-disc audit")?;
+    if boundary.disc_overlap_pair_steps != 0
+        || boundary.maximum_disc_overlap_m != 0.0
+        || swept.swept_disc_overlap_pair_steps != 0
+        || swept.maximum_swept_disc_overlap_m != 0.0
+    {
+        bail!(
+            "reference-clearance audits are nonzero: boundary {} pair-steps, {}m maximum; swept {} pair-steps, {}m maximum",
+            boundary.disc_overlap_pair_steps,
+            boundary.maximum_disc_overlap_m,
+            swept.swept_disc_overlap_pair_steps,
+            swept.maximum_swept_disc_overlap_m,
+        );
+    }
+    Ok(())
+}
+
+fn print_local_clearance_summary(metrics: &RunMetrics) {
+    let Some(movement) = &metrics.movement_metrics else {
+        println!("local-motion telemetry: unavailable in this legacy bundle");
+        return;
+    };
+    println!(
+        "local-motion adjustments: {} agents, {} attempts, {}m cumulative, {}m maximum",
+        movement.agents_with_local_clearance_adjustments,
+        movement.local_clearance_adjustment_steps,
+        movement.cumulative_local_clearance_adjustment_m,
+        movement.maximum_local_clearance_adjustment_m,
+    );
+    match movement.local_avoidance_constraint_fallback_steps {
+        Some(steps) => println!("local-motion ORCA constraint fallbacks: {steps} steps"),
+        None => {
+            println!("local-motion ORCA constraint fallback telemetry: unavailable before 0.31");
+        }
+    }
+    match &movement.on_surface_clearance_audit {
+        Some(audit) => println!(
+            "on-surface reference-disc overlaps: {} agents, {} pair-steps, {}m maximum",
+            audit.agents_with_disc_overlaps,
+            audit.disc_overlap_pair_steps,
+            audit.maximum_disc_overlap_m,
+        ),
+        None => println!("on-surface reference-disc audit: unavailable before 0.36"),
+    }
+    match &movement.swept_on_surface_clearance_audit {
+        Some(audit) => println!(
+            "swept on-surface reference-disc overlaps: {} agents, {} pair-steps, {}m maximum",
+            audit.agents_with_swept_disc_overlaps,
+            audit.swept_disc_overlap_pair_steps,
+            audit.maximum_swept_disc_overlap_m,
+        ),
+        None => println!("swept on-surface reference-disc audit: unavailable before 0.37"),
+    }
 }
 
 fn verify_benchmark(manifest: &Path) -> Result<()> {
@@ -1385,44 +1610,8 @@ fn initialize_experiment(
 ) -> Result<()> {
     let scenario_source = generator::source(seed);
     let scenario = generator::scenario(seed)?;
-    let manifest = ExperimentManifest {
-        schema_version: "0.1".to_owned(),
-        name: name.to_owned(),
-        description: format!(
-            "an initial uncalibrated structural draft generated from deterministic seed {seed}; review every stated input before interpreting a run"
-        ),
-        scenario_source: "scenario.chy".to_owned(),
-        trace_every_steps,
-        assumptions: vec![
-            chiyoda_core::ExperimentAssumption {
-                id: "generated_topology".to_owned(),
-                subject: "scenario seed, topology, routing alternatives, and scheduled changes"
-                    .to_owned(),
-                basis: chiyoda_core::AssumptionBasis::StructuralAssumption,
-                rationale: format!(
-                    "the deterministic generator produced this structural draft from seed {seed}; it is not a representation of a real facility"
-                ),
-                source_ids: Vec::new(),
-            },
-            chiyoda_core::ExperimentAssumption {
-                id: "passenger_demand_and_motion".to_owned(),
-                subject: "passengers count, release schedule, speed, radius, and height".to_owned(),
-                basis: chiyoda_core::AssumptionBasis::BestGuess,
-                rationale: "the generated demand and body/motion values are explicit starting inputs, not a population estimate".to_owned(),
-                source_ids: Vec::new(),
-            },
-            chiyoda_core::ExperimentAssumption {
-                id: "service_and_information_conditions".to_owned(),
-                subject: "gate service capacity, closure schedule, message reach, and trust".to_owned(),
-                basis: chiyoda_core::AssumptionBasis::StructuralAssumption,
-                rationale: "the generated constraints and interventions are stress conditions for reference-runtime exploration, not observed operations or behavior".to_owned(),
-                source_ids: Vec::new(),
-            },
-        ],
-        sources: Vec::new(),
-        source_attestations: Vec::new(),
-        claim_boundary: "This is an uncalibrated deterministic structural draft. It does not predict a real facility, population, evacuation outcome, operational response, or safety result.".to_owned(),
-    };
+    let manifest =
+        starter_experiment_manifest(name, seed, trace_every_steps, &scenario, with_sensitivity)?;
     validate_experiment_manifest(&manifest).map_err(|errors| experiment_error(&errors))?;
     let sensitivity_manifest = with_sensitivity
         .then(|| {
@@ -1469,6 +1658,136 @@ fn initialize_experiment(
         );
     }
     Ok(())
+}
+
+fn starter_experiment_manifest(
+    name: &str,
+    seed: u64,
+    trace_every_steps: u32,
+    scenario: &chiyoda_core::Scenario,
+    with_sensitivity: bool,
+) -> Result<ExperimentManifest> {
+    let passengers = scenario
+        .agents
+        .first()
+        .context("generated starter scenario has no agent group")?;
+    let gate = scenario
+        .gates
+        .first()
+        .context("generated starter scenario has no gate")?;
+    let misinformation = scenario
+        .messages
+        .first()
+        .context("generated starter scenario has no message")?;
+    let correction = scenario
+        .countermeasures
+        .first()
+        .context("generated starter scenario has no countermeasure")?;
+    Ok(ExperimentManifest {
+        schema_version: "0.4".to_owned(),
+        name: name.to_owned(),
+        description: format!(
+            "an initial uncalibrated structural draft generated from deterministic seed {seed}; review every stated input before interpreting a run"
+        ),
+        scenario_source: "scenario.chy".to_owned(),
+        trace_every_steps,
+        assumptions: starter_experiment_assumptions(seed, passengers, gate, misinformation, correction),
+        sources: Vec::new(),
+        source_attestations: Vec::new(),
+        sensitivity_studies: if with_sensitivity {
+            vec![ExperimentSensitivityStudy {
+                id: "generated_best_guess_stress_test".to_owned(),
+                manifest_path: "sensitivity.json".to_owned(),
+            }]
+        } else {
+            Vec::new()
+        },
+        claim_boundary: "This is an uncalibrated deterministic structural draft. It does not predict a real facility, population, evacuation outcome, operational response, or safety result.".to_owned(),
+    })
+}
+
+fn current_experiment_report_schema(manifest: &ExperimentManifest) -> &'static str {
+    if manifest.schema_version == "0.4" {
+        EXPERIMENT_REPORT_SCHEMA_VERSION
+    } else {
+        "0.3"
+    }
+}
+
+fn starter_experiment_assumptions(
+    seed: u64,
+    passengers: &chiyoda_core::model::AgentGroup,
+    gate: &chiyoda_core::model::Gate,
+    misinformation: &chiyoda_core::model::Message,
+    correction: &chiyoda_core::model::Countermeasure,
+) -> Vec<chiyoda_core::ExperimentAssumption> {
+    vec![
+        chiyoda_core::ExperimentAssumption {
+            id: "generated_topology".to_owned(),
+            subject: "scenario seed, topology, routing alternatives, and scheduled changes"
+                .to_owned(),
+            basis: chiyoda_core::AssumptionBasis::StructuralAssumption,
+            rationale: format!(
+                "the deterministic generator produced this structural draft from seed {seed}; it is not a representation of a real facility"
+            ),
+            source_ids: Vec::new(),
+            targets: Vec::new(),
+        },
+        passenger_demand_and_motion_assumption(passengers),
+        service_and_information_conditions_assumption(gate, misinformation, correction),
+    ]
+}
+
+fn passenger_demand_and_motion_assumption(
+    passengers: &chiyoda_core::model::AgentGroup,
+) -> chiyoda_core::ExperimentAssumption {
+    chiyoda_core::ExperimentAssumption {
+        id: "passenger_demand_and_motion".to_owned(),
+        subject: "passengers count, release schedule, speed, radius, and height".to_owned(),
+        basis: chiyoda_core::AssumptionBasis::BestGuess,
+        rationale: "the generated demand and body/motion values are explicit starting inputs, not a population estimate".to_owned(),
+        source_ids: Vec::new(),
+        targets: vec![
+            experiment_assumption_target(SensitivityTarget::AgentCount, &passengers.id),
+            experiment_assumption_target(SensitivityTarget::AgentReleaseAtS, &passengers.id),
+            experiment_assumption_target(SensitivityTarget::AgentSpeedMps, &passengers.id),
+            experiment_assumption_target(SensitivityTarget::AgentRadiusM, &passengers.id),
+            experiment_assumption_target(SensitivityTarget::AgentHeightM, &passengers.id),
+        ],
+    }
+}
+
+fn service_and_information_conditions_assumption(
+    gate: &chiyoda_core::model::Gate,
+    misinformation: &chiyoda_core::model::Message,
+    correction: &chiyoda_core::model::Countermeasure,
+) -> chiyoda_core::ExperimentAssumption {
+    chiyoda_core::ExperimentAssumption {
+        id: "service_and_information_conditions".to_owned(),
+        subject: "gate service capacity, closure schedule, message reach, and trust".to_owned(),
+        basis: chiyoda_core::AssumptionBasis::StructuralAssumption,
+        rationale: "the generated constraints and interventions are stress conditions for reference-runtime exploration, not observed operations or behavior".to_owned(),
+        source_ids: Vec::new(),
+        targets: vec![
+            experiment_assumption_target(SensitivityTarget::GateServiceRatePerS, &gate.id),
+            experiment_assumption_target(SensitivityTarget::MessageAtS, &misinformation.id),
+            experiment_assumption_target(SensitivityTarget::MessageReachM, &misinformation.id),
+            experiment_assumption_target(SensitivityTarget::MessageTrust, &misinformation.id),
+            experiment_assumption_target(SensitivityTarget::CountermeasureAtS, &correction.id),
+            experiment_assumption_target(SensitivityTarget::CountermeasureReachM, &correction.id),
+            experiment_assumption_target(SensitivityTarget::CountermeasureTrust, &correction.id),
+        ],
+    }
+}
+
+fn experiment_assumption_target(
+    target: SensitivityTarget,
+    subject: &str,
+) -> ExperimentAssumptionTarget {
+    ExperimentAssumptionTarget {
+        target,
+        subject: subject.to_owned(),
+    }
 }
 
 fn starter_sensitivity_manifest(
@@ -1605,8 +1924,371 @@ fn starter_correction_timing_factor(
     }
 }
 
+fn resolve_experiment_assumption_targets(
+    manifest: &ExperimentManifest,
+    scenario: &chiyoda_core::Scenario,
+) -> Result<Vec<ExperimentResolvedAssumptionTarget>> {
+    manifest
+        .assumptions
+        .iter()
+        .flat_map(|assumption| {
+            assumption
+                .targets
+                .iter()
+                .map(move |target| (assumption.id.as_str(), target))
+        })
+        .map(|(assumption_id, target)| {
+            let baseline_value =
+                resolve_sensitivity_target_value(scenario, target.target, &target.subject)
+                    .with_context(|| {
+                        format!(
+                            "resolving assumption `{assumption_id}` target `{:?}` for subject `{}`",
+                            target.target, target.subject
+                        )
+                    })?;
+            Ok(ExperimentResolvedAssumptionTarget {
+                assumption_id: assumption_id.to_owned(),
+                target: target.target,
+                subject: target.subject.clone(),
+                baseline_value,
+                unit: target.target.unit().to_owned(),
+            })
+        })
+        .collect()
+}
+
+fn capture_experiment_sensitivity_coverage(
+    manifest: &ExperimentManifest,
+    manifest_path: &Path,
+    scenario: &chiyoda_core::Scenario,
+    resolved_assumption_targets: &[ExperimentResolvedAssumptionTarget],
+) -> Result<(
+    Option<ExperimentSensitivityCoverage>,
+    Vec<CapturedExperimentSensitivityStudy>,
+)> {
+    if manifest.sensitivity_studies.is_empty() {
+        return Ok((None, Vec::new()));
+    }
+    let scenario_hash =
+        chiyoda_core::bundle::canonical_hash(&CanonicalScenario::from(scenario.clone()));
+    let manifest_directory = manifest_path.parent().unwrap_or_else(|| Path::new("."));
+    let mut captured = Vec::with_capacity(manifest.sensitivity_studies.len());
+    for study_link in &manifest.sensitivity_studies {
+        let path = manifest_directory.join(&study_link.manifest_path);
+        let manifest_bytes = fs::read(&path)
+            .with_context(|| format!("reading sensitivity-study manifest {}", path.display()))?;
+        let sensitivity_manifest: SensitivityManifest = serde_json::from_slice(&manifest_bytes)
+            .with_context(|| format!("parsing sensitivity-study manifest {}", path.display()))?;
+        let baseline_path = path
+            .parent()
+            .unwrap_or_else(|| Path::new("."))
+            .join(&sensitivity_manifest.baseline_source);
+        let baseline_source = read_text(&baseline_path).with_context(|| {
+            format!(
+                "reading baseline scenario for sensitivity study `{}`",
+                study_link.id
+            )
+        })?;
+        let baseline = parse(&baseline_source).map_err(|error| anyhow::anyhow!(error))?;
+        validate(&baseline).map_err(|errors| validation_error(&errors))?;
+        let baseline_hash =
+            chiyoda_core::bundle::canonical_hash(&CanonicalScenario::from(baseline.clone()));
+        if baseline_hash != scenario_hash {
+            bail!(
+                "sensitivity study `{}` baseline scenario does not match the experiment scenario",
+                study_link.id
+            );
+        }
+        let coverage = resolve_experiment_sensitivity_study_coverage(
+            study_link,
+            &manifest_bytes,
+            baseline_source.as_bytes(),
+            &sensitivity_manifest,
+            scenario,
+            &scenario_hash,
+            resolved_assumption_targets,
+        )?;
+        captured.push(CapturedExperimentSensitivityStudy {
+            coverage,
+            manifest_bytes,
+            baseline_source_bytes: baseline_source.into_bytes(),
+        });
+    }
+    let coverage = build_experiment_sensitivity_coverage(
+        captured
+            .iter()
+            .map(|study| study.coverage.clone())
+            .collect(),
+        resolved_assumption_targets,
+    );
+    Ok((Some(coverage), captured))
+}
+
+fn resolve_experiment_sensitivity_study_coverage(
+    study_link: &ExperimentSensitivityStudy,
+    manifest_bytes: &[u8],
+    baseline_source_bytes: &[u8],
+    sensitivity_manifest: &SensitivityManifest,
+    scenario: &chiyoda_core::Scenario,
+    scenario_hash: &str,
+    resolved_assumption_targets: &[ExperimentResolvedAssumptionTarget],
+) -> Result<ExperimentSensitivityStudyCoverage> {
+    let study = plan_sensitivity(sensitivity_manifest, scenario)
+        .map_err(|error| anyhow::anyhow!(error))
+        .with_context(|| format!("planning sensitivity study `{}`", study_link.id))?;
+    let mut factors = Vec::with_capacity(sensitivity_manifest.factors.len());
+    for factor in &sensitivity_manifest.factors {
+        let resolved = resolved_assumption_targets
+            .iter()
+            .find(|assumption| {
+                assumption.target == factor.target && assumption.subject == factor.subject
+            })
+            .with_context(|| {
+                format!(
+                    "sensitivity study `{}` factor `{}` targets an input that is not declared by an experiment assumption",
+                    study_link.id, factor.id
+                )
+            })?;
+        let baseline_value = *study
+            .baseline_values
+            .get(&factor.id)
+            .context("validated sensitivity study has no factor baseline")?;
+        if baseline_value.total_cmp(&resolved.baseline_value).is_ne() {
+            bail!(
+                "sensitivity study `{}` factor `{}` baseline disagrees with its experiment assumption target",
+                study_link.id,
+                factor.id
+            );
+        }
+        factors.push(ExperimentSensitivityFactorCoverage {
+            factor_id: factor.id.clone(),
+            target: factor.target,
+            subject: factor.subject.clone(),
+            baseline_value,
+            unit: factor.target.unit().to_owned(),
+            values: factor.values.clone(),
+        });
+    }
+    Ok(ExperimentSensitivityStudyCoverage {
+        study_id: study_link.id.clone(),
+        declared_manifest_path: study_link.manifest_path.clone(),
+        manifest_snapshot: format!("sensitivity-studies/{}/manifest.json", study_link.id),
+        manifest_sha256: sha256_hex(manifest_bytes),
+        baseline_source_snapshot: format!("sensitivity-studies/{}/baseline.chy", study_link.id),
+        baseline_source_sha256: sha256_hex(baseline_source_bytes),
+        baseline_scenario_hash: scenario_hash.to_owned(),
+        design: sensitivity_manifest.design,
+        condition_count: study.conditions.len(),
+        factors,
+    })
+}
+
+fn build_experiment_sensitivity_coverage(
+    studies: Vec<ExperimentSensitivityStudyCoverage>,
+    resolved_assumption_targets: &[ExperimentResolvedAssumptionTarget],
+) -> ExperimentSensitivityCoverage {
+    let mut factors_by_target =
+        BTreeMap::<(SensitivityTarget, String), Vec<ExperimentSensitivityFactorLink>>::new();
+    for study in &studies {
+        for factor in &study.factors {
+            factors_by_target
+                .entry((factor.target, factor.subject.clone()))
+                .or_default()
+                .push(ExperimentSensitivityFactorLink {
+                    study_id: study.study_id.clone(),
+                    factor_id: factor.factor_id.clone(),
+                });
+        }
+    }
+    let assumption_targets = resolved_assumption_targets
+        .iter()
+        .map(|assumption| ExperimentAssumptionSensitivityCoverage {
+            assumption_id: assumption.assumption_id.clone(),
+            target: assumption.target,
+            subject: assumption.subject.clone(),
+            baseline_value: assumption.baseline_value,
+            unit: assumption.unit.clone(),
+            sensitivity_factors: factors_by_target
+                .remove(&(assumption.target, assumption.subject.clone()))
+                .unwrap_or_default(),
+        })
+        .collect();
+    ExperimentSensitivityCoverage {
+        studies,
+        assumption_targets,
+    }
+}
+
+fn write_experiment_sensitivity_studies(
+    output: &Path,
+    studies: &[CapturedExperimentSensitivityStudy],
+) -> Result<()> {
+    for study in studies {
+        let path = output.join(&study.coverage.manifest_snapshot);
+        let parent = path
+            .parent()
+            .context("sensitivity-study manifest snapshot has no parent")?;
+        fs::create_dir_all(parent).with_context(|| format!("creating {}", parent.display()))?;
+        fs::write(&path, &study.manifest_bytes).with_context(|| {
+            format!(
+                "writing sensitivity-study manifest snapshot {}",
+                path.display()
+            )
+        })?;
+        let baseline_path = output.join(&study.coverage.baseline_source_snapshot);
+        fs::write(&baseline_path, &study.baseline_source_bytes).with_context(|| {
+            format!(
+                "writing sensitivity-study baseline snapshot {}",
+                baseline_path.display()
+            )
+        })?;
+    }
+    Ok(())
+}
+
+fn reconstruct_experiment_sensitivity_coverage(
+    directory: &Path,
+    manifest: &ExperimentManifest,
+    scenario: &chiyoda_core::Scenario,
+    resolved_assumption_targets: &[ExperimentResolvedAssumptionTarget],
+) -> Result<Option<ExperimentSensitivityCoverage>> {
+    if manifest.sensitivity_studies.is_empty() {
+        let root = directory.join("sensitivity-studies");
+        if root.exists() {
+            bail!("experiment has undeclared sensitivity-study snapshots");
+        }
+        return Ok(None);
+    }
+    verify_experiment_sensitivity_study_layout(directory, manifest)?;
+    let scenario_hash =
+        chiyoda_core::bundle::canonical_hash(&CanonicalScenario::from(scenario.clone()));
+    let mut studies = Vec::with_capacity(manifest.sensitivity_studies.len());
+    for study_link in &manifest.sensitivity_studies {
+        let path = directory
+            .join("sensitivity-studies")
+            .join(&study_link.id)
+            .join("manifest.json");
+        let manifest_bytes = fs::read(&path).with_context(|| {
+            format!(
+                "reading sensitivity-study manifest snapshot {}",
+                path.display()
+            )
+        })?;
+        let sensitivity_manifest: SensitivityManifest = serde_json::from_slice(&manifest_bytes)
+            .with_context(|| {
+                format!(
+                    "parsing sensitivity-study manifest snapshot {}",
+                    path.display()
+                )
+            })?;
+        let baseline_path = directory
+            .join("sensitivity-studies")
+            .join(&study_link.id)
+            .join("baseline.chy");
+        let baseline_source = read_text(&baseline_path).with_context(|| {
+            format!(
+                "reading sensitivity-study baseline snapshot {}",
+                baseline_path.display()
+            )
+        })?;
+        let baseline = parse(&baseline_source).map_err(|error| anyhow::anyhow!(error))?;
+        validate(&baseline).map_err(|errors| validation_error(&errors))?;
+        let baseline_hash =
+            chiyoda_core::bundle::canonical_hash(&CanonicalScenario::from(baseline));
+        if baseline_hash != scenario_hash {
+            bail!(
+                "sensitivity-study baseline snapshot for `{}` does not match the experiment scenario",
+                study_link.id
+            );
+        }
+        studies.push(resolve_experiment_sensitivity_study_coverage(
+            study_link,
+            &manifest_bytes,
+            baseline_source.as_bytes(),
+            &sensitivity_manifest,
+            scenario,
+            &scenario_hash,
+            resolved_assumption_targets,
+        )?);
+    }
+    Ok(Some(build_experiment_sensitivity_coverage(
+        studies,
+        resolved_assumption_targets,
+    )))
+}
+
+fn verify_experiment_sensitivity_study_layout(
+    directory: &Path,
+    manifest: &ExperimentManifest,
+) -> Result<()> {
+    let root = directory.join("sensitivity-studies");
+    let expected_ids = manifest
+        .sensitivity_studies
+        .iter()
+        .map(|study| study.id.clone())
+        .collect::<BTreeSet<_>>();
+    let actual_ids = fs::read_dir(&root)
+        .with_context(|| format!("reading {}", root.display()))?
+        .map(|entry| {
+            let entry = entry.with_context(|| format!("reading {}", root.display()))?;
+            if !entry
+                .file_type()
+                .with_context(|| format!("reading {}", entry.path().display()))?
+                .is_dir()
+            {
+                bail!(
+                    "sensitivity-study snapshot is not a directory: {}",
+                    entry.path().display()
+                );
+            }
+            entry
+                .file_name()
+                .into_string()
+                .map_err(|_| anyhow::anyhow!("sensitivity-study identifier is not UTF-8"))
+        })
+        .collect::<Result<BTreeSet<_>>>()?;
+    if actual_ids != expected_ids {
+        bail!("sensitivity-study snapshot directories do not match manifest declarations");
+    }
+    for id in expected_ids {
+        let study_directory = root.join(&id);
+        let files = fs::read_dir(&study_directory)
+            .with_context(|| format!("reading {}", study_directory.display()))?
+            .map(|entry| {
+                let entry =
+                    entry.with_context(|| format!("reading {}", study_directory.display()))?;
+                if !entry
+                    .file_type()
+                    .with_context(|| format!("reading {}", entry.path().display()))?
+                    .is_file()
+                {
+                    bail!(
+                        "sensitivity-study snapshot entry is not a file: {}",
+                        entry.path().display()
+                    );
+                }
+                entry
+                    .file_name()
+                    .into_string()
+                    .map_err(|_| anyhow::anyhow!("sensitivity-study snapshot name is not UTF-8"))
+            })
+            .collect::<Result<BTreeSet<_>>>()?;
+        if files != BTreeSet::from(["baseline.chy".to_owned(), "manifest.json".to_owned()]) {
+            bail!("sensitivity-study snapshot files do not match the artifact contract");
+        }
+    }
+    Ok(())
+}
+
 fn plan_experiment(manifest_path: &Path, output: Option<&Path>) -> Result<()> {
     let (manifest, scenario_source, scenario) = load_experiment(manifest_path)?;
+    let resolved_assumption_targets = resolve_experiment_assumption_targets(&manifest, &scenario)?;
+    let (sensitivity_coverage, _) = capture_experiment_sensitivity_coverage(
+        &manifest,
+        manifest_path,
+        &scenario,
+        &resolved_assumption_targets,
+    )?;
     let source_reports = capture_experiment_source_reports(&manifest, manifest_path)?;
     let source_attestations = capture_experiment_osm_attestations(
         &manifest,
@@ -1653,6 +2335,8 @@ fn plan_experiment(manifest_path: &Path, output: Option<&Path>) -> Result<()> {
             countermeasures: scenario.countermeasures.len(),
         },
         assumptions: manifest.assumptions.clone(),
+        resolved_assumption_targets,
+        sensitivity_coverage,
         sources: manifest.sources.clone(),
         source_report_snapshots: source_reports
             .iter()
@@ -1680,6 +2364,13 @@ fn plan_experiment(manifest_path: &Path, output: Option<&Path>) -> Result<()> {
 
 fn run_experiment(manifest_path: &Path, output: &Path) -> Result<()> {
     let (manifest, scenario_source, scenario) = load_experiment(manifest_path)?;
+    let resolved_assumption_targets = resolve_experiment_assumption_targets(&manifest, &scenario)?;
+    let (sensitivity_coverage, sensitivity_studies) = capture_experiment_sensitivity_coverage(
+        &manifest,
+        manifest_path,
+        &scenario,
+        &resolved_assumption_targets,
+    )?;
     let source_reports = capture_experiment_source_reports(&manifest, manifest_path)?;
     let source_attestations = capture_experiment_osm_attestations(
         &manifest,
@@ -1695,6 +2386,7 @@ fn run_experiment(manifest_path: &Path, output: &Path) -> Result<()> {
         .with_context(|| format!("writing scenario snapshot into {}", output.display()))?;
     write_experiment_source_reports(output, &source_reports)?;
     write_experiment_osm_attestations(output, &source_attestations)?;
+    write_experiment_sensitivity_studies(output, &sensitivity_studies)?;
     let bundle = run(
         &scenario,
         RunOptions {
@@ -1711,6 +2403,9 @@ fn run_experiment(manifest_path: &Path, output: &Path) -> Result<()> {
             .iter()
             .map(|report| report.snapshot.clone())
             .collect(),
+        resolved_assumption_targets,
+        sensitivity_coverage,
+        current_experiment_report_schema(&manifest),
     );
     write_json(&output.join("report.json"), &report)?;
     println!(
@@ -1721,6 +2416,7 @@ fn run_experiment(manifest_path: &Path, output: &Path) -> Result<()> {
     Ok(())
 }
 
+#[allow(clippy::too_many_lines)] // one verifier binds every independently persisted experiment artifact boundary
 fn verify_experiment(directory: &Path) -> Result<()> {
     let manifest: ExperimentManifest = read_json(&directory.join("manifest.json"))?;
     validate_experiment_manifest(&manifest).map_err(|errors| experiment_error(&errors))?;
@@ -1729,10 +2425,18 @@ fn verify_experiment(directory: &Path) -> Result<()> {
         directory,
         !source_reports.is_empty(),
         !manifest.source_attestations.is_empty(),
+        !manifest.sensitivity_studies.is_empty(),
     )?;
     let scenario_source = read_text(&directory.join("scenario.chy"))?;
     let scenario = parse(&scenario_source).map_err(|error| anyhow::anyhow!(error))?;
     validate(&scenario).map_err(|errors| validation_error(&errors))?;
+    let resolved_assumption_targets = resolve_experiment_assumption_targets(&manifest, &scenario)?;
+    let sensitivity_coverage = reconstruct_experiment_sensitivity_coverage(
+        directory,
+        &manifest,
+        &scenario,
+        &resolved_assumption_targets,
+    )?;
     verify_experiment_osm_attestations(
         directory,
         &manifest,
@@ -1760,6 +2464,15 @@ fn verify_experiment(directory: &Path) -> Result<()> {
         .get("schema_version")
         .and_then(serde_json::Value::as_str)
         .context("experiment report has no string schema_version")?;
+    if matches!(manifest.schema_version.as_str(), "0.3" | "0.4")
+        && report_schema != current_experiment_report_schema(&manifest)
+    {
+        bail!(
+            "experiment manifest schema {} requires report schema {}",
+            manifest.schema_version,
+            current_experiment_report_schema(&manifest)
+        );
+    }
     let expected_report = match report_schema {
         "0.1" => serde_json::to_value(legacy_experiment_report(
             &manifest,
@@ -1768,12 +2481,35 @@ fn verify_experiment(directory: &Path) -> Result<()> {
             &bundle,
             source_reports,
         )),
+        "0.2" => serde_json::to_value(experiment_report(
+            &manifest,
+            &manifest_bytes,
+            scenario_source.as_bytes(),
+            &bundle,
+            source_reports,
+            Vec::new(),
+            None,
+            "0.2",
+        )),
+        "0.3" => serde_json::to_value(experiment_report(
+            &manifest,
+            &manifest_bytes,
+            scenario_source.as_bytes(),
+            &bundle,
+            source_reports,
+            resolved_assumption_targets,
+            None,
+            "0.3",
+        )),
         EXPERIMENT_REPORT_SCHEMA_VERSION => serde_json::to_value(experiment_report(
             &manifest,
             &manifest_bytes,
             scenario_source.as_bytes(),
             &bundle,
             source_reports,
+            resolved_assumption_targets,
+            sensitivity_coverage,
+            EXPERIMENT_REPORT_SCHEMA_VERSION,
         )),
         version => bail!("unsupported experiment report schema `{version}`"),
     }
@@ -2429,11 +3165,13 @@ fn verify_experiment_layout(
     directory: &Path,
     has_source_reports: bool,
     has_source_attestations: bool,
+    has_sensitivity_studies: bool,
 ) -> Result<()> {
     let expected = ["manifest.json", "scenario.chy", "run.json", "report.json"]
         .into_iter()
         .chain(has_source_reports.then_some("source-reports"))
         .chain(has_source_attestations.then_some("source-attestations"))
+        .chain(has_sensitivity_studies.then_some("sensitivity-studies"))
         .map(str::to_owned)
         .collect::<std::collections::BTreeSet<_>>();
     let actual = fs::read_dir(directory)
@@ -2452,12 +3190,16 @@ fn verify_experiment_layout(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)] // the report binds independent artifact inputs that must remain explicit
 fn experiment_report(
     manifest: &ExperimentManifest,
     manifest_bytes: &[u8],
     scenario_source: &[u8],
     bundle: &RunBundle,
     source_report_snapshots: Vec<ExperimentSourceReportSnapshot>,
+    resolved_assumption_targets: Vec<ExperimentResolvedAssumptionTarget>,
+    sensitivity_coverage: Option<ExperimentSensitivityCoverage>,
+    schema_version: &str,
 ) -> ExperimentReport {
     ExperimentReport {
         base: experiment_report_base(
@@ -2466,7 +3208,9 @@ fn experiment_report(
             scenario_source,
             bundle,
             source_report_snapshots,
-            EXPERIMENT_REPORT_SCHEMA_VERSION,
+            resolved_assumption_targets,
+            sensitivity_coverage,
+            schema_version,
         ),
         runtime_metrics: bundle.metrics.clone(),
     }
@@ -2486,17 +3230,22 @@ fn legacy_experiment_report(
             scenario_source,
             bundle,
             source_report_snapshots,
+            Vec::new(),
+            None,
             "0.1",
         ),
     }
 }
 
+#[allow(clippy::too_many_arguments)] // the base report binds independent artifact inputs that must remain explicit
 fn experiment_report_base(
     manifest: &ExperimentManifest,
     manifest_bytes: &[u8],
     scenario_source: &[u8],
     bundle: &RunBundle,
     source_report_snapshots: Vec<ExperimentSourceReportSnapshot>,
+    resolved_assumption_targets: Vec<ExperimentResolvedAssumptionTarget>,
+    sensitivity_coverage: Option<ExperimentSensitivityCoverage>,
     schema_version: &str,
 ) -> ExperimentReportBase {
     ExperimentReportBase {
@@ -2512,6 +3261,8 @@ fn experiment_report_base(
         bundle_hash: bundle.bundle_hash.clone(),
         trace_every_steps: manifest.trace_every_steps,
         source_report_snapshots,
+        resolved_assumption_targets,
+        sensitivity_coverage,
         author_claim_boundary: manifest.claim_boundary.clone(),
         claim_boundary: "This artifact snapshots one authored, deterministic, uncalibrated structural experiment and its disclosed inputs. It does not establish parameter likelihoods, population behavior, real-world performance, causal effects, predictive validity, operational suitability, or safety.".to_owned(),
     }
@@ -3735,6 +4486,85 @@ fn reconcile_run_provenance(
     Ok(())
 }
 
+fn validate_on_surface_clearance_audit(
+    bundle: &RunBundle,
+    directory: &Path,
+    audit: &OnSurfaceClearanceMetrics,
+) -> Result<()> {
+    let total_agents = u64::from(bundle.metrics.total_agents);
+    let maximum_pair_steps = chiyoda_core::integration_step_count(
+        bundle.scenario.scenario.duration_s,
+        bundle.scenario.scenario.timestep_s,
+    )
+    .saturating_mul(total_agents.saturating_mul(total_agents.saturating_sub(1)) / 2);
+    let maximum_disc_overlap_m = bundle
+        .scenario
+        .scenario
+        .agents
+        .iter()
+        .map(|group| group.radius_m)
+        .fold(0.0_f64, f64::max)
+        * 2.0;
+    let all_zero = audit.agents_with_disc_overlaps == 0
+        && audit.disc_overlap_pair_steps == 0
+        && audit.maximum_disc_overlap_m == 0.0;
+    if u64::from(audit.agents_with_disc_overlaps) > total_agents
+        || audit.disc_overlap_pair_steps > maximum_pair_steps
+        || !audit.maximum_disc_overlap_m.is_finite()
+        || audit.maximum_disc_overlap_m < 0.0
+        || audit.maximum_disc_overlap_m > maximum_disc_overlap_m
+        || (audit.disc_overlap_pair_steps == 0 && !all_zero)
+        || (audit.disc_overlap_pair_steps > 0
+            && (audit.agents_with_disc_overlaps < 2 || audit.maximum_disc_overlap_m == 0.0))
+    {
+        bail!(
+            "bundle has invalid on-surface reference-disc audit telemetry: {}",
+            directory.display()
+        );
+    }
+    Ok(())
+}
+
+fn validate_swept_on_surface_clearance_audit(
+    bundle: &RunBundle,
+    directory: &Path,
+    audit: &SweptOnSurfaceClearanceMetrics,
+) -> Result<()> {
+    let total_agents = u64::from(bundle.metrics.total_agents);
+    let maximum_pair_steps = chiyoda_core::integration_step_count(
+        bundle.scenario.scenario.duration_s,
+        bundle.scenario.scenario.timestep_s,
+    )
+    .saturating_mul(total_agents.saturating_mul(total_agents.saturating_sub(1)) / 2);
+    let maximum_disc_overlap_m = bundle
+        .scenario
+        .scenario
+        .agents
+        .iter()
+        .map(|group| group.radius_m)
+        .fold(0.0_f64, f64::max)
+        * 2.0;
+    let all_zero = audit.agents_with_swept_disc_overlaps == 0
+        && audit.swept_disc_overlap_pair_steps == 0
+        && audit.maximum_swept_disc_overlap_m == 0.0;
+    if u64::from(audit.agents_with_swept_disc_overlaps) > total_agents
+        || audit.swept_disc_overlap_pair_steps > maximum_pair_steps
+        || !audit.maximum_swept_disc_overlap_m.is_finite()
+        || audit.maximum_swept_disc_overlap_m < 0.0
+        || audit.maximum_swept_disc_overlap_m > maximum_disc_overlap_m
+        || (audit.swept_disc_overlap_pair_steps == 0 && !all_zero)
+        || (audit.swept_disc_overlap_pair_steps > 0
+            && (audit.agents_with_swept_disc_overlaps < 2
+                || audit.maximum_swept_disc_overlap_m == 0.0))
+    {
+        bail!(
+            "bundle has invalid swept on-surface reference-disc audit telemetry: {}",
+            directory.display()
+        );
+    }
+    Ok(())
+}
+
 #[allow(clippy::too_many_lines)] // every persisted metric invariant is checked together
 fn validate_bundle_metrics(bundle: &RunBundle, directory: &Path) -> Result<()> {
     let metrics = &bundle.metrics;
@@ -3773,6 +4603,20 @@ fn validate_bundle_metrics(bundle: &RunBundle, directory: &Path) -> Result<()> {
             | "0.26"
             | "0.27"
             | "0.28"
+            | "0.29"
+            | "0.30"
+            | "0.31"
+            | "0.32"
+            | "0.33"
+            | "0.34"
+            | "0.35"
+            | "0.36"
+            | "0.37"
+            | "0.38"
+            | "0.39"
+            | "0.40"
+            | "0.41"
+            | "0.42"
     ) {
         let fully_evacuated = metrics.evacuated_agents == metrics.total_agents;
         if metrics.clearance_time_s.is_some() != fully_evacuated {
@@ -3861,6 +4705,20 @@ fn validate_bundle_metrics(bundle: &RunBundle, directory: &Path) -> Result<()> {
             | "0.26"
             | "0.27"
             | "0.28"
+            | "0.29"
+            | "0.30"
+            | "0.31"
+            | "0.32"
+            | "0.33"
+            | "0.34"
+            | "0.35"
+            | "0.36"
+            | "0.37"
+            | "0.38"
+            | "0.39"
+            | "0.40"
+            | "0.41"
+            | "0.42"
     ) && !expected_interventions.is_empty()
     {
         bail!(
@@ -3909,7 +4767,27 @@ fn validate_bundle_metrics(bundle: &RunBundle, directory: &Path) -> Result<()> {
     }
     if matches!(
         bundle.bundle_version.as_str(),
-        "0.22" | "0.23" | "0.24" | "0.25" | "0.26" | "0.27" | "0.28"
+        "0.22"
+            | "0.23"
+            | "0.24"
+            | "0.25"
+            | "0.26"
+            | "0.27"
+            | "0.28"
+            | "0.29"
+            | "0.30"
+            | "0.31"
+            | "0.32"
+            | "0.33"
+            | "0.34"
+            | "0.35"
+            | "0.36"
+            | "0.37"
+            | "0.38"
+            | "0.39"
+            | "0.40"
+            | "0.41"
+            | "0.42"
     ) {
         let queue_metrics = metrics.queue_metrics.as_ref().ok_or_else(|| {
             anyhow::anyhow!(
@@ -3946,7 +4824,26 @@ fn validate_bundle_metrics(bundle: &RunBundle, directory: &Path) -> Result<()> {
         }
         if matches!(
             bundle.bundle_version.as_str(),
-            "0.23" | "0.24" | "0.25" | "0.26" | "0.27" | "0.28"
+            "0.23"
+                | "0.24"
+                | "0.25"
+                | "0.26"
+                | "0.27"
+                | "0.28"
+                | "0.29"
+                | "0.30"
+                | "0.31"
+                | "0.32"
+                | "0.33"
+                | "0.34"
+                | "0.35"
+                | "0.36"
+                | "0.37"
+                | "0.38"
+                | "0.39"
+                | "0.40"
+                | "0.41"
+                | "0.42"
         ) {
             let by_resource = queue_metrics.by_resource.as_ref().ok_or_else(|| {
                 anyhow::anyhow!(
@@ -4003,13 +4900,66 @@ fn validate_bundle_metrics(bundle: &RunBundle, directory: &Path) -> Result<()> {
             )?;
             if matches!(
                 bundle.bundle_version.as_str(),
-                "0.24" | "0.25" | "0.26" | "0.27" | "0.28"
+                "0.24"
+                    | "0.25"
+                    | "0.26"
+                    | "0.27"
+                    | "0.28"
+                    | "0.29"
+                    | "0.30"
+                    | "0.31"
+                    | "0.32"
+                    | "0.33"
+                    | "0.34"
+                    | "0.35"
+                    | "0.36"
+                    | "0.37"
+                    | "0.38"
+                    | "0.39"
+                    | "0.40"
+                    | "0.41"
+                    | "0.42"
             ) {
                 validate_queue_entry_events(bundle, directory, by_resource, queue_metrics)?;
+                if matches!(
+                    bundle.bundle_version.as_str(),
+                    "0.33"
+                        | "0.34"
+                        | "0.35"
+                        | "0.36"
+                        | "0.37"
+                        | "0.38"
+                        | "0.39"
+                        | "0.40"
+                        | "0.41"
+                        | "0.42"
+                ) {
+                    validate_queue_service_reservation_events(bundle, directory)?;
+                }
+                if matches!(bundle.bundle_version.as_str(), "0.41" | "0.42") {
+                    validate_queue_grid_preallocation_events(bundle, directory)?;
+                }
             }
         }
     }
-    if bundle.bundle_version == "0.28" {
+    if matches!(
+        bundle.bundle_version.as_str(),
+        "0.28"
+            | "0.29"
+            | "0.30"
+            | "0.31"
+            | "0.32"
+            | "0.33"
+            | "0.34"
+            | "0.35"
+            | "0.36"
+            | "0.37"
+            | "0.38"
+            | "0.39"
+            | "0.40"
+            | "0.41"
+            | "0.42"
+    ) {
         let movement = metrics.movement_metrics.as_ref().ok_or_else(|| {
             anyhow::anyhow!(
                 "current bundle omits local-clearance telemetry: {}",
@@ -4042,6 +4992,183 @@ fn validate_bundle_metrics(bundle: &RunBundle, directory: &Path) -> Result<()> {
                 directory.display()
             );
         }
+        match bundle.bundle_version.as_str() {
+            "0.31" | "0.32" | "0.33" | "0.34" | "0.35" | "0.36" | "0.37" | "0.38" | "0.39"
+            | "0.40" | "0.41" | "0.42" => {
+                let fallback_steps = movement
+                    .local_avoidance_constraint_fallback_steps
+                    .ok_or_else(|| {
+                        anyhow::anyhow!(
+                            "current bundle omits local-motion ORCA fallback telemetry: {}",
+                            directory.display()
+                        )
+                    })?;
+                if fallback_steps > maximum_possible_steps {
+                    bail!(
+                        "bundle has invalid local-motion ORCA fallback telemetry: {}",
+                        directory.display()
+                    );
+                }
+                validate_local_avoidance_fallback_events(bundle, directory, fallback_steps)?;
+            }
+            _ if movement.local_avoidance_constraint_fallback_steps.is_some() => {
+                bail!(
+                    "pre-0.31 bundle unexpectedly contains local-motion ORCA fallback telemetry: {}",
+                    directory.display()
+                );
+            }
+            _ => {}
+        }
+        match bundle.bundle_version.as_str() {
+            "0.36" | "0.37" | "0.38" | "0.39" | "0.40" | "0.41" | "0.42" => {
+                let audit = movement
+                    .on_surface_clearance_audit
+                    .as_ref()
+                    .ok_or_else(|| {
+                        anyhow::anyhow!(
+                            "current bundle omits on-surface reference-disc audit telemetry: {}",
+                            directory.display()
+                        )
+                    })?;
+                validate_on_surface_clearance_audit(bundle, directory, audit)?;
+            }
+            _ if movement.on_surface_clearance_audit.is_some() => {
+                bail!(
+                    "pre-0.36 bundle unexpectedly contains on-surface reference-disc audit telemetry: {}",
+                    directory.display()
+                );
+            }
+            _ => {}
+        }
+        match bundle.bundle_version.as_str() {
+            "0.37" | "0.38" | "0.39" | "0.40" | "0.41" | "0.42" => {
+                let audit = movement
+                    .swept_on_surface_clearance_audit
+                    .as_ref()
+                    .ok_or_else(|| {
+                        anyhow::anyhow!(
+                            "current bundle omits swept on-surface reference-disc audit telemetry: {}",
+                            directory.display()
+                        )
+                    })?;
+                validate_swept_on_surface_clearance_audit(bundle, directory, audit)?;
+            }
+            _ if movement.swept_on_surface_clearance_audit.is_some() => {
+                bail!(
+                    "pre-0.37 bundle unexpectedly contains swept on-surface reference-disc audit telemetry: {}",
+                    directory.display()
+                );
+            }
+            _ => {}
+        }
+    }
+    if bundle.bundle_version == "0.42" {
+        validate_release_clearance_deferral_events(bundle, directory)?;
+    }
+    Ok(())
+}
+
+/// Verify the 0.42 audit trail for releases held outside the modeled surface.
+/// Current bundle reconstruction independently verifies the geometric
+/// clearance decision; this reader verifies the event's stable attribution and
+/// one-event-per-agent contract.
+fn validate_release_clearance_deferral_events(bundle: &RunBundle, directory: &Path) -> Result<()> {
+    let initial_agents = bundle
+        .trace
+        .first()
+        .ok_or_else(|| anyhow::anyhow!("bundle lacks initial trace: {}", directory.display()))?
+        .agents
+        .iter()
+        .map(|agent| (agent.id.as_str(), agent.group.as_str()))
+        .collect::<BTreeMap<_, _>>();
+    let mut deferred = BTreeMap::new();
+    for event in &bundle.events {
+        if event.kind != "agent_release_deferred_for_clearance" {
+            continue;
+        }
+        if !event.time_s.is_finite()
+            || event.time_s < 0.0
+            || event.time_s > bundle.scenario.scenario.duration_s
+            || event.subject.is_empty()
+            || initial_agents.get(event.subject.as_str()) != Some(&event.detail.as_str())
+            || deferred
+                .insert(event.subject.as_str(), event.time_s)
+                .is_some()
+        {
+            bail!(
+                "bundle has invalid release-clearance deferral event: {}",
+                directory.display()
+            );
+        }
+    }
+    for event in &bundle.events {
+        let Some(deferred_at_s) = deferred.get(event.subject.as_str()) else {
+            continue;
+        };
+        if event.kind == "agent_released" && event.time_s < *deferred_at_s {
+            bail!(
+                "bundle releases an agent before its clearance-deferral event: {}",
+                directory.display()
+            );
+        }
+    }
+    Ok(())
+}
+
+fn validate_local_avoidance_fallback_events(
+    bundle: &RunBundle,
+    directory: &Path,
+    expected_steps: u64,
+) -> Result<()> {
+    const FALLBACK_DETAIL: &str = "the speed-bounded reciprocal constraints were infeasible";
+    let mut observed_steps = 0_u64;
+    let mut agent_ids = None;
+    for event in &bundle.events {
+        if event.kind != "local_avoidance_constraint_fallback" {
+            continue;
+        }
+        if !event.time_s.is_finite()
+            || event.time_s < 0.0
+            || event.subject.is_empty()
+            || event.detail != FALLBACK_DETAIL
+        {
+            bail!(
+                "bundle has malformed local-motion ORCA fallback event: {}",
+                directory.display()
+            );
+        }
+        let ids = agent_ids.get_or_insert_with(|| {
+            bundle
+                .trace
+                .first()
+                .map(|frame| {
+                    frame
+                        .agents
+                        .iter()
+                        .map(|agent| agent.id.as_str())
+                        .collect::<BTreeSet<_>>()
+                })
+                .unwrap_or_default()
+        });
+        if !ids.contains(event.subject.as_str()) {
+            bail!(
+                "bundle local-motion ORCA fallback event names an unknown agent `{}`: {}",
+                event.subject,
+                directory.display()
+            );
+        }
+        observed_steps = observed_steps.checked_add(1).ok_or_else(|| {
+            anyhow::anyhow!(
+                "bundle local-motion ORCA fallback event count overflows: {}",
+                directory.display()
+            )
+        })?;
+    }
+    if observed_steps != expected_steps {
+        bail!(
+            "bundle local-motion ORCA fallback events disagree with telemetry: {}",
+            directory.display()
+        );
     }
     Ok(())
 }
@@ -4148,6 +5275,252 @@ fn record_queue_entry_event(
             "bundle repeats a queue-entry event for {resource_kind} `{resource_id}` and agent `{agent_id}`: {}",
             directory.display()
         );
+    }
+    Ok(())
+}
+
+fn validate_queue_service_reservation_events(bundle: &RunBundle, directory: &Path) -> Result<()> {
+    let scenario = &bundle.scenario.scenario;
+    let mut footprints = BTreeMap::new();
+    for footprint in &scenario.queue_footprints {
+        let entry_kind = match &footprint.resource {
+            chiyoda_core::model::PortalResource::Connector { id } => scenario
+                .connectors
+                .iter()
+                .find(|connector| connector.id() == id)
+                .map_or_else(
+                    || {
+                        bail!(
+                            "bundle queue footprint references an unknown connector: {}",
+                            directory.display()
+                        )
+                    },
+                    |connector| {
+                        Ok(if connector.is_lift() {
+                            "queue_entered_lift"
+                        } else {
+                            "queue_entered_connector"
+                        })
+                    },
+                )?,
+            chiyoda_core::model::PortalResource::Exit { id } => {
+                if !scenario.exits.iter().any(|exit| exit.id == *id) {
+                    bail!(
+                        "bundle queue footprint references an unknown exit: {}",
+                        directory.display()
+                    );
+                }
+                "queue_entered_exit"
+            }
+            chiyoda_core::model::PortalResource::Gate { id } => {
+                if !scenario.gates.iter().any(|gate| gate.id == *id) {
+                    bail!(
+                        "bundle queue footprint references an unknown gate: {}",
+                        directory.display()
+                    );
+                }
+                "queue_entered_gate"
+            }
+        };
+        let resource = format!("{}:{}", footprint.resource.kind(), footprint.resource.id());
+        if footprints.insert(resource, entry_kind).is_some() {
+            bail!(
+                "bundle has duplicate queue footprints for one resource: {}",
+                directory.display()
+            );
+        }
+    }
+    let mut reservations = BTreeSet::new();
+    for event in &bundle.events {
+        if event.kind != "queue_service_reserved" {
+            continue;
+        }
+        if !event.time_s.is_finite() || event.time_s < 0.0 || event.subject.is_empty() {
+            bail!(
+                "bundle has invalid queue-service reservation metadata: {}",
+                directory.display()
+            );
+        }
+        let Some((resource_kind, resource_id)) = event.detail.split_once(':') else {
+            bail!(
+                "bundle has malformed queue-service reservation detail: {}",
+                directory.display()
+            );
+        };
+        if !matches!(resource_kind, "connector" | "gate" | "exit")
+            || resource_id.is_empty()
+            || !footprints.contains_key(&event.detail)
+        {
+            bail!(
+                "bundle has queue-service reservation for an unauthored footprint: {}",
+                directory.display()
+            );
+        }
+        if !reservations.insert((event.subject.clone(), event.detail.clone())) {
+            bail!(
+                "bundle repeats a queue-service reservation for one agent/resource pair: {}",
+                directory.display()
+            );
+        }
+        let entry_kind = footprints
+            .get(&event.detail)
+            .expect("validated queue footprint exists");
+        let has_prior_entry = bundle.events.iter().any(|entry| {
+            entry.kind == *entry_kind
+                && entry.subject == event.subject
+                && entry.detail == resource_id
+                && entry.time_s <= event.time_s
+        });
+        if !has_prior_entry {
+            bail!(
+                "bundle queue-service reservation lacks a prior matching queue entry: {}",
+                directory.display()
+            );
+        }
+    }
+    Ok(())
+}
+
+/// Verify the 0.41+ distinction between a grid ticket, physical queue entry,
+/// and service reservation without reconstructing the runtime. Full current
+/// bundle verification additionally reruns the reference interpreter.
+#[allow(clippy::too_many_lines)] // preserves the related ticket/entry/reservation invariants in one audit
+fn validate_queue_grid_preallocation_events(bundle: &RunBundle, directory: &Path) -> Result<()> {
+    let scenario = &bundle.scenario.scenario;
+    let mut grids = BTreeMap::new();
+    for footprint in &scenario.queue_footprints {
+        if footprint.width_m.is_none() {
+            continue;
+        }
+        let entry_kind = match &footprint.resource {
+            chiyoda_core::model::PortalResource::Connector { id } => scenario
+                .connectors
+                .iter()
+                .find(|connector| connector.id() == id)
+                .map_or_else(
+                    || {
+                        bail!(
+                            "bundle queue grid references an unknown connector: {}",
+                            directory.display()
+                        )
+                    },
+                    |connector| {
+                        Ok(if connector.is_lift() {
+                            "queue_entered_lift"
+                        } else {
+                            "queue_entered_connector"
+                        })
+                    },
+                )?,
+            chiyoda_core::model::PortalResource::Exit { id } => {
+                if !scenario.exits.iter().any(|exit| exit.id == *id) {
+                    bail!(
+                        "bundle queue grid references an unknown exit: {}",
+                        directory.display()
+                    );
+                }
+                "queue_entered_exit"
+            }
+            chiyoda_core::model::PortalResource::Gate { id } => {
+                if !scenario.gates.iter().any(|gate| gate.id == *id) {
+                    bail!(
+                        "bundle queue grid references an unknown gate: {}",
+                        directory.display()
+                    );
+                }
+                "queue_entered_gate"
+            }
+        };
+        let resource = format!("{}:{}", footprint.resource.kind(), footprint.resource.id());
+        if grids.insert(resource, entry_kind).is_some() {
+            bail!(
+                "bundle has duplicate queue grids for one resource: {}",
+                directory.display()
+            );
+        }
+    }
+    let agent_ids = bundle
+        .trace
+        .first()
+        .map(|frame| {
+            frame
+                .agents
+                .iter()
+                .map(|agent| agent.id.as_str())
+                .collect::<BTreeSet<_>>()
+        })
+        .unwrap_or_default();
+    let mut assignments = BTreeMap::new();
+    let mut prior_ticket = None;
+    for event in &bundle.events {
+        if event.kind != "queue_slot_preallocated" {
+            continue;
+        }
+        let Some((resource, ticket)) = event.detail.rsplit_once(':') else {
+            bail!(
+                "bundle has malformed queue-slot preallocation detail: {}",
+                directory.display()
+            );
+        };
+        let ticket = ticket.parse::<u64>().map_err(|_| {
+            anyhow::anyhow!(
+                "bundle has non-numeric queue-slot preallocation ticket: {}",
+                directory.display()
+            )
+        })?;
+        if !event.time_s.is_finite()
+            || event.time_s < 0.0
+            || !agent_ids.contains(event.subject.as_str())
+            || !grids.contains_key(resource)
+        {
+            bail!(
+                "bundle has invalid queue-slot preallocation event: {}",
+                directory.display()
+            );
+        }
+        if prior_ticket.is_some_and(|previous| ticket <= previous)
+            || assignments
+                .insert((resource.to_owned(), event.subject.clone()), event.time_s)
+                .is_some()
+        {
+            bail!(
+                "bundle repeats or reorders queue-slot preallocation tickets: {}",
+                directory.display()
+            );
+        }
+        prior_ticket = Some(ticket);
+    }
+    for event in &bundle.events {
+        let resource = match event.kind.as_str() {
+            "queue_entered_lift" | "queue_entered_connector" => {
+                format!("connector:{}", event.detail)
+            }
+            "queue_entered_gate" => format!("gate:{}", event.detail),
+            "queue_entered_exit" => format!("exit:{}", event.detail),
+            "queue_service_reserved" => event.detail.clone(),
+            _ => continue,
+        };
+        let Some(expected_entry_kind) = grids.get(&resource) else {
+            continue;
+        };
+        if event.kind != "queue_service_reserved" && event.kind != *expected_entry_kind {
+            bail!(
+                "bundle queue grid uses an incompatible physical-entry event: {}",
+                directory.display()
+            );
+        }
+        let Some(assigned_at_s) = assignments.get(&(resource, event.subject.clone())) else {
+            bail!(
+                "bundle grid queue entry or reservation lacks a slot preallocation: {}",
+                directory.display()
+            );
+        };
+        if *assigned_at_s > event.time_s {
+            bail!(
+                "bundle grid queue entry or reservation precedes its slot preallocation: {}",
+                directory.display()
+            );
+        }
     }
     Ok(())
 }
@@ -4321,6 +5694,38 @@ fn describe_sweep(summary: &SweepSummary) -> SweepAnalysis {
                 u64::from(run_movement_metrics.agents_with_local_clearance_adjustments);
             movement_telemetry.local_clearance_adjustment_steps +=
                 run_movement_metrics.local_clearance_adjustment_steps;
+            if let Some(fallback_steps) =
+                run_movement_metrics.local_avoidance_constraint_fallback_steps
+            {
+                movement_telemetry.constraint_fallback_observed_runs += 1;
+                movement_telemetry.local_avoidance_constraint_fallback_steps += fallback_steps;
+            } else {
+                movement_telemetry.constraint_fallback_unobserved_legacy_runs += 1;
+            }
+            if let Some(audit) = &run_movement_metrics.on_surface_clearance_audit {
+                movement_telemetry.on_surface_clearance_audit_observed_runs += 1;
+                movement_telemetry.agents_with_on_surface_disc_overlaps +=
+                    u64::from(audit.agents_with_disc_overlaps);
+                movement_telemetry.on_surface_disc_overlap_pair_steps +=
+                    audit.disc_overlap_pair_steps;
+                movement_telemetry.maximum_on_surface_disc_overlap_m = movement_telemetry
+                    .maximum_on_surface_disc_overlap_m
+                    .max(audit.maximum_disc_overlap_m);
+            } else {
+                movement_telemetry.on_surface_clearance_audit_unobserved_legacy_runs += 1;
+            }
+            if let Some(audit) = &run_movement_metrics.swept_on_surface_clearance_audit {
+                movement_telemetry.swept_on_surface_clearance_audit_observed_runs += 1;
+                movement_telemetry.agents_with_swept_disc_overlaps +=
+                    u64::from(audit.agents_with_swept_disc_overlaps);
+                movement_telemetry.swept_disc_overlap_pair_steps +=
+                    audit.swept_disc_overlap_pair_steps;
+                movement_telemetry.maximum_swept_disc_overlap_m = movement_telemetry
+                    .maximum_swept_disc_overlap_m
+                    .max(audit.maximum_swept_disc_overlap_m);
+            } else {
+                movement_telemetry.swept_on_surface_clearance_audit_unobserved_legacy_runs += 1;
+            }
             movement_telemetry.cumulative_local_clearance_adjustment_m = canonical_report_number(
                 movement_telemetry.cumulative_local_clearance_adjustment_m
                     + run_movement_metrics.cumulative_local_clearance_adjustment_m,
@@ -4914,6 +6319,7 @@ fn queue_telemetry_delta(
     Some(delta)
 }
 
+#[allow(clippy::too_many_lines)] // every independently coverage-labeled movement audit is paired together
 fn movement_telemetry_delta(
     baseline_runs: &[SweepRun],
     candidate_runs: &[SweepRun],
@@ -4924,6 +6330,16 @@ fn movement_telemetry_delta(
     let mut delta = MovementTelemetryDelta::default();
     let mut baseline_maximum_adjustment_m = 0.0_f64;
     let mut candidate_maximum_adjustment_m = 0.0_f64;
+    let mut fallback_delta = 0_i128;
+    let mut fallback_coverage_complete = true;
+    let mut on_surface_clearance_delta = OnSurfaceClearanceAuditDelta::default();
+    let mut baseline_maximum_disc_overlap_m = 0.0_f64;
+    let mut candidate_maximum_disc_overlap_m = 0.0_f64;
+    let mut on_surface_clearance_coverage_complete = true;
+    let mut swept_on_surface_clearance_delta = SweptOnSurfaceClearanceAuditDelta::default();
+    let mut baseline_maximum_swept_disc_overlap_m = 0.0_f64;
+    let mut candidate_maximum_swept_disc_overlap_m = 0.0_f64;
+    let mut swept_on_surface_clearance_coverage_complete = true;
     for (baseline, candidate) in baseline_runs.iter().zip(candidate_runs) {
         let (Some(baseline), Some(candidate)) =
             (&baseline.movement_metrics, &candidate.movement_metrics)
@@ -4937,6 +6353,54 @@ fn movement_telemetry_delta(
         delta.local_clearance_adjustment_steps +=
             i128::from(candidate.local_clearance_adjustment_steps)
                 - i128::from(baseline.local_clearance_adjustment_steps);
+        match (
+            baseline.local_avoidance_constraint_fallback_steps,
+            candidate.local_avoidance_constraint_fallback_steps,
+        ) {
+            (Some(baseline_steps), Some(candidate_steps)) => {
+                fallback_delta += i128::from(candidate_steps) - i128::from(baseline_steps);
+            }
+            _ => fallback_coverage_complete = false,
+        }
+        match (
+            &baseline.on_surface_clearance_audit,
+            &candidate.on_surface_clearance_audit,
+        ) {
+            (Some(baseline_audit), Some(candidate_audit)) => {
+                on_surface_clearance_delta.agents_with_disc_overlaps += signed_count_delta(
+                    candidate_audit.agents_with_disc_overlaps,
+                    baseline_audit.agents_with_disc_overlaps,
+                );
+                on_surface_clearance_delta.disc_overlap_pair_steps +=
+                    i128::from(candidate_audit.disc_overlap_pair_steps)
+                        - i128::from(baseline_audit.disc_overlap_pair_steps);
+                baseline_maximum_disc_overlap_m =
+                    baseline_maximum_disc_overlap_m.max(baseline_audit.maximum_disc_overlap_m);
+                candidate_maximum_disc_overlap_m =
+                    candidate_maximum_disc_overlap_m.max(candidate_audit.maximum_disc_overlap_m);
+            }
+            _ => on_surface_clearance_coverage_complete = false,
+        }
+        match (
+            &baseline.swept_on_surface_clearance_audit,
+            &candidate.swept_on_surface_clearance_audit,
+        ) {
+            (Some(baseline_audit), Some(candidate_audit)) => {
+                swept_on_surface_clearance_delta.agents_with_swept_disc_overlaps +=
+                    signed_count_delta(
+                        candidate_audit.agents_with_swept_disc_overlaps,
+                        baseline_audit.agents_with_swept_disc_overlaps,
+                    );
+                swept_on_surface_clearance_delta.swept_disc_overlap_pair_steps +=
+                    i128::from(candidate_audit.swept_disc_overlap_pair_steps)
+                        - i128::from(baseline_audit.swept_disc_overlap_pair_steps);
+                baseline_maximum_swept_disc_overlap_m = baseline_maximum_swept_disc_overlap_m
+                    .max(baseline_audit.maximum_swept_disc_overlap_m);
+                candidate_maximum_swept_disc_overlap_m = candidate_maximum_swept_disc_overlap_m
+                    .max(candidate_audit.maximum_swept_disc_overlap_m);
+            }
+            _ => swept_on_surface_clearance_coverage_complete = false,
+        }
         delta.cumulative_local_clearance_adjustment_m = canonical_report_number(
             delta.cumulative_local_clearance_adjustment_m
                 + candidate.cumulative_local_clearance_adjustment_m
@@ -4949,6 +6413,20 @@ fn movement_telemetry_delta(
     }
     delta.maximum_local_clearance_adjustment_m =
         canonical_report_number(candidate_maximum_adjustment_m - baseline_maximum_adjustment_m);
+    delta.local_avoidance_constraint_fallback_steps =
+        fallback_coverage_complete.then_some(fallback_delta);
+    if on_surface_clearance_coverage_complete {
+        on_surface_clearance_delta.maximum_disc_overlap_m = canonical_report_number(
+            candidate_maximum_disc_overlap_m - baseline_maximum_disc_overlap_m,
+        );
+        delta.on_surface_clearance_audit = Some(on_surface_clearance_delta);
+    }
+    if swept_on_surface_clearance_coverage_complete {
+        swept_on_surface_clearance_delta.maximum_swept_disc_overlap_m = canonical_report_number(
+            candidate_maximum_swept_disc_overlap_m - baseline_maximum_swept_disc_overlap_m,
+        );
+        delta.swept_on_surface_clearance_audit = Some(swept_on_surface_clearance_delta);
+    }
     Some(delta)
 }
 
@@ -5126,12 +6604,14 @@ mod tests {
     use super::{
         ExperimentCommand, InformationSamplingAlignment, LayoutCommand, QueueExperience, SweepRun,
         SweepSource, SweepSummary, compare_sweep_summaries, describe_sweep, handle_experiment,
-        handle_layout, information_sampling_alignment, validate_bundle_metrics,
+        handle_layout, information_sampling_alignment, require_zero_reference_clearance,
+        validate_bundle_metrics, validate_queue_service_reservation_events,
     };
     use chiyoda_core::{
-        InformationDeliveryMetrics, InformationInterventionKind, MovementMetrics, QueueMetrics,
-        QueueResourceBreakdown, QueueResourceMetrics, RunBundle, RunOptions, SensitivityManifest,
-        generator, parse, plan_sensitivity, run,
+        InformationDeliveryMetrics, InformationInterventionKind, MovementMetrics,
+        OnSurfaceClearanceMetrics, QueueMetrics, QueueResourceBreakdown, QueueResourceMetrics,
+        RunBundle, RunOptions, SensitivityManifest, SweptOnSurfaceClearanceMetrics, generator,
+        parse, plan_sensitivity, run,
     };
     use sha2::{Digest, Sha256};
     use std::{
@@ -5207,12 +6687,16 @@ mod tests {
     fn test_movement_metrics(
         agents_with_local_clearance_adjustments: u32,
         local_clearance_adjustment_steps: u64,
+        local_avoidance_constraint_fallback_steps: Option<u64>,
         cumulative_local_clearance_adjustment_m: f64,
         maximum_local_clearance_adjustment_m: f64,
     ) -> MovementMetrics {
         MovementMetrics {
             agents_with_local_clearance_adjustments,
             local_clearance_adjustment_steps,
+            local_avoidance_constraint_fallback_steps,
+            on_surface_clearance_audit: None,
+            swept_on_surface_clearance_audit: None,
             cumulative_local_clearance_adjustment_m,
             maximum_local_clearance_adjustment_m,
         }
@@ -5521,11 +7005,24 @@ agents passengers count 1 on concourse at (1m, 1m, 0m) to main_entrance speed 1m
         );
         let manifest: serde_json::Value =
             super::read_json(&output.join("experiment.json")).expect("reading starter manifest");
-        assert_eq!(manifest["schema_version"], "0.1");
+        assert_eq!(manifest["schema_version"], "0.4");
         assert_eq!(manifest["name"], "generated structural draft");
         assert_eq!(manifest["trace_every_steps"], 4);
         assert!(manifest.get("sources").is_none());
         assert_eq!(manifest["assumptions"].as_array().map(Vec::len), Some(3));
+        assert_eq!(
+            manifest["assumptions"][1]["targets"]
+                .as_array()
+                .map(Vec::len),
+            Some(5)
+        );
+        assert_eq!(
+            manifest["sensitivity_studies"],
+            serde_json::json!([{
+                "id": "generated_best_guess_stress_test",
+                "manifest_path": "sensitivity.json"
+            }])
+        );
         assert!(manifest.get("source_attestations").is_none());
 
         let plan_output = directory.0.join("plan.json");
@@ -5539,6 +7036,25 @@ agents passengers count 1 on concourse at (1m, 1m, 0m) to main_entrance speed 1m
         assert_eq!(plan["sources"], serde_json::json!([]));
         assert_eq!(plan["execution"]["integration_steps"], 1200);
         assert_eq!(plan["execution"]["stored_trace_frames"], 301);
+        assert_eq!(plan["schema_version"], "0.3");
+        assert_eq!(
+            plan["resolved_assumption_targets"].as_array().map(Vec::len),
+            Some(12)
+        );
+        assert_eq!(
+            plan["resolved_assumption_targets"][0]["target"],
+            "agent_count"
+        );
+        assert_eq!(
+            plan["sensitivity_coverage"]["studies"][0]["condition_count"],
+            12
+        );
+        assert_eq!(
+            plan["sensitivity_coverage"]["assumption_targets"]
+                .as_array()
+                .map(Vec::len),
+            Some(12)
+        );
         let sensitivity_plan_output = directory.0.join("sensitivity-plan.json");
         super::sensitivity_plan(
             &output.join("sensitivity.json"),
@@ -5618,6 +7134,299 @@ agents passengers count 1 on concourse at (1m, 1m, 0m) to main_entrance speed 1m
     }
 
     #[test]
+    fn experiment_resolves_typed_assumption_targets_into_plan_and_artifact() {
+        let directory = test_directory("experiment-assumption-targets");
+        fs::write(
+            directory.0.join("scenario.chy"),
+            r#"
+scenario "typed-assumption-targets"
+seed 1
+duration 5s
+timestep 1s
+surface concourse at (0m, 0m, 0m) size (10m, 10m)
+exit street on concourse at (8m, 1m, 0m) width 1m capacity 1/s
+agents passengers count 1 on concourse at (1m, 1m, 0m) to street speed 1.2m/s radius 0.3m height 1.7m
+"#,
+        )
+        .expect("writing scenario source");
+        let manifest_path = directory.0.join("experiment.json");
+        let manifest = serde_json::json!({
+            "schema_version": "0.3",
+            "name": "typed assumption fixture",
+            "description": "one no-data structural run with resolved input links",
+            "scenario_source": "scenario.chy",
+            "trace_every_steps": 1,
+            "assumptions": [{
+                "id": "passenger_motion_and_exit_service",
+                "subject": "passenger speed and exit service are explicit inputs",
+                "basis": "best_guess",
+                "rationale": "these inputs remain uncalibrated but their exact baseline values must be reviewable",
+                "targets": [
+                    {"target": "agent_speed_mps", "subject": "passengers"},
+                    {"target": "exit_capacity_per_s", "subject": "street"}
+                ]
+            }],
+            "claim_boundary": "not predictive, operational, or safety guidance"
+        });
+        fs::write(
+            &manifest_path,
+            serde_json::to_vec_pretty(&manifest).expect("serializing experiment manifest"),
+        )
+        .expect("writing experiment manifest");
+
+        let plan_path = directory.0.join("plan.json");
+        handle_experiment(ExperimentCommand::Plan {
+            manifest: manifest_path.clone(),
+            output: Some(plan_path.clone()),
+        })
+        .expect("typed-assumption plan succeeds");
+        let plan: serde_json::Value = super::read_json(&plan_path).expect("reading plan");
+        assert_eq!(plan["schema_version"], "0.3");
+        assert_eq!(
+            plan["resolved_assumption_targets"],
+            serde_json::json!([
+                {
+                    "assumption_id": "passenger_motion_and_exit_service",
+                    "target": "agent_speed_mps",
+                    "subject": "passengers",
+                    "baseline_value": 1.2,
+                    "unit": "m/s"
+                },
+                {
+                    "assumption_id": "passenger_motion_and_exit_service",
+                    "target": "exit_capacity_per_s",
+                    "subject": "street",
+                    "baseline_value": 1.0,
+                    "unit": "/s"
+                }
+            ])
+        );
+
+        let artifact = directory.0.join("artifact");
+        handle_experiment(ExperimentCommand::Run {
+            manifest: manifest_path,
+            output: artifact.clone(),
+        })
+        .expect("typed-assumption experiment succeeds");
+        handle_experiment(ExperimentCommand::Verify {
+            directory: artifact.clone(),
+        })
+        .expect("typed-assumption artifact verifies");
+        let report: serde_json::Value =
+            super::read_json(&artifact.join("report.json")).expect("reading report");
+        assert_eq!(report["schema_version"], "0.3");
+        assert_eq!(
+            report["resolved_assumption_targets"],
+            plan["resolved_assumption_targets"]
+        );
+
+        let mut altered = report.clone();
+        altered["resolved_assumption_targets"][0]["baseline_value"] = serde_json::json!(9.9);
+        super::write_json(&artifact.join("report.json"), &altered)
+            .expect("altering resolved assumption target");
+        let error = handle_experiment(ExperimentCommand::Verify {
+            directory: artifact,
+        })
+        .expect_err("altered resolved assumption target must not verify");
+        assert!(format!("{error:#}").contains("persisted experiment report"));
+    }
+
+    #[test]
+    #[allow(clippy::too_many_lines)] // one fixture exercises coverage, snapshot independence, and tampering boundaries
+    fn experiment_snapshots_linked_sensitivity_coverage_and_reconstructs_it() {
+        let directory = test_directory("experiment-sensitivity-coverage");
+        fs::write(
+            directory.0.join("scenario.chy"),
+            r#"
+scenario "sensitivity-coverage"
+seed 1
+duration 5s
+timestep 1s
+surface concourse at (0m, 0m, 0m) size (10m, 10m)
+exit street on concourse at (8m, 1m, 0m) width 1m capacity 1/s
+agents passengers count 1 on concourse at (1m, 1m, 0m) to street speed 1.2m/s radius 0.3m height 1.7m
+"#,
+        )
+        .expect("writing scenario source");
+        fs::write(
+            directory.0.join("sensitivity.json"),
+            serde_json::to_vec_pretty(&serde_json::json!({
+                "schema_version": "0.1",
+                "name": "passenger walking-speed alternatives",
+                "description": "declared alternatives for one uncalibrated input",
+                "baseline_source": "scenario.chy",
+                "first_seed": 1,
+                "count": 1,
+                "factors": [{
+                    "id": "passenger_speed",
+                    "target": "agent_speed_mps",
+                    "subject": "passengers",
+                    "values": [1.0, 1.2, 1.4],
+                    "basis": "best_guess",
+                    "rationale": "these values expose a stated speed input without estimating a population distribution"
+                }],
+                "claim_boundary": "not predictive, operational, or safety guidance"
+            }))
+            .expect("serializing sensitivity manifest"),
+        )
+        .expect("writing sensitivity manifest");
+        let manifest_path = directory.0.join("experiment.json");
+        fs::write(
+            &manifest_path,
+            serde_json::to_vec_pretty(&serde_json::json!({
+                "schema_version": "0.4",
+                "name": "sensitivity coverage fixture",
+                "description": "one run with a linked sensitivity contract",
+                "scenario_source": "scenario.chy",
+                "trace_every_steps": 1,
+                "assumptions": [{
+                    "id": "passenger_motion_and_exit_service",
+                    "subject": "passenger speed and exit service are explicit inputs",
+                    "basis": "best_guess",
+                    "rationale": "both baselines must remain reviewable even when only speed is varied",
+                    "targets": [
+                        {"target": "agent_speed_mps", "subject": "passengers"},
+                        {"target": "exit_capacity_per_s", "subject": "street"}
+                    ]
+                }],
+                "sensitivity_studies": [{
+                    "id": "walking_speed",
+                    "manifest_path": "sensitivity.json"
+                }],
+                "claim_boundary": "not predictive, operational, or safety guidance"
+            }))
+            .expect("serializing experiment manifest"),
+        )
+        .expect("writing experiment manifest");
+
+        let plan_path = directory.0.join("plan.json");
+        handle_experiment(ExperimentCommand::Plan {
+            manifest: manifest_path.clone(),
+            output: Some(plan_path.clone()),
+        })
+        .expect("sensitivity coverage plan succeeds");
+        let plan: serde_json::Value = super::read_json(&plan_path).expect("reading plan");
+        assert_eq!(plan["schema_version"], "0.3");
+        assert_eq!(
+            plan["sensitivity_coverage"]["studies"][0]["study_id"],
+            "walking_speed"
+        );
+        assert_eq!(
+            plan["sensitivity_coverage"]["studies"][0]["baseline_scenario_hash"],
+            plan["scenario_hash"]
+        );
+        assert_eq!(
+            plan["sensitivity_coverage"]["assumption_targets"],
+            serde_json::json!([
+                {
+                    "assumption_id": "passenger_motion_and_exit_service",
+                    "target": "agent_speed_mps",
+                    "subject": "passengers",
+                    "baseline_value": 1.2,
+                    "unit": "m/s",
+                    "sensitivity_factors": [{
+                        "study_id": "walking_speed",
+                        "factor_id": "passenger_speed"
+                    }]
+                },
+                {
+                    "assumption_id": "passenger_motion_and_exit_service",
+                    "target": "exit_capacity_per_s",
+                    "subject": "street",
+                    "baseline_value": 1.0,
+                    "unit": "/s",
+                    "sensitivity_factors": []
+                }
+            ])
+        );
+
+        fs::write(
+            directory.0.join("untracked-sensitivity.json"),
+            serde_json::to_vec_pretty(&serde_json::json!({
+                "schema_version": "0.1",
+                "name": "undeclared body-radius alternatives",
+                "description": "a factor without a matching experiment assumption",
+                "baseline_source": "scenario.chy",
+                "first_seed": 1,
+                "count": 1,
+                "factors": [{
+                    "id": "passenger_radius",
+                    "target": "agent_radius_m",
+                    "subject": "passengers",
+                    "values": [0.2, 0.3, 0.4],
+                    "basis": "best_guess",
+                    "rationale": "this fixture must be rejected until its baseline is disclosed by the experiment"
+                }],
+                "claim_boundary": "not predictive, operational, or safety guidance"
+            }))
+            .expect("serializing untracked sensitivity manifest"),
+        )
+        .expect("writing untracked sensitivity manifest");
+        let mut invalid_manifest: serde_json::Value =
+            super::read_json(&manifest_path).expect("reading experiment manifest");
+        invalid_manifest["sensitivity_studies"][0]["manifest_path"] =
+            serde_json::json!("untracked-sensitivity.json");
+        super::write_json(&manifest_path, &invalid_manifest)
+            .expect("writing untracked sensitivity link");
+        let error = handle_experiment(ExperimentCommand::Plan {
+            manifest: manifest_path.clone(),
+            output: None,
+        })
+        .expect_err("an untracked sensitivity factor must be rejected");
+        assert!(format!("{error:#}").contains("not declared by an experiment assumption"));
+        invalid_manifest["sensitivity_studies"][0]["manifest_path"] =
+            serde_json::json!("sensitivity.json");
+        super::write_json(&manifest_path, &invalid_manifest)
+            .expect("restoring valid sensitivity link");
+
+        let artifact = directory.0.join("artifact");
+        handle_experiment(ExperimentCommand::Run {
+            manifest: manifest_path.clone(),
+            output: artifact.clone(),
+        })
+        .expect("experiment with sensitivity coverage succeeds");
+        assert!(
+            artifact
+                .join("sensitivity-studies/walking_speed/manifest.json")
+                .is_file()
+        );
+        assert!(
+            artifact
+                .join("sensitivity-studies/walking_speed/baseline.chy")
+                .is_file()
+        );
+        handle_experiment(ExperimentCommand::Verify {
+            directory: artifact.clone(),
+        })
+        .expect("sensitivity coverage artifact verifies");
+        let report: serde_json::Value =
+            super::read_json(&artifact.join("report.json")).expect("reading report");
+        assert_eq!(report["schema_version"], "0.4");
+        assert_eq!(report["sensitivity_coverage"], plan["sensitivity_coverage"]);
+
+        fs::write(
+            directory.0.join("sensitivity.json"),
+            b"not the captured contract",
+        )
+        .expect("changing external sensitivity manifest after artifact creation");
+        handle_experiment(ExperimentCommand::Verify {
+            directory: artifact.clone(),
+        })
+        .expect("artifact verification uses its sensitivity-study snapshot");
+
+        let snapshot = artifact.join("sensitivity-studies/walking_speed/manifest.json");
+        let mut altered: serde_json::Value =
+            super::read_json(&snapshot).expect("reading sensitivity-study snapshot");
+        altered["factors"][0]["values"][0] = serde_json::json!(0.9);
+        super::write_json(&snapshot, &altered).expect("altering sensitivity-study snapshot");
+        let error = handle_experiment(ExperimentCommand::Verify {
+            directory: artifact,
+        })
+        .expect_err("altered sensitivity-study snapshot must not verify");
+        assert!(format!("{error:#}").contains("persisted experiment report"));
+    }
+
+    #[test]
     #[allow(clippy::too_many_lines)] // one artifact fixture exercises every independent verification boundary
     fn experiment_snapshots_assumptions_and_source_reports_then_detects_tampering() {
         let directory = test_directory("experiment");
@@ -5683,7 +7492,7 @@ agents passengers count 1 on concourse at (1m, 1m, 0m) to street speed 1.2m/s ra
         );
         let plan: serde_json::Value =
             super::read_json(&plan_output).expect("parsing experiment plan");
-        assert_eq!(plan["schema_version"], "0.1");
+        assert_eq!(plan["schema_version"], "0.3");
         assert_eq!(plan["scenario"]["declared_agents"], 1);
         assert_eq!(
             plan["source_report_snapshots"][0]["source_id"],
@@ -5707,7 +7516,7 @@ agents passengers count 1 on concourse at (1m, 1m, 0m) to street speed 1.2m/s ra
             report["source_report_snapshots"][0]["source_id"],
             "fixture_reference"
         );
-        assert_eq!(report["schema_version"], "0.2");
+        assert_eq!(report["schema_version"], "0.3");
         assert_eq!(report["runtime_metrics"]["total_agents"], 1);
 
         let mut altered_metrics = report.clone();
@@ -6387,18 +8196,52 @@ agents passengers count 1 on concourse at (1m, 1m, 0m) to street speed 1m/s radi
             "current sweeps persist local-clearance telemetry"
         );
         assert!(
+            baseline_summary["runs"][0]["movement_metrics"]["on_surface_clearance_audit"]
+                .is_object(),
+            "current sweeps persist the integration-boundary reference-disc audit"
+        );
+        assert!(
+            baseline_summary["runs"][0]["movement_metrics"]["swept_on_surface_clearance_audit"]
+                .is_object(),
+            "current sweeps persist the analytic interval reference-disc audit"
+        );
+        assert!(
             comparison["aggregate"]["candidate_minus_baseline"]["movement_telemetry"].is_object(),
             "current comparisons retain local-clearance telemetry deltas"
         );
         assert!(
+            comparison["aggregate"]["candidate_minus_baseline"]["movement_telemetry"]
+                ["swept_on_surface_clearance_audit"]
+                .is_object(),
+            "current comparisons retain analytic interval clearance-audit deltas"
+        );
+        assert!(
             report["conditions"][0]["outcome"]["movement_telemetry_delta"].is_object(),
             "current sensitivity reports retain local-clearance telemetry deltas"
+        );
+        assert!(
+            report["conditions"][0]["outcome"]["movement_telemetry_delta"]
+                ["swept_on_surface_clearance_audit"]
+                .is_object(),
+            "current sensitivity reports retain analytic interval clearance-audit deltas"
         );
         let baseline_summary_for_analysis: SweepSummary =
             super::read_json(&baseline_summary_path).expect("baseline summary deserializes");
         let baseline_analysis = describe_sweep(&baseline_summary_for_analysis);
         assert_eq!(baseline_analysis.queue_telemetry.observed_runs, 1);
         assert_eq!(baseline_analysis.queue_telemetry.unobserved_legacy_runs, 0);
+        assert_eq!(
+            baseline_analysis
+                .movement_telemetry
+                .swept_on_surface_clearance_audit_observed_runs,
+            1
+        );
+        assert_eq!(
+            baseline_analysis
+                .movement_telemetry
+                .swept_on_surface_clearance_audit_unobserved_legacy_runs,
+            0
+        );
         assert_eq!(
             baseline_analysis.queue_telemetry.by_resource.observed_runs,
             1
@@ -6608,7 +8451,7 @@ agents passengers count 1 on concourse at (1m, 1m, 0m) to street speed 1m/s radi
                         (0, 0.0, 0),
                         (0, 0.0, 0),
                     )),
-                    movement_metrics: Some(test_movement_metrics(1, 2, 0.8, 0.5)),
+                    movement_metrics: Some(test_movement_metrics(1, 2, Some(2), 0.8, 0.5)),
                     clearance_time_s: Some(10.0),
                     last_exit_time_s: Some(10.0),
                 },
@@ -6642,7 +8485,7 @@ agents passengers count 1 on concourse at (1m, 1m, 0m) to street speed 1m/s radi
                         (1, 1.0, 1),
                         (0, 0.0, 0),
                     )),
-                    movement_metrics: Some(test_movement_metrics(0, 0, 0.0, 0.0)),
+                    movement_metrics: Some(test_movement_metrics(0, 0, Some(0), 0.0, 0.0)),
                     clearance_time_s: Some(20.0),
                     last_exit_time_s: Some(20.0),
                 },
@@ -6691,7 +8534,7 @@ agents passengers count 1 on concourse at (1m, 1m, 0m) to street speed 1m/s radi
                         (0, 0.0, 0),
                         (0, 0.0, 0),
                     )),
-                    movement_metrics: Some(test_movement_metrics(2, 3, 1.5, 0.8)),
+                    movement_metrics: Some(test_movement_metrics(2, 3, Some(3), 1.5, 0.8)),
                     clearance_time_s: Some(9.0),
                     last_exit_time_s: Some(9.0),
                 },
@@ -6725,7 +8568,7 @@ agents passengers count 1 on concourse at (1m, 1m, 0m) to street speed 1m/s radi
                         (3, 4.0, 3),
                         (0, 0.0, 0),
                     )),
-                    movement_metrics: Some(test_movement_metrics(1, 1, 0.3, 0.3)),
+                    movement_metrics: Some(test_movement_metrics(1, 1, Some(1), 0.3, 0.3)),
                     clearance_time_s: None,
                     last_exit_time_s: Some(14.0),
                 },
@@ -6749,6 +8592,27 @@ agents passengers count 1 on concourse at (1m, 1m, 0m) to street speed 1m/s radi
         assert_eq!(
             comparison.pairing.execution_contract.runtime_version,
             "deterministic-euler-0.19"
+        );
+        assert_eq!(
+            comparison
+                .baseline
+                .movement_telemetry
+                .constraint_fallback_observed_runs,
+            2
+        );
+        assert_eq!(
+            comparison
+                .baseline
+                .movement_telemetry
+                .local_avoidance_constraint_fallback_steps,
+            2
+        );
+        assert_eq!(
+            comparison
+                .candidate
+                .movement_telemetry
+                .local_avoidance_constraint_fallback_steps,
+            4
         );
         assert_eq!(
             comparison.paired_runs[0]
@@ -6844,6 +8708,10 @@ agents passengers count 1 on concourse at (1m, 1m, 0m) to street speed 1m/s radi
             2
         );
         assert_eq!(movement_telemetry_delta.local_clearance_adjustment_steps, 2);
+        assert_eq!(
+            movement_telemetry_delta.local_avoidance_constraint_fallback_steps,
+            Some(2)
+        );
         assert!(
             (movement_telemetry_delta.cumulative_local_clearance_adjustment_m - 1.0).abs()
                 < f64::EPSILON
@@ -7160,6 +9028,209 @@ agents passengers count 1 on concourse at (1m, 1m, 0m) to street:west speed 1m/s
             error
                 .to_string()
                 .contains("queue-entry events disagree with `street:west` telemetry")
+        );
+    }
+
+    #[test]
+    fn sweep_verification_rejects_unauthored_queue_service_reservations() {
+        let source = r#"
+scenario "queue-reservation-audit"
+seed 1
+duration 45s
+timestep 1s
+surface concourse at (0m, 0m, 0m) size (25m, 10m)
+exit street on concourse at (22m, 5m, 0m) width 2m capacity 0.05/s
+queue-footprint street_queue exit street on concourse from (18m, 5m, 0m) to (14m, 5m, 0m) slots 2
+agents passengers count 2 on concourse at (20m, 5m, 0m) to street speed 10m/s radius 0.3m height 1.7m
+"#;
+        let scenario = parse(source).expect("source parses");
+        let mut bundle = run(&scenario, RunOptions::default()).expect("run succeeds");
+        validate_bundle_metrics(&bundle, Path::new("fixture"))
+            .expect("current queue-service reservation audit verifies");
+        bundle
+            .events
+            .iter_mut()
+            .find(|event| event.kind == "queue_service_reserved")
+            .expect("fixture produces a reservation")
+            .detail = "exit:forged".to_owned();
+
+        let error = validate_bundle_metrics(&bundle, Path::new("fixture"))
+            .expect_err("unauthored queue-service reservation must be rejected");
+
+        assert!(error.to_string().contains("unauthored footprint"));
+    }
+
+    #[test]
+    fn sweep_verification_requires_lift_reservations_to_follow_lift_entries() {
+        let source = r#"
+scenario "lift-queue-reservation-audit"
+seed 1
+duration 40s
+timestep 0.5s
+surface platform at (0m, 0m, 0m) size (25m, 10m)
+surface concourse at (0m, 0m, 3m) size (25m, 10m)
+exit street on concourse at (15m, 5m, 3m) width 2m
+lift lift_a from platform at (10m, 5m, 0m) to concourse at (10m, 5m, 3m) cabin 2m 2m capacity 1 cycle 8s
+queue-footprint lift_queue connector lift_a on platform from (12m, 5m, 0m) to (16m, 5m, 0m) slots 3
+agents early count 1 on platform at (11m, 5m, 0m) to street speed 1m/s radius 0.3m height 1.7m
+agents late count 1 on platform at (14m, 5m, 0m) to street speed 1m/s radius 0.3m height 1.7m release 1s
+agents later count 1 on platform at (16m, 5m, 0m) to street speed 1m/s radius 0.3m height 1.7m release 1s
+"#;
+        let scenario = parse(source).expect("source parses");
+        let mut bundle = run(&scenario, RunOptions::default()).expect("run succeeds");
+        validate_bundle_metrics(&bundle, Path::new("fixture"))
+            .expect("lift reservation audit verifies");
+        bundle
+            .events
+            .iter_mut()
+            .find(|event| event.kind == "queue_entered_lift")
+            .expect("fixture produces a lift queue entry")
+            .kind = "queue_entered_connector".to_owned();
+
+        let error = validate_queue_service_reservation_events(&bundle, Path::new("fixture"))
+            .expect_err("lift reservation must not accept a connector queue-entry event");
+
+        assert!(
+            error
+                .to_string()
+                .contains("reservation lacks a prior matching queue entry")
+        );
+    }
+
+    #[test]
+    fn sweep_verification_cross_checks_orca_fallback_events() {
+        let source = r#"
+scenario "orca-fallback-audit"
+seed 1
+duration 1s
+timestep 1s
+surface concourse at (0m, 0m, 0m) size (10m, 10m)
+exit street on concourse at (9m, 1m, 0m) width 2m
+agents passengers count 1 on concourse at (1m, 1m, 0m) to street speed 1m/s radius 0.3m height 1.7m
+"#;
+        let scenario = parse(source).expect("source parses");
+        let mut bundle = run(&scenario, RunOptions::default()).expect("run succeeds");
+        validate_bundle_metrics(&bundle, Path::new("fixture"))
+            .expect("current bundle with no fallback verifies");
+
+        let agent_id = bundle.trace[0].agents[0].id.clone();
+        bundle
+            .metrics
+            .movement_metrics
+            .as_mut()
+            .expect("current bundle has local-motion telemetry")
+            .local_avoidance_constraint_fallback_steps = Some(1);
+        bundle.events.push(chiyoda_core::bundle::RunEvent {
+            time_s: 1.0,
+            kind: "local_avoidance_constraint_fallback".to_owned(),
+            subject: agent_id,
+            detail: "the speed-bounded reciprocal constraints were infeasible".to_owned(),
+        });
+        validate_bundle_metrics(&bundle, Path::new("fixture"))
+            .expect("matching local-motion fallback event verifies");
+
+        bundle.events.last_mut().expect("event exists").subject = "unknown-agent".to_owned();
+        let error = validate_bundle_metrics(&bundle, Path::new("fixture"))
+            .expect_err("fallback event for an unknown agent must be rejected");
+        assert!(error.to_string().contains("names an unknown agent"));
+    }
+
+    #[test]
+    fn sweep_verification_rejects_inconsistent_on_surface_clearance_audits() {
+        let source = r#"
+scenario "on-surface-clearance-audit"
+seed 1
+duration 1s
+timestep 1s
+surface concourse at (0m, 0m, 0m) size (10m, 10m)
+exit street on concourse at (9m, 1m, 0m) width 2m
+agents passengers count 1 on concourse at (1m, 1m, 0m) to street speed 1m/s radius 0.3m height 1.7m
+"#;
+        let scenario = parse(source).expect("source parses");
+        let mut bundle = run(&scenario, RunOptions::default()).expect("run succeeds");
+        validate_bundle_metrics(&bundle, Path::new("fixture"))
+            .expect("current bundle audit verifies");
+
+        bundle
+            .metrics
+            .movement_metrics
+            .as_mut()
+            .expect("current bundle has local-motion telemetry")
+            .on_surface_clearance_audit = Some(OnSurfaceClearanceMetrics {
+            agents_with_disc_overlaps: 1,
+            disc_overlap_pair_steps: 1,
+            maximum_disc_overlap_m: 0.1,
+        });
+
+        let error = validate_bundle_metrics(&bundle, Path::new("fixture"))
+            .expect_err("one-agent overlap audit must be rejected");
+        assert!(
+            error
+                .to_string()
+                .contains("invalid on-surface reference-disc audit telemetry")
+        );
+
+        bundle
+            .metrics
+            .movement_metrics
+            .as_mut()
+            .expect("current bundle has local-motion telemetry")
+            .on_surface_clearance_audit = Some(OnSurfaceClearanceMetrics {
+            agents_with_disc_overlaps: 0,
+            disc_overlap_pair_steps: 0,
+            maximum_disc_overlap_m: 0.0,
+        });
+        bundle
+            .metrics
+            .movement_metrics
+            .as_mut()
+            .expect("current bundle has local-motion telemetry")
+            .swept_on_surface_clearance_audit = Some(SweptOnSurfaceClearanceMetrics {
+            agents_with_swept_disc_overlaps: 1,
+            swept_disc_overlap_pair_steps: 1,
+            maximum_swept_disc_overlap_m: 0.1,
+        });
+
+        let error = validate_bundle_metrics(&bundle, Path::new("fixture"))
+            .expect_err("one-agent swept overlap audit must be rejected");
+        assert!(
+            error
+                .to_string()
+                .contains("invalid swept on-surface reference-disc audit telemetry")
+        );
+    }
+
+    #[test]
+    fn reference_clearance_acceptance_requires_zero_audits() {
+        let source = r#"
+scenario "reference-clearance-acceptance"
+seed 1
+duration 1s
+timestep 1s
+surface concourse at (0m, 0m, 0m) size (10m, 10m)
+exit street on concourse at (9m, 1m, 0m) width 2m
+agents passenger count 1 on concourse at (1m, 1m, 0m) to street speed 1m/s radius 0.3m height 1.7m
+"#;
+        let scenario = parse(source).expect("source parses");
+        let mut bundle = run(&scenario, RunOptions::default()).expect("run succeeds");
+        require_zero_reference_clearance(&bundle).expect("single-agent run has zero audits");
+
+        bundle
+            .metrics
+            .movement_metrics
+            .as_mut()
+            .expect("current bundle has movement telemetry")
+            .swept_on_surface_clearance_audit = Some(SweptOnSurfaceClearanceMetrics {
+            agents_with_swept_disc_overlaps: 2,
+            swept_disc_overlap_pair_steps: 1,
+            maximum_swept_disc_overlap_m: 0.1,
+        });
+        let error = require_zero_reference_clearance(&bundle)
+            .expect_err("nonzero reference audit is not accepted");
+        assert!(
+            error
+                .to_string()
+                .contains("reference-clearance audits are nonzero")
         );
     }
 }

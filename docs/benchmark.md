@@ -22,7 +22,7 @@ scope.
 
 ## Current status
 
-`0.28.0-alpha.1` includes the generator, fixture-seed protocol, and manifest
+`0.42.0-alpha.1` includes the generator, fixture-seed protocol, and manifest
 validator. It now also includes a content-locked candidate source and a
 descriptive 2D platform-trajectory intake path. It does not publish an
 empirical round: the source is neither a calibrated runtime nor independent
@@ -41,10 +41,18 @@ capacity-constrained resource that denied it, retaining zero-valued entries for
 unreached constrained resources. Current bundles record a first-entry audit
 event for each agent/resource queue pair; sweep verification cross-checks those
 events against both the per-resource and aggregate exposure telemetry.
-They also retain local-clearance adjustment telemetry: distinct affected agents,
+They also retain local-motion adjustment telemetry: distinct affected agents,
 adjusted attempted positions, cumulative displacement from planned to resolved
-position, and the largest one-attempt adjustment. This is an audit of the
-reference resolver, not crowd density, collision, queue, or calibration data.
+position, the largest one-attempt adjustment, and the number of speed-bounded
+ORCA constraint fallbacks. Each fallback count is cross-checked against a
+per-step event trail. Current bundles additionally audit the final state of
+every integration boundary for overlapping on-surface reference discs, with
+distinct affected agents, unordered pair-steps, and the largest overlap. A
+separate analytic audit also evaluates closest horizontal approach over each
+pair's linearly interpolated same-surface interval, excluding release, transit,
+portal, and surface-transition intervals. Neither audit reports observed
+contact or establishes physical safety. These are audits of the reference
+local-motion layer, not crowd density, collision, queue, or calibration data.
 `chiyoda verify-sweep DIRECTORY` cross-checks that summary against every
 bundle hash, metric, and canonical source. For bundles with the installed
 runtime and bundle versions, it also reruns the scenario and rejects a
@@ -78,10 +86,17 @@ and exit across the runs that expose that attribution, with an observed versus
 legacy-unobserved run count. A resource's maximum peak is its largest
 single-run step-boundary peak; neither that number nor the resource peak set
 reconstructs a mechanism's simultaneous aggregate peak.
-It separately aggregates local-clearance resolver coverage, affected-agent and
+It separately aggregates local-motion coverage, affected-agent and
 adjusted-attempt totals, cumulative planned-to-resolved displacement, and the
-largest one-attempt adjustment. The maximum is a largest single-run value, and
-these structural mechanics must not be treated as observed crowd behavior.
+largest one-attempt adjustment. It labels coverage for the 0.31-and-later ORCA
+fallback counter, the 0.36-and-later integration-boundary reference-disc
+audit, and the 0.37-and-later analytic interval reference-disc audit
+separately, so bundles emitted before any field are never treated as zero
+observations. Each audit's counts sum per-run observations and its maximum is
+the largest single-run value. The endpoint audit does not sweep an interval;
+the analytic audit is only a linear interpolation of eligible discrete paths.
+Neither identifies observed contact. These structural mechanics must not be
+treated as observed crowd behavior.
 Queue exposure is the number of agents that ever entered each modeled lift,
 connector, gate, or exit wait state. The telemetry reflects only the authored
 discrete runtime; it is neither an observed queue length, delay, throughput,
@@ -131,13 +146,13 @@ inspectable.
 The report has one row per common seed, with arm-specific bundle hashes,
 evacuation counts, final-exit attribution, remaining-state attribution, current
 queue telemetry (including current per-resource attribution and aggregate
-per-resource deltas when both arms expose it), current local-clearance resolver
+per-resource deltas when both arms expose it), current local-motion
 telemetry, and a
 clearance-time delta only if both runs completed; separately named last-exit
 times remain available for partially completed runs. It additionally reports exact
 aggregate candidate-minus-baseline count deltas and separates pairs with only
 one completed arm from comparable clearance-time pairs, including intervention
-reach/acceptance, queue-telemetry, and local-clearance-resolver deltas. No confidence interval,
+reach/acceptance, queue-telemetry, and local-motion deltas. No confidence interval,
 significance label, causal conclusion, or predictive interpretation is
 emitted. A shared seed labels deterministic scenario variation; it is not an
 empirical sample. Information acceptance samples also incorporate the message

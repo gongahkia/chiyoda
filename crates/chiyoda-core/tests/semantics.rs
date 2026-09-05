@@ -126,6 +126,35 @@ fn formatter_round_trips_to_the_same_typed_scenario() {
 }
 
 #[test]
+fn scenarios_without_optional_geometry_preserve_the_pre_024_json_shape() {
+    let source = r#"
+scenario "no-optional-geometry"
+seed 1
+duration 10s
+timestep 1s
+surface concourse at (0m, 0m, 0m) size (10m, 10m)
+exit street on concourse at (9m, 5m, 0m) width 2m
+agents passengers count 1 on concourse at (1m, 5m, 0m) to street speed 1m/s radius 0.3m height 1.7m
+"#;
+    let scenario = parse(source).expect("source without optional geometry parses");
+    validate(&scenario).expect("source without optional geometry validates");
+    assert!(scenario.portal_lanes.is_empty());
+    assert!(scenario.queue_footprints.is_empty());
+    let encoded = serde_json::to_value(&scenario).expect("scenario serializes");
+    assert!(
+        encoded.get("portal_lanes").is_none(),
+        "an omitted optional declaration must not rewrite historical canonical IR"
+    );
+    assert!(
+        encoded.get("queue_footprints").is_none(),
+        "an omitted optional declaration must not rewrite historical canonical IR"
+    );
+    let decoded: chiyoda_core::Scenario =
+        serde_json::from_value(encoded).expect("pre-0.24 canonical IR remains readable");
+    assert_eq!(decoded, scenario);
+}
+
+#[test]
 fn formatter_round_trips_ramps_and_escalators() {
     let source = r#"
 scenario "vertical-connectors"
@@ -153,6 +182,416 @@ message plaza_notice source signage on concourse at (1m, 1m, 0m) claim exit plaz
         parse(&formatted).expect("formatted source parses"),
         scenario
     );
+}
+
+#[test]
+fn portal_lanes_round_trip_and_replace_point_connector_landings() {
+    let source = r#"
+scenario "portal-lane-landing"
+seed 1
+duration 5s
+timestep 1s
+surface upper at (0m, 0m, 3m) size (10m, 10m)
+surface lower at (0m, 0m, 0m) size (10m, 10m)
+exit street on lower at (9m, 1m, 0m) width 2m
+stair down from upper at (4m, 5m, 3m) to lower at (4m, 5m, 0m) width 2m
+portal-lanes down_lanes connector down axis y count 2
+portal-lanes street_lanes exit street axis y count 2
+agents traveller count 1 on upper at (1m, 5m, 3m) to street speed 10m/s radius 0.3m height 1.7m
+"#;
+    let scenario = parse(source).expect("portal-lane source parses");
+    validate(&scenario).expect("portal-lane source validates");
+    assert_eq!(
+        parse(&format_scenario(&scenario)).expect("formatted source parses"),
+        scenario
+    );
+
+    let bundle = run(
+        &scenario,
+        RunOptions {
+            trace_every_steps: 1,
+        },
+    )
+    .expect("portal-lane source runs");
+    let arrival = bundle
+        .trace
+        .iter()
+        .find(|frame| (frame.time_s - 2.0).abs() < f64::EPSILON)
+        .expect("connector landing is traced")
+        .agents
+        .iter()
+        .find(|agent| agent.id == "traveller:0")
+        .expect("traveller remains in trace");
+    assert_eq!(arrival.surface, "lower");
+    assert!((arrival.y_m - 4.5).abs() < 1e-9 || (arrival.y_m - 5.5).abs() < 1e-9);
+    assert!((arrival.y_m - 5.0).abs() > 1e-9);
+}
+
+#[test]
+fn authored_portal_landing_waits_for_a_clear_lane() {
+    let source = r#"
+scenario "portal-landing-wait"
+seed 1
+duration 8s
+timestep 1s
+surface upper at (0m, 0m, 3m) size (10m, 10m)
+surface lower at (0m, 0m, 0m) size (10m, 10m)
+exit street on lower at (9m, 1m, 0m) width 2m
+stair down from upper at (4m, 5m, 3m) to lower at (4m, 5m, 0m) width 1m
+portal-lanes down_lanes connector down axis y count 1
+agents traveller count 1 on upper at (1m, 5m, 3m) to street speed 10m/s radius 0.3m height 1.7m
+waypoint hold on lower at (4m, 5m, 0m) dwell 2s
+agents blocker count 1 on lower at (4m, 5m, 0m) to street speed 10m/s radius 0.3m height 1.7m via hold
+"#;
+    let scenario = parse(source).expect("portal-wait source parses");
+    validate(&scenario).expect("portal-wait source validates");
+    let bundle = run(
+        &scenario,
+        RunOptions {
+            trace_every_steps: 1,
+        },
+    )
+    .expect("portal-wait source runs");
+    let delayed = bundle
+        .trace
+        .iter()
+        .find(|frame| (frame.time_s - 2.0).abs() < f64::EPSILON)
+        .expect("blocked landing is traced")
+        .agents
+        .iter()
+        .find(|agent| agent.id == "traveller:0")
+        .expect("traveller remains in trace");
+    assert_eq!(delayed.state, chiyoda_core::AgentState::InTransit);
+    let arrival = bundle
+        .events
+        .iter()
+        .find(|event| event.kind == "connector_arrival" && event.subject == "traveller:0")
+        .expect("traveller lands after the blocker moves");
+    assert!(arrival.time_s >= 4.0);
+}
+
+#[test]
+fn validation_rejects_invalid_portal_lane_geometry_and_resources() {
+    let source = r#"
+scenario "invalid-portal-lanes"
+seed 1
+duration 10s
+timestep 1s
+surface upper at (0m, 0m, 3m) size (10m, 10m)
+surface lower at (0m, 0m, 0m) size (10m, 10m)
+exit street on lower at (9m, 1m, 0m) width 1m
+stair down from upper at (0.5m, 5m, 3m) to lower at (0.5m, 5m, 0m) width 1m
+portal-lanes too_many connector down axis x count 2
+portal-lanes missing gate absent axis y count 1
+agents traveller count 1 on upper at (1m, 5m, 3m) to street speed 1m/s radius 0.3m height 1.7m
+"#;
+    let scenario = parse(source).expect("invalid portal-lane source parses");
+    let errors = validate(&scenario).expect_err("invalid portal lanes are rejected");
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.path == "portal_lanes[0].count")
+    );
+    assert!(errors.iter().any(|error| {
+        error.path == "portal_lanes[0].from.lanes[0]" || error.path == "portal_lanes[0].to.lanes[0]"
+    }));
+    assert!(errors.iter().any(|error| {
+        error.path == "portal_lanes[1].resource" && error.message.contains("unknown gate")
+    }));
+}
+
+#[test]
+fn authored_queue_footprint_advances_fifo_slots_before_service() {
+    let source = r#"
+scenario "queue-footprint"
+seed 1
+duration 45s
+timestep 1s
+surface concourse at (0m, 0m, 0m) size (25m, 10m)
+exit street on concourse at (22m, 5m, 0m) width 2m capacity 0.05/s
+queue-footprint street_queue exit street on concourse from (18m, 5m, 0m) to (14m, 5m, 0m) slots 2
+agents passengers count 2 on concourse at (20m, 5m, 0m) to street speed 10m/s radius 0.3m height 1.7m
+"#;
+    let scenario = parse(source).expect("queue-footprint source parses");
+    validate(&scenario).expect("queue-footprint source validates");
+    assert_eq!(
+        parse(&format_scenario(&scenario)).expect("formatted source parses"),
+        scenario
+    );
+
+    let bundle = run(
+        &scenario,
+        RunOptions {
+            trace_every_steps: 1,
+        },
+    )
+    .expect("queue-footprint source runs");
+    let tail_waiter = bundle
+        .trace
+        .iter()
+        .find(|frame| (frame.time_s - 5.0).abs() < f64::EPSILON)
+        .expect("queue positions are traced")
+        .agents
+        .iter()
+        .find(|agent| {
+            agent.state == chiyoda_core::AgentState::WaitingForExit
+                && (agent.x_m - 14.0).abs() < 1e-9
+        })
+        .expect("tail agent remains in trace");
+    assert_eq!(tail_waiter.state, chiyoda_core::AgentState::WaitingForExit);
+    let reservations: Vec<_> = bundle
+        .events
+        .iter()
+        .filter(|event| event.kind == "queue_service_reserved")
+        .collect();
+    assert_eq!(reservations.len(), 2);
+    assert_eq!(reservations[0].detail, "exit:street");
+    assert!(reservations[0].time_s < reservations[1].time_s);
+    let entries: Vec<_> = bundle
+        .events
+        .iter()
+        .filter(|event| event.kind == "queue_entered_exit")
+        .collect();
+    assert_eq!(entries.len(), 2);
+    assert_eq!(reservations[0].subject, entries[0].subject);
+    assert_eq!(reservations[1].subject, entries[1].subject);
+    assert_eq!(bundle.metrics.evacuated_agents, 2);
+}
+
+#[test]
+fn authored_lift_queue_footprint_reserves_cabin_capacity_before_boarding() {
+    let source = r#"
+scenario "lift-queue-footprint"
+seed 1
+duration 40s
+timestep 0.5s
+surface platform at (0m, 0m, 0m) size (25m, 10m)
+surface concourse at (0m, 0m, 3m) size (25m, 10m)
+exit street on concourse at (15m, 5m, 3m) width 2m
+lift lift_a from platform at (10m, 5m, 0m) to concourse at (10m, 5m, 3m) cabin 2m 2m capacity 1 cycle 8s
+queue-footprint lift_queue connector lift_a on platform from (12m, 5m, 0m) to (16m, 5m, 0m) slots 3
+agents early count 1 on platform at (11m, 5m, 0m) to street speed 1m/s radius 0.3m height 1.7m
+agents late count 1 on platform at (14m, 5m, 0m) to street speed 1m/s radius 0.3m height 1.7m release 1s
+agents later count 1 on platform at (16m, 5m, 0m) to street speed 1m/s radius 0.3m height 1.7m release 1s
+"#;
+    let scenario = parse(source).expect("lift queue-footprint source parses");
+    validate(&scenario).expect("lift queue-footprint source validates");
+    assert_eq!(
+        parse(&format_scenario(&scenario)).expect("formatted source parses"),
+        scenario
+    );
+
+    let bundle = run(
+        &scenario,
+        RunOptions {
+            trace_every_steps: 1,
+        },
+    )
+    .expect("lift queue-footprint source runs");
+    let lift_wait_positions: Vec<_> = bundle
+        .trace
+        .iter()
+        .flat_map(|frame| {
+            frame.agents.iter().filter_map(|agent| {
+                (agent.state == chiyoda_core::AgentState::WaitingForLift).then_some((
+                    frame.time_s,
+                    agent.x_m,
+                    agent.y_m,
+                ))
+            })
+        })
+        .collect();
+    assert!(
+        lift_wait_positions
+            .iter()
+            .any(|(_, x_m, _)| (*x_m - 12.0).abs() < 1e-9),
+        "waiting lift positions: {lift_wait_positions:?}"
+    );
+    let reservations: Vec<_> = bundle
+        .events
+        .iter()
+        .filter(|event| event.kind == "queue_service_reserved")
+        .collect();
+    assert_eq!(reservations.len(), 2);
+    assert_eq!(reservations[0].detail, "connector:lift_a");
+    assert!(reservations[1].time_s - reservations[0].time_s >= 8.0);
+    let entry = bundle
+        .events
+        .iter()
+        .find(|event| event.kind == "queue_entered_lift")
+        .expect("lift queue entry is audited");
+    assert_eq!(reservations[0].subject, entry.subject);
+    assert!(entry.time_s <= reservations[0].time_s);
+    assert_eq!(bundle.metrics.evacuated_agents, 3);
+}
+
+#[test]
+fn queue_grid_round_trips_and_preserves_serpentine_fifo_adjacency() {
+    let source = r#"
+scenario "queue-grid"
+seed 1
+duration 10s
+timestep 1s
+surface concourse at (0m, 0m, 0m) size (32m, 12m)
+exit street on concourse at (28m, 6m, 0m) width 2m capacity 0.1/s
+queue-grid street_queue exit street on concourse from (27m, 6m, 0m) to (3m, 6m, 0m) width 3m lanes 4 slots 8
+agents passengers count 8 on concourse at (1m, 1m, 0m) to street speed 1m/s radius 0.3m height 1.7m
+"#;
+    let scenario = parse(source).expect("queue-grid source parses");
+    validate(&scenario).expect("queue-grid source validates");
+    assert_eq!(
+        parse(&format_scenario(&scenario)).expect("formatted queue-grid source parses"),
+        scenario
+    );
+
+    let grid = &scenario.queue_footprints[0];
+    assert_eq!(grid.position(0), grid.head);
+    assert_eq!(
+        grid.position(1),
+        chiyoda_core::model::Point3 {
+            x_m: 3.0,
+            y_m: 6.0,
+            z_m: 0.0,
+        }
+    );
+    assert_eq!(
+        grid.position(2),
+        chiyoda_core::model::Point3 {
+            x_m: 3.0,
+            y_m: 5.0,
+            z_m: 0.0,
+        }
+    );
+    assert_eq!(
+        grid.position(3),
+        chiyoda_core::model::Point3 {
+            x_m: 27.0,
+            y_m: 5.0,
+            z_m: 0.0,
+        }
+    );
+}
+
+#[test]
+fn queue_grid_preallocates_fifo_slots_and_requires_physical_entry_for_service() {
+    let source = r#"
+scenario "queue-grid-service"
+seed 1
+duration 80s
+timestep 0.5s
+surface concourse at (0m, 0m, 0m) size (32m, 12m)
+exit street on concourse at (28m, 6m, 0m) width 2m capacity 0.1/s
+queue-grid street_queue exit street on concourse from (24m, 6m, 0m) to (20m, 6m, 0m) width 2m lanes 2 slots 4
+agents passengers count 4 on concourse at (12m, 6m, 0m) to street speed 2m/s radius 0.3m height 1.7m
+"#;
+    let scenario = parse(source).expect("queue-grid service source parses");
+    validate(&scenario).expect("queue-grid service source validates");
+    let bundle = run(
+        &scenario,
+        RunOptions {
+            trace_every_steps: 1,
+        },
+    )
+    .expect("queue-grid service source runs");
+
+    let first_motion_step = bundle
+        .trace
+        .iter()
+        .find(|frame| (frame.time_s - 0.5).abs() < f64::EPSILON)
+        .expect("every integration step is traced");
+    assert!(
+        first_motion_step
+            .agents
+            .iter()
+            .all(|agent| agent.state == chiyoda_core::AgentState::Moving)
+    );
+    let entries: Vec<_> = bundle
+        .events
+        .iter()
+        .filter(|event| event.kind == "queue_entered_exit")
+        .collect();
+    let assignments: Vec<_> = bundle
+        .events
+        .iter()
+        .filter(|event| event.kind == "queue_slot_preallocated")
+        .collect();
+    let reservations: Vec<_> = bundle
+        .events
+        .iter()
+        .filter(|event| event.kind == "queue_service_reserved")
+        .collect();
+    assert_eq!(assignments.len(), 4);
+    assert_eq!(entries.len(), 4);
+    assert_eq!(reservations.len(), 4);
+    for (ordinal, assignment) in assignments.iter().enumerate() {
+        let expected_subject = format!("passengers:{ordinal}");
+        assert_eq!(assignment.subject, expected_subject);
+        assert!((assignment.time_s - 0.5).abs() < f64::EPSILON);
+        assert_eq!(assignment.detail, format!("exit:street:{ordinal}"));
+        assert!(entries.iter().any(|entry| {
+            entry.subject == assignment.subject && entry.time_s >= assignment.time_s
+        }));
+    }
+    for (ordinal, reservation) in reservations.iter().enumerate() {
+        let expected_subject = format!("passengers:{ordinal}");
+        assert_eq!(reservation.subject, expected_subject);
+        assert!(entries.iter().any(|entry| {
+            entry.subject == reservation.subject && entry.time_s <= reservation.time_s
+        }));
+    }
+    assert_eq!(bundle.metrics.evacuated_agents, 4);
+}
+
+#[test]
+fn validation_rejects_queue_grid_with_unsafe_lanes() {
+    let source = r#"
+scenario "invalid-queue-grid"
+seed 1
+duration 10s
+timestep 1s
+surface concourse at (0m, 0m, 0m) size (30m, 10m)
+exit street on concourse at (25m, 5m, 0m) width 2m capacity 1/s
+queue-grid street_queue exit street on concourse from (24m, 5m, 0m) to (4m, 5m, 0m) width 1m lanes 4 slots 4
+agents passengers count 4 on concourse at (1m, 1m, 0m) to street speed 1m/s radius 0.3m height 1.7m
+"#;
+    let scenario = parse(source).expect("invalid queue-grid source parses");
+    let errors = validate(&scenario).expect_err("unsafe queue-grid lanes are rejected");
+    assert!(errors.iter().any(|error| {
+        error.path == "queue_footprints[0].lanes" && error.message.contains("lane spacing")
+    }));
+}
+
+#[test]
+fn validation_rejects_incomplete_or_obstructed_queue_footprints() {
+    let source = r#"
+scenario "invalid-queue-footprints"
+seed 1
+duration 10s
+timestep 1s
+surface upper at (0m, 0m, 3m) size (25m, 10m)
+surface concourse at (0m, 0m, 0m) size (25m, 10m)
+obstacle column on concourse at (14m, 4m, 0m) size (1m, 2m)
+exit street on concourse at (22m, 5m, 0m) width 2m capacity 1/s
+exit plaza on concourse at (20m, 5m, 0m) width 2m capacity 1/s
+stair unrestricted from concourse at (3m, 5m, 0m) to upper at (3m, 5m, 3m) width 2m
+queue-footprint too_short exit street on concourse from (18m, 2m, 0m) to (16m, 2m, 0m) slots 2
+queue-footprint blocked exit plaza on concourse from (18m, 5m, 0m) to (10m, 5m, 0m) slots 3
+queue-footprint unsupported connector unrestricted on concourse from (3m, 2m, 0m) to (8m, 2m, 0m) slots 3
+agents passengers count 3 on concourse at (1m, 1m, 0m) to street speed 1m/s radius 0.3m height 1.7m
+"#;
+    let scenario = parse(source).expect("invalid queue-footprint source parses");
+    let errors = validate(&scenario).expect_err("invalid queue footprints are rejected");
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.path == "queue_footprints[0].slots")
+    );
+    assert!(errors.iter().any(|error| {
+        error.path == "queue_footprints[1].from" && error.message.contains("segment")
+    }));
+    assert!(errors.iter().any(|error| {
+        error.path == "queue_footprints[2].resource" && error.message.contains("authored capacity")
+    }));
 }
 
 #[test]
@@ -1462,6 +1901,29 @@ agents passengers count 1 on concourse at (1m, 1m, 0m) to street speed 1m/s radi
 }
 
 #[test]
+fn validation_rejects_overlapping_deterministic_spawns_across_groups() {
+    let source = r#"
+scenario "overlapping-spawns"
+seed 1
+duration 10s
+timestep 1s
+surface concourse at (0m, 0m, 0m) size (12m, 10m)
+exit street on concourse at (10m, 8m, 0m) width 2m
+agents first count 1 on concourse at (2m, 2m, 0m) to street speed 1m/s radius 0.4m height 1.7m
+agents later count 1 on concourse at (2.7m, 2m, 0m) to street speed 1m/s radius 0.4m height 1.7m release 5s
+"#;
+    let scenario = parse(source).expect("source parses");
+    let errors = validate(&scenario).expect_err("overlapping spawn discs must be rejected");
+
+    assert!(errors.iter().any(|error| {
+        error.path == "agents[1].at"
+            && error
+                .message
+                .contains("overlaps deterministic spawn `agents[0].at`")
+    }));
+}
+
+#[test]
 fn released_agents_become_active_after_their_declared_time() {
     let source = r#"
 scenario "scheduled-release"
@@ -1506,6 +1968,56 @@ message before_release source signage on upper at (0m, 1m, 3m) claim connector d
             .any(|event| event.kind == "message_received")
     );
     assert_eq!(bundle.metrics.evacuated_agents, 1);
+}
+
+#[test]
+fn scheduled_release_waits_for_dynamic_spawn_clearance() {
+    let source = r#"
+scenario "release-clearance-admission"
+seed 1
+duration 4s
+timestep 100ms
+surface concourse at (0m, 0m, 0m) size (12m, 4m)
+exit street on concourse at (10m, 1m, 0m) width 2m
+agents lead count 1 on concourse at (1m, 1m, 0m) to street speed 1.2m/s radius 0.3m height 1.7m
+agents delayed count 1 on concourse at (1.63m, 1m, 0m) to street speed 1.2m/s radius 0.3m height 1.7m release 0.2s
+"#;
+    let scenario = parse(source).expect("release-clearance fixture parses");
+    validate(&scenario).expect("release-clearance fixture validates");
+    let bundle = run(
+        &scenario,
+        RunOptions {
+            trace_every_steps: 1,
+        },
+    )
+    .expect("release-clearance fixture runs");
+
+    assert!(bundle.events.iter().any(|event| {
+        event.kind == "agent_release_deferred_for_clearance"
+            && event.subject == "delayed:0"
+            && (event.time_s - 0.2).abs() < 1e-9
+    }));
+    let release_time_s = bundle
+        .events
+        .iter()
+        .find(|event| event.kind == "agent_released" && event.subject == "delayed:0")
+        .map(|event| event.time_s)
+        .expect("delayed agent is eventually admitted");
+    assert!(release_time_s > 0.2);
+    let at_authored_release = bundle
+        .trace
+        .iter()
+        .find(|frame| (frame.time_s - 0.2).abs() < 1e-9)
+        .expect("trace includes the authored release boundary");
+    assert_eq!(
+        at_authored_release
+            .agents
+            .iter()
+            .find(|agent| agent.id == "delayed:0")
+            .expect("delayed agent is traced")
+            .state,
+        chiyoda_core::AgentState::WaitingToDepart
+    );
 }
 
 #[test]
@@ -1559,7 +2071,7 @@ agents arrivals count 3 on concourse at (1m, 1m, 0m) to street speed 1m/s radius
 }
 
 #[test]
-fn release_batches_activate_multiple_agents_per_cadence_instant() {
+fn release_batches_admit_clear_agents_at_each_cadence_instant() {
     let source = r#"
 scenario "scheduled-pulses"
 seed 1
@@ -1592,7 +2104,10 @@ agents arrivals count 5 on concourse at (1m, 1m, 0m) to street speed 1m/s radius
         .filter(|event| event.kind == "agent_released")
         .map(|event| event.time_s)
         .collect();
-    assert_eq!(release_times, vec![1.0, 1.0, 3.0, 3.0, 5.0]);
+    assert_eq!(release_times, vec![1.0, 1.0, 3.0, 4.0, 5.0]);
+    assert!(bundle.events.iter().any(|event| {
+        event.kind == "agent_release_deferred_for_clearance" && (event.time_s - 3.0).abs() < 1e-9
+    }));
 }
 
 #[test]
@@ -2214,15 +2729,123 @@ agents south count 1 on concourse at (1m, 6m, 0m) to street speed 20m/s radius 0
         .movement_metrics
         .as_ref()
         .expect("current bundles expose local-clearance telemetry");
-    assert_eq!(movement.agents_with_local_clearance_adjustments, 1);
-    assert_eq!(movement.local_clearance_adjustment_steps, 1);
+    assert_eq!(movement.agents_with_local_clearance_adjustments, 2);
+    assert_eq!(movement.local_clearance_adjustment_steps, 2);
     assert!(movement.cumulative_local_clearance_adjustment_m >= 0.6);
     assert!(
-        (movement.cumulative_local_clearance_adjustment_m
-            - movement.maximum_local_clearance_adjustment_m)
-            .abs()
-            < f64::EPSILON
+        movement.maximum_local_clearance_adjustment_m
+            <= movement.cumulative_local_clearance_adjustment_m
     );
+}
+
+#[test]
+fn local_separation_allows_abstract_connector_access() {
+    let source = r#"
+scenario "connector-contact"
+seed 113
+duration 90s
+timestep 100ms
+surface platform at (0m, 0m, 3m) size (30m, 10m)
+surface concourse at (0m, 0m, 0m) size (30m, 10m)
+obstacle kiosk on concourse at (14m, 3m, 0m) size (3m, 3m)
+exit street on concourse at (28m, 5m, 0m) width 2m capacity 2/s
+stair central_stair from platform at (12m, 5m, 3m) to concourse at (12m, 5m, 0m) width 1.5m capacity 1.2/s clearance 2m
+gate fare_gate on concourse at (22m, 5m, 0m) width 1.2m capacity 1.5/s to street
+gate-capacity-state fare_gate_reduced gate fare_gate capacity 0.75/s time 30s
+agents passengers count 24 on platform at (3m, 5m, 3m) to street speed 1.2m/s radius 0.3m height 1.7m release 5s every 1s batch 4
+"#;
+    let scenario = parse(source).expect("source parses");
+    validate(&scenario).expect("source validates");
+    let bundle = run(&scenario, RunOptions::default()).expect("run succeeds");
+
+    assert_eq!(
+        bundle
+            .events
+            .iter()
+            .filter(|event| event.kind == "connector_boarding" && event.detail == "central_stair")
+            .count(),
+        24,
+        "clearance-separated agents must be able to enter an abstract connector service point"
+    );
+}
+
+#[test]
+fn reciprocal_local_motion_prevents_a_swept_crossing_between_waypoints() {
+    let source = r#"
+scenario "crossing-waypoints"
+seed 1
+duration 1s
+timestep 1s
+surface concourse at (0m, 0m, 0m) size (20m, 20m)
+waypoint northeast on concourse at (11m, 11m, 0m) dwell 1s
+waypoint southeast on concourse at (11m, 1m, 0m) dwell 1s
+exit north_exit on concourse at (19m, 19m, 0m) width 2m
+exit south_exit on concourse at (19m, 1m, 0m) width 2m
+agents northbound count 1 on concourse at (1m, 1m, 0m) to north_exit speed 14.1421356237m/s radius 0.3m height 1.7m via northeast
+agents southbound count 1 on concourse at (1m, 11m, 0m) to south_exit speed 14.1421356237m/s radius 0.3m height 1.7m via southeast
+"#;
+    let scenario = parse(source).expect("source parses");
+    validate(&scenario).expect("source validates");
+    let bundle = run(
+        &scenario,
+        RunOptions {
+            trace_every_steps: 1,
+        },
+    )
+    .expect("run succeeds");
+    let start = &bundle.trace[0].agents;
+    let end = &bundle.trace[1].agents;
+    let north_start = start
+        .iter()
+        .find(|agent| agent.id == "northbound:0")
+        .expect("north agent is traced");
+    let north_end = end
+        .iter()
+        .find(|agent| agent.id == "northbound:0")
+        .expect("north agent is traced");
+    let south_start = start
+        .iter()
+        .find(|agent| agent.id == "southbound:0")
+        .expect("south agent is traced");
+    let south_end = end
+        .iter()
+        .find(|agent| agent.id == "southbound:0")
+        .expect("south agent is traced");
+    let relative_start = (
+        north_start.x_m - south_start.x_m,
+        north_start.y_m - south_start.y_m,
+    );
+    let relative_motion = (
+        (north_end.x_m - north_start.x_m) - (south_end.x_m - south_start.x_m),
+        (north_end.y_m - north_start.y_m) - (south_end.y_m - south_start.y_m),
+    );
+    let motion_squared = relative_motion
+        .0
+        .mul_add(relative_motion.0, relative_motion.1.powi(2));
+    let nearest_time = if motion_squared > 0.0 {
+        (-(relative_start.0 * relative_motion.0 + relative_start.1 * relative_motion.1)
+            / motion_squared)
+            .clamp(0.0, 1.0)
+    } else {
+        0.0
+    };
+    let nearest_x = relative_start.0 + relative_motion.0 * nearest_time;
+    let nearest_y = relative_start.1 + relative_motion.1 * nearest_time;
+    assert!(
+        nearest_x.hypot(nearest_y) >= 0.6 - 1e-9,
+        "the two one-step trajectories must not pass through one another"
+    );
+    let swept_audit = bundle
+        .metrics
+        .movement_metrics
+        .as_ref()
+        .expect("current runs retain local-motion telemetry")
+        .swept_on_surface_clearance_audit
+        .as_ref()
+        .expect("current runs retain the analytic interval audit");
+    assert_eq!(swept_audit.agents_with_swept_disc_overlaps, 0);
+    assert_eq!(swept_audit.swept_disc_overlap_pair_steps, 0);
+    assert!(swept_audit.maximum_swept_disc_overlap_m.abs() < f64::EPSILON);
 }
 
 #[test]

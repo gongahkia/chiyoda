@@ -253,6 +253,27 @@ impl SensitivityTarget {
     }
 }
 
+/// Resolve one mutable scenario input without constructing a sensitivity
+/// study. This is used by experiment artifacts to make a best-guess
+/// assumption point to its exact authored baseline value; it does not vary the
+/// scenario, infer a distribution, or calibrate the model.
+pub fn resolve_sensitivity_target_value(
+    scenario: &Scenario,
+    target: SensitivityTarget,
+    subject: &str,
+) -> Result<f64, SensitivityError> {
+    let reference = SensitivityFactor {
+        id: "experiment_assumption_target".to_owned(),
+        target,
+        subject: subject.to_owned(),
+        values: Vec::new(),
+        basis: AssumptionBasis::StructuralAssumption,
+        rationale: "resolve one authored experiment input".to_owned(),
+        references: Vec::new(),
+    };
+    factor_value(scenario, &reference)
+}
+
 /// A concrete, validated scenario generated from one set of factor values.
 #[derive(Debug, Clone)]
 pub struct SensitivityCondition {

@@ -5,7 +5,7 @@ Chiyoda is an Apache-2.0 research platform for deterministic, reproducible
 is a standalone experiment language and executable reference semantics—not a
 real-time operations dashboard or a certified evacuation product.
 
-The current `0.28.0-alpha.1` release establishes the language/runtime contract:
+The current `0.42.0-alpha.1` release establishes the language/runtime contract:
 
 - a typed textual DSL with static unit, topology, reachability, capacity, and
   deterministic-replay checks;
@@ -13,10 +13,13 @@ The current `0.28.0-alpha.1` release establishes the language/runtime contract:
   authored connector-eligibility constraints and alternative final exits on
   connected 3D walkable surfaces with rectangular obstacles, stairs, ramps,
   escalators, lifts, gates, capacity-limited exits, scheduled availability and
-  service-capacity states, and typed information interventions;
+  service-capacity states, explicitly authored portal lanes, and typed
+  information interventions;
 - immutable JSON run bundles with source, canonical IR, events, traces,
   per-intervention reach/acceptance metrics, queue-entry audit events,
-  local-clearance adjustment telemetry, and SHA-256 integrity hashes;
+  local-motion adjustment, ORCA-fallback, integration-boundary, and analytic
+  same-surface-interval reference-disc-overlap audit telemetry, and SHA-256
+  integrity hashes;
 - a source-anchoring workflow that can prove selected scenario coordinates
   match a content-locked, explicitly projected OSM point without importing map
   geometry;
@@ -41,6 +44,47 @@ this is not runtime calibration or a published empirical round. The CLI rejects
 only a benchmark round manifest that does not meet its contract. See [evidence
 boundaries](docs/evidence.md) and the [benchmark protocol](docs/benchmark.md).
 
+`portal-lanes` is an optional geometric placement declaration, not a capacity
+or calibration feature. It partitions a connector, gate, or exit's already
+authored width into named landing/target lanes. The runtime assigns an agent a
+stable lane by identifier and, for a connector, leaves the agent in transit
+until that exact lane is clear. It never derives throughput from width.
+
+`queue-footprint` and multi-lane `queue-grid` are separate optional declarations for a lift, a non-lift
+capacity-constrained connector, a gate, or a capacity-constrained exit. A line
+footprint retains capacity-denial queueing; a grid preallocates deterministic FIFO
+slots before on-surface motion and records entry when the agent reaches its slot.
+Both validate slots against obstacles, FIFO transitions, and agent radii. A front
+agent reserves either its lift's cabin place or the existing authored service token
+before approaching its portal.
+Within one explicit grid, an earlier FIFO ticket has deterministic local-motion
+right-of-way over later tickets; a later ticket uses its predecessor's selected
+same-step velocity rather than a stale velocity. Scheduled release is likewise
+an eligibility time: a generated spawn disc is held outside the modeled surface
+until it is dynamically clear, with an audit event. These are queue-formation
+and reference-clearance rules, not safety or behavioral-fidelity claims.
+This is still an uncalibrated reference queue model: it does not infer staffing,
+queue discipline, demand, or observed facility behaviour.
+
+`examples/experiments/queue-grid-stress.chy` is a repeatable 152-agent
+formation stress case for the grid contract. Its declared geometry, demand, and
+gate rate are uncalibrated structural assumptions. Use it to compare runtime
+changes and inspect fallback/overlap telemetry; it is not a facility model,
+capacity estimate, or safety test.
+`queue-grid-stress-sensitivity.json` supplies a one-seed, four-condition
+agent-count envelope for the same structural case. Run `sensitivity-plan`
+before execution to inspect its exact workload and claim boundary.
+`queue-grid-reference-clearance.chy` is a separate four-agent structural
+fixture that passes the reference-clearance gate; it is a test fixture, not a
+safe operating envelope.
+
+For a strict internal reference-runtime acceptance boundary, run
+`chiyoda verify-reference-clearance PATH/run.json`. It first reconstructs the
+current bundle and then requires both reference-disc overlap audits to be zero.
+The queue-grid stress case intentionally does not pass this check: it is a
+dense failure-finding scenario. Passing the check does not certify a facility,
+contact model, or physical safety.
+
 ## Start without data
 
 To start an uncalibrated structural exploration, no dataset, research protocol,
@@ -55,7 +99,11 @@ $ cargo run -p chiyoda -- experiment plan out/concourse-draft/experiment.json
 
 Edit `out/concourse-draft/scenario.chy` and
 `out/concourse-draft/experiment.json` until the disclosed inputs represent the
-structural question you want to explore. Then create a deterministic,
+structural question you want to explore. The generated schema-`0.4` manifest
+links numeric best guesses to exact authored targets and, with
+`--with-sensitivity`, links the companion study contract. Planning makes both
+covered and unexamined best guesses explicit without treating them as
+calibrated estimates. Then create a deterministic,
 self-verifying artifact:
 
 ```console
@@ -70,7 +118,9 @@ values are a reviewable starting point, not facility facts. Use
 `--with-sensitivity` to `experiment init` to create a companion
 `sensitivity.json` that brackets the generated passenger count and speed, gate
 service rate, misinformation trust, corrective-message trust, and
-corrective-message time as explicit best guesses. The starter uses eight
+corrective-message time as explicit best guesses. The experiment plan records
+that this companion explores only those linked inputs; it does not claim the
+study has run or quantify uncertainty. The starter uses eight
 deterministic replications per condition by default; set `--sensitivity-runs
 COUNT` before creation when a shorter smoke study or a larger structural
 exploration is appropriate:
@@ -117,8 +167,9 @@ $ cargo run -p chiyoda-replay -- out/example/run.json
 The first replay command reconstructs a compatible bundle before printing a
 summary. The second opens the native replay viewer; it also reconstructs a
 compatible bundle and requires an available Linux display server. It renders
-the selected authored surface, obstacles, waypoints, exits, gates, and connector
-endpoints behind the agents. Pass `--surface <id>` to choose its initial floor
+the selected authored surface, obstacles, waypoints, exits, gates, connector
+endpoints, portal lanes, and line/grid queue slots and paths behind the agents. Pass
+`--surface <id>` to choose its initial floor
 or press Tab to cycle floors. Its visual scope and trace-position boundary are
 documented in the [native replay viewer guide](docs/replay.md).
 `sweep` is an
@@ -128,13 +179,32 @@ per seed, and records their summaries in `summary.json`, including final-exit
 attribution, modeled queue-exposure counts, and current per-run discrete queue
 telemetry attributed to individual constrained resources. Current bundles also
 contain one auditable event for each agent's first entry to each modeled
-resource queue. Generated cases include a declared alternative exit and a
+resource queue and local-motion telemetry. The `run` and textual
+`replay` summaries name the latter as affected agents, adjusted position
+attempts, cumulative planned-to-resolved displacement, and the largest
+adjustment. Current bundles also report every speed-bounded ORCA constraint
+fallback and cross-check that count against its event trail; it is structural
+runtime telemetry, not a density or collision measurement. They additionally
+audit every integration boundary for overlapping on-surface reference discs,
+reporting affected agents, overlapping pair-steps, and the largest overlap.
+The endpoint audit does not sweep movement between boundaries. A separate
+analytic audit computes the minimum horizontal separation of each eligible
+pair's linearly interpolated same-surface movement paths over an integration
+interval, so it can disclose an interior crossing that the endpoint audit
+misses. It deliberately excludes surface-transition intervals and neither
+audit reports observed physical contact or safety. Generated cases include a
 scheduled primary-exit closure, so the output also exercises rerouting.
+For a connector, gate, or exit without `queue-footprint`, an agent becomes ready
+for service when its authored clearance disc contacts the point; local clearance
+still applies throughout the approach. This avoids a numerical deadlock at a
+zero-geometry service point without claiming to model a physical queue.
 `verify-sweep` cross-checks that summary against every bundle and its canonical
 source, and reruns each bundle compatible with the installed runtime to reject
 self-hashed fabricated results. `analyze-sweep` performs that same verification before producing exact
 cross-run counts, per-exit totals, intervention reach/acceptance totals, modeled
-queue-exposure and discrete queue-telemetry totals, and
+queue-exposure and discrete queue-telemetry totals, local-motion aggregates
+(including separately coverage-labeled boundary and analytic interval
+on-surface reference-disc audits), and
 descriptive full-clearance and last-exit-time ranges. Its evacuation fraction is emitted as an exact numerator/denominator rather than a
 misleadingly precise estimate, and its final-state totals explain agents still
 in the system at the configured time limit. The output directory must be empty,

@@ -45,17 +45,24 @@ The output directory must be empty. It contains:
   derived reference reports; and
 - `report.json` — factor rationale, declared basis, baseline values, exact
   condition values, source/template hashes, outcome deltas (including queue
-  exposure, queue telemetry, and local-clearance resolver telemetry where both
+  exposure, queue telemetry, and local-motion telemetry where both
   arms record it), and interpretation boundaries. The
   constituent sweep summaries retain current per-run discrete queue telemetry
   attributed to individual constrained resources. When every paired run
   exposes the attribution, aggregate deltas also retain it. Each delta marks
   whether the resource was declared in each arm; resource peaks still cannot
   reconstruct a mechanism's simultaneous peak.
-  Local-clearance fields describe only changes made by the deterministic
-  resolver: aggregate affected-agent and attempt totals, cumulative
-  planned-to-resolved displacement, and the arm-level maximum adjustment. They
-  are not density, contact, collision, queue, or calibration comparisons.
+  Local-motion fields describe only changes made by the deterministic
+  local-motion layer: aggregate affected-agent and attempt totals, cumulative
+  planned-to-resolved displacement, and the arm-level maximum adjustment. The
+  0.31-and-later ORCA-fallback delta, 0.36-and-later integration-boundary
+  reference-disc-audit delta, and 0.37-and-later analytic interval
+  reference-disc-audit delta are present only when every paired run exposes
+  the relevant audited field. Each compares pair-step counts and each arm's
+  maximum reference-disc overlap. The endpoint audit does not sweep movement
+  between boundaries; the interval audit covers only linearly interpolated,
+  same-surface discrete paths. Neither identifies observed contact. These are
+  not density, contact, collision, queue, or calibration comparisons.
   For a
   one-at-a-time design it also indexes each factor's ordered
   alternatives and their structural responses; factorial designs retain the

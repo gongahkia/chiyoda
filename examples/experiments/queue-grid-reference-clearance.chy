@@ -1,0 +1,13 @@
+# A small, explicitly uncalibrated queue-grid case for exercising the
+# reference-clearance acceptance gate. Its geometry, release timing, and gate
+# rate are structural inputs, not evidence of capacity or physical safety.
+scenario "queue-grid-reference-clearance"
+seed 73
+duration 90s
+timestep 100ms
+
+surface concourse at (0m, 0m, 0m) size (24m, 10m)
+exit street on concourse at (22m, 5m, 0m) width 2m
+gate fare_gate on concourse at (18m, 5m, 0m) width 2m capacity 10/s to street
+queue-grid fare_gate_queue gate fare_gate on concourse from (16m, 5m, 0m) to (10m, 5m, 0m) width 1.2m lanes 2 slots 4
+agents passengers count 4 on concourse at (1m, 1m, 0m) to street speed 1.2m/s radius 0.3m height 1.7m release 0s every 12s

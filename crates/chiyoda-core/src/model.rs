@@ -112,6 +112,155 @@ pub struct Gate {
     pub destination: String,
 }
 
+/// The resource whose physical portal is partitioned into authored lanes.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PortalResource {
+    Connector { id: String },
+    Exit { id: String },
+    Gate { id: String },
+}
+
+impl PortalResource {
+    #[must_use]
+    pub fn kind(&self) -> &'static str {
+        match self {
+            Self::Connector { .. } => "connector",
+            Self::Exit { .. } => "exit",
+            Self::Gate { .. } => "gate",
+        }
+    }
+
+    #[must_use]
+    pub fn id(&self) -> &str {
+        match self {
+            Self::Connector { id } | Self::Exit { id } | Self::Gate { id } => id,
+        }
+    }
+}
+
+/// The authored global surface-coordinate axis across a portal's width.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PortalAxis {
+    X,
+    Y,
+}
+
+impl PortalAxis {
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::X => "x",
+            Self::Y => "y",
+        }
+    }
+}
+
+/// Explicit spatial lanes at a connector, gate, or exit portal. Lanes affect
+/// only target and landing placement; their count does not create a service
+/// rate or a calibrated queue model.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PortalLanes {
+    pub id: String,
+    pub resource: PortalResource,
+    pub axis: PortalAxis,
+    pub count: u32,
+}
+
+impl PortalLanes {
+    /// Return the centre of one authored lane. Validation establishes the
+    /// count and static clearance before the runtime uses this operation.
+    #[must_use]
+    pub fn position(&self, portal: Point3, width_m: f64, lane_index: u32) -> Point3 {
+        debug_assert!(self.count > 0);
+        debug_assert!(lane_index < self.count);
+        let offset_m = ((f64::from(lane_index) + 0.5) / f64::from(self.count) - 0.5) * width_m;
+        match self.axis {
+            PortalAxis::X => Point3 {
+                x_m: portal.x_m + offset_m,
+                ..portal
+            },
+            PortalAxis::Y => Point3 {
+                y_m: portal.y_m + offset_m,
+                ..portal
+            },
+        }
+    }
+}
+
+/// Explicit ordered standing slots for a modeled service queue. The footprint
+/// describes where agents wait after an authored service limit denies them; it
+/// does not infer a rate, staffing level, or observed queue discipline.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct QueueFootprint {
+    pub id: String,
+    pub resource: PortalResource,
+    pub surface: String,
+    /// The slot nearest the service portal.
+    pub head: Point3,
+    /// The final, furthest-back standing slot.
+    pub tail: Point3,
+    pub slots: u32,
+    /// Optional lateral extent for a serpentine multi-lane queue grid. Its
+    /// absence retains the original one-dimensional footprint semantics and
+    /// canonical JSON shape.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub width_m: Option<f64>,
+    /// Optional number of FIFO-adjacent lanes in a serpentine queue grid.
+    /// It is present exactly when `width_m` is present.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lanes: Option<u32>,
+}
+
+impl QueueFootprint {
+    /// Return an authored standing-slot centre by FIFO rank.
+    #[must_use]
+    pub fn position(&self, rank: u32) -> Point3 {
+        debug_assert!(self.slots > 0);
+        debug_assert!(rank < self.slots);
+        if let (Some(width_m), Some(lanes)) = (self.width_m, self.lanes) {
+            debug_assert!(lanes >= 2);
+            let slots_per_lane = self.slots.div_ceil(lanes);
+            let lane = rank / slots_per_lane;
+            let lane_rank = rank % slots_per_lane;
+            let along_fraction = if slots_per_lane == 1 {
+                0.0
+            } else {
+                f64::from(lane_rank) / f64::from(slots_per_lane - 1)
+            };
+            let along_fraction = if lane.is_multiple_of(2) {
+                along_fraction
+            } else {
+                1.0 - along_fraction
+            };
+            let dx = self.tail.x_m - self.head.x_m;
+            let dy = self.tail.y_m - self.head.y_m;
+            let length_m = dx.hypot(dy);
+            debug_assert!(length_m > 0.0 || slots_per_lane == 1);
+            let lateral_offset_m = f64::from(lane) * width_m / f64::from(lanes - 1);
+            let (lateral_x, lateral_y) = if length_m > 0.0 {
+                (
+                    -dy / length_m * lateral_offset_m,
+                    dx / length_m * lateral_offset_m,
+                )
+            } else {
+                (0.0, lateral_offset_m)
+            };
+            return Point3 {
+                x_m: self.head.x_m + dx * along_fraction + lateral_x,
+                y_m: self.head.y_m + dy * along_fraction + lateral_y,
+                z_m: self.head.z_m,
+            };
+        }
+        if self.slots == 1 {
+            return self.head;
+        }
+        self.head
+            .lerp(self.tail, f64::from(rank) / f64::from(self.slots - 1))
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Connector {
     Stair {
@@ -234,6 +383,19 @@ impl Connector {
             | Self::Ramp { to, .. }
             | Self::Escalator { to, .. }
             | Self::Lift { to, .. } => *to,
+        }
+    }
+
+    /// The authored horizontal portal width. A lift uses its cabin width for
+    /// the explicit portal-lane contract; this remains independent of its
+    /// passenger capacity and cycle time.
+    #[must_use]
+    pub fn width_m(&self) -> f64 {
+        match self {
+            Self::Stair { width_m, .. }
+            | Self::Ramp { width_m, .. }
+            | Self::Escalator { width_m, .. } => *width_m,
+            Self::Lift { cabin_width_m, .. } => *cabin_width_m,
         }
     }
 
@@ -552,6 +714,14 @@ pub struct Scenario {
     pub waypoints: Vec<Waypoint>,
     pub exits: Vec<Exit>,
     pub connectors: Vec<Connector>,
+    /// Optional explicit spatial portal lanes. Omission preserves historical
+    /// point-portal semantics and canonical bundle hashes.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub portal_lanes: Vec<PortalLanes>,
+    /// Optional explicit FIFO standing slots for service waits. Omission
+    /// preserves historical abstract queue semantics and canonical hashes.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub queue_footprints: Vec<QueueFootprint>,
     pub connector_states: Vec<ConnectorStateChange>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub exit_states: Vec<ExitStateChange>,
@@ -570,6 +740,40 @@ pub struct Scenario {
 }
 
 impl Scenario {
+    #[must_use]
+    pub fn portal_lanes_for_connector(&self, connector_id: &str) -> Option<&PortalLanes> {
+        self.portal_lanes.iter().find(|lanes| {
+            matches!(
+                &lanes.resource,
+                PortalResource::Connector { id } if id == connector_id
+            )
+        })
+    }
+
+    #[must_use]
+    pub fn portal_lanes_for_exit(&self, exit_id: &str) -> Option<&PortalLanes> {
+        self.portal_lanes
+            .iter()
+            .find(|lanes| matches!(&lanes.resource, PortalResource::Exit { id } if id == exit_id))
+    }
+
+    #[must_use]
+    pub fn portal_lanes_for_gate(&self, gate_id: &str) -> Option<&PortalLanes> {
+        self.portal_lanes
+            .iter()
+            .find(|lanes| matches!(&lanes.resource, PortalResource::Gate { id } if id == gate_id))
+    }
+
+    #[must_use]
+    pub fn queue_footprint_for_resource(
+        &self,
+        resource: &PortalResource,
+    ) -> Option<&QueueFootprint> {
+        self.queue_footprints
+            .iter()
+            .find(|footprint| &footprint.resource == resource)
+    }
+
     /// Return a connector's authored physical state at an exact scenario time.
     /// The default is open; same-time declarations apply in source order.
     #[must_use]
