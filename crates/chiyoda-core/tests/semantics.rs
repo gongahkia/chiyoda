@@ -21,6 +21,66 @@ fn generated_source_is_parseable_and_valid() {
 }
 
 #[test]
+fn generated_source_is_valid_across_a_seed_range() {
+    for seed in 0..1024 {
+        generator::scenario(seed).unwrap_or_else(|error| {
+            panic!("generator must preserve the language contract for seed {seed}: {error}")
+        });
+    }
+}
+
+#[test]
+fn fractional_final_step_ends_exactly_at_the_authored_duration() {
+    let scenario = parse(
+        r#"
+scenario "fractional-final-step"
+seed 1
+duration 1.5s
+timestep 1s
+surface concourse at (0m, 0m, 0m) size (10m, 10m)
+exit street on concourse at (2.5m, 1m, 0m) width 1m
+agents passenger count 1 on concourse at (1m, 1m, 0m) to street speed 1m/s radius 0.2m height 1.7m
+"#,
+    )
+    .expect("fractional-step fixture parses");
+    validate(&scenario).expect("fractional-step fixture validates");
+
+    let bundle = run(
+        &scenario,
+        RunOptions {
+            trace_every_steps: 1,
+        },
+    )
+    .expect("fractional-step fixture runs");
+
+    assert!(
+        bundle
+            .metrics
+            .clearance_time_s
+            .is_some_and(|time_s| time_s.total_cmp(&1.5).is_eq())
+    );
+    assert!(
+        bundle
+            .trace
+            .iter()
+            .all(|frame| frame.time_s <= scenario.duration_s)
+    );
+    assert_eq!(bundle.trace.last().map(|frame| frame.step), Some(2));
+    assert!(
+        bundle
+            .trace
+            .last()
+            .is_some_and(|frame| frame.time_s.total_cmp(&1.5).is_eq())
+    );
+    assert!(
+        bundle
+            .events
+            .iter()
+            .all(|event| event.time_s <= scenario.duration_s)
+    );
+}
+
+#[test]
 fn parser_rejects_trailing_tokens_and_duplicate_zero_release() {
     let trailing = parse("scenario \"unexpected\" trailing")
         .expect_err("fixed-arity declarations must reject trailing tokens");

@@ -23,6 +23,10 @@ evidence:
 smoke:
 	cargo run --locked -p chiyoda -- check examples/experiments/uncalibrated-interchange.chy
 	cargo run --locked -p chiyoda -- check examples/eindhoven-centraal-main-entrance-point.chy
+	start_dir=$$(mktemp -d); trap 'rm -rf "$$start_dir"' EXIT; \
+	cargo run --locked -p chiyoda -- experiment init --name "smoke draft" --seed 73 --with-sensitivity -o "$$start_dir/draft" > /dev/null; \
+	cargo run --locked -p chiyoda -- experiment plan "$$start_dir/draft/experiment.json" > /dev/null; \
+	cargo run --locked -p chiyoda -- sensitivity-plan "$$start_dir/draft/sensitivity.json" > /dev/null
 	cargo run --locked -p chiyoda -- experiment plan examples/experiments/uncalibrated-interchange.json > /dev/null
 	cargo run --locked -p chiyoda -- sensitivity-plan examples/sensitivity/arrival-cadence.json > /dev/null
 	cargo run --locked -p chiyoda -- sensitivity-plan examples/sensitivity/exit-capacity-and-trust.json > /dev/null

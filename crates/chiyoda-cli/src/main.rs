@@ -135,7 +135,7 @@ enum Command {
     },
     /// Verify a complete sensitivity-study artifact against its manifest and sweeps.
     VerifySensitivity { directory: PathBuf },
-    /// Execute one provenance-bound, uncalibrated authored experiment.
+    /// Create, plan, execute, or verify an uncalibrated authored experiment.
     Experiment {
         #[command(subcommand)]
         command: ExperimentCommand,
@@ -279,6 +279,27 @@ enum LayoutCommand {
 
 #[derive(Debug, Subcommand)]
 enum ExperimentCommand {
+    /// Create a no-data, best-guess experiment draft from a deterministic generated scenario.
+    Init {
+        /// Human-readable experiment name for the initial manifest.
+        #[arg(long)]
+        name: String,
+        /// Deterministic scenario-generator seed.
+        #[arg(long)]
+        seed: u64,
+        /// An empty directory that will receive scenario.chy, experiment.json, and optional sensitivity.json.
+        #[arg(short, long)]
+        output: PathBuf,
+        /// Persist every N runtime steps in a later experiment artifact.
+        #[arg(long, default_value_t = 10)]
+        trace_every: u32,
+        /// Also create a one-at-a-time, no-data sensitivity manifest for the generated draft.
+        #[arg(long)]
+        with_sensitivity: bool,
+        /// Replications per condition in the optional starter sensitivity study (default: 8).
+        #[arg(long, requires = "with_sensitivity", value_name = "COUNT")]
+        sensitivity_runs: Option<u32>,
+    },
     /// Validate one experiment and its declared sources without executing the runtime.
     Plan {
         /// JSON experiment manifest; relative paths resolve from this file.
@@ -584,12 +605,22 @@ struct SensitivityPlanReport {
     baseline: SensitivityBaseline,
     first_seed: u64,
     run_count_per_condition: u32,
+    execution: SensitivityPlanExecution,
     trace_every_steps: u32,
     reference_report_snapshots: Vec<SensitivityReferenceReportSnapshot>,
     factors: Vec<SensitivityFactorReport>,
     conditions: Vec<SensitivityPlanCondition>,
     author_claim_boundary: String,
     claim_boundary: String,
+}
+
+/// Exact deterministic work queued by a sensitivity study, not a runtime-time estimate.
+#[derive(Debug, Serialize)]
+struct SensitivityPlanExecution {
+    baseline_runs: u64,
+    condition_count: u64,
+    condition_runs: u64,
+    total_runs: u64,
 }
 
 #[derive(Debug, Serialize)]
@@ -1262,6 +1293,21 @@ fn verify_osm_scenario_anchor_command(
 
 fn handle_experiment(command: ExperimentCommand) -> Result<()> {
     match command {
+        ExperimentCommand::Init {
+            name,
+            seed,
+            output,
+            trace_every,
+            with_sensitivity,
+            sensitivity_runs,
+        } => initialize_experiment(
+            &name,
+            seed,
+            &output,
+            trace_every,
+            with_sensitivity,
+            sensitivity_runs,
+        )?,
         ExperimentCommand::Plan { manifest, output } => {
             plan_experiment(&manifest, output.as_deref())?;
         }
@@ -1269,6 +1315,209 @@ fn handle_experiment(command: ExperimentCommand) -> Result<()> {
         ExperimentCommand::Verify { directory } => verify_experiment(&directory)?,
     }
     Ok(())
+}
+
+fn initialize_experiment(
+    name: &str,
+    seed: u64,
+    output: &Path,
+    trace_every_steps: u32,
+    with_sensitivity: bool,
+    sensitivity_runs: Option<u32>,
+) -> Result<()> {
+    let scenario_source = generator::source(seed);
+    let scenario = generator::scenario(seed)?;
+    let manifest = ExperimentManifest {
+        schema_version: "0.1".to_owned(),
+        name: name.to_owned(),
+        description: format!(
+            "an initial uncalibrated structural draft generated from deterministic seed {seed}; review every stated input before interpreting a run"
+        ),
+        scenario_source: "scenario.chy".to_owned(),
+        trace_every_steps,
+        assumptions: vec![
+            chiyoda_core::ExperimentAssumption {
+                id: "generated_topology".to_owned(),
+                subject: "scenario seed, topology, routing alternatives, and scheduled changes"
+                    .to_owned(),
+                basis: chiyoda_core::AssumptionBasis::StructuralAssumption,
+                rationale: format!(
+                    "the deterministic generator produced this structural draft from seed {seed}; it is not a representation of a real facility"
+                ),
+                source_ids: Vec::new(),
+            },
+            chiyoda_core::ExperimentAssumption {
+                id: "passenger_demand_and_motion".to_owned(),
+                subject: "passengers count, release schedule, speed, radius, and height".to_owned(),
+                basis: chiyoda_core::AssumptionBasis::BestGuess,
+                rationale: "the generated demand and body/motion values are explicit starting inputs, not a population estimate".to_owned(),
+                source_ids: Vec::new(),
+            },
+            chiyoda_core::ExperimentAssumption {
+                id: "service_and_information_conditions".to_owned(),
+                subject: "gate service capacity, closure schedule, message reach, and trust".to_owned(),
+                basis: chiyoda_core::AssumptionBasis::StructuralAssumption,
+                rationale: "the generated constraints and interventions are stress conditions for reference-runtime exploration, not observed operations or behavior".to_owned(),
+                source_ids: Vec::new(),
+            },
+        ],
+        sources: Vec::new(),
+        source_attestations: Vec::new(),
+        claim_boundary: "This is an uncalibrated deterministic structural draft. It does not predict a real facility, population, evacuation outcome, operational response, or safety result.".to_owned(),
+    };
+    validate_experiment_manifest(&manifest).map_err(|errors| experiment_error(&errors))?;
+    let sensitivity_manifest = with_sensitivity
+        .then(|| {
+            starter_sensitivity_manifest(
+                name,
+                seed,
+                trace_every_steps,
+                sensitivity_runs.unwrap_or(8),
+                &scenario,
+            )
+        })
+        .transpose()?;
+    ensure_empty_directory(output)?;
+    fs::write(output.join("scenario.chy"), scenario_source)
+        .with_context(|| format!("writing starter scenario into {}", output.display()))?;
+    write_json(&output.join("experiment.json"), &manifest)?;
+    if let Some(sensitivity_manifest) = sensitivity_manifest {
+        write_json(&output.join("sensitivity.json"), &sensitivity_manifest)?;
+    }
+    println!(
+        "uncalibrated experiment starter: {} ({})",
+        output.join("experiment.json").display(),
+        scenario.name
+    );
+    println!(
+        "next: chiyoda experiment plan {}",
+        output.join("experiment.json").display()
+    );
+    if with_sensitivity {
+        let sensitivity_manifest_path = output.join("sensitivity.json");
+        let sensitivity_output = output.join("sensitivity-study");
+        println!(
+            "review sensitivity: chiyoda sensitivity-plan {}",
+            sensitivity_manifest_path.display()
+        );
+        println!(
+            "after review: chiyoda sensitivity {} -o {}",
+            sensitivity_manifest_path.display(),
+            sensitivity_output.display()
+        );
+        println!(
+            "then verify: chiyoda verify-sensitivity {}",
+            sensitivity_output.display()
+        );
+    }
+    Ok(())
+}
+
+fn starter_sensitivity_manifest(
+    name: &str,
+    seed: u64,
+    trace_every_steps: u32,
+    run_count: u32,
+    scenario: &chiyoda_core::Scenario,
+) -> Result<SensitivityManifest> {
+    let passengers = scenario
+        .agents
+        .first()
+        .context("generated starter scenario has no agent group")?;
+    let gate = scenario
+        .gates
+        .first()
+        .context("generated starter scenario has no gate")?;
+    let misinformation = scenario
+        .messages
+        .first()
+        .context("generated starter scenario has no message")?;
+    let correction = scenario
+        .countermeasures
+        .first()
+        .context("generated starter scenario has no countermeasure")?;
+    let manifest = SensitivityManifest {
+        schema_version: "0.1".to_owned(),
+        name: format!("{name} sensitivity alternatives"),
+        description: "a no-data, one-at-a-time exploration of five explicitly generated best-guess inputs".to_owned(),
+        baseline_source: "scenario.chy".to_owned(),
+        first_seed: seed,
+        count: run_count,
+        trace_every_steps,
+        design: chiyoda_core::SensitivityDesign::OneAtATime,
+        max_conditions: 12,
+        factors: vec![
+            SensitivityFactor {
+                id: "passenger_demand".to_owned(),
+                target: chiyoda_core::SensitivityTarget::AgentCount,
+                subject: passengers.id.clone(),
+                values: vec![
+                    f64::from(passengers.count.saturating_mul(3) / 4),
+                    f64::from(passengers.count),
+                    f64::from(passengers.count.saturating_mul(5).div_ceil(4)),
+                ],
+                basis: chiyoda_core::AssumptionBasis::BestGuess,
+                rationale: "these alternatives bracket the generated passenger count without treating it as a demand estimate or population profile".to_owned(),
+                references: Vec::new(),
+            },
+            SensitivityFactor {
+                id: "passenger_speed".to_owned(),
+                target: chiyoda_core::SensitivityTarget::AgentSpeedMps,
+                subject: passengers.id.clone(),
+                values: vec![
+                    passengers.speed_mps * 0.8,
+                    passengers.speed_mps,
+                    passengers.speed_mps * 1.2,
+                ],
+                basis: chiyoda_core::AssumptionBasis::BestGuess,
+                rationale: "these alternatives bracket the generated walking-speed input without claiming a population distribution or measured travel speed".to_owned(),
+                references: Vec::new(),
+            },
+            SensitivityFactor {
+                id: "gate_service_rate".to_owned(),
+                target: chiyoda_core::SensitivityTarget::GateServiceRatePerS,
+                subject: gate.id.clone(),
+                values: vec![
+                    gate.service_rate_per_s * 0.5,
+                    gate.service_rate_per_s,
+                    gate.service_rate_per_s * 1.5,
+                ],
+                basis: chiyoda_core::AssumptionBasis::BestGuess,
+                rationale: "these alternatives expose the structural consequence of the generated gate service limit without treating it as observed throughput".to_owned(),
+                references: Vec::new(),
+            },
+            SensitivityFactor {
+                id: "misinformation_trust".to_owned(),
+                target: chiyoda_core::SensitivityTarget::MessageTrust,
+                subject: misinformation.id.clone(),
+                values: vec![
+                    misinformation.trust * 0.5,
+                    misinformation.trust,
+                    misinformation.trust.midpoint(1.0),
+                ],
+                basis: chiyoda_core::AssumptionBasis::BestGuess,
+                rationale: "these alternatives expose the effect of the generated misinformation acceptance input without estimating human trust or message uptake".to_owned(),
+                references: Vec::new(),
+            },
+            SensitivityFactor {
+                id: "correction_trust".to_owned(),
+                target: chiyoda_core::SensitivityTarget::CountermeasureTrust,
+                subject: correction.id.clone(),
+                values: vec![
+                    correction.trust * 0.5,
+                    correction.trust,
+                    correction.trust.midpoint(1.0),
+                ],
+                basis: chiyoda_core::AssumptionBasis::BestGuess,
+                rationale: "these alternatives expose the effect of the generated corrective-message acceptance input without estimating staff effectiveness or human trust".to_owned(),
+                references: Vec::new(),
+            },
+        ],
+        claim_boundary: "This is an uncalibrated sensitivity exploration of generated best guesses. It does not estimate a real population, facility, service rate, evacuation outcome, operational response, or safety result.".to_owned(),
+    };
+    plan_sensitivity(&manifest, scenario)
+        .context("generated starter sensitivity manifest must be valid")?;
+    Ok(manifest)
 }
 
 fn plan_experiment(manifest_path: &Path, output: Option<&Path>) -> Result<()> {
@@ -2331,6 +2580,15 @@ fn run_sensitivity(manifest_path: &Path, output: &Path) -> Result<()> {
 fn sensitivity_plan(manifest_path: &Path, output: Option<&Path>) -> Result<()> {
     let (manifest, baseline_template, study) = load_sensitivity_study(manifest_path)?;
     let reference_reports = capture_sensitivity_reference_reports(&manifest, manifest_path)?;
+    let condition_count = u64::try_from(study.conditions.len())
+        .context("sensitivity condition count does not fit into u64")?;
+    let baseline_runs = u64::from(manifest.count);
+    let condition_runs = baseline_runs
+        .checked_mul(condition_count)
+        .context("sensitivity condition run count overflowed")?;
+    let total_runs = baseline_runs
+        .checked_add(condition_runs)
+        .context("sensitivity total run count overflowed")?;
     let report = SensitivityPlanReport {
         schema_version: "0.1".to_owned(),
         study_name: manifest.name,
@@ -2346,6 +2604,12 @@ fn sensitivity_plan(manifest_path: &Path, output: Option<&Path>) -> Result<()> {
         },
         first_seed: manifest.first_seed,
         run_count_per_condition: manifest.count,
+        execution: SensitivityPlanExecution {
+            baseline_runs,
+            condition_count,
+            condition_runs,
+            total_runs,
+        },
         trace_every_steps: manifest.trace_every_steps,
         reference_report_snapshots: reference_reports
             .iter()
@@ -3365,7 +3629,7 @@ fn validate_bundle_metrics(bundle: &RunBundle, directory: &Path) -> Result<()> {
     }
     if matches!(
         bundle.bundle_version.as_str(),
-        "0.17" | "0.18" | "0.19" | "0.20" | "0.21" | "0.22" | "0.23" | "0.24"
+        "0.17" | "0.18" | "0.19" | "0.20" | "0.21" | "0.22" | "0.23" | "0.24" | "0.25"
     ) {
         let fully_evacuated = metrics.evacuated_agents == metrics.total_agents;
         if metrics.clearance_time_s.is_some() != fully_evacuated {
@@ -3443,7 +3707,7 @@ fn validate_bundle_metrics(bundle: &RunBundle, directory: &Path) -> Result<()> {
     }
     if matches!(
         bundle.bundle_version.as_str(),
-        "0.18" | "0.19" | "0.20" | "0.21" | "0.22" | "0.23" | "0.24"
+        "0.18" | "0.19" | "0.20" | "0.21" | "0.22" | "0.23" | "0.24" | "0.25"
     ) && !expected_interventions.is_empty()
     {
         bail!(
@@ -3490,7 +3754,10 @@ fn validate_bundle_metrics(bundle: &RunBundle, directory: &Path) -> Result<()> {
             directory.display()
         );
     }
-    if matches!(bundle.bundle_version.as_str(), "0.22" | "0.23" | "0.24") {
+    if matches!(
+        bundle.bundle_version.as_str(),
+        "0.22" | "0.23" | "0.24" | "0.25"
+    ) {
         let queue_metrics = metrics.queue_metrics.as_ref().ok_or_else(|| {
             anyhow::anyhow!(
                 "current bundle omits queue telemetry: {}",
@@ -3524,7 +3791,7 @@ fn validate_bundle_metrics(bundle: &RunBundle, directory: &Path) -> Result<()> {
                 );
             }
         }
-        if matches!(bundle.bundle_version.as_str(), "0.23" | "0.24") {
+        if matches!(bundle.bundle_version.as_str(), "0.23" | "0.24" | "0.25") {
             let by_resource = queue_metrics.by_resource.as_ref().ok_or_else(|| {
                 anyhow::anyhow!(
                     "current bundle omits resource-level queue telemetry: {}",
@@ -3578,7 +3845,7 @@ fn validate_bundle_metrics(bundle: &RunBundle, directory: &Path) -> Result<()> {
                 &queue_metrics.exit,
                 metrics.total_agents,
             )?;
-            if bundle.bundle_version == "0.24" {
+            if matches!(bundle.bundle_version.as_str(), "0.24" | "0.25") {
                 validate_queue_entry_events(bundle, directory, by_resource, queue_metrics)?;
             }
         }
@@ -4612,11 +4879,12 @@ mod tests {
     };
     use chiyoda_core::{
         InformationDeliveryMetrics, InformationInterventionKind, QueueMetrics,
-        QueueResourceBreakdown, QueueResourceMetrics, RunBundle, RunOptions, generator, parse, run,
+        QueueResourceBreakdown, QueueResourceMetrics, RunBundle, RunOptions, SensitivityManifest,
+        generator, parse, plan_sensitivity, run,
     };
     use sha2::{Digest, Sha256};
     use std::{
-        collections::BTreeMap,
+        collections::{BTreeMap, BTreeSet},
         fs,
         path::{Path, PathBuf},
         time::{SystemTime, UNIX_EPOCH},
@@ -4947,6 +5215,119 @@ agents passengers count 1 on concourse at (1m, 1m, 0m) to main_entrance speed 1m
         assert_eq!(report["status"], "source_anchored_scenario_only");
         assert_eq!(report["anchors"][0]["source_coordinate"]["east_m"], 0.0);
         assert_eq!(report["anchors"][0]["scenario_coordinate"]["north_m"], 0.0);
+    }
+
+    #[test]
+    #[allow(clippy::too_many_lines)] // one starter fixture checks creation, planning, workload, and refusal boundaries
+    fn experiment_init_creates_a_no_data_best_guess_starter() {
+        let directory = test_directory("experiment-init");
+        let output = directory.0.join("starter");
+        handle_experiment(ExperimentCommand::Init {
+            name: "generated structural draft".to_owned(),
+            seed: 73,
+            output: output.clone(),
+            trace_every: 4,
+            with_sensitivity: true,
+            sensitivity_runs: Some(3),
+        })
+        .expect("starter creation succeeds without sources or data");
+
+        let files = fs::read_dir(&output)
+            .expect("reading starter directory")
+            .map(|entry| {
+                entry
+                    .expect("reading starter entry")
+                    .file_name()
+                    .into_string()
+                    .expect("starter entry name is UTF-8")
+            })
+            .collect::<BTreeSet<_>>();
+        assert_eq!(
+            files,
+            BTreeSet::from([
+                "experiment.json".to_owned(),
+                "scenario.chy".to_owned(),
+                "sensitivity.json".to_owned(),
+            ])
+        );
+        assert_eq!(
+            fs::read_to_string(output.join("scenario.chy")).expect("reading starter scenario"),
+            generator::source(73)
+        );
+        let manifest: serde_json::Value =
+            super::read_json(&output.join("experiment.json")).expect("reading starter manifest");
+        assert_eq!(manifest["schema_version"], "0.1");
+        assert_eq!(manifest["name"], "generated structural draft");
+        assert_eq!(manifest["trace_every_steps"], 4);
+        assert!(manifest.get("sources").is_none());
+        assert_eq!(manifest["assumptions"].as_array().map(Vec::len), Some(3));
+        assert!(manifest.get("source_attestations").is_none());
+
+        let plan_output = directory.0.join("plan.json");
+        handle_experiment(ExperimentCommand::Plan {
+            manifest: output.join("experiment.json"),
+            output: Some(plan_output.clone()),
+        })
+        .expect("starter plan succeeds without data");
+        let plan: serde_json::Value = super::read_json(&plan_output).expect("reading starter plan");
+        assert_eq!(plan["experiment_name"], "generated structural draft");
+        assert_eq!(plan["sources"], serde_json::json!([]));
+        let sensitivity_plan_output = directory.0.join("sensitivity-plan.json");
+        super::sensitivity_plan(
+            &output.join("sensitivity.json"),
+            Some(&sensitivity_plan_output),
+        )
+        .expect("starter sensitivity plan succeeds without data");
+        let sensitivity_plan: serde_json::Value =
+            super::read_json(&sensitivity_plan_output).expect("reading starter sensitivity plan");
+        assert_eq!(sensitivity_plan["execution"]["baseline_runs"], 3);
+        assert_eq!(sensitivity_plan["execution"]["condition_count"], 10);
+        assert_eq!(sensitivity_plan["execution"]["condition_runs"], 30);
+        assert_eq!(sensitivity_plan["execution"]["total_runs"], 33);
+        let sensitivity: SensitivityManifest = super::read_json(&output.join("sensitivity.json"))
+            .expect("reading starter sensitivity manifest");
+        let starter_scenario = super::read_scenario(&output.join("scenario.chy"))
+            .expect("reading starter sensitivity scenario");
+        let study = plan_sensitivity(&sensitivity, &starter_scenario)
+            .expect("starter sensitivity manifest resolves without data");
+        assert_eq!(sensitivity.count, 3);
+        assert_eq!(study.conditions.len(), 10);
+
+        let no_sensitivity_output = directory.0.join("no-sensitivity-starter");
+        handle_experiment(ExperimentCommand::Init {
+            name: "single draft".to_owned(),
+            seed: 74,
+            output: no_sensitivity_output.clone(),
+            trace_every: 10,
+            with_sensitivity: false,
+            sensitivity_runs: None,
+        })
+        .expect("plain starter creation succeeds");
+        assert!(!no_sensitivity_output.join("sensitivity.json").exists());
+
+        let zero_run_output = directory.0.join("zero-run-starter");
+        let error = handle_experiment(ExperimentCommand::Init {
+            name: "invalid sensitivity draft".to_owned(),
+            seed: 1,
+            output: zero_run_output.clone(),
+            trace_every: 10,
+            with_sensitivity: true,
+            sensitivity_runs: Some(0),
+        })
+        .expect_err("a starter sensitivity study must have at least one replication");
+        assert!(format!("{error:#}").contains("count must be greater than zero"));
+        assert!(!zero_run_output.exists());
+
+        let error = handle_experiment(ExperimentCommand::Init {
+            name: "second draft".to_owned(),
+            seed: 74,
+            output,
+            trace_every: 10,
+            with_sensitivity: false,
+            sensitivity_runs: None,
+        })
+        .expect_err("starter creation must not overwrite an existing draft");
+        assert!(format!("{error:#}").contains("must be empty"));
     }
 
     #[test]

@@ -29,9 +29,10 @@ $ cargo run -p chiyoda -- verify-sensitivity out/concourse-sensitivity
 
 `sensitivity-plan` is non-mutating except for its optional JSON output file. It
 resolves the baseline, validates every concrete condition, reports the exact
-condition count, factor assignments, and canonical template hashes, but does
-not execute the runtime or create a study directory. Review this plan before
-raising `max_conditions` or launching an expensive factorial study.
+condition count, baseline/condition/total run workload, factor assignments,
+and canonical template hashes, but does not execute the runtime or create a
+study directory. Review this plan before raising `max_conditions` or launching
+an expensive factorial study.
 
 The output directory must be empty. It contains:
 

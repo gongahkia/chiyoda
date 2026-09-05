@@ -5,7 +5,7 @@ Chiyoda is an Apache-2.0 research platform for deterministic, reproducible
 is a standalone experiment language and executable reference semantics—not a
 real-time operations dashboard or a certified evacuation product.
 
-The current `0.24.0-alpha.1` release establishes the language/runtime contract:
+The current `0.25.0-alpha.1` release establishes the language/runtime contract:
 
 - a typed textual DSL with static unit, topology, reachability, capacity, and
   deterministic-replay checks;
@@ -40,6 +40,47 @@ candidate source and descriptive intake pipeline for 2D platform trajectories;
 this is not runtime calibration or a published empirical round. The CLI rejects
 only a benchmark round manifest that does not meet its contract. See [evidence
 boundaries](docs/evidence.md) and the [benchmark protocol](docs/benchmark.md).
+
+## Start without data
+
+To start an uncalibrated structural exploration, no dataset, research protocol,
+or external account is needed. This creates a deterministic generated scenario
+and an editable manifest whose inputs are explicitly labelled as best guesses
+or structural assumptions:
+
+```console
+$ cargo run -p chiyoda -- experiment init --name "concourse draft" --seed 73 -o out/concourse-draft
+$ cargo run -p chiyoda -- experiment plan out/concourse-draft/experiment.json
+```
+
+Edit `out/concourse-draft/scenario.chy` and
+`out/concourse-draft/experiment.json` until the disclosed inputs represent the
+structural question you want to explore. Then create a deterministic,
+self-verifying artifact:
+
+```console
+$ cargo run -p chiyoda -- experiment run out/concourse-draft/experiment.json -o out/concourse-run
+$ cargo run -p chiyoda -- experiment verify out/concourse-run
+```
+
+`experiment init` does not run the runtime, download data, or create a
+prediction. The generated topology and all population, service, and information
+values are a reviewable starting point, not facility facts. Use
+[`sensitivity`](docs/sensitivity.md) when more than one value is plausible. Add
+`--with-sensitivity` to `experiment init` to create a companion
+`sensitivity.json` that brackets the generated passenger count and speed, gate
+service rate, misinformation trust, and corrective-message trust as explicit
+best guesses. The starter uses eight deterministic replications per condition
+by default; set `--sensitivity-runs COUNT` before creation when a shorter smoke
+study or a larger structural exploration is appropriate:
+
+```console
+$ cargo run -p chiyoda -- experiment init --name "concourse draft" --seed 73 \
+    --with-sensitivity --sensitivity-runs 20 -o out/concourse-draft
+$ cargo run -p chiyoda -- sensitivity-plan out/concourse-draft/sensitivity.json
+$ cargo run -p chiyoda -- sensitivity out/concourse-draft/sensitivity.json -o out/concourse-sensitivity
+$ cargo run -p chiyoda -- verify-sensitivity out/concourse-sensitivity
+```
 
 ## Quick start
 

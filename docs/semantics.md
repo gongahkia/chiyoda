@@ -1,7 +1,7 @@
-# Executable semantics 0.24
+# Executable semantics 0.25
 
 The Rust `chiyoda-core` runtime is the reference interpreter for language 0.21
-under runtime contract 0.24. This document is normative where it describes public
+under runtime contract 0.25. This document is normative where it describes public
 behavior;
 the source and conformance tests make that behavior executable.
 
@@ -17,7 +17,9 @@ capacity, exit capacity, gate capacity, message, countermeasure. Declaration
 order breaks ties within one event kind.
 
 1. Apply each availability and capacity-state event whose declared time falls
-   in `(t - timestep, t]`. `connector-state`, `exit-state`, and `gate-state`
+   in `(previous step time, t]`. The final step is shortened when necessary so
+   that `t` is exactly the authored duration. `connector-state`, `exit-state`,
+   and `gate-state`
    alter physical availability and immediately recompute every on-surface route.
    `connector-capacity-state`, `exit-capacity-state`, and
    `gate-capacity-state` alter only the effective service rate and emit an
@@ -29,7 +31,7 @@ order breaks ties within one event kind.
    closure excludes that gate from future final-exit plans; it does not revoke
    passage already processed through the gate.
 2. Deliver each message and countermeasure whose declared time falls in
-   `(t - timestep, t]` to active agents on the same surface within the
+   `(previous step time, t]` to active agents on the same surface within the
    declared reach radius. A not-yet-released group is not a recipient.
 3. Update accepted connector- or exit-availability beliefs. Each eligible recipient
    accepts an intervention when its deterministic seed-derived sample is below
@@ -58,7 +60,8 @@ order breaks ties within one event kind.
    that draw. Keys are globally unique within one scenario; matching a key
    across separately authored comparison arms deliberately aligns draw streams.
 4. Accrue gate, declared connector, and declared exit service tokens at their
-   effective authored people-per-second rates for this step. A capacity state
+   effective authored people-per-second rates for this step's actual elapsed
+   time. A capacity state
    in the step therefore takes effect before accrual. Each resource begins
    empty and stores at most one effective rate's worth of credit, with a
    one-person minimum for rates below `1/s`; an idle resource therefore retains
@@ -66,7 +69,7 @@ order breaks ties within one event kind.
    tokens may be consumed.
 5. Release each agent whose authored release time is at or before `t`, then
    advance in-transit agents and on-surface agents in declaration order using
-   a fixed Euler step, radius-based local separation, and surface bounds
+   an Euler step, radius-based local separation, and surface bounds
    clamping. For `release T every I batch N`, ordinal agents share one release
    time by integer batch: `T + I * floor(ordinal / N)`. Omitted `batch` is
    one; omitted `every` releases the whole group at `T`. Release occurs after
@@ -91,7 +94,7 @@ unordered map iteration.
 
 ## What this does not mean
 
-The `0.24` local-separation law, nominal routing cost and alternative-exit
+The `0.25` local-separation law, nominal routing cost and alternative-exit
 selection, scheduled-release and service-capacity semantics, operational-state
 transitions, escalator walking-rider assumption, and seeded information
 acceptance law are reference semantics, not calibrated behavioral claims. A
@@ -108,8 +111,9 @@ system clearance time.
 Current bundles also retain discrete `queue_metrics` for lift, non-lift
 connector, gate, and exit capacity queues. `ever_queued_agents` is the number
 of agents that entered a queue at least once; it mirrors the older top-level
-exposure count. `cumulative_wait_agent_seconds` adds one authored timestep for
-each agent that was in that queue during the preceding reference step, and
+exposure count. `cumulative_wait_agent_seconds` adds the actual reference-step
+duration for each agent that was in that queue during the preceding reference
+step, and
 `peak_waiting_agents` is the largest count seen at a step boundary. These are
 internally consistent telemetry for this discrete runtime, not physical queue
 lengths, observed delays, throughput measurements, or calibrated flow values.
@@ -127,7 +131,7 @@ reconstructed from resource peaks: it is the maximum simultaneous count across
 all resources of that mechanism at a step boundary. The breakdown does not
 identify a geometric queue, a real-world bottleneck, or a measured service rate.
 
-Runtime contract `0.24` also records an event when an agent first enters each
+Runtime contract `0.25` also records an event when an agent first enters each
 such modeled resource queue. Its event kind is one of `queue_entered_lift`,
 `queue_entered_connector`, `queue_entered_gate`, or `queue_entered_exit`; its
 subject is the generated agent identifier and its detail is the exact authored

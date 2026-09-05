@@ -9,6 +9,45 @@ This is not a research-program gate. It is an audit trail: every serious run
 records what was authored, why it was chosen, which source reports informed it,
 and what the result must not be used to claim.
 
+## Start a no-data draft
+
+`experiment init` creates an editable, no-data draft from a deterministic
+generated scenario. It writes only `scenario.chy` and `experiment.json` to an
+empty directory; it does not execute the runtime, acquire a source, or create
+a prediction.
+
+```console
+$ cargo run -p chiyoda -- experiment init \
+    --name "concourse draft" --seed 73 -o out/concourse-draft
+$ cargo run -p chiyoda -- experiment plan out/concourse-draft/experiment.json
+```
+
+The generated manifest has no sources, preserves the requested trace cadence,
+and explicitly labels generated topology, passenger demand/motion, and service
+and information conditions as structural assumptions or best guesses. Review
+and edit both files before a run. When ready, use the ordinary `experiment run`
+and `experiment verify` commands below. This is the normal starting path for an
+uncalibrated structural question; an OSM source, evidence catalog, calibration
+protocol, and benchmark manifest are all optional and unnecessary here.
+
+Pass `--with-sensitivity` to also create `sensitivity.json`. It uses the
+generated scenario as its baseline and creates one-at-a-time alternatives for
+the generated passenger count and walking-speed, gate-service-rate,
+misinformation-trust, and corrective-message-trust inputs. Each has the
+`best_guess` basis, no sources, and no probability distribution. It is a
+reviewable starting bracket, not an estimate of real people or operations. It
+uses eight deterministic replications per condition by default. Set
+`--sensitivity-runs COUNT` before creation to choose the workload deliberately.
+
+```console
+$ cargo run -p chiyoda -- experiment init \
+    --name "concourse draft" --seed 73 --with-sensitivity --sensitivity-runs 20 \
+    -o out/concourse-draft
+$ cargo run -p chiyoda -- sensitivity-plan out/concourse-draft/sensitivity.json
+$ cargo run -p chiyoda -- sensitivity out/concourse-draft/sensitivity.json -o out/concourse-sensitivity
+$ cargo run -p chiyoda -- verify-sensitivity out/concourse-sensitivity
+```
+
 ## Manifest
 
 The baseline manifest uses schema `0.1` and is strict JSON. Schema `0.2` adds

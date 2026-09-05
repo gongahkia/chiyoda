@@ -633,13 +633,13 @@ enum ScheduledEvent<'a> {
 fn apply_scheduled_events(
     scenario: &Scenario,
     agents: &mut [Agent],
+    previous_time_s: f64,
     time_s: f64,
     events: &mut Vec<RunEvent>,
     resources: &mut RuntimeResources,
     information_delivery: &mut BTreeMap<String, InformationDeliveryMetrics>,
 ) {
-    let previous_time = time_s - scenario.timestep_s;
-    let is_scheduled = |at_s: f64| previous_time < at_s && at_s <= time_s;
+    let is_scheduled = |at_s: f64| previous_time_s < at_s && at_s <= time_s;
     let mut scheduled = Vec::new();
     scheduled.extend(
         scenario
@@ -969,8 +969,9 @@ impl SpatialSnapshot {
 #[allow(
     clippy::cast_possible_truncation,
     clippy::cast_precision_loss,
-    clippy::cast_sign_loss
-)] // validation requires finite positive durations/counts; conversions bound discrete reference steps
+    clippy::cast_sign_loss,
+    clippy::too_many_lines
+)] // validation bounds conversions; setup, stepping, metrics, and artifact construction share one contract
 pub fn run(scenario: &Scenario, options: RunOptions) -> Result<RunBundle, RunError> {
     validate(scenario).map_err(RunError::InvalidScenario)?;
     if options.trace_every_steps == 0 {
@@ -990,23 +991,37 @@ pub fn run(scenario: &Scenario, options: RunOptions) -> Result<RunBundle, RunErr
     let mut trace = vec![snapshot(0, 0.0, &agents)];
     let mut events = initial_state_events(scenario);
     let mut information_delivery = information_delivery_for_scenario(scenario);
+    let mut previous_time_s = 0.0;
 
     for step in 1..=step_count {
-        resources.record_queue_wait(scenario, &agents, scenario.timestep_s);
-        let time_s = (step as f64) * scenario.timestep_s;
+        let time_s = ((step as f64) * scenario.timestep_s).min(scenario.duration_s);
+        let elapsed_s = time_s - previous_time_s;
+        if elapsed_s <= 0.0 {
+            break;
+        }
+        resources.record_queue_wait(scenario, &agents, elapsed_s);
         apply_scheduled_events(
             scenario,
             &mut agents,
+            previous_time_s,
             time_s,
             &mut events,
             &mut resources,
             &mut information_delivery,
         );
-        integrate(scenario, &mut agents, time_s, &mut events, &mut resources);
+        integrate(
+            scenario,
+            &mut agents,
+            time_s,
+            elapsed_s,
+            &mut events,
+            &mut resources,
+        );
         resources.record_queue_wait(scenario, &agents, 0.0);
-        if step % u64::from(options.trace_every_steps) == 0 || step == step_count {
+        if step % u64::from(options.trace_every_steps) == 0 || time_s >= scenario.duration_s {
             trace.push(snapshot(step, time_s, &agents));
         }
+        previous_time_s = time_s;
     }
 
     let exit_times: Vec<f64> = agents
@@ -1063,7 +1078,7 @@ pub fn run(scenario: &Scenario, options: RunOptions) -> Result<RunBundle, RunErr
         ),
         (
             "integration".to_owned(),
-            "deterministic-euler-0.24".to_owned(),
+            "deterministic-euler-0.25".to_owned(),
         ),
     ]);
     Ok(RunBundle::new(canonical, options, trace, events, metrics))
@@ -1996,6 +2011,7 @@ fn integrate(
     scenario: &Scenario,
     agents: &mut [Agent],
     time_s: f64,
+    step_elapsed_s: f64,
     events: &mut Vec<RunEvent>,
     resources: &mut RuntimeResources,
 ) {
@@ -2036,23 +2052,21 @@ fn integrate(
             continue;
         };
         let token = resources.connector_tokens.entry(index).or_default();
-        *token =
-            (*token + service_rate_per_s * scenario.timestep_s).min(service_rate_per_s.max(1.0));
+        *token = (*token + service_rate_per_s * step_elapsed_s).min(service_rate_per_s.max(1.0));
     }
     for gate in &scenario.gates {
         let service_rate_per_s = scenario
             .gate_service_rate_at(&gate.id, time_s)
             .expect("validated gate exists");
         let token = resources.gate_tokens.entry(gate.id.clone()).or_default();
-        *token =
-            (*token + service_rate_per_s * scenario.timestep_s).min(service_rate_per_s.max(1.0));
+        *token = (*token + service_rate_per_s * step_elapsed_s).min(service_rate_per_s.max(1.0));
     }
     for exit in &scenario.exits {
         let Some(capacity_per_s) = scenario.exit_capacity_at(&exit.id, time_s) else {
             continue;
         };
         let token = resources.exit_tokens.entry(exit.id.clone()).or_default();
-        *token = (*token + capacity_per_s * scenario.timestep_s).min(capacity_per_s.max(1.0));
+        *token = (*token + capacity_per_s * step_elapsed_s).min(capacity_per_s.max(1.0));
     }
     for (index, agent) in agents.iter_mut().enumerate() {
         match &mut agent.motion {
@@ -2067,7 +2081,7 @@ fn integrate(
                 end,
                 next_surface,
             } => {
-                *elapsed_s += scenario.timestep_s;
+                *elapsed_s += step_elapsed_s;
                 let ratio = (*elapsed_s / *duration_s).min(1.0);
                 agent.position = start.lerp(*end, ratio);
                 if ratio >= 1.0 {
@@ -2145,7 +2159,7 @@ fn integrate(
                 let reached = move_toward(
                     agent,
                     target,
-                    scenario.timestep_s,
+                    step_elapsed_s,
                     &spatial_snapshot,
                     index,
                     surface,
@@ -2594,6 +2608,19 @@ mod tests {
         bundle.bundle_hash = bundle_hash(&bundle);
         assert_eq!(
             verify_run_bundle(&bundle).expect("legacy hash remains inspectable"),
+            BundleVerification::HashOnlyLegacy
+        );
+    }
+
+    #[test]
+    fn prior_bundle_contract_remains_hash_only_legacy() {
+        let scenario = generator::scenario(73).expect("generated scenario is valid");
+        let mut bundle = run(&scenario, RunOptions::default()).expect("runtime succeeds");
+        bundle.bundle_version = "0.24".to_owned();
+        bundle.bundle_hash = bundle_hash(&bundle);
+
+        assert_eq!(
+            verify_run_bundle(&bundle).expect("prior contract remains hash-inspectable"),
             BundleVerification::HashOnlyLegacy
         );
     }
