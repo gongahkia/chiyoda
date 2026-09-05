@@ -2271,6 +2271,7 @@ fn integrate(
                     index,
                     surface,
                     &scenario.obstacles,
+                    reached_waypoint.is_some(),
                 );
                 if !reached {
                     continue;
@@ -2559,6 +2560,7 @@ fn move_toward(
     own_index: usize,
     surface: &Surface,
     obstacles: &[Obstacle],
+    target_requires_local_clearance: bool,
 ) -> bool {
     let Some(path) =
         shortest_walk_path_on_surface(surface, obstacles, agent.position, target, agent.radius_m)
@@ -2581,15 +2583,22 @@ fn move_toward(
             z_m: agent.position.z_m + (dz / distance) * travel,
         }
     };
-    let next = resolve_local_position(
-        agent,
-        planned_next,
-        own_index,
-        surface,
-        obstacles,
-        spatial_index,
-    )
-    .unwrap_or(agent.position);
+    // Connector, gate, and exit queues are authored as non-spatial token
+    // resources. Their target arrival therefore remains declaration-ordered;
+    // only ordinary movement and waypoint arrival use local clearance.
+    let next = if reached_waypoint && !target_requires_local_clearance {
+        planned_next
+    } else {
+        resolve_local_position(
+            agent,
+            planned_next,
+            own_index,
+            surface,
+            obstacles,
+            spatial_index,
+        )
+        .unwrap_or(agent.position)
+    };
     let reached =
         reached_waypoint && path.len() <= 2 && next.distance(waypoint) <= NAVIGATION_EPSILON_M;
     agent.position = next;
