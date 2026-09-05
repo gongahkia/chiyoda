@@ -54,6 +54,24 @@ pub enum ExperimentSourceAttestation {
         data_root: String,
         observation_report_path: String,
     },
+    /// Reconstruct selected scenario-point coordinates from an already
+    /// attested local OSM projection. This preserves a narrow source-point to
+    /// authored-point link; it does not import a layout or validate a model.
+    OsmScenarioAnchor {
+        source_id: String,
+        projection_source_id: String,
+        anchor_manifest_path: String,
+    },
+}
+
+impl ExperimentSourceAttestation {
+    #[must_use]
+    pub fn source_id(&self) -> &str {
+        match self {
+            Self::OsmLocalProjection { source_id, .. }
+            | Self::OsmScenarioAnchor { source_id, .. } => source_id,
+        }
+    }
 }
 
 fn default_trace_every_steps() -> u32 {
@@ -235,23 +253,18 @@ pub fn validate_experiment_manifest(
     }
 
     let mut attested_sources = BTreeSet::new();
+    let mut local_projection_sources = BTreeSet::new();
+    let mut scenario_anchor_dependencies = Vec::new();
     for (index, attestation) in manifest.source_attestations.iter().enumerate() {
         let path = format!("source_attestations[{index}]");
-        let (source_id, catalog_path, data_root, observation_report_path) = match attestation {
-            ExperimentSourceAttestation::OsmLocalProjection {
-                source_id,
-                catalog_path,
-                data_root,
-                observation_report_path,
-            } => (source_id, catalog_path, data_root, observation_report_path),
-        };
+        let source_id = attestation.source_id();
         if !is_safe_identifier(source_id) {
             errors.push(issue(
                 &format!("{path}.source_id"),
                 "must be a safe identifier",
             ));
         }
-        if !attested_sources.insert(source_id.as_str()) {
+        if !attested_sources.insert(source_id) {
             errors.push(issue(
                 &format!("{path}.source_id"),
                 "must not be attested more than once",
@@ -260,7 +273,7 @@ pub fn validate_experiment_manifest(
         let Some(source) = manifest
             .sources
             .iter()
-            .find(|source| source.id == *source_id)
+            .find(|source| source.id == source_id)
         else {
             errors.push(issue(
                 &format!("{path}.source_id"),
@@ -274,17 +287,67 @@ pub fn validate_experiment_manifest(
                 "must reference a source with a derived_report",
             ));
         }
-        for (field, value) in [
-            ("catalog_path", catalog_path),
-            ("data_root", data_root),
-            ("observation_report_path", observation_report_path),
-        ] {
-            if !is_safe_relative_path(value) {
-                errors.push(issue(
-                    &format!("{path}.{field}"),
-                    "must be a non-empty relative path without `.` or `..` components",
-                ));
+        match attestation {
+            ExperimentSourceAttestation::OsmLocalProjection {
+                catalog_path,
+                data_root,
+                observation_report_path,
+            } => {
+                local_projection_sources.insert(source_id);
+                for (field, value) in [
+                    ("catalog_path", catalog_path),
+                    ("data_root", data_root),
+                    ("observation_report_path", observation_report_path),
+                ] {
+                    if !is_safe_relative_path(value) {
+                        errors.push(issue(
+                            &format!("{path}.{field}"),
+                            "must be a non-empty relative path without `.` or `..` components",
+                        ));
+                    }
+                }
             }
+            ExperimentSourceAttestation::OsmScenarioAnchor {
+                projection_source_id,
+                anchor_manifest_path,
+                ..
+            } => {
+                if source.source_sha256.is_none() {
+                    errors.push(issue(
+                        &format!("{path}.source_id"),
+                        "must reference a source with source_sha256 for osm_scenario_anchor",
+                    ));
+                }
+                if !is_safe_identifier(projection_source_id) {
+                    errors.push(issue(
+                        &format!("{path}.projection_source_id"),
+                        "must be a safe identifier",
+                    ));
+                }
+                if !is_safe_relative_path(anchor_manifest_path) {
+                    errors.push(issue(
+                        &format!("{path}.anchor_manifest_path"),
+                        "must be a non-empty relative path without `.` or `..` components",
+                    ));
+                }
+                scenario_anchor_dependencies.push((index, source_id, projection_source_id));
+            }
+        }
+    }
+
+    for (index, source_id, projection_source_id) in scenario_anchor_dependencies {
+        let path = format!("source_attestations[{index}]");
+        if source_id == projection_source_id {
+            errors.push(issue(
+                &format!("{path}.projection_source_id"),
+                "must differ from source_id",
+            ));
+        }
+        if !local_projection_sources.contains(projection_source_id) {
+            errors.push(issue(
+                &format!("{path}.projection_source_id"),
+                "must name the source_id of an osm_local_projection attestation",
+            ));
         }
     }
 
@@ -386,5 +449,34 @@ mod tests {
             sha256: "a".repeat(64),
         });
         assert!(validate_experiment_manifest(&attested).is_ok());
+
+        let mut anchored = attested.clone();
+        anchored.sources.push(SensitivityReference {
+            id: "scenario_anchor".to_owned(),
+            citation: "Fixture (2026)".to_owned(),
+            url: "https://example.test/anchor".to_owned(),
+            applicability: "retains one selected source point".to_owned(),
+            limitation: "does not import a layout or calibrate the runtime".to_owned(),
+            source_sha256: Some("b".repeat(64)),
+            derived_report: Some(SensitivityDerivedReport {
+                path: "anchor.json".to_owned(),
+                sha256: "c".repeat(64),
+            }),
+        });
+        anchored
+            .source_attestations
+            .push(ExperimentSourceAttestation::OsmScenarioAnchor {
+                source_id: "scenario_anchor".to_owned(),
+                projection_source_id: "trajectory_report".to_owned(),
+                anchor_manifest_path: "anchors.json".to_owned(),
+            });
+        assert!(validate_experiment_manifest(&anchored).is_ok());
+
+        anchored.source_attestations[1] = ExperimentSourceAttestation::OsmScenarioAnchor {
+            source_id: "scenario_anchor".to_owned(),
+            projection_source_id: "missing".to_owned(),
+            anchor_manifest_path: "anchors.json".to_owned(),
+        };
+        assert!(validate_experiment_manifest(&anchored).is_err());
     }
 }
