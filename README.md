@@ -5,7 +5,7 @@ Chiyoda is an Apache-2.0 research platform for deterministic, reproducible
 is a standalone experiment language and executable reference semantics—not a
 real-time operations dashboard or a certified evacuation product.
 
-The current `0.25.0-alpha.1` release establishes the language/runtime contract:
+The current `0.26.0-alpha.1` release establishes the language/runtime contract:
 
 - a typed textual DSL with static unit, topology, reachability, capacity, and
   deterministic-replay checks;
@@ -69,10 +69,11 @@ values are a reviewable starting point, not facility facts. Use
 [`sensitivity`](docs/sensitivity.md) when more than one value is plausible. Add
 `--with-sensitivity` to `experiment init` to create a companion
 `sensitivity.json` that brackets the generated passenger count and speed, gate
-service rate, misinformation trust, and corrective-message trust as explicit
-best guesses. The starter uses eight deterministic replications per condition
-by default; set `--sensitivity-runs COUNT` before creation when a shorter smoke
-study or a larger structural exploration is appropriate:
+service rate, misinformation trust, corrective-message trust, and
+corrective-message time as explicit best guesses. The starter uses eight
+deterministic replications per condition by default; set `--sensitivity-runs
+COUNT` before creation when a shorter smoke study or a larger structural
+exploration is appropriate:
 
 ```console
 $ cargo run -p chiyoda -- experiment init --name "concourse draft" --seed 73 \

@@ -1,0 +1,11 @@
+scenario "gate-information-baseline"
+seed 137
+duration 60s
+timestep 0.1s
+surface concourse at (0m, 0m, 0m) size (40m, 16m)
+exit street on concourse at (38m, 8m, 0m) width 3m
+exit plaza on concourse at (38m, 2m, 0m) width 3m
+gate fare_gate on concourse at (26m, 8m, 0m) width 2m capacity 3/s to street
+agents passengers count 24 on concourse at (2m, 8m, 0m) to street speed 1.2m/s radius 0.3m height 1.7m alternative plaza
+message false_fare_gate_closure source peer on concourse at (8m, 8m, 0m) claim gate fare_gate closed truth false time 8s reach 20m trust 0.7
+countermeasure staff_correction corrects false_fare_gate_closure source staff on concourse at (8m, 8m, 0m) time 20s reach 35m trust 0.9

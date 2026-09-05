@@ -49,7 +49,7 @@ pub use reference::{
     CrowdQueueReferenceReport, ReferenceDataError, VruReferenceReport,
     summarize_crowd_queue_reference, summarize_vru_trajectory_reference,
 };
-pub use runtime::{BundleVerification, RunOptions, run, verify_run_bundle};
+pub use runtime::{BundleVerification, RunOptions, integration_step_count, run, verify_run_bundle};
 pub use sensitivity::{
     AssumptionBasis, SensitivityCondition, SensitivityDerivedReport, SensitivityDesign,
     SensitivityError, SensitivityFactor, SensitivityManifest, SensitivityReference,
@@ -58,5 +58,5 @@ pub use sensitivity::{
 pub use validate::{ValidationError, validate};
 
 /// Increment this when the canonical IR or runtime trace contract changes.
-pub const LANGUAGE_VERSION: &str = "0.21";
+pub const LANGUAGE_VERSION: &str = "0.22";
 pub const RUNTIME_VERSION: &str = env!("CARGO_PKG_VERSION");

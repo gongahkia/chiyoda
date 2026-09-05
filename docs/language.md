@@ -1,4 +1,4 @@
-# Chiyoda language reference 0.21
+# Chiyoda language reference 0.22
 
 Each non-empty line is one declaration. Lines beginning with `#` are comments.
 Quoted strings are supported only where explicitly shown. All lengths use
@@ -35,7 +35,7 @@ gate-capacity-state ID gate GATE capacity RATE time DURATION
 
 agents ID count UNSIGNED_INTEGER on SURFACE at (LENGTH, LENGTH, LENGTH) to EXIT speed SPEED radius LENGTH height LENGTH [via WAYPOINT]... [alternative EXIT]... [exclude (stair|ramp|escalator|lift)]... [release DURATION [every DURATION [batch UNSIGNED_INTEGER]]]
 
-message ID source (peer|official|signage|staff) on SURFACE at (LENGTH, LENGTH, LENGTH) claim (connector CONNECTOR|exit EXIT) (open|closed) truth (true|false) time DURATION reach LENGTH trust PROBABILITY [sample ID]
+message ID source (peer|official|signage|staff) on SURFACE at (LENGTH, LENGTH, LENGTH) claim (connector CONNECTOR|exit EXIT|gate GATE) (open|closed) truth (true|false) time DURATION reach LENGTH trust PROBABILITY [sample ID]
 countermeasure ID corrects MESSAGE source (official|signage|staff) on SURFACE at (LENGTH, LENGTH, LENGTH) time DURATION reach LENGTH trust PROBABILITY [sample ID]
 ```
 
@@ -103,12 +103,13 @@ already processed by a gate continue to its exit; agents that have not passed a
 closed gate reroute to an open gate or an alternative exit, or wait for a route.
 Events at `0s` establish the initial state, and same-time declarations of one
 kind apply in declaration order. A `message` records what a recipient may
-believe about a connector or final exit, whereas an availability state
+believe about a connector, final exit, or gate, whereas an availability state
 declaration records what can actually be boarded or used. The compiler checks
 that `truth true` agrees with the claimed resource's authored physical state at
 the message time and that `truth false` disagrees. A belief never overrides a
-physical closure. Gate availability is not a proposition type and cannot be
-asserted by a `message`.
+physical closure. An accepted gate-availability belief excludes that one gate
+from the agent's selected final-exit plan; another available gate for the same
+exit remains selectable.
 
 An accepted exit-availability belief is also excluded from that recipient's
 final-exit selection; a qualifying countermeasure resets the belief to the
@@ -137,14 +138,14 @@ messaging effects are empirically validated.
 ## Canonical IR
 
 Successful compilation emits a JSON `CanonicalScenario` with
-`language_version: "0.21"`. Declaration order is preserved and forms part of
+`language_version: "0.22"`. Declaration order is preserved and forms part of
 the deterministic execution contract. The canonical IR is the public boundary
 between conforming compilers and runtimes; direct use of parser internals is
 not a stable API.
 
 ## Current geometry boundary
 
-Version 0.21 supports axis-aligned rectangular walkable surfaces with
+Version 0.22 supports axis-aligned rectangular walkable surfaces with
 axis-aligned rectangular no-go zones, joined by directed 3D stairs, ramps,
 escalators, and lifts. The runtime expands no-go zones by each agent radius
 and finds a deterministic Euclidean shortest path through the resulting

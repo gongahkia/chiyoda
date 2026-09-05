@@ -21,6 +21,32 @@ pub struct RunOptions {
     pub trace_every_steps: u32,
 }
 
+/// Return the number of positive-length integration steps for validated timing inputs.
+///
+/// The final step may be shorter than `timestep_s`, but it always ends exactly
+/// at `duration_s`. This is the step schedule used by [`run`].
+#[must_use]
+pub fn integration_step_count(duration_s: f64, timestep_s: f64) -> u64 {
+    if !duration_s.is_finite() || !timestep_s.is_finite() || duration_s <= 0.0 || timestep_s <= 0.0
+    {
+        return 0;
+    }
+    #[allow(
+        clippy::cast_possible_truncation,
+        clippy::cast_precision_loss,
+        clippy::cast_sign_loss
+    )]
+    // `run` validates finite positive timing inputs before invoking this helper
+    let upper_bound = (duration_s / timestep_s).ceil() as u64;
+    #[allow(clippy::cast_precision_loss)]
+    let prior_step_time_s = ((upper_bound.saturating_sub(1)) as f64) * timestep_s;
+    if upper_bound > 1 && prior_step_time_s >= duration_s {
+        upper_bound - 1
+    } else {
+        upper_bound
+    }
+}
+
 impl Default for RunOptions {
     fn default() -> Self {
         Self {
@@ -153,6 +179,7 @@ struct Agent {
     beliefs: BTreeMap<String, f64>,
     blocked_connectors: HashSet<String>,
     blocked_exits: HashSet<String>,
+    blocked_gates: HashSet<String>,
     passed_gates: HashSet<String>,
     waiting_connector: Option<ConnectorWait>,
     waiting_for_route: bool,
@@ -202,7 +229,7 @@ struct RouteStart<'a> {
 #[derive(Debug, Clone, Copy)]
 struct ExitPlanConstraints<'a> {
     blocked_exits: &'a HashSet<String>,
-    closed_gates: &'a HashSet<String>,
+    blocked_gates: &'a HashSet<String>,
     passed_gates: Option<&'a HashSet<String>>,
 }
 
@@ -987,7 +1014,7 @@ pub fn run(scenario: &Scenario, options: RunOptions) -> Result<RunBundle, RunErr
         &resources.closed_exits,
         &resources.closed_gates,
     )?;
-    let step_count = (scenario.duration_s / scenario.timestep_s).ceil() as u64;
+    let step_count = integration_step_count(scenario.duration_s, scenario.timestep_s);
     let mut trace = vec![snapshot(0, 0.0, &agents)];
     let mut events = initial_state_events(scenario);
     let mut information_delivery = information_delivery_for_scenario(scenario);
@@ -996,9 +1023,10 @@ pub fn run(scenario: &Scenario, options: RunOptions) -> Result<RunBundle, RunErr
     for step in 1..=step_count {
         let time_s = ((step as f64) * scenario.timestep_s).min(scenario.duration_s);
         let elapsed_s = time_s - previous_time_s;
-        if elapsed_s <= 0.0 {
-            break;
-        }
+        debug_assert!(
+            elapsed_s > 0.0,
+            "integration schedule has positive-length steps"
+        );
         resources.record_queue_wait(scenario, &agents, elapsed_s);
         apply_scheduled_events(
             scenario,
@@ -1078,7 +1106,7 @@ pub fn run(scenario: &Scenario, options: RunOptions) -> Result<RunBundle, RunErr
         ),
         (
             "integration".to_owned(),
-            "deterministic-euler-0.25".to_owned(),
+            "deterministic-euler-0.26".to_owned(),
         ),
     ]);
     Ok(RunBundle::new(canonical, options, trace, events, metrics))
@@ -1159,6 +1187,7 @@ fn spawn_agents(
                 beliefs: BTreeMap::new(),
                 blocked_connectors: HashSet::new(),
                 blocked_exits: HashSet::new(),
+                blocked_gates: HashSet::new(),
                 passed_gates: HashSet::new(),
                 waiting_connector: None,
                 waiting_for_route,
@@ -1208,7 +1237,7 @@ fn group_plan(
 ) -> Option<PlannedTarget> {
     let exit_constraints = ExitPlanConstraints {
         blocked_exits: closed_exits,
-        closed_gates,
+        blocked_gates: closed_gates,
         passed_gates: None,
     };
     plan_for_stage(
@@ -1230,9 +1259,10 @@ fn agent_plan(
     closed_gates: &HashSet<String>,
 ) -> Option<PlannedTarget> {
     let blocked_exits = effective_blocked_exits(agent, closed_exits);
+    let blocked_gates = effective_blocked_gates(agent, closed_gates);
     let exit_constraints = ExitPlanConstraints {
         blocked_exits: &blocked_exits,
-        closed_gates,
+        blocked_gates: &blocked_gates,
         passed_gates: Some(&agent.passed_gates),
     };
     plan_for_stage(
@@ -1338,7 +1368,7 @@ fn route_to_exit_target(
     gates
         .into_iter()
         .enumerate()
-        .filter(|(_, gate)| !exit_constraints.closed_gates.contains(&gate.id))
+        .filter(|(_, gate)| !exit_constraints.blocked_gates.contains(&gate.id))
         .filter_map(|(index, gate)| {
             let gate_target = RouteTarget {
                 id: gate.id.clone(),
@@ -1826,6 +1856,7 @@ fn deliver_countermeasure(
                     &message.claim,
                     &resources.closed_connectors,
                     &resources.closed_exits,
+                    &resources.closed_gates,
                 );
                 reroute(
                     scenario,
@@ -1892,6 +1923,9 @@ fn apply_claim(agent: &mut Agent, claim: &crate::model::Proposition) {
         crate::model::Proposition::ExitAvailability { exit, open } => {
             apply_exit_belief(agent, exit, *open);
         }
+        crate::model::Proposition::GateAvailability { gate, open } => {
+            apply_gate_belief(agent, gate, *open);
+        }
     }
 }
 
@@ -1900,6 +1934,7 @@ fn apply_claim_to_physical_state(
     claim: &crate::model::Proposition,
     closed_connectors: &HashSet<String>,
     closed_exits: &HashSet<String>,
+    closed_gates: &HashSet<String>,
 ) {
     match claim {
         crate::model::Proposition::ConnectorAvailability { connector, .. } => {
@@ -1907,6 +1942,9 @@ fn apply_claim_to_physical_state(
         }
         crate::model::Proposition::ExitAvailability { exit, .. } => {
             apply_exit_belief(agent, exit, !closed_exits.contains(exit));
+        }
+        crate::model::Proposition::GateAvailability { gate, .. } => {
+            apply_gate_belief(agent, gate, !closed_gates.contains(gate));
         }
     }
 }
@@ -1927,6 +1965,14 @@ fn apply_exit_belief(agent: &mut Agent, exit: &str, open: bool) {
     }
 }
 
+fn apply_gate_belief(agent: &mut Agent, gate: &str, open: bool) {
+    if open {
+        agent.blocked_gates.remove(gate);
+    } else {
+        agent.blocked_gates.insert(gate.to_owned());
+    }
+}
+
 fn reroute(
     scenario: &Scenario,
     agent: &mut Agent,
@@ -1941,6 +1987,7 @@ fn reroute(
     }
     let blocked_connectors = effective_blocked_connectors(agent, closed_connectors);
     let blocked_exits = effective_blocked_exits(agent, closed_exits);
+    let blocked_gates = effective_blocked_gates(agent, closed_gates);
     if let Some(planned) = agent_plan(
         scenario,
         RouteStart {
@@ -1970,7 +2017,7 @@ fn reroute(
             .into_iter()
             .map(|connector| format!("connector:{connector}"))
             .chain(blocked_exits.into_iter().map(|exit| format!("exit:{exit}")))
-            .chain(closed_gates.iter().map(|gate| format!("gate:{gate}")))
+            .chain(blocked_gates.into_iter().map(|gate| format!("gate:{gate}")))
             .collect();
         blocked.sort_unstable();
         events.push(RunEvent {
@@ -2004,6 +2051,12 @@ fn effective_blocked_exits(agent: &Agent, closed_exits: &HashSet<String>) -> Has
     let mut blocked_exits = closed_exits.clone();
     blocked_exits.extend(agent.blocked_exits.iter().cloned());
     blocked_exits
+}
+
+fn effective_blocked_gates(agent: &Agent, closed_gates: &HashSet<String>) -> HashSet<String> {
+    let mut blocked_gates = closed_gates.clone();
+    blocked_gates.extend(agent.blocked_gates.iter().cloned());
+    blocked_gates
 }
 
 #[allow(clippy::too_many_lines)] // this is the reference small-step transition relation
@@ -2579,7 +2632,9 @@ fn agent_state_name(agent: &Agent) -> &'static str {
 
 #[cfg(test)]
 mod tests {
-    use super::{BundleVerification, RunError, RunOptions, run, verify_run_bundle};
+    use super::{
+        BundleVerification, RunError, RunOptions, integration_step_count, run, verify_run_bundle,
+    };
     use crate::{bundle::bundle_hash, generator};
 
     #[test]
@@ -2623,6 +2678,12 @@ mod tests {
             verify_run_bundle(&bundle).expect("prior contract remains hash-inspectable"),
             BundleVerification::HashOnlyLegacy
         );
+    }
+
+    #[test]
+    fn integration_step_count_includes_one_fractional_final_step() {
+        assert_eq!(integration_step_count(1.5, 1.0), 2);
+        assert_eq!(integration_step_count(2.0, 1.0), 2);
     }
 
     #[test]

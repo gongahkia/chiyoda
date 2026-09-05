@@ -323,6 +323,56 @@ agents passengers count 1 on concourse at (1m, 1m, 0m) to east speed 1m/s radius
 }
 
 #[test]
+fn a_false_gate_closure_message_reroutes_until_its_correction() {
+    let source = r#"
+scenario "gate-information-reroute"
+seed 1
+duration 30s
+timestep 1s
+surface concourse at (0m, 0m, 0m) size (20m, 10m)
+exit primary on concourse at (18m, 2m, 0m) width 2m
+exit fallback on concourse at (18m, 8m, 0m) width 2m
+gate primary_gate on concourse at (10m, 2m, 0m) width 1m capacity 20/s to primary
+agents passengers count 1 on concourse at (1m, 2m, 0m) to primary speed 1m/s radius 0.3m height 1.7m alternative fallback
+message false_gate_closure source signage on concourse at (1m, 2m, 0m) claim gate primary_gate closed truth false time 1s reach 20m trust 1
+countermeasure correction corrects false_gate_closure source staff on concourse at (1m, 2m, 0m) time 2s reach 20m trust 1
+"#;
+    let scenario = parse(source).expect("source parses");
+    validate(&scenario).expect("gate-information source validates");
+    assert_eq!(
+        parse(&format_scenario(&scenario)).expect("formatted source parses"),
+        scenario
+    );
+
+    let bundle = run(&scenario, RunOptions::default()).expect("run succeeds");
+    assert_eq!(bundle.metrics.evacuated_by_exit.get("primary"), Some(&1));
+    assert!(bundle.events.iter().any(|event| {
+        event.kind == "route_recomputed"
+            && (event.time_s - 1.0).abs() < 1e-9
+            && event.detail == "gate:primary_gate"
+    }));
+    assert!(bundle.events.iter().any(|event| {
+        event.kind == "route_recomputed"
+            && (event.time_s - 2.0).abs() < 1e-9
+            && event.detail.is_empty()
+    }));
+    assert!(
+        bundle
+            .events
+            .iter()
+            .any(|event| { event.kind == "gate_processed" && event.detail == "primary_gate" })
+    );
+    assert_eq!(
+        bundle.metrics.information_delivery["false_gate_closure"].accepted_agents,
+        1
+    );
+    assert_eq!(
+        bundle.metrics.information_delivery["correction"].accepted_agents,
+        1
+    );
+}
+
+#[test]
 fn an_initially_closed_gate_recovers_when_it_reopens() {
     let source = r#"
 scenario "gate-recovery"
@@ -1217,6 +1267,32 @@ message unknown_exit source signage on concourse at (1m, 1m, 0m) claim exit miss
     );
     assert!(errors.iter().any(|error| {
         error.path == "messages[1].claim" && error.message.contains("unknown exit `missing`")
+    }));
+}
+
+#[test]
+fn validation_checks_gate_message_truth_and_references() {
+    let source = r#"
+scenario "invalid-gate-message"
+seed 1
+duration 10s
+timestep 1s
+surface concourse at (0m, 0m, 0m) size (10m, 10m)
+exit street on concourse at (8m, 1m, 0m) width 2m
+gate fare_gate on concourse at (5m, 1m, 0m) width 1m capacity 2/s to street
+agents passengers count 1 on concourse at (1m, 1m, 0m) to street speed 1m/s radius 0.3m height 1.7m
+message incorrect_truth source signage on concourse at (1m, 1m, 0m) claim gate fare_gate closed truth true time 1s reach 2m trust 1
+message unknown_gate source signage on concourse at (1m, 1m, 0m) claim gate absent closed truth false time 1s reach 2m trust 1
+"#;
+    let scenario = parse(source).expect("source parses");
+    let errors = validate(&scenario).expect_err("invalid gate claims must be rejected");
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.path == "messages[0].truthful")
+    );
+    assert!(errors.iter().any(|error| {
+        error.path == "messages[1].claim" && error.message.contains("unknown gate `absent`")
     }));
 }
 

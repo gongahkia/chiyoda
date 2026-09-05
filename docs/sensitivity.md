@@ -29,10 +29,10 @@ $ cargo run -p chiyoda -- verify-sensitivity out/concourse-sensitivity
 
 `sensitivity-plan` is non-mutating except for its optional JSON output file. It
 resolves the baseline, validates every concrete condition, reports the exact
-condition count, baseline/condition/total run workload, factor assignments,
-and canonical template hashes, but does not execute the runtime or create a
-study directory. Review this plan before raising `max_conditions` or launching
-an expensive factorial study.
+condition count, baseline/condition/total run workload, integration-step and
+stored-trace-frame workload, factor assignments, and canonical template hashes,
+but does not execute the runtime or create a study directory. Review this plan
+before raising `max_conditions` or launching an expensive factorial study.
 
 The output directory must be empty. It contains:
 
@@ -140,6 +140,13 @@ service-limit schedule sensitivities, not an arrival-rate fit, demand model, or
 observed operating profile. Batch-size variation requires an authored release
 interval; an omitted batch size has baseline value one.
 
+`examples/sensitivity/gate-information-timing.json` varies an authored false
+gate-closure message time, its correction time, and correction trust. Its
+baseline includes an alternative exit so an accepted false gate-closure claim
+can change the selected route, while the correction restores the current
+physical gate state. These are stated information and response assumptions,
+not estimates of peer messaging, staff response, gate operation, or safety.
+
 ## Designs and limits
 
 `one_at_a_time` is the default. It creates one condition for each factor/value
@@ -165,13 +172,20 @@ The command supports these numeric targets:
 | `connector_state_at_s`, `exit_state_at_s`, `gate_state_at_s`, `exit_capacity_state_at_s`, `connector_capacity_state_at_s`, `gate_capacity_state_at_s` | named availability- or capacity-state declaration | `s` |
 | `escalator_belt_speed_mps` | escalator | `m/s` |
 | `gate_service_rate_per_s` | gate | `/s` |
-| `message_trust`, `message_reach_m` | message | target suffix |
-| `countermeasure_trust`, `countermeasure_reach_m` | countermeasure | target suffix |
+| `message_trust`, `message_reach_m`, `message_at_s` | message | target suffix |
+| `countermeasure_trust`, `countermeasure_reach_m`, `countermeasure_at_s` | countermeasure | target suffix |
 
 Unbounded exits and connectors intentionally cannot be treated as a numeric
 baseline capacity. Add an explicit capacity to the authored scenario first if a
 finite-capacity sensitivity question is intended. Values use their target's
 fixed unit: no implicit unit conversion occurs in the manifest.
+
+Message and countermeasure timing alternatives are zero or greater and then
+must pass the normal scenario validation after every condition is applied. In
+particular, a correction cannot precede the false message it corrects, and a
+message's declared truth must still agree with the physical state at its chosen
+time. This preserves the authored event contract; it does not estimate
+detection, staffing, delivery, or response delay.
 
 The ordinary `compare-sweeps` command continues to require identical authored
 agent declarations. A sensitivity condition may deliberately vary one of the

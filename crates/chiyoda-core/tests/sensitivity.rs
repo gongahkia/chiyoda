@@ -296,6 +296,63 @@ agents passengers count 2 on concourse at (1m, 2m, 0m) to street speed 1m/s radi
 }
 
 #[test]
+fn planner_varies_message_and_countermeasure_times() {
+    let baseline = parse(
+        r#"
+scenario "information-time-sensitivity"
+seed 7
+duration 20s
+timestep 1s
+surface concourse at (0m, 0m, 0m) size (20m, 10m)
+exit street on concourse at (18m, 2m, 0m) width 2m capacity 2/s
+agents passengers count 2 on concourse at (1m, 2m, 0m) to street speed 1m/s radius 0.3m height 1.7m
+message false_closure source peer on concourse at (2m, 2m, 0m) claim exit street closed truth false time 4s reach 5m trust 0.5
+countermeasure correction corrects false_closure source staff on concourse at (2m, 2m, 0m) time 8s reach 5m trust 0.5
+"#,
+    )
+    .expect("fixture parses");
+    let study = plan_sensitivity(
+        &manifest(
+            SensitivityDesign::OneAtATime,
+            vec![
+                factor(
+                    "false_closure_time",
+                    SensitivityTarget::MessageAtS,
+                    "false_closure",
+                    &[4.0, 2.0],
+                ),
+                factor(
+                    "correction_time",
+                    SensitivityTarget::CountermeasureAtS,
+                    "correction",
+                    &[8.0, 10.0],
+                ),
+            ],
+        ),
+        &baseline,
+    )
+    .expect("information-time alternatives plan");
+
+    assert_eq!(study.conditions.len(), 2);
+    assert!(study.conditions.iter().any(|condition| {
+        condition
+            .factor_values
+            .get("false_closure_time")
+            .is_some_and(|value| same_number(*value, 2.0))
+            && same_number(condition.scenario.messages[0].at_s, 2.0)
+            && same_number(condition.scenario.countermeasures[0].at_s, 8.0)
+    }));
+    assert!(study.conditions.iter().any(|condition| {
+        condition
+            .factor_values
+            .get("correction_time")
+            .is_some_and(|value| same_number(*value, 10.0))
+            && same_number(condition.scenario.messages[0].at_s, 4.0)
+            && same_number(condition.scenario.countermeasures[0].at_s, 10.0)
+    }));
+}
+
+#[test]
 fn planner_rejects_unbounded_capacity_as_a_numeric_baseline() {
     let baseline = parse(SOURCE.replace("capacity 2/s", "").as_str())
         .expect("fixture without capacity parses");

@@ -474,6 +474,7 @@ impl InformationSource {
 pub enum Proposition {
     ConnectorAvailability { connector: String, open: bool },
     ExitAvailability { exit: String, open: bool },
+    GateAvailability { gate: String, open: bool },
 }
 
 impl Proposition {
@@ -482,6 +483,7 @@ impl Proposition {
         match self {
             Self::ConnectorAvailability { .. } => "connector",
             Self::ExitAvailability { .. } => "exit",
+            Self::GateAvailability { .. } => "gate",
         }
     }
 
@@ -490,13 +492,16 @@ impl Proposition {
         match self {
             Self::ConnectorAvailability { connector, .. } => connector,
             Self::ExitAvailability { exit, .. } => exit,
+            Self::GateAvailability { gate, .. } => gate,
         }
     }
 
     #[must_use]
     pub fn is_open(&self) -> bool {
         match self {
-            Self::ConnectorAvailability { open, .. } | Self::ExitAvailability { open, .. } => *open,
+            Self::ConnectorAvailability { open, .. }
+            | Self::ExitAvailability { open, .. }
+            | Self::GateAvailability { open, .. } => *open,
         }
     }
 }

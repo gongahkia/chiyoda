@@ -621,6 +621,10 @@ struct SensitivityPlanExecution {
     condition_count: u64,
     condition_runs: u64,
     total_runs: u64,
+    integration_steps_per_run: u64,
+    stored_trace_frames_per_run: u64,
+    total_integration_steps: u64,
+    total_stored_trace_frames: u64,
 }
 
 #[derive(Debug, Serialize)]
@@ -695,6 +699,7 @@ struct ExperimentPlanReport {
     scenario_source: String,
     scenario_hash: String,
     trace_every_steps: u32,
+    execution: ExperimentPlanExecution,
     scenario: ExperimentScenarioInventory,
     assumptions: Vec<chiyoda_core::ExperimentAssumption>,
     sources: Vec<chiyoda_core::SensitivityReference>,
@@ -703,6 +708,28 @@ struct ExperimentPlanReport {
     verified_osm_source_attestations: Vec<String>,
     author_claim_boundary: String,
     claim_boundary: String,
+}
+
+/// Exact reference-runtime work implied by the authored timing contract.
+#[derive(Debug, Serialize)]
+struct ExperimentPlanExecution {
+    duration_s: f64,
+    timestep_s: f64,
+    integration_steps: u64,
+    stored_trace_frames: u64,
+}
+
+fn stored_trace_frame_count(integration_steps: u64, trace_every_steps: u32) -> Result<u64> {
+    if trace_every_steps == 0 {
+        bail!("trace cadence must be greater than zero");
+    }
+    let cadence = u64::from(trace_every_steps);
+    let periodic_trace_frames = integration_steps / cadence;
+    let final_trace_frames = u64::from(!integration_steps.is_multiple_of(cadence));
+    1_u64
+        .checked_add(periodic_trace_frames)
+        .and_then(|frames| frames.checked_add(final_trace_frames))
+        .context("trace-frame count overflowed")
 }
 
 /// Counts only declared scenario structure; it does not estimate a facility,
@@ -1439,7 +1466,7 @@ fn starter_sensitivity_manifest(
     let manifest = SensitivityManifest {
         schema_version: "0.1".to_owned(),
         name: format!("{name} sensitivity alternatives"),
-        description: "a no-data, one-at-a-time exploration of five explicitly generated best-guess inputs".to_owned(),
+        description: "a no-data, one-at-a-time exploration of six explicitly generated best-guess inputs".to_owned(),
         baseline_source: "scenario.chy".to_owned(),
         first_seed: seed,
         count: run_count,
@@ -1499,25 +1526,52 @@ fn starter_sensitivity_manifest(
                 rationale: "these alternatives expose the effect of the generated misinformation acceptance input without estimating human trust or message uptake".to_owned(),
                 references: Vec::new(),
             },
-            SensitivityFactor {
-                id: "correction_trust".to_owned(),
-                target: chiyoda_core::SensitivityTarget::CountermeasureTrust,
-                subject: correction.id.clone(),
-                values: vec![
-                    correction.trust * 0.5,
-                    correction.trust,
-                    correction.trust.midpoint(1.0),
-                ],
-                basis: chiyoda_core::AssumptionBasis::BestGuess,
-                rationale: "these alternatives expose the effect of the generated corrective-message acceptance input without estimating staff effectiveness or human trust".to_owned(),
-                references: Vec::new(),
-            },
+            starter_correction_trust_factor(&correction.id, correction.trust),
+            starter_correction_timing_factor(
+                &correction.id,
+                misinformation.at_s,
+                correction.at_s,
+                scenario.duration_s,
+            ),
         ],
         claim_boundary: "This is an uncalibrated sensitivity exploration of generated best guesses. It does not estimate a real population, facility, service rate, evacuation outcome, operational response, or safety result.".to_owned(),
     };
     plan_sensitivity(&manifest, scenario)
         .context("generated starter sensitivity manifest must be valid")?;
     Ok(manifest)
+}
+
+fn starter_correction_trust_factor(correction_id: &str, trust: f64) -> SensitivityFactor {
+    SensitivityFactor {
+        id: "correction_trust".to_owned(),
+        target: chiyoda_core::SensitivityTarget::CountermeasureTrust,
+        subject: correction_id.to_owned(),
+        values: vec![trust * 0.5, trust, trust.midpoint(1.0)],
+        basis: chiyoda_core::AssumptionBasis::BestGuess,
+        rationale: "these alternatives expose the effect of the generated corrective-message acceptance input without estimating staff effectiveness or human trust".to_owned(),
+        references: Vec::new(),
+    }
+}
+
+fn starter_correction_timing_factor(
+    correction_id: &str,
+    misinformation_at_s: f64,
+    correction_at_s: f64,
+    duration_s: f64,
+) -> SensitivityFactor {
+    SensitivityFactor {
+        id: "correction_time".to_owned(),
+        target: chiyoda_core::SensitivityTarget::CountermeasureAtS,
+        subject: correction_id.to_owned(),
+        values: vec![
+            misinformation_at_s.midpoint(correction_at_s),
+            correction_at_s,
+            correction_at_s.midpoint(duration_s),
+        ],
+        basis: chiyoda_core::AssumptionBasis::BestGuess,
+        rationale: "these alternatives expose the structural consequence of an earlier or later corrective message while preserving the generated false-message ordering; they do not estimate detection, staffing, or communication-response time".to_owned(),
+        references: Vec::new(),
+    }
 }
 
 fn plan_experiment(manifest_path: &Path, output: Option<&Path>) -> Result<()> {
@@ -1530,6 +1584,11 @@ fn plan_experiment(manifest_path: &Path, output: Option<&Path>) -> Result<()> {
         &scenario_source,
         &scenario,
     )?;
+    let integration_steps =
+        chiyoda_core::integration_step_count(scenario.duration_s, scenario.timestep_s);
+    let stored_trace_frames =
+        stored_trace_frame_count(integration_steps, manifest.trace_every_steps)
+            .context("experiment plan trace-frame count overflowed")?;
     let report = ExperimentPlanReport {
         schema_version: EXPERIMENT_PLAN_SCHEMA_VERSION.to_owned(),
         experiment_name: manifest.name.clone(),
@@ -1538,6 +1597,12 @@ fn plan_experiment(manifest_path: &Path, output: Option<&Path>) -> Result<()> {
         scenario_source: manifest.scenario_source.clone(),
         scenario_hash: chiyoda_core::bundle::canonical_hash(&CanonicalScenario::from(scenario.clone())),
         trace_every_steps: manifest.trace_every_steps,
+        execution: ExperimentPlanExecution {
+            duration_s: scenario.duration_s,
+            timestep_s: scenario.timestep_s,
+            integration_steps,
+            stored_trace_frames,
+        },
         scenario: ExperimentScenarioInventory {
             surfaces: scenario.surfaces.len(),
             obstacles: scenario.obstacles.len(),
@@ -2589,6 +2654,19 @@ fn sensitivity_plan(manifest_path: &Path, output: Option<&Path>) -> Result<()> {
     let total_runs = baseline_runs
         .checked_add(condition_runs)
         .context("sensitivity total run count overflowed")?;
+    let integration_steps_per_run = chiyoda_core::integration_step_count(
+        baseline_template.duration_s,
+        baseline_template.timestep_s,
+    );
+    let stored_trace_frames_per_run =
+        stored_trace_frame_count(integration_steps_per_run, manifest.trace_every_steps)
+            .context("sensitivity plan trace-frame count overflowed")?;
+    let total_integration_steps = integration_steps_per_run
+        .checked_mul(total_runs)
+        .context("sensitivity total integration-step count overflowed")?;
+    let total_stored_trace_frames = stored_trace_frames_per_run
+        .checked_mul(total_runs)
+        .context("sensitivity total trace-frame count overflowed")?;
     let report = SensitivityPlanReport {
         schema_version: "0.1".to_owned(),
         study_name: manifest.name,
@@ -2609,6 +2687,10 @@ fn sensitivity_plan(manifest_path: &Path, output: Option<&Path>) -> Result<()> {
             condition_count,
             condition_runs,
             total_runs,
+            integration_steps_per_run,
+            stored_trace_frames_per_run,
+            total_integration_steps,
+            total_stored_trace_frames,
         },
         trace_every_steps: manifest.trace_every_steps,
         reference_report_snapshots: reference_reports
@@ -3629,7 +3711,7 @@ fn validate_bundle_metrics(bundle: &RunBundle, directory: &Path) -> Result<()> {
     }
     if matches!(
         bundle.bundle_version.as_str(),
-        "0.17" | "0.18" | "0.19" | "0.20" | "0.21" | "0.22" | "0.23" | "0.24" | "0.25"
+        "0.17" | "0.18" | "0.19" | "0.20" | "0.21" | "0.22" | "0.23" | "0.24" | "0.25" | "0.26"
     ) {
         let fully_evacuated = metrics.evacuated_agents == metrics.total_agents;
         if metrics.clearance_time_s.is_some() != fully_evacuated {
@@ -3707,7 +3789,7 @@ fn validate_bundle_metrics(bundle: &RunBundle, directory: &Path) -> Result<()> {
     }
     if matches!(
         bundle.bundle_version.as_str(),
-        "0.18" | "0.19" | "0.20" | "0.21" | "0.22" | "0.23" | "0.24" | "0.25"
+        "0.18" | "0.19" | "0.20" | "0.21" | "0.22" | "0.23" | "0.24" | "0.25" | "0.26"
     ) && !expected_interventions.is_empty()
     {
         bail!(
@@ -3756,7 +3838,7 @@ fn validate_bundle_metrics(bundle: &RunBundle, directory: &Path) -> Result<()> {
     }
     if matches!(
         bundle.bundle_version.as_str(),
-        "0.22" | "0.23" | "0.24" | "0.25"
+        "0.22" | "0.23" | "0.24" | "0.25" | "0.26"
     ) {
         let queue_metrics = metrics.queue_metrics.as_ref().ok_or_else(|| {
             anyhow::anyhow!(
@@ -3791,7 +3873,10 @@ fn validate_bundle_metrics(bundle: &RunBundle, directory: &Path) -> Result<()> {
                 );
             }
         }
-        if matches!(bundle.bundle_version.as_str(), "0.23" | "0.24" | "0.25") {
+        if matches!(
+            bundle.bundle_version.as_str(),
+            "0.23" | "0.24" | "0.25" | "0.26"
+        ) {
             let by_resource = queue_metrics.by_resource.as_ref().ok_or_else(|| {
                 anyhow::anyhow!(
                     "current bundle omits resource-level queue telemetry: {}",
@@ -3845,7 +3930,7 @@ fn validate_bundle_metrics(bundle: &RunBundle, directory: &Path) -> Result<()> {
                 &queue_metrics.exit,
                 metrics.total_agents,
             )?;
-            if matches!(bundle.bundle_version.as_str(), "0.24" | "0.25") {
+            if matches!(bundle.bundle_version.as_str(), "0.24" | "0.25" | "0.26") {
                 validate_queue_entry_events(bundle, directory, by_resource, queue_metrics)?;
             }
         }
@@ -5272,6 +5357,8 @@ agents passengers count 1 on concourse at (1m, 1m, 0m) to main_entrance speed 1m
         let plan: serde_json::Value = super::read_json(&plan_output).expect("reading starter plan");
         assert_eq!(plan["experiment_name"], "generated structural draft");
         assert_eq!(plan["sources"], serde_json::json!([]));
+        assert_eq!(plan["execution"]["integration_steps"], 1200);
+        assert_eq!(plan["execution"]["stored_trace_frames"], 301);
         let sensitivity_plan_output = directory.0.join("sensitivity-plan.json");
         super::sensitivity_plan(
             &output.join("sensitivity.json"),
@@ -5281,9 +5368,25 @@ agents passengers count 1 on concourse at (1m, 1m, 0m) to main_entrance speed 1m
         let sensitivity_plan: serde_json::Value =
             super::read_json(&sensitivity_plan_output).expect("reading starter sensitivity plan");
         assert_eq!(sensitivity_plan["execution"]["baseline_runs"], 3);
-        assert_eq!(sensitivity_plan["execution"]["condition_count"], 10);
-        assert_eq!(sensitivity_plan["execution"]["condition_runs"], 30);
-        assert_eq!(sensitivity_plan["execution"]["total_runs"], 33);
+        assert_eq!(sensitivity_plan["execution"]["condition_count"], 12);
+        assert_eq!(sensitivity_plan["execution"]["condition_runs"], 36);
+        assert_eq!(sensitivity_plan["execution"]["total_runs"], 39);
+        assert_eq!(
+            sensitivity_plan["execution"]["integration_steps_per_run"],
+            1200
+        );
+        assert_eq!(
+            sensitivity_plan["execution"]["stored_trace_frames_per_run"],
+            301
+        );
+        assert_eq!(
+            sensitivity_plan["execution"]["total_integration_steps"],
+            46_800
+        );
+        assert_eq!(
+            sensitivity_plan["execution"]["total_stored_trace_frames"],
+            11_739
+        );
         let sensitivity: SensitivityManifest = super::read_json(&output.join("sensitivity.json"))
             .expect("reading starter sensitivity manifest");
         let starter_scenario = super::read_scenario(&output.join("scenario.chy"))
@@ -5291,7 +5394,11 @@ agents passengers count 1 on concourse at (1m, 1m, 0m) to main_entrance speed 1m
         let study = plan_sensitivity(&sensitivity, &starter_scenario)
             .expect("starter sensitivity manifest resolves without data");
         assert_eq!(sensitivity.count, 3);
-        assert_eq!(study.conditions.len(), 10);
+        assert_eq!(study.conditions.len(), 12);
+        assert!(sensitivity.factors.iter().any(|factor| {
+            factor.id == "correction_time"
+                && factor.target == chiyoda_core::SensitivityTarget::CountermeasureAtS
+        }));
 
         let no_sensitivity_output = directory.0.join("no-sensitivity-starter");
         handle_experiment(ExperimentCommand::Init {

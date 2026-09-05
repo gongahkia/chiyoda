@@ -560,6 +560,22 @@ pub fn validate(scenario: &Scenario) -> Result<(), Vec<ValidationError>> {
                     ));
                 }
             }
+            crate::model::Proposition::GateAvailability { gate, open } => {
+                if gate_ids.contains(gate.as_str()) {
+                    let claim_matches_reality = *open == scenario.gate_open_at(gate, message.at_s);
+                    if message.truthful != claim_matches_reality {
+                        errors.push(issue(
+                            &format!("{path}.truthful"),
+                            "does not match the gate's authored physical state at message time",
+                        ));
+                    }
+                } else {
+                    errors.push(issue(
+                        &format!("{path}.claim"),
+                        format!("references unknown gate `{gate}`"),
+                    ));
+                }
+            }
         }
         check_walkable_point(
             &surfaces,

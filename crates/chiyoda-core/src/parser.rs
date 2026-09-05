@@ -764,9 +764,13 @@ fn parse_claim(
             exit: subject.to_owned(),
             open,
         }),
+        "gate" => Ok(crate::model::Proposition::GateAvailability {
+            gate: subject.to_owned(),
+            open,
+        }),
         _ => Err(error(
             line,
-            format!("unsupported claim kind `{kind}`; use `connector` or `exit`"),
+            format!("unsupported claim kind `{kind}`; use `connector`, `exit`, or `gate`"),
         )),
     }
 }

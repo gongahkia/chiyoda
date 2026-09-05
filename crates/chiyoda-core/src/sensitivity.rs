@@ -150,8 +150,10 @@ pub enum SensitivityTarget {
     GateCapacityStateAtS,
     MessageTrust,
     MessageReachM,
+    MessageAtS,
     CountermeasureTrust,
     CountermeasureReachM,
+    CountermeasureAtS,
 }
 
 impl SensitivityTarget {
@@ -171,7 +173,9 @@ impl SensitivityTarget {
             | Self::GateStateAtS
             | Self::ExitCapacityStateAtS
             | Self::ConnectorCapacityStateAtS
-            | Self::GateCapacityStateAtS => "s",
+            | Self::GateCapacityStateAtS
+            | Self::MessageAtS
+            | Self::CountermeasureAtS => "s",
             Self::ExitCapacityPerS
             | Self::ConnectorCapacityPerS
             | Self::ExitCapacityStatePerS
@@ -197,6 +201,8 @@ impl SensitivityTarget {
             | Self::ExitCapacityStateAtS
             | Self::ConnectorCapacityStateAtS
             | Self::GateCapacityStateAtS
+            | Self::MessageAtS
+            | Self::CountermeasureAtS
                 if value < 0.0 =>
             {
                 Err(SensitivityError::InvalidValue {
@@ -714,8 +720,10 @@ fn factor_value(scenario: &Scenario, factor: &SensitivityFactor) -> Result<f64, 
         SensitivityTarget::GateCapacityStateAtS => Ok(gate_capacity_state(scenario, factor)?.at_s),
         SensitivityTarget::MessageTrust => Ok(message(scenario, factor)?.trust),
         SensitivityTarget::MessageReachM => Ok(message(scenario, factor)?.reach_m),
+        SensitivityTarget::MessageAtS => Ok(message(scenario, factor)?.at_s),
         SensitivityTarget::CountermeasureTrust => Ok(countermeasure(scenario, factor)?.trust),
         SensitivityTarget::CountermeasureReachM => Ok(countermeasure(scenario, factor)?.reach_m),
+        SensitivityTarget::CountermeasureAtS => Ok(countermeasure(scenario, factor)?.at_s),
     }
 }
 
@@ -791,11 +799,15 @@ fn apply_factor(
         }
         SensitivityTarget::MessageTrust => message_mut(scenario, factor)?.trust = value,
         SensitivityTarget::MessageReachM => message_mut(scenario, factor)?.reach_m = value,
+        SensitivityTarget::MessageAtS => message_mut(scenario, factor)?.at_s = value,
         SensitivityTarget::CountermeasureTrust => {
             countermeasure_mut(scenario, factor)?.trust = value;
         }
         SensitivityTarget::CountermeasureReachM => {
             countermeasure_mut(scenario, factor)?.reach_m = value;
+        }
+        SensitivityTarget::CountermeasureAtS => {
+            countermeasure_mut(scenario, factor)?.at_s = value;
         }
     }
     Ok(())

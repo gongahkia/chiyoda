@@ -13,11 +13,11 @@ class BundleError(ValueError):
     """A run bundle is malformed or fails its integrity contract."""
 
 
-_CURRENT_BUNDLE_VERSIONS = frozenset({"0.17", "0.18", "0.19", "0.20", "0.21", "0.22", "0.23", "0.24", "0.25"})
-_INFORMATION_DELIVERY_BUNDLE_VERSIONS = frozenset({"0.18", "0.19", "0.20", "0.21", "0.22", "0.23", "0.24", "0.25"})
-_QUEUE_METRIC_BUNDLE_VERSIONS = frozenset({"0.22", "0.23", "0.24", "0.25"})
-_RESOURCE_QUEUE_METRIC_BUNDLE_VERSIONS = frozenset({"0.23", "0.24", "0.25"})
-_QUEUE_ENTRY_EVENT_BUNDLE_VERSIONS = frozenset({"0.24", "0.25"})
+_CURRENT_BUNDLE_VERSIONS = frozenset({"0.17", "0.18", "0.19", "0.20", "0.21", "0.22", "0.23", "0.24", "0.25", "0.26"})
+_INFORMATION_DELIVERY_BUNDLE_VERSIONS = frozenset({"0.18", "0.19", "0.20", "0.21", "0.22", "0.23", "0.24", "0.25", "0.26"})
+_QUEUE_METRIC_BUNDLE_VERSIONS = frozenset({"0.22", "0.23", "0.24", "0.25", "0.26"})
+_RESOURCE_QUEUE_METRIC_BUNDLE_VERSIONS = frozenset({"0.23", "0.24", "0.25", "0.26"})
+_QUEUE_ENTRY_EVENT_BUNDLE_VERSIONS = frozenset({"0.24", "0.25", "0.26"})
 _REMAINING_AGENT_STATES = frozenset(
     {
         "moving",

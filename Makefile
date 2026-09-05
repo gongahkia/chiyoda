@@ -30,6 +30,7 @@ smoke:
 	cargo run --locked -p chiyoda -- experiment plan examples/experiments/uncalibrated-interchange.json > /dev/null
 	cargo run --locked -p chiyoda -- sensitivity-plan examples/sensitivity/arrival-cadence.json > /dev/null
 	cargo run --locked -p chiyoda -- sensitivity-plan examples/sensitivity/exit-capacity-and-trust.json > /dev/null
+	cargo run --locked -p chiyoda -- sensitivity-plan examples/sensitivity/gate-information-timing.json > /dev/null
 	cargo run --locked -p chiyoda -- sensitivity-plan examples/sensitivity/urban-reference-speed.json > /dev/null
 	cargo run --locked -p chiyoda -- sensitivity-plan examples/sensitivity/crowd-queue-gate-capacity.json > /dev/null
 

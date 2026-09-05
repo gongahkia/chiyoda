@@ -33,10 +33,10 @@ protocol, and benchmark manifest are all optional and unnecessary here.
 Pass `--with-sensitivity` to also create `sensitivity.json`. It uses the
 generated scenario as its baseline and creates one-at-a-time alternatives for
 the generated passenger count and walking-speed, gate-service-rate,
-misinformation-trust, and corrective-message-trust inputs. Each has the
-`best_guess` basis, no sources, and no probability distribution. It is a
-reviewable starting bracket, not an estimate of real people or operations. It
-uses eight deterministic replications per condition by default. Set
+misinformation-trust, corrective-message-trust, and corrective-message-time
+inputs. Each has the `best_guess` basis, no sources, and no probability
+distribution. It is a reviewable starting bracket, not an estimate of real
+people or operations. It uses eight deterministic replications per condition by default. Set
 `--sensitivity-runs COUNT` before creation to choose the workload deliberately.
 
 ```console
@@ -248,8 +248,9 @@ parses and validates the scenario; verifies declared derived-report hashes; and
 when schema `0.2` declares an OSM attestation, rechecks the local locked XML,
 observation, and projection before reporting success, and reconstructs any
 declared scenario anchors. The plan lists every assumption and source, the
-canonical scenario hash, the trace cadence, all authored structure counts, the
-declared agent count, state/capacity changes, and information interventions.
+canonical scenario hash, the trace cadence, exact integration-step and stored
+trace-frame counts, all authored structure counts, the declared agent count,
+state/capacity changes, and information interventions.
 Review it before treating a best guess as a chosen input or invoking the
 runtime. It does not create an artifact or produce an outcome.
 

@@ -1,0 +1,38 @@
+{
+  "schema_version": "0.1",
+  "name": "gate-information timing alternatives",
+  "description": "An uncalibrated structural exploration of the timing and acceptance assumptions for a false gate-closure message and its correction.",
+  "baseline_source": "gate-information-baseline.chy",
+  "first_seed": 137,
+  "count": 4,
+  "trace_every_steps": 10,
+  "design": "one_at_a_time",
+  "max_conditions": 6,
+  "factors": [
+    {
+      "id": "false_gate_message_time",
+      "target": "message_at_s",
+      "subject": "false_fare_gate_closure",
+      "values": [4.0, 8.0, 12.0],
+      "basis": "best_guess",
+      "rationale": "The alternatives expose an explicitly authored false-message timing assumption without estimating peer-message detection or distribution time."
+    },
+    {
+      "id": "gate_correction_time",
+      "target": "countermeasure_at_s",
+      "subject": "staff_correction",
+      "values": [12.0, 20.0, 30.0],
+      "basis": "best_guess",
+      "rationale": "The alternatives preserve message-before-correction ordering while exposing a stated response-time assumption; they do not estimate staffing, detection, or corrective-message delivery."
+    },
+    {
+      "id": "gate_correction_trust",
+      "target": "countermeasure_trust",
+      "subject": "staff_correction",
+      "values": [0.5, 0.9, 1.0],
+      "basis": "best_guess",
+      "rationale": "The alternatives expose the deterministic reference runtime's response to a declared corrective-message acceptance input, not measured trust or intervention effectiveness."
+    }
+  ],
+  "claim_boundary": "This is an uncalibrated structural sensitivity study of authored gate-message alternatives. It does not estimate real communication behavior, staff response, gate operation, routing preferences, evacuation performance, or safety."
+}

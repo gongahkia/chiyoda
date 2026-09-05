@@ -1,7 +1,7 @@
-# Executable semantics 0.25
+# Executable semantics 0.26
 
-The Rust `chiyoda-core` runtime is the reference interpreter for language 0.21
-under runtime contract 0.25. This document is normative where it describes public
+The Rust `chiyoda-core` runtime is the reference interpreter for language 0.22
+under runtime contract 0.26. This document is normative where it describes public
 behavior;
 the source and conformance tests make that behavior executable.
 
@@ -33,11 +33,12 @@ order breaks ties within one event kind.
 2. Deliver each message and countermeasure whose declared time falls in
    `(previous step time, t]` to active agents on the same surface within the
    declared reach radius. A not-yet-released group is not a recipient.
-3. Update accepted connector- or exit-availability beliefs. Each eligible recipient
+3. Update accepted connector-, exit-, or gate-availability beliefs. Each eligible recipient
    accepts an intervention when its deterministic seed-derived sample is below
-   the declared trust probability. A qualifying countermeasure sets the
-   corrected resource belief to its current physical state and recomputes a
-   route. Physical closures are excluded regardless of belief. If the active
+   the declared trust probability. An accepted gate belief excludes only that
+   gate from a selected final-exit plan. A qualifying countermeasure sets the
+   corrected connector, exit, or gate belief to its current physical state and
+   recomputes a route. Physical closures are excluded regardless of belief. If the active
    constraints leave no route, an on-surface agent waits in the traceable
    `waiting_for_route` state until a later state or information event produces
    one. The route cost includes obstacle-aware Euclidean walking from the
@@ -94,7 +95,7 @@ unordered map iteration.
 
 ## What this does not mean
 
-The `0.25` local-separation law, nominal routing cost and alternative-exit
+The `0.26` local-separation law, nominal routing cost and alternative-exit
 selection, scheduled-release and service-capacity semantics, operational-state
 transitions, escalator walking-rider assumption, and seeded information
 acceptance law are reference semantics, not calibrated behavioral claims. A
@@ -131,7 +132,7 @@ reconstructed from resource peaks: it is the maximum simultaneous count across
 all resources of that mechanism at a step boundary. The breakdown does not
 identify a geometric queue, a real-world bottleneck, or a measured service rate.
 
-Runtime contract `0.25` also records an event when an agent first enters each
+Runtime contract `0.26` also records an event when an agent first enters each
 such modeled resource queue. Its event kind is one of `queue_entered_lift`,
 `queue_entered_connector`, `queue_entered_gate`, or `queue_entered_exit`; its
 subject is the generated agent identifier and its detail is the exact authored
