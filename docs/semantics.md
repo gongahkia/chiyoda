@@ -1,7 +1,7 @@
-# Executable semantics 0.26
+# Executable semantics 0.27
 
-The Rust `chiyoda-core` runtime is the reference interpreter for language 0.22
-under runtime contract 0.26. This document is normative where it describes public
+The Rust `chiyoda-core` runtime is the reference interpreter for language 0.23
+under runtime contract 0.27. This document is normative where it describes public
 behavior;
 the source and conformance tests make that behavior executable.
 
@@ -70,11 +70,18 @@ order breaks ties within one event kind.
    tokens may be consumed.
 5. Release each agent whose authored release time is at or before `t`, then
    advance in-transit agents and on-surface agents in declaration order using
-   an Euler step, radius-based local separation, and surface bounds
-   clamping. For `release T every I batch N`, ordinal agents share one release
-   time by integer batch: `T + I * floor(ordinal / N)`. Omitted `batch` is
-   one; omitted `every` releases the whole group at `T`. Release occurs after
-   information delivery in the same step.
+   an Euler step and a resolved-position spatial index. Ordinary movement and
+   waypoint arrival are displaced until they clear each nearby current
+   on-surface agent by the sum of their authored radii. An exact coincidence
+   uses a fixed pair-order direction. If the local displacement would leave
+   the surface or enter a static obstacle, the agent retains its prior
+   position and does not reach the waypoint. Connector, gate, and exit target
+   arrival remains declaration ordered because capacity queues are abstract
+   token resources without authored geometric queue locations. For `release T
+   every I batch N`, ordinal agents share one release time by integer batch:
+   `T + I * floor(ordinal / N)`. Omitted `batch` is one; omitted `every`
+   releases the whole group at `T`. Release occurs after information delivery
+   in the same step.
 6. Board an available connector, process a gate token, process an exit token,
    advance from a reached next required waypoint or final exit stage, or mark
    the agent evacuated. A
@@ -95,7 +102,7 @@ unordered map iteration.
 
 ## What this does not mean
 
-The `0.26` local-separation law, nominal routing cost and alternative-exit
+The `0.27` local-separation law, nominal routing cost and alternative-exit
 selection, scheduled-release and service-capacity semantics, operational-state
 transitions, escalator walking-rider assumption, and seeded information
 acceptance law are reference semantics, not calibrated behavioral claims. A
@@ -132,7 +139,7 @@ reconstructed from resource peaks: it is the maximum simultaneous count across
 all resources of that mechanism at a step boundary. The breakdown does not
 identify a geometric queue, a real-world bottleneck, or a measured service rate.
 
-Runtime contract `0.26` also records an event when an agent first enters each
+Runtime contract `0.27` also records an event when an agent first enters each
 such modeled resource queue. Its event kind is one of `queue_entered_lift`,
 `queue_entered_connector`, `queue_entered_gate`, or `queue_entered_exit`; its
 subject is the generated agent identifier and its detail is the exact authored

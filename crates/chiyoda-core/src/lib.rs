@@ -58,5 +58,5 @@ pub use sensitivity::{
 pub use validate::{ValidationError, validate};
 
 /// Increment this when the canonical IR or runtime trace contract changes.
-pub const LANGUAGE_VERSION: &str = "0.22";
+pub const LANGUAGE_VERSION: &str = "0.23";
 pub const RUNTIME_VERSION: &str = env!("CARGO_PKG_VERSION");

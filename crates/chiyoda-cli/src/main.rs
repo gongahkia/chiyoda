@@ -3711,7 +3711,17 @@ fn validate_bundle_metrics(bundle: &RunBundle, directory: &Path) -> Result<()> {
     }
     if matches!(
         bundle.bundle_version.as_str(),
-        "0.17" | "0.18" | "0.19" | "0.20" | "0.21" | "0.22" | "0.23" | "0.24" | "0.25" | "0.26"
+        "0.17"
+            | "0.18"
+            | "0.19"
+            | "0.20"
+            | "0.21"
+            | "0.22"
+            | "0.23"
+            | "0.24"
+            | "0.25"
+            | "0.26"
+            | "0.27"
     ) {
         let fully_evacuated = metrics.evacuated_agents == metrics.total_agents;
         if metrics.clearance_time_s.is_some() != fully_evacuated {
@@ -3789,7 +3799,7 @@ fn validate_bundle_metrics(bundle: &RunBundle, directory: &Path) -> Result<()> {
     }
     if matches!(
         bundle.bundle_version.as_str(),
-        "0.18" | "0.19" | "0.20" | "0.21" | "0.22" | "0.23" | "0.24" | "0.25" | "0.26"
+        "0.18" | "0.19" | "0.20" | "0.21" | "0.22" | "0.23" | "0.24" | "0.25" | "0.26" | "0.27"
     ) && !expected_interventions.is_empty()
     {
         bail!(
@@ -3838,7 +3848,7 @@ fn validate_bundle_metrics(bundle: &RunBundle, directory: &Path) -> Result<()> {
     }
     if matches!(
         bundle.bundle_version.as_str(),
-        "0.22" | "0.23" | "0.24" | "0.25" | "0.26"
+        "0.22" | "0.23" | "0.24" | "0.25" | "0.26" | "0.27"
     ) {
         let queue_metrics = metrics.queue_metrics.as_ref().ok_or_else(|| {
             anyhow::anyhow!(
@@ -3875,7 +3885,7 @@ fn validate_bundle_metrics(bundle: &RunBundle, directory: &Path) -> Result<()> {
         }
         if matches!(
             bundle.bundle_version.as_str(),
-            "0.23" | "0.24" | "0.25" | "0.26"
+            "0.23" | "0.24" | "0.25" | "0.26" | "0.27"
         ) {
             let by_resource = queue_metrics.by_resource.as_ref().ok_or_else(|| {
                 anyhow::anyhow!(
@@ -3930,7 +3940,10 @@ fn validate_bundle_metrics(bundle: &RunBundle, directory: &Path) -> Result<()> {
                 &queue_metrics.exit,
                 metrics.total_agents,
             )?;
-            if matches!(bundle.bundle_version.as_str(), "0.24" | "0.25" | "0.26") {
+            if matches!(
+                bundle.bundle_version.as_str(),
+                "0.24" | "0.25" | "0.26" | "0.27"
+            ) {
                 validate_queue_entry_events(bundle, directory, by_resource, queue_metrics)?;
             }
         }

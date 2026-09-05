@@ -257,6 +257,14 @@ struct SpatialIndex {
     max_radius_m: f64,
 }
 
+#[derive(Debug, Clone, Copy)]
+struct OnSurfaceMovement<'a> {
+    target: Point3,
+    surface: &'a Surface,
+    obstacles: &'a [Obstacle],
+    target_requires_local_clearance: bool,
+}
+
 #[derive(Debug)]
 struct RuntimeResources {
     queued_for_lift_agents: HashSet<String>,
@@ -1016,7 +1024,22 @@ impl SpatialIndex {
     }
 
     fn nearby_indices(&self, surface: &str, point: Point3, radius_m: f64) -> Vec<usize> {
-        let cell_range = ((radius_m + self.max_radius_m) / SPATIAL_CELL_M).ceil() as i64;
+        let range_m = (radius_m + self.max_radius_m) / SPATIAL_CELL_M;
+        if !range_m.is_finite() || range_m > 1024.0 {
+            return self
+                .positions
+                .iter()
+                .enumerate()
+                .filter_map(|(index, position)| {
+                    position
+                        .as_ref()
+                        .is_some_and(|(candidate_surface, _, _)| candidate_surface == surface)
+                        .then_some(index)
+                })
+                .collect();
+        }
+        #[allow(clippy::cast_possible_truncation)] // branch bounds this finite cell offset
+        let cell_range = range_m.ceil() as i64;
         let center = cell_key(surface, point);
         let mut candidates = Vec::new();
         for offset_y in -cell_range..=cell_range {
@@ -1150,7 +1173,7 @@ pub fn run(scenario: &Scenario, options: RunOptions) -> Result<RunBundle, RunErr
         ),
         (
             "integration".to_owned(),
-            "deterministic-euler-0.26".to_owned(),
+            "deterministic-euler-0.27".to_owned(),
         ),
     ]);
     Ok(RunBundle::new(canonical, options, trace, events, metrics))
@@ -2265,13 +2288,15 @@ fn integrate(
                     .expect("validated surface exists");
                 let reached = move_toward(
                     agent,
-                    target,
+                    OnSurfaceMovement {
+                        target,
+                        surface,
+                        obstacles: &scenario.obstacles,
+                        target_requires_local_clearance: reached_waypoint.is_some(),
+                    },
                     step_elapsed_s,
                     &mut spatial_index,
                     index,
-                    surface,
-                    &scenario.obstacles,
-                    reached_waypoint.is_some(),
                 );
                 if !reached {
                     continue;
@@ -2554,20 +2579,21 @@ fn queue_entered_event(
 #[allow(clippy::cast_possible_truncation)] // validated finite radii determine a bounded local-cell query
 fn move_toward(
     agent: &mut Agent,
-    target: Point3,
+    movement: OnSurfaceMovement<'_>,
     timestep_s: f64,
     spatial_index: &mut SpatialIndex,
     own_index: usize,
-    surface: &Surface,
-    obstacles: &[Obstacle],
-    target_requires_local_clearance: bool,
 ) -> bool {
-    let Some(path) =
-        shortest_walk_path_on_surface(surface, obstacles, agent.position, target, agent.radius_m)
-    else {
+    let Some(path) = shortest_walk_path_on_surface(
+        movement.surface,
+        movement.obstacles,
+        agent.position,
+        movement.target,
+        agent.radius_m,
+    ) else {
         return false;
     };
-    let waypoint = path.get(1).copied().unwrap_or(target);
+    let waypoint = path.get(1).copied().unwrap_or(movement.target);
     let dx = waypoint.x_m - agent.position.x_m;
     let dy = waypoint.y_m - agent.position.y_m;
     let dz = waypoint.z_m - agent.position.z_m;
@@ -2586,15 +2612,15 @@ fn move_toward(
     // Connector, gate, and exit queues are authored as non-spatial token
     // resources. Their target arrival therefore remains declaration-ordered;
     // only ordinary movement and waypoint arrival use local clearance.
-    let next = if reached_waypoint && !target_requires_local_clearance {
+    let next = if reached_waypoint && !movement.target_requires_local_clearance {
         planned_next
     } else {
         resolve_local_position(
             agent,
             planned_next,
             own_index,
-            surface,
-            obstacles,
+            movement.surface,
+            movement.obstacles,
             spatial_index,
         )
         .unwrap_or(agent.position)

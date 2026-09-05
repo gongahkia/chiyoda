@@ -1,4 +1,4 @@
-# Chiyoda language reference 0.22
+# Chiyoda language reference 0.23
 
 Each non-empty line is one declaration. Lines beginning with `#` are comments.
 Quoted strings are supported only where explicitly shown. All lengths use
@@ -121,11 +121,11 @@ marked evacuated.
 
 The compiler enforces globally unique identifiers; positive geometry,
 durations, speeds, widths, rates, and capacities; in-surface coordinates;
-obstacle extents; unoccupied exit, connector, gate, every deterministic agent
-spawn (including the navigation radius clearance), and message coordinate; exit
-and connector references; gate destinations; availability- and capacity-state
-times and resource contracts; message truth labels against the claimed
-resource's authored physical state; an agent-height- and connector-
+obstacle extents; statically clear exit, connector, gate, message, and every
+deterministic agent spawn (including each spawn's navigation-radius clearance);
+exit and connector references; gate destinations; availability- and
+capacity-state times and resource contracts; message truth labels against the
+claimed resource's authored physical state; an agent-height- and connector-
 eligibility-aware directed surface path from every agent group through every
 required waypoint stage and to every declared final exit candidate; message
 timing; and countermeasure references and ordering.
@@ -138,14 +138,14 @@ messaging effects are empirically validated.
 ## Canonical IR
 
 Successful compilation emits a JSON `CanonicalScenario` with
-`language_version: "0.22"`. Declaration order is preserved and forms part of
+`language_version: "0.23"`. Declaration order is preserved and forms part of
 the deterministic execution contract. The canonical IR is the public boundary
 between conforming compilers and runtimes; direct use of parser internals is
 not a stable API.
 
 ## Current geometry boundary
 
-Version 0.22 supports axis-aligned rectangular walkable surfaces with
+Version 0.23 supports axis-aligned rectangular walkable surfaces with
 axis-aligned rectangular no-go zones, joined by directed 3D stairs, ramps,
 escalators, and lifts. The runtime expands no-go zones by each agent radius
 and finds a deterministic Euclidean shortest path through the resulting
@@ -156,8 +156,14 @@ therefore represents walking riders, not a standing queue. Lift transit time
 is its declared cycle. These are explicit analytical assumptions, not
 calibrated human-performance parameters.
 
-Agent radius drives local separation and obstacle clearance. Agent height
-filters only explicitly declared connector clearances; the runtime does not
-model ceilings, body posture, or general 3D collision volumes. General meshes,
-non-rectangular or moving obstacles, BIM/IFC imports, standing-on-escalator
-behavior, and articulated gait remain outside the language boundary.
+Agent radius drives deterministic local separation during ordinary movement
+and waypoint arrival, as well as obstacle clearance. The resolver updates a
+spatial index in generated-agent order; an agent that cannot retain local
+clearance at a waypoint does not claim that waypoint in that step. Connector,
+gate, and exit targets retain their declaration-ordered abstract service
+semantics: the runtime does not lay out geometric queues or turn queue tokens
+into a physical packing model. Agent height filters only explicitly declared
+connector clearances; the runtime does not model ceilings, body posture, or
+general 3D collision volumes. General meshes, non-rectangular or moving
+obstacles, BIM/IFC imports, standing-on-escalator behavior, and articulated
+gait remain outside the language boundary.
