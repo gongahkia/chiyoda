@@ -12,10 +12,11 @@ and what the result must not be used to claim.
 ## Manifest
 
 The baseline manifest uses schema `0.1` and is strict JSON. Schema `0.2` adds
-optional source attestations for a content-locked OSM observation and local
-projection; use it only when declaring `source_attestations`. Every path is
-resolved relative to the manifest. Every experiment must state a non-empty
-`claim_boundary` and at least one assumption.
+optional OSM source attestations: a content-locked observation/local projection
+and, when wanted, selected source-point-to-scenario-point anchors. Use `0.2`
+only when declaring `source_attestations`. Every path is resolved relative to
+the manifest. Every experiment must state a non-empty `claim_boundary` and at
+least one assumption.
 
 ```json
 {
@@ -126,6 +127,75 @@ verifier must not claim to have revalidated an external source. This proves the
 provenance chain captured at creation, not facility geometry, model calibration,
 or any operational result.
 
+### Retaining selected OSM scenario-point anchors
+
+When a manually authored scenario point exactly uses a projected OSM point,
+create and verify the narrow anchor report first. See
+[layout sources](layout-sources.md#anchor-selected-scenario-points) for
+the `layout anchor-osm` and `layout verify-anchor-osm` commands. The anchor
+report is a separate derived report and needs its own source declaration; its
+raw-source SHA-256 must match the report's OSM source hash.
+
+The anchor attestation depends on an `osm_local_projection` attestation. Its
+`projection_source_id` names that attestation's `source_id`; its `source_id`
+names the source that declares the anchor report. The anchor manifest's
+declared scenario file must have exactly the same bytes as the experiment's
+scenario source at planning and artifact creation.
+
+```json
+{
+  "sources": [
+    {
+      "id": "station_layout_reference",
+      "citation": "OpenStreetMap contributors (2026), reviewed station-area extract",
+      "url": "https://EXACT-OSM-EXTRACT-URL",
+      "applicability": "provides an explicitly anchored east/north reference",
+      "limitation": "does not establish surveyed facility geometry or runtime validity",
+      "source_sha256": "EXACT-64-CHARACTER-OSM-XML-SHA256",
+      "derived_report": {
+        "path": "local-reference.json",
+        "sha256": "EXACT-64-CHARACTER-LOCAL-REFERENCE-SHA256"
+      }
+    },
+    {
+      "id": "main_entrance_anchor",
+      "citation": "OpenStreetMap contributors (2026), reviewed station-area extract",
+      "url": "https://EXACT-OSM-EXTRACT-URL",
+      "applicability": "retains one selected source point for manual scenario authoring",
+      "limitation": "does not import geometry, establish access, or calibrate the runtime",
+      "source_sha256": "EXACT-64-CHARACTER-OSM-XML-SHA256",
+      "derived_report": {
+        "path": "main-entrance-anchor.json",
+        "sha256": "EXACT-64-CHARACTER-ANCHOR-REPORT-SHA256"
+      }
+    }
+  ],
+  "source_attestations": [
+    {
+      "kind": "osm_local_projection",
+      "source_id": "station_layout_reference",
+      "catalog_path": "layout-catalog.json",
+      "data_root": "data/raw",
+      "observation_report_path": "observations.json"
+    },
+    {
+      "kind": "osm_scenario_anchor",
+      "source_id": "main_entrance_anchor",
+      "projection_source_id": "station_layout_reference",
+      "anchor_manifest_path": "main-entrance-anchors.json"
+    }
+  ]
+}
+```
+
+At creation Chiyoda validates the catalog-to-projection chain and then
+reconstructs the anchor report from the exact anchor-manifest bytes, experiment
+scenario bytes, and local-projection report bytes. It snapshots the anchor
+manifest next to the report snapshots. Offline verification repeats that final
+reconstruction using only the artifact. This proves only the selected point
+link; it does not turn surrounding authored surfaces, paths, widths,
+connectivity, elevation, capacity, or behavior into map-derived facts.
+
 ## Plan, run, and verify
 
 ```console
@@ -137,12 +207,12 @@ $ cargo run -p chiyoda -- experiment verify out/gate-experiment
 `experiment plan` is non-mutating except for its optional JSON output. It
 parses and validates the scenario; verifies declared derived-report hashes; and
 when schema `0.2` declares an OSM attestation, rechecks the local locked XML,
-observation, and projection before reporting success. The plan lists every
-assumption and source, the canonical scenario hash, the trace cadence, all
-authored structure counts, the declared agent count, state/capacity changes,
-and information interventions. Review it before treating a best guess as a
-chosen input or invoking the runtime. It does not create an artifact or produce
-an outcome.
+observation, and projection before reporting success, and reconstructs any
+declared scenario anchors. The plan lists every assumption and source, the
+canonical scenario hash, the trace cadence, all authored structure counts, the
+declared agent count, state/capacity changes, and information interventions.
+Review it before treating a best guess as a chosen input or invoking the
+runtime. It does not create an artifact or produce an outcome.
 
 The output directory must be empty. It contains:
 
@@ -151,7 +221,10 @@ The output directory must be empty. It contains:
 - `run.json` — independently bundle-hash-verifiable runtime artifact;
 - `source-reports/SOURCE.json` — exact derived-report snapshots, when declared;
 - `source-attestations/SOURCE/{catalog,observation}.json` — OSM catalog and
-  source-observation snapshots, when a schema `0.2` OSM attestation is declared;
+  source-observation snapshots for an `osm_local_projection` attestation;
+- `source-attestations/SOURCE/anchor-manifest.json` — the exact manifest for an
+  `osm_scenario_anchor` attestation; its report remains content-locked in
+  `source-reports/SOURCE.json`;
 - `report.json` — hashes, the bundle/scenario linkage, source-snapshot paths,
   both author/product claim boundaries, and a directly reconstructed mirror of
   the run's exact runtime metrics. The current report schema is `0.2`; its
@@ -162,9 +235,9 @@ The output directory must be empty. It contains:
   not estimates, uncertainty measures, or real-world outcomes.
 
 `experiment verify` rejects unexpected files, altered source-report snapshots
-or source attestations, a changed scenario/run pairing, a bundle hash failure,
-a trace-frequency mismatch, or a report (including its mirrored metrics) that
-does not exactly reconstruct.
+or source attestations, a changed scenario/run pairing, a broken
+projection-to-anchor link, a bundle hash failure, a trace-frequency mismatch,
+or a report (including its mirrored metrics) that does not exactly reconstruct.
 It reruns the deterministic reference runtime from the scenario snapshot and
 rejects even a self-hashed run bundle that differs from that reconstruction.
 Existing `0.1` reports without the metric mirror remain verifiable for audit.

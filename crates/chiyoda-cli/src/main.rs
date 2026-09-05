@@ -1554,151 +1554,210 @@ fn capture_experiment_osm_attestations(
     manifest
         .source_attestations
         .iter()
-        .map(|attestation| {
-            match attestation {
-                ExperimentSourceAttestation::OsmLocalProjection {
-                    source_id,
-                    catalog_path,
-                    data_root,
-                    observation_report_path,
-                } => {
-                    let source_report = source_reports
-                        .iter()
-                        .find(|report| report.snapshot.source_id == *source_id)
-                        .context("validated source attestation has no captured projection report")?;
-                    let catalog_path = parent.join(catalog_path);
-                    let catalog_bytes = fs::read(&catalog_path).with_context(|| {
-                        format!("reading OSM catalog {}", catalog_path.display())
-                    })?;
-                    let catalog: EvidenceCatalog = serde_json::from_slice(&catalog_bytes)
-                        .with_context(|| format!("parsing OSM catalog {}", catalog_path.display()))?;
-                    let observation_path = parent.join(observation_report_path);
-                    let observation_bytes = fs::read(&observation_path).with_context(|| {
-                        format!(
-                            "reading OSM observation report {}",
-                            observation_path.display()
-                        )
-                    })?;
-                    let observation: OpenStreetMapLayoutReport =
-                        serde_json::from_slice(&observation_bytes).with_context(|| {
-                            format!(
-                                "parsing OSM observation report {}",
-                                observation_path.display()
-                            )
-                        })?;
-                    let projection: OpenStreetMapLocalProjectionReport =
-                        serde_json::from_slice(&source_report.bytes).with_context(|| {
-                            format!(
-                                "parsing declared OSM projection report for source `{source_id}`"
-                            )
-                        })?;
-                    verify_openstreetmap_layout_report(
-                        &catalog,
-                        &parent.join(data_root),
-                        &observation,
-                    )
-                    .with_context(|| format!("verifying OSM source attestation `{source_id}`"))?;
-                    verify_openstreetmap_local_projection_report(&observation, &projection)
-                        .with_context(|| {
-                            format!("verifying OSM projection attestation `{source_id}`")
-                        })?;
-                    Ok(CapturedExperimentOsmAttestation::LocalProjection {
-                        source_id: source_id.clone(),
-                        catalog_bytes,
-                        observation_bytes,
-                    })
-                }
-                ExperimentSourceAttestation::OsmScenarioAnchor {
-                    source_id,
-                    projection_source_id,
-                    anchor_manifest_path,
-                } => {
-                    let anchor_report = source_reports
-                        .iter()
-                        .find(|report| report.snapshot.source_id == *source_id)
-                        .context("validated OSM scenario-anchor attestation has no captured report")?;
-                    let projection_report = source_reports
-                        .iter()
-                        .find(|report| report.snapshot.source_id == *projection_source_id)
-                        .context("validated OSM scenario-anchor attestation has no captured projection")?;
-                    let anchor_path = parent.join(anchor_manifest_path);
-                    let anchor_manifest_bytes = fs::read(&anchor_path).with_context(|| {
-                        format!("reading OSM scenario-anchor manifest {}", anchor_path.display())
-                    })?;
-                    let anchor_manifest: OsmScenarioAnchorManifest =
-                        serde_json::from_slice(&anchor_manifest_bytes).with_context(|| {
-                            format!("parsing OSM scenario-anchor manifest {}", anchor_path.display())
-                        })?;
-                    validate_osm_scenario_anchor_manifest(&anchor_manifest).map_err(|errors| {
-                        anyhow::anyhow!(
-                            "invalid OSM scenario-anchor manifest for attestation `{source_id}`:\n{}",
-                            errors
-                                .iter()
-                                .map(ToString::to_string)
-                                .collect::<Vec<_>>()
-                                .join("\n")
-                        )
-                    })?;
-                    let declared_scenario_path = anchor_path
-                        .parent()
-                        .unwrap_or_else(|| Path::new("."))
-                        .join(&anchor_manifest.scenario_source);
-                    let declared_scenario_source = fs::read(&declared_scenario_path).with_context(|| {
-                        format!(
-                            "reading OSM scenario-anchor source {}",
-                            declared_scenario_path.display()
-                        )
-                    })?;
-                    if declared_scenario_source != scenario_source.as_bytes() {
-                        bail!(
-                            "OSM scenario-anchor manifest for `{source_id}` does not resolve to the experiment scenario source"
-                        );
-                    }
-                    let anchored: OsmScenarioAnchorReport = serde_json::from_slice(&anchor_report.bytes)
-                        .with_context(|| {
-                            format!(
-                                "parsing declared OSM scenario-anchor report for source `{source_id}`"
-                            )
-                        })?;
-                    let projection: OpenStreetMapLocalProjectionReport =
-                        serde_json::from_slice(&projection_report.bytes).with_context(|| {
-                            format!(
-                                "parsing declared OSM projection report for source `{projection_source_id}`"
-                            )
-                        })?;
-                    verify_osm_scenario_anchor_report(
-                        &anchor_manifest,
-                        &sha256_hex(&anchor_manifest_bytes),
-                        scenario,
-                        &sha256_hex(scenario_source.as_bytes()),
-                        &projection,
-                        &sha256_hex(&projection_report.bytes),
-                        &anchored,
-                    )
-                    .with_context(|| format!("verifying OSM scenario-anchor attestation `{source_id}`"))?;
-                    let declared_source = manifest
-                        .sources
-                        .iter()
-                        .find(|source| source.id == *source_id)
-                        .context("validated OSM scenario-anchor attestation has no source declaration")?;
-                    let expected_source_sha256 = declared_source.source_sha256.as_deref().context(
-                        "validated OSM scenario-anchor attestation has no declared raw source hash",
-                    )?;
-                    if !expected_source_sha256
-                        .eq_ignore_ascii_case(&anchored.source.source_sha256)
-                    {
-                        bail!(
-                            "OSM scenario-anchor report source hash does not match declaration for `{source_id}`"
-                        );
-                    }
-                    Ok(CapturedExperimentOsmAttestation::ScenarioAnchor {
-                        source_id: source_id.clone(),
-                        anchor_manifest_bytes,
-                    })
-                }
-            }
+        .map(|attestation| match attestation {
+            ExperimentSourceAttestation::OsmLocalProjection {
+                source_id,
+                catalog_path,
+                data_root,
+                observation_report_path,
+            } => capture_experiment_osm_local_projection_attestation(
+                parent,
+                source_reports,
+                source_id,
+                catalog_path,
+                data_root,
+                observation_report_path,
+            ),
+            ExperimentSourceAttestation::OsmScenarioAnchor {
+                source_id,
+                projection_source_id,
+                anchor_manifest_path,
+            } => capture_experiment_osm_scenario_anchor_attestation(
+                manifest,
+                parent,
+                source_reports,
+                scenario_source,
+                scenario,
+                source_id,
+                projection_source_id,
+                anchor_manifest_path,
+            ),
         })
         .collect()
+}
+
+fn capture_experiment_osm_local_projection_attestation(
+    parent: &Path,
+    source_reports: &[CapturedExperimentSourceReport],
+    source_id: &str,
+    catalog_path: &str,
+    data_root: &str,
+    observation_report_path: &str,
+) -> Result<CapturedExperimentOsmAttestation> {
+    let source_report = source_reports
+        .iter()
+        .find(|report| report.snapshot.source_id == source_id)
+        .context("validated source attestation has no captured projection report")?;
+    let catalog_path = parent.join(catalog_path);
+    let catalog_bytes = fs::read(&catalog_path)
+        .with_context(|| format!("reading OSM catalog {}", catalog_path.display()))?;
+    let catalog: EvidenceCatalog = serde_json::from_slice(&catalog_bytes)
+        .with_context(|| format!("parsing OSM catalog {}", catalog_path.display()))?;
+    let observation_path = parent.join(observation_report_path);
+    let observation_bytes = fs::read(&observation_path).with_context(|| {
+        format!(
+            "reading OSM observation report {}",
+            observation_path.display()
+        )
+    })?;
+    let observation: OpenStreetMapLayoutReport = serde_json::from_slice(&observation_bytes)
+        .with_context(|| {
+            format!(
+                "parsing OSM observation report {}",
+                observation_path.display()
+            )
+        })?;
+    let projection: OpenStreetMapLocalProjectionReport =
+        serde_json::from_slice(&source_report.bytes).with_context(|| {
+            format!("parsing declared OSM projection report for source `{source_id}`")
+        })?;
+    verify_openstreetmap_layout_report(&catalog, &parent.join(data_root), &observation)
+        .with_context(|| format!("verifying OSM source attestation `{source_id}`"))?;
+    verify_openstreetmap_local_projection_report(&observation, &projection)
+        .with_context(|| format!("verifying OSM projection attestation `{source_id}`"))?;
+    Ok(CapturedExperimentOsmAttestation::LocalProjection {
+        source_id: source_id.to_owned(),
+        catalog_bytes,
+        observation_bytes,
+    })
+}
+
+#[allow(clippy::too_many_arguments)] // one attestation explicitly binds these independent inputs
+fn capture_experiment_osm_scenario_anchor_attestation(
+    manifest: &ExperimentManifest,
+    parent: &Path,
+    source_reports: &[CapturedExperimentSourceReport],
+    scenario_source: &str,
+    scenario: &chiyoda_core::Scenario,
+    source_id: &str,
+    projection_source_id: &str,
+    anchor_manifest_path: &str,
+) -> Result<CapturedExperimentOsmAttestation> {
+    let anchor_report = source_reports
+        .iter()
+        .find(|report| report.snapshot.source_id == source_id)
+        .context("validated OSM scenario-anchor attestation has no captured report")?;
+    let projection_report = source_reports
+        .iter()
+        .find(|report| report.snapshot.source_id == projection_source_id)
+        .context("validated OSM scenario-anchor attestation has no captured projection")?;
+    let anchor_path = parent.join(anchor_manifest_path);
+    let anchor_manifest_bytes = fs::read(&anchor_path).with_context(|| {
+        format!(
+            "reading OSM scenario-anchor manifest {}",
+            anchor_path.display()
+        )
+    })?;
+    let anchor_manifest = parse_experiment_osm_anchor_manifest(
+        &anchor_manifest_bytes,
+        source_id,
+        &format!("{}", anchor_path.display()),
+    )?;
+    verify_declared_anchor_scenario_source(
+        &anchor_path,
+        &anchor_manifest,
+        scenario_source,
+        source_id,
+    )?;
+    let anchored: OsmScenarioAnchorReport = serde_json::from_slice(&anchor_report.bytes)
+        .with_context(|| {
+            format!("parsing declared OSM scenario-anchor report for source `{source_id}`")
+        })?;
+    let projection: OpenStreetMapLocalProjectionReport =
+        serde_json::from_slice(&projection_report.bytes).with_context(|| {
+            format!("parsing declared OSM projection report for source `{projection_source_id}`")
+        })?;
+    verify_osm_scenario_anchor_report(
+        &anchor_manifest,
+        &sha256_hex(&anchor_manifest_bytes),
+        scenario,
+        &sha256_hex(scenario_source.as_bytes()),
+        &projection,
+        &sha256_hex(&projection_report.bytes),
+        &anchored,
+    )
+    .with_context(|| format!("verifying OSM scenario-anchor attestation `{source_id}`"))?;
+    verify_declared_anchor_source_hash(manifest, source_id, &anchored)?;
+    Ok(CapturedExperimentOsmAttestation::ScenarioAnchor {
+        source_id: source_id.to_owned(),
+        anchor_manifest_bytes,
+    })
+}
+
+fn parse_experiment_osm_anchor_manifest(
+    bytes: &[u8],
+    source_id: &str,
+    location: &str,
+) -> Result<OsmScenarioAnchorManifest> {
+    let manifest: OsmScenarioAnchorManifest = serde_json::from_slice(bytes)
+        .with_context(|| format!("parsing OSM scenario-anchor manifest {location}"))?;
+    validate_osm_scenario_anchor_manifest(&manifest).map_err(|errors| {
+        anyhow::anyhow!(
+            "invalid OSM scenario-anchor manifest for attestation `{source_id}`:\n{}",
+            errors
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>()
+                .join("\n")
+        )
+    })?;
+    Ok(manifest)
+}
+
+fn verify_declared_anchor_scenario_source(
+    anchor_path: &Path,
+    anchor_manifest: &OsmScenarioAnchorManifest,
+    scenario_source: &str,
+    source_id: &str,
+) -> Result<()> {
+    let scenario_path = anchor_path
+        .parent()
+        .unwrap_or_else(|| Path::new("."))
+        .join(&anchor_manifest.scenario_source);
+    let declared = fs::read(&scenario_path).with_context(|| {
+        format!(
+            "reading OSM scenario-anchor source {}",
+            scenario_path.display()
+        )
+    })?;
+    if declared != scenario_source.as_bytes() {
+        bail!(
+            "OSM scenario-anchor manifest for `{source_id}` does not resolve to the experiment scenario source"
+        );
+    }
+    Ok(())
+}
+
+fn verify_declared_anchor_source_hash(
+    manifest: &ExperimentManifest,
+    source_id: &str,
+    anchored: &OsmScenarioAnchorReport,
+) -> Result<()> {
+    let declared_source = manifest
+        .sources
+        .iter()
+        .find(|source| source.id == source_id)
+        .context("validated OSM scenario-anchor attestation has no source declaration")?;
+    let expected_source_sha256 = declared_source
+        .source_sha256
+        .as_deref()
+        .context("validated OSM scenario-anchor attestation has no declared raw source hash")?;
+    if !expected_source_sha256.eq_ignore_ascii_case(&anchored.source.source_sha256) {
+        bail!(
+            "OSM scenario-anchor report source hash does not match declaration for `{source_id}`"
+        );
+    }
+    Ok(())
 }
 
 fn write_experiment_osm_attestations(
@@ -1811,12 +1870,49 @@ fn verify_experiment_osm_attestations(
         }
         return Ok(());
     }
+    verify_experiment_osm_attestation_layout(&root, manifest)?;
+
+    for attestation in &manifest.source_attestations {
+        if let ExperimentSourceAttestation::OsmLocalProjection { source_id, .. } = attestation {
+            verify_experiment_osm_local_projection_attestation(
+                directory,
+                manifest,
+                source_reports,
+                source_id,
+            )?;
+        }
+    }
+    for attestation in &manifest.source_attestations {
+        if let ExperimentSourceAttestation::OsmScenarioAnchor {
+            source_id,
+            projection_source_id,
+            ..
+        } = attestation
+        {
+            verify_experiment_osm_scenario_anchor_attestation(
+                directory,
+                manifest,
+                source_reports,
+                scenario_source,
+                scenario,
+                source_id,
+                projection_source_id,
+            )?;
+        }
+    }
+    Ok(())
+}
+
+fn verify_experiment_osm_attestation_layout(
+    root: &Path,
+    manifest: &ExperimentManifest,
+) -> Result<()> {
     let expected_ids = manifest
         .source_attestations
         .iter()
         .map(|attestation| attestation.source_id().to_owned())
         .collect::<std::collections::BTreeSet<_>>();
-    let actual_ids = fs::read_dir(&root)
+    let actual_ids = fs::read_dir(root)
         .with_context(|| format!("reading {}", root.display()))?
         .map(|entry| {
             let entry = entry.with_context(|| format!("reading {}", root.display()))?;
@@ -1879,124 +1975,109 @@ fn verify_experiment_osm_attestations(
             bail!("OSM source-attestation files do not match the artifact contract");
         }
     }
+    Ok(())
+}
 
-    for attestation in &manifest.source_attestations {
-        let ExperimentSourceAttestation::OsmLocalProjection { source_id, .. } = attestation else {
-            continue;
-        };
-        let snapshot_directory = root.join(source_id);
-        let catalog: EvidenceCatalog = read_json(&snapshot_directory.join("catalog.json"))?;
-        let observation: OpenStreetMapLayoutReport =
-            read_json(&snapshot_directory.join("observation.json"))?;
-        verify_openstreetmap_layout_catalog_contract(&catalog, &observation)
-            .with_context(|| format!("verifying OSM catalog snapshot `{source_id}`"))?;
-        let source_report = source_reports
-            .iter()
-            .find(|report| report.source_id == *source_id)
-            .context("validated OSM source attestation has no projection report snapshot")?;
-        let projection: OpenStreetMapLocalProjectionReport =
-            read_json(&directory.join(&source_report.snapshot_path))?;
-        verify_openstreetmap_local_projection_report(&observation, &projection)
-            .with_context(|| format!("verifying OSM projection snapshot `{source_id}`"))?;
-
-        let declared_source = manifest
-            .sources
-            .iter()
-            .find(|source| source.id == *source_id)
-            .context("validated OSM source attestation has no source declaration")?;
-        if let Some(expected_source_sha256) = &declared_source.source_sha256
-            && !expected_source_sha256.eq_ignore_ascii_case(&observation.source.source_sha256)
-        {
-            bail!(
-                "OSM observation snapshot source hash does not match declaration for `{source_id}`"
-            );
-        }
-    }
-
-    for attestation in &manifest.source_attestations {
-        let ExperimentSourceAttestation::OsmScenarioAnchor {
-            source_id,
-            projection_source_id,
-            ..
-        } = attestation
-        else {
-            continue;
-        };
-        let snapshot_directory = root.join(source_id);
-        let anchor_manifest_bytes = fs::read(snapshot_directory.join("anchor-manifest.json"))
-            .with_context(|| {
-                format!("reading OSM scenario-anchor manifest snapshot `{source_id}`")
-            })?;
-        let anchor_manifest: OsmScenarioAnchorManifest =
-            serde_json::from_slice(&anchor_manifest_bytes).with_context(|| {
-                format!("parsing OSM scenario-anchor manifest snapshot `{source_id}`")
-            })?;
-        validate_osm_scenario_anchor_manifest(&anchor_manifest).map_err(|errors| {
-            anyhow::anyhow!(
-                "invalid OSM scenario-anchor manifest snapshot `{source_id}`:\n{}",
-                errors
-                    .iter()
-                    .map(ToString::to_string)
-                    .collect::<Vec<_>>()
-                    .join("\n")
-            )
-        })?;
-        let anchor_report = source_reports
-            .iter()
-            .find(|report| report.source_id == *source_id)
-            .context("validated OSM scenario-anchor attestation has no report snapshot")?;
-        let anchor_report_bytes = fs::read(directory.join(&anchor_report.snapshot_path))
-            .with_context(|| {
-                format!(
-                    "reading OSM scenario-anchor report snapshot {}",
-                    anchor_report.snapshot_path
-                )
-            })?;
-        let anchored: OsmScenarioAnchorReport = serde_json::from_slice(&anchor_report_bytes)
-            .with_context(|| {
-                format!("parsing OSM scenario-anchor report snapshot `{source_id}`")
-            })?;
-        let projection_report = source_reports
-            .iter()
-            .find(|report| report.source_id == *projection_source_id)
-            .context("validated OSM scenario-anchor attestation has no projection snapshot")?;
-        let projection_report_bytes = fs::read(directory.join(&projection_report.snapshot_path))
-            .with_context(|| {
-                format!(
-                    "reading OSM projection report snapshot {}",
-                    projection_report.snapshot_path
-                )
-            })?;
-        let projection: OpenStreetMapLocalProjectionReport =
-            serde_json::from_slice(&projection_report_bytes).with_context(|| {
-                format!("parsing OSM projection report snapshot `{projection_source_id}`")
-            })?;
-        verify_osm_scenario_anchor_report(
-            &anchor_manifest,
-            &sha256_hex(&anchor_manifest_bytes),
-            scenario,
-            &sha256_hex(scenario_source.as_bytes()),
-            &projection,
-            &sha256_hex(&projection_report_bytes),
-            &anchored,
-        )
-        .with_context(|| format!("verifying OSM scenario-anchor snapshot `{source_id}`"))?;
-        let declared_source = manifest
-            .sources
-            .iter()
-            .find(|source| source.id == *source_id)
-            .context("validated OSM scenario-anchor attestation has no source declaration")?;
-        let expected_source_sha256 = declared_source
-            .source_sha256
-            .as_deref()
-            .context("validated OSM scenario-anchor attestation has no declared raw source hash")?;
-        if !expected_source_sha256.eq_ignore_ascii_case(&anchored.source.source_sha256) {
-            bail!(
-                "OSM scenario-anchor report source hash does not match declaration for `{source_id}`"
-            );
-        }
+fn verify_experiment_osm_local_projection_attestation(
+    directory: &Path,
+    manifest: &ExperimentManifest,
+    source_reports: &[ExperimentSourceReportSnapshot],
+    source_id: &str,
+) -> Result<()> {
+    let snapshot_directory = directory.join("source-attestations").join(source_id);
+    let catalog: EvidenceCatalog = read_json(&snapshot_directory.join("catalog.json"))?;
+    let observation: OpenStreetMapLayoutReport =
+        read_json(&snapshot_directory.join("observation.json"))?;
+    verify_openstreetmap_layout_catalog_contract(&catalog, &observation)
+        .with_context(|| format!("verifying OSM catalog snapshot `{source_id}`"))?;
+    let projection_bytes = read_experiment_source_report_snapshot(
+        directory,
+        source_reports,
+        source_id,
+        "OSM projection",
+    )?;
+    let projection: OpenStreetMapLocalProjectionReport = serde_json::from_slice(&projection_bytes)
+        .with_context(|| format!("parsing OSM projection report snapshot `{source_id}`"))?;
+    verify_openstreetmap_local_projection_report(&observation, &projection)
+        .with_context(|| format!("verifying OSM projection snapshot `{source_id}`"))?;
+    let declared_source = manifest
+        .sources
+        .iter()
+        .find(|source| source.id == source_id)
+        .context("validated OSM source attestation has no source declaration")?;
+    if let Some(expected_source_sha256) = &declared_source.source_sha256
+        && !expected_source_sha256.eq_ignore_ascii_case(&observation.source.source_sha256)
+    {
+        bail!("OSM observation snapshot source hash does not match declaration for `{source_id}`");
     }
     Ok(())
+}
+
+#[allow(clippy::too_many_arguments)] // one attestation explicitly binds these independent inputs
+fn verify_experiment_osm_scenario_anchor_attestation(
+    directory: &Path,
+    manifest: &ExperimentManifest,
+    source_reports: &[ExperimentSourceReportSnapshot],
+    scenario_source: &str,
+    scenario: &chiyoda_core::Scenario,
+    source_id: &str,
+    projection_source_id: &str,
+) -> Result<()> {
+    let snapshot_directory = directory.join("source-attestations").join(source_id);
+    let anchor_manifest_bytes = fs::read(snapshot_directory.join("anchor-manifest.json"))
+        .with_context(|| format!("reading OSM scenario-anchor manifest snapshot `{source_id}`"))?;
+    let anchor_manifest = parse_experiment_osm_anchor_manifest(
+        &anchor_manifest_bytes,
+        source_id,
+        "artifact snapshot",
+    )?;
+    let anchor_report_bytes = read_experiment_source_report_snapshot(
+        directory,
+        source_reports,
+        source_id,
+        "OSM scenario-anchor",
+    )?;
+    let anchored: OsmScenarioAnchorReport = serde_json::from_slice(&anchor_report_bytes)
+        .with_context(|| format!("parsing OSM scenario-anchor report snapshot `{source_id}`"))?;
+    let projection_report_bytes = read_experiment_source_report_snapshot(
+        directory,
+        source_reports,
+        projection_source_id,
+        "OSM projection",
+    )?;
+    let projection: OpenStreetMapLocalProjectionReport =
+        serde_json::from_slice(&projection_report_bytes).with_context(|| {
+            format!("parsing OSM projection report snapshot `{projection_source_id}`")
+        })?;
+    verify_osm_scenario_anchor_report(
+        &anchor_manifest,
+        &sha256_hex(&anchor_manifest_bytes),
+        scenario,
+        &sha256_hex(scenario_source.as_bytes()),
+        &projection,
+        &sha256_hex(&projection_report_bytes),
+        &anchored,
+    )
+    .with_context(|| format!("verifying OSM scenario-anchor snapshot `{source_id}`"))?;
+    verify_declared_anchor_source_hash(manifest, source_id, &anchored)
+}
+
+fn read_experiment_source_report_snapshot(
+    directory: &Path,
+    source_reports: &[ExperimentSourceReportSnapshot],
+    source_id: &str,
+    report_kind: &str,
+) -> Result<Vec<u8>> {
+    let snapshot = source_reports
+        .iter()
+        .find(|report| report.source_id == source_id)
+        .with_context(|| format!("validated {report_kind} attestation has no report snapshot"))?;
+    fs::read(directory.join(&snapshot.snapshot_path)).with_context(|| {
+        format!(
+            "reading {report_kind} report snapshot {}",
+            snapshot.snapshot_path
+        )
+    })
 }
 
 fn verify_experiment_layout(
@@ -5194,6 +5275,30 @@ agents passengers count 1 on concourse at (1m, 1m, 0m) to street speed 1.2m/s ra
         .expect_err("changed raw OSM source must block artifact creation");
         assert!(format!("{error:#}").contains("OSM source attestation"));
         fs::write(&source_path, source).expect("restoring raw OSM source");
+
+        let original_anchor_manifest =
+            fs::read(&anchor_manifest_path).expect("reading original anchor manifest");
+        let mut mismatched_anchor_manifest: serde_json::Value =
+            serde_json::from_slice(&original_anchor_manifest)
+                .expect("parsing original anchor manifest");
+        mismatched_anchor_manifest["scenario_source"] = serde_json::json!("other-scenario.chy");
+        super::write_json(&anchor_manifest_path, &mismatched_anchor_manifest)
+            .expect("writing mismatched anchor manifest");
+        fs::write(
+            directory.0.join("other-scenario.chy"),
+            "different scenario source\n",
+        )
+        .expect("writing mismatched scenario source");
+        let error = handle_experiment(ExperimentCommand::Plan {
+            manifest: manifest_path.clone(),
+            output: Some(directory.0.join("plan.json")),
+        })
+        .expect_err("an anchor manifest for a different scenario must block planning");
+        assert!(
+            format!("{error:#}").contains("does not resolve to the experiment scenario source")
+        );
+        fs::write(&anchor_manifest_path, original_anchor_manifest)
+            .expect("restoring anchor manifest");
 
         let plan_output = directory.0.join("plan.json");
         handle_experiment(ExperimentCommand::Plan {
