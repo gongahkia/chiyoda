@@ -1717,9 +1717,8 @@ fn write_experiment_osm_attestations(
                 catalog_bytes,
                 observation_bytes,
             } => {
-                fs::write(directory.join("catalog.json"), catalog_bytes).with_context(|| {
-                    format!("writing OSM catalog snapshot for `{source_id}`")
-                })?;
+                fs::write(directory.join("catalog.json"), catalog_bytes)
+                    .with_context(|| format!("writing OSM catalog snapshot for `{source_id}`"))?;
                 fs::write(directory.join("observation.json"), observation_bytes).with_context(
                     || format!("writing OSM observation snapshot for `{source_id}`"),
                 )?;
@@ -1728,10 +1727,13 @@ fn write_experiment_osm_attestations(
                 source_id,
                 anchor_manifest_bytes,
             } => {
-                fs::write(directory.join("anchor-manifest.json"), anchor_manifest_bytes)
-                    .with_context(|| {
-                        format!("writing OSM scenario-anchor manifest snapshot for `{source_id}`")
-                    })?;
+                fs::write(
+                    directory.join("anchor-manifest.json"),
+                    anchor_manifest_bytes,
+                )
+                .with_context(|| {
+                    format!("writing OSM scenario-anchor manifest snapshot for `{source_id}`")
+                })?;
             }
         }
     }
@@ -1879,8 +1881,7 @@ fn verify_experiment_osm_attestations(
     }
 
     for attestation in &manifest.source_attestations {
-        let ExperimentSourceAttestation::OsmLocalProjection { source_id, .. } = attestation
-        else {
+        let ExperimentSourceAttestation::OsmLocalProjection { source_id, .. } = attestation else {
             continue;
         };
         let snapshot_directory = root.join(source_id);
@@ -1985,9 +1986,10 @@ fn verify_experiment_osm_attestations(
             .iter()
             .find(|source| source.id == *source_id)
             .context("validated OSM scenario-anchor attestation has no source declaration")?;
-        let expected_source_sha256 = declared_source.source_sha256.as_deref().context(
-            "validated OSM scenario-anchor attestation has no declared raw source hash",
-        )?;
+        let expected_source_sha256 = declared_source
+            .source_sha256
+            .as_deref()
+            .context("validated OSM scenario-anchor attestation has no declared raw source hash")?;
         if !expected_source_sha256.eq_ignore_ascii_case(&anchored.source.source_sha256) {
             bail!(
                 "OSM scenario-anchor report source hash does not match declaration for `{source_id}`"
@@ -5077,12 +5079,46 @@ seed 1
 duration 5s
 timestep 1s
 surface concourse at (0m, 0m, 0m) size (10m, 10m)
-exit street on concourse at (8m, 1m, 0m) width 1m capacity 1/s
+exit street on concourse at (0m, 0m, 0m) width 1m capacity 1/s
 agents passengers count 1 on concourse at (1m, 1m, 0m) to street speed 1.2m/s radius 0.3m height 1.7m
 "#,
         )
         .expect("writing scenario source");
+        let anchor_manifest_path = directory.0.join("anchors.json");
+        let anchor_manifest = serde_json::json!({
+            "schema_version": "0.1",
+            "name": "Attested OSM experiment fixture anchor",
+            "description": "one point anchored without importing layout geometry",
+            "scenario_source": "scenario.chy",
+            "anchors": [{
+                "id": "street",
+                "target": {"kind": "exit", "id": "street"},
+                "source": {
+                    "kind": "node_feature",
+                    "object_id": 1,
+                    "category": "entrance"
+                },
+                "rationale": "retain the reviewed source point only"
+            }],
+            "claim_boundary": "the map does not establish a facility layout or operations"
+        });
+        fs::write(
+            &anchor_manifest_path,
+            serde_json::to_vec_pretty(&anchor_manifest).expect("serializing anchor manifest"),
+        )
+        .expect("writing anchor manifest");
+        let anchor_report_path = directory.0.join("anchor-report.json");
+        handle_layout(LayoutCommand::AnchorOsm {
+            catalog: catalog_path.clone(),
+            observation: observation_path.clone(),
+            projection: projection_path.clone(),
+            manifest: anchor_manifest_path.clone(),
+            data_root: data_root.clone(),
+            output: anchor_report_path.clone(),
+        })
+        .expect("creating OSM scenario-anchor report");
         let projection = fs::read(&projection_path).expect("reading projection report");
+        let anchor_report = fs::read(&anchor_report_path).expect("reading anchor report");
         let manifest_path = directory.0.join("experiment.json");
         let manifest = serde_json::json!({
             "schema_version": "0.2",
@@ -5095,10 +5131,10 @@ agents passengers count 1 on concourse at (1m, 1m, 0m) to street speed 1.2m/s ra
                 "subject": "street.capacity",
                 "basis": "documented_estimate",
                 "rationale": "keep the chosen input and OSM source boundary visible",
-                "source_ids": ["station_layout"]
+                "source_ids": ["station_anchor"]
             }],
             "sources": [{
-                "id": "station_layout",
+                "id": "station_projection",
                 "citation": "OpenStreetMap contributors",
                 "url": "https://www.openstreetmap.org/",
                 "applicability": "map observation informs context only",
@@ -5108,14 +5144,33 @@ agents passengers count 1 on concourse at (1m, 1m, 0m) to street speed 1.2m/s ra
                     "path": "projection.json",
                     "sha256": format!("{:x}", Sha256::digest(&projection))
                 }
+            }, {
+                "id": "station_anchor",
+                "citation": "OpenStreetMap contributors",
+                "url": "https://www.openstreetmap.org/",
+                "applicability": "one selected source point is retained for manual scenario authoring",
+                "limitation": "does not import layout geometry, calibrate the runtime, or validate a facility",
+                "source_sha256": format!("{:x}", Sha256::digest(source)),
+                "derived_report": {
+                    "path": "anchor-report.json",
+                    "sha256": format!("{:x}", Sha256::digest(&anchor_report))
+                }
             }],
-            "source_attestations": [{
-                "kind": "osm_local_projection",
-                "source_id": "station_layout",
-                "catalog_path": "catalog.json",
-                "data_root": "raw",
-                "observation_report_path": "observation.json"
-            }],
+            "source_attestations": [
+                {
+                    "kind": "osm_local_projection",
+                    "source_id": "station_projection",
+                    "catalog_path": "catalog.json",
+                    "data_root": "raw",
+                    "observation_report_path": "observation.json"
+                },
+                {
+                    "kind": "osm_scenario_anchor",
+                    "source_id": "station_anchor",
+                    "projection_source_id": "station_projection",
+                    "anchor_manifest_path": "anchors.json"
+                }
+            ],
             "claim_boundary": "not predictive, operational, or safety guidance"
         });
         fs::write(
@@ -5150,7 +5205,7 @@ agents passengers count 1 on concourse at (1m, 1m, 0m) to street speed 1.2m/s ra
             super::read_json(&plan_output).expect("parsing experiment plan");
         assert_eq!(
             plan["verified_osm_source_attestations"],
-            serde_json::json!(["station_layout"])
+            serde_json::json!(["station_projection", "station_anchor"])
         );
 
         handle_experiment(ExperimentCommand::Run {
@@ -5164,19 +5219,46 @@ agents passengers count 1 on concourse at (1m, 1m, 0m) to street speed 1.2m/s ra
         .expect("attested experiment artifact verifies");
         assert!(
             output
-                .join("source-attestations/station_layout/catalog.json")
+                .join("source-attestations/station_projection/catalog.json")
                 .is_file()
         );
         assert!(
             output
-                .join("source-attestations/station_layout/observation.json")
+                .join("source-attestations/station_projection/observation.json")
                 .is_file()
         );
+        assert!(
+            output
+                .join("source-attestations/station_anchor/anchor-manifest.json")
+                .is_file()
+        );
+
+        let anchor_snapshot =
+            fs::read(output.join("source-attestations/station_anchor/anchor-manifest.json"))
+                .expect("reading anchor manifest snapshot");
+        let mut altered_anchor: serde_json::Value =
+            serde_json::from_slice(&anchor_snapshot).expect("parsing anchor manifest snapshot");
+        altered_anchor["description"] = serde_json::json!("altered anchor manifest");
+        super::write_json(
+            &output.join("source-attestations/station_anchor/anchor-manifest.json"),
+            &altered_anchor,
+        )
+        .expect("tampering anchor manifest snapshot");
+        let error = handle_experiment(ExperimentCommand::Verify {
+            directory: output.clone(),
+        })
+        .expect_err("changed OSM anchor manifest snapshot must not verify");
+        assert!(format!("{error:#}").contains("scenario-anchor"));
+        fs::write(
+            output.join("source-attestations/station_anchor/anchor-manifest.json"),
+            anchor_snapshot,
+        )
+        .expect("restoring anchor manifest snapshot");
 
         let mut altered_catalog = catalog;
         altered_catalog["title"] = serde_json::json!("Altered OSM fixture");
         super::write_json(
-            &output.join("source-attestations/station_layout/catalog.json"),
+            &output.join("source-attestations/station_projection/catalog.json"),
             &altered_catalog,
         )
         .expect("tampering catalog snapshot");

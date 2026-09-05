@@ -292,8 +292,9 @@ pub fn validate_experiment_manifest(
                 catalog_path,
                 data_root,
                 observation_report_path,
+                ..
             } => {
-                local_projection_sources.insert(source_id);
+                local_projection_sources.insert(source_id.to_owned());
                 for (field, value) in [
                     ("catalog_path", catalog_path),
                     ("data_root", data_root),
@@ -330,7 +331,11 @@ pub fn validate_experiment_manifest(
                         "must be a non-empty relative path without `.` or `..` components",
                     ));
                 }
-                scenario_anchor_dependencies.push((index, source_id, projection_source_id));
+                scenario_anchor_dependencies.push((
+                    index,
+                    source_id.to_owned(),
+                    projection_source_id.to_owned(),
+                ));
             }
         }
     }
@@ -343,7 +348,7 @@ pub fn validate_experiment_manifest(
                 "must differ from source_id",
             ));
         }
-        if !local_projection_sources.contains(projection_source_id) {
+        if !local_projection_sources.contains(&projection_source_id) {
             errors.push(issue(
                 &format!("{path}.projection_source_id"),
                 "must name the source_id of an osm_local_projection attestation",
