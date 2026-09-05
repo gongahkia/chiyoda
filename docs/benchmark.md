@@ -22,7 +22,7 @@ scope.
 
 ## Current status
 
-`0.27.0-alpha.1` includes the generator, fixture-seed protocol, and manifest
+`0.28.0-alpha.1` includes the generator, fixture-seed protocol, and manifest
 validator. It now also includes a content-locked candidate source and a
 descriptive 2D platform-trajectory intake path. It does not publish an
 empirical round: the source is neither a calibrated runtime nor independent

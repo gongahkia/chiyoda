@@ -1,8 +1,8 @@
 use crate::{
     bundle::{
         AgentSnapshot, AgentState, BUNDLE_VERSION, InformationDeliveryMetrics,
-        InformationInterventionKind, QueueMetrics, QueueResourceBreakdown, QueueResourceMetrics,
-        RunBundle, RunEvent, RunMetrics, TraceFrame,
+        InformationInterventionKind, MovementMetrics, QueueMetrics, QueueResourceBreakdown,
+        QueueResourceMetrics, RunBundle, RunEvent, RunMetrics, TraceFrame,
     },
     model::{
         CanonicalScenario, ConnectorKind, NAVIGATION_CLEARANCE_EPSILON_M, Obstacle, Point3,
@@ -263,6 +263,37 @@ struct OnSurfaceMovement<'a> {
     surface: &'a Surface,
     obstacles: &'a [Obstacle],
     target_requires_local_clearance: bool,
+}
+
+#[derive(Debug, Default)]
+struct MovementTelemetry {
+    adjusted_agents: HashSet<String>,
+    adjustment_steps: u64,
+    cumulative_adjustment_m: f64,
+    maximum_adjustment_m: f64,
+}
+
+impl MovementTelemetry {
+    fn record(&mut self, agent_id: &str, planned: Point3, resolved: Point3) {
+        let adjustment_m = planned.distance(resolved);
+        if adjustment_m <= NAVIGATION_EPSILON_M {
+            return;
+        }
+        self.adjusted_agents.insert(agent_id.to_owned());
+        self.adjustment_steps += 1;
+        self.cumulative_adjustment_m += adjustment_m;
+        self.maximum_adjustment_m = self.maximum_adjustment_m.max(adjustment_m);
+    }
+
+    fn metrics(&self) -> MovementMetrics {
+        MovementMetrics {
+            agents_with_local_clearance_adjustments: u32::try_from(self.adjusted_agents.len())
+                .expect("agent count fits u32"),
+            local_clearance_adjustment_steps: self.adjustment_steps,
+            cumulative_local_clearance_adjustment_m: self.cumulative_adjustment_m,
+            maximum_local_clearance_adjustment_m: self.maximum_adjustment_m,
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -1085,6 +1116,7 @@ pub fn run(scenario: &Scenario, options: RunOptions) -> Result<RunBundle, RunErr
     let mut trace = vec![snapshot(0, 0.0, &agents)];
     let mut events = initial_state_events(scenario);
     let mut information_delivery = information_delivery_for_scenario(scenario);
+    let mut movement_telemetry = MovementTelemetry::default();
     let mut previous_time_s = 0.0;
 
     for step in 1..=step_count {
@@ -1111,6 +1143,7 @@ pub fn run(scenario: &Scenario, options: RunOptions) -> Result<RunBundle, RunErr
             elapsed_s,
             &mut events,
             &mut resources,
+            &mut movement_telemetry,
         );
         resources.record_queue_wait(scenario, &agents, 0.0);
         if step % u64::from(options.trace_every_steps) == 0 || time_s >= scenario.duration_s {
@@ -1165,6 +1198,7 @@ pub fn run(scenario: &Scenario, options: RunOptions) -> Result<RunBundle, RunErr
         queued_for_gate_agents: queue_metrics.gate.ever_queued_agents,
         queued_for_exit_agents: queue_metrics.exit.ever_queued_agents,
         queue_metrics: Some(queue_metrics),
+        movement_metrics: Some(movement_telemetry.metrics()),
     };
     let options = BTreeMap::from([
         (
@@ -1173,7 +1207,7 @@ pub fn run(scenario: &Scenario, options: RunOptions) -> Result<RunBundle, RunErr
         ),
         (
             "integration".to_owned(),
-            "deterministic-euler-0.27".to_owned(),
+            "deterministic-euler-0.28".to_owned(),
         ),
     ]);
     Ok(RunBundle::new(canonical, options, trace, events, metrics))
@@ -2134,6 +2168,7 @@ fn integrate(
     step_elapsed_s: f64,
     events: &mut Vec<RunEvent>,
     resources: &mut RuntimeResources,
+    movement_telemetry: &mut MovementTelemetry,
 ) {
     for agent in agents.iter_mut() {
         match &agent.motion {
@@ -2213,15 +2248,18 @@ fn integrate(
                     agent.surface = next_surface.clone();
                     agent.route_cursor += 1;
                     agent.motion = Motion::OnSurface;
-                    agent.position = resolve_local_position(
+                    let planned_arrival = agent.position;
+                    let resolved_arrival = resolve_local_position(
                         agent,
-                        agent.position,
+                        planned_arrival,
                         index,
                         surface_for(scenario, &agent.surface),
                         &scenario.obstacles,
                         &spatial_index,
                     )
-                    .unwrap_or(agent.position);
+                    .unwrap_or(planned_arrival);
+                    movement_telemetry.record(&agent.id, planned_arrival, resolved_arrival);
+                    agent.position = resolved_arrival;
                     spatial_index.update(index, &agent.surface, agent.position, agent.radius_m);
                     events.push(RunEvent {
                         time_s,
@@ -2297,6 +2335,7 @@ fn integrate(
                     step_elapsed_s,
                     &mut spatial_index,
                     index,
+                    movement_telemetry,
                 );
                 if !reached {
                     continue;
@@ -2583,6 +2622,7 @@ fn move_toward(
     timestep_s: f64,
     spatial_index: &mut SpatialIndex,
     own_index: usize,
+    movement_telemetry: &mut MovementTelemetry,
 ) -> bool {
     let Some(path) = shortest_walk_path_on_surface(
         movement.surface,
@@ -2615,7 +2655,7 @@ fn move_toward(
     let next = if reached_waypoint && !movement.target_requires_local_clearance {
         planned_next
     } else {
-        resolve_local_position(
+        let resolved = resolve_local_position(
             agent,
             planned_next,
             own_index,
@@ -2623,7 +2663,9 @@ fn move_toward(
             movement.obstacles,
             spatial_index,
         )
-        .unwrap_or(agent.position)
+        .unwrap_or(agent.position);
+        movement_telemetry.record(&agent.id, planned_next, resolved);
+        resolved
     };
     let reached =
         reached_waypoint && path.len() <= 2 && next.distance(waypoint) <= NAVIGATION_EPSILON_M;

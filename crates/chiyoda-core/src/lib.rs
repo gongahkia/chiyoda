@@ -21,8 +21,8 @@ pub mod validate;
 
 pub use benchmark::{BenchmarkManifest, BenchmarkValidationError, validate_manifest};
 pub use bundle::{
-    AgentState, InformationDeliveryMetrics, InformationInterventionKind, QueueMetrics,
-    QueueResourceBreakdown, QueueResourceMetrics, RunBundle, bundle_hash,
+    AgentState, InformationDeliveryMetrics, InformationInterventionKind, MovementMetrics,
+    QueueMetrics, QueueResourceBreakdown, QueueResourceMetrics, RunBundle, bundle_hash,
 };
 pub use calibration::{
     CalibrationError, PlatformCalibrationReport, calibrate_eindhoven_platform, verify_catalog_files,

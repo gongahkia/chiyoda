@@ -5,7 +5,7 @@ Chiyoda is an Apache-2.0 research platform for deterministic, reproducible
 is a standalone experiment language and executable reference semantics—not a
 real-time operations dashboard or a certified evacuation product.
 
-The current `0.27.0-alpha.1` release establishes the language/runtime contract:
+The current `0.28.0-alpha.1` release establishes the language/runtime contract:
 
 - a typed textual DSL with static unit, topology, reachability, capacity, and
   deterministic-replay checks;
@@ -15,8 +15,8 @@ The current `0.27.0-alpha.1` release establishes the language/runtime contract:
   escalators, lifts, gates, capacity-limited exits, scheduled availability and
   service-capacity states, and typed information interventions;
 - immutable JSON run bundles with source, canonical IR, events, traces,
-  per-intervention reach/acceptance metrics, queue-entry audit events, and
-  SHA-256 integrity hashes;
+  per-intervention reach/acceptance metrics, queue-entry audit events,
+  local-clearance adjustment telemetry, and SHA-256 integrity hashes;
 - a source-anchoring workflow that can prove selected scenario coordinates
   match a content-locked, explicitly projected OSM point without importing map
   geometry;

@@ -1,7 +1,7 @@
-# Executable semantics 0.27
+# Executable semantics 0.28
 
 The Rust `chiyoda-core` runtime is the reference interpreter for language 0.23
-under runtime contract 0.27. This document is normative where it describes public
+under runtime contract 0.28. This document is normative where it describes public
 behavior;
 the source and conformance tests make that behavior executable.
 
@@ -102,7 +102,7 @@ unordered map iteration.
 
 ## What this does not mean
 
-The `0.27` local-separation law, nominal routing cost and alternative-exit
+The `0.28` local-separation law, nominal routing cost and alternative-exit
 selection, scheduled-release and service-capacity semantics, operational-state
 transitions, escalator walking-rider assumption, and seeded information
 acceptance law are reference semantics, not calibrated behavioral claims. A
@@ -139,7 +139,7 @@ reconstructed from resource peaks: it is the maximum simultaneous count across
 all resources of that mechanism at a step boundary. The breakdown does not
 identify a geometric queue, a real-world bottleneck, or a measured service rate.
 
-Runtime contract `0.27` also records an event when an agent first enters each
+Runtime contract `0.28` also records an event when an agent first enters each
 such modeled resource queue. Its event kind is one of `queue_entered_lift`,
 `queue_entered_connector`, `queue_entered_gate`, or `queue_entered_exit`; its
 subject is the generated agent identifier and its detail is the exact authored

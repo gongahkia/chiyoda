@@ -13,11 +13,12 @@ class BundleError(ValueError):
     """A run bundle is malformed or fails its integrity contract."""
 
 
-_CURRENT_BUNDLE_VERSIONS = frozenset({"0.17", "0.18", "0.19", "0.20", "0.21", "0.22", "0.23", "0.24", "0.25", "0.26", "0.27"})
-_INFORMATION_DELIVERY_BUNDLE_VERSIONS = frozenset({"0.18", "0.19", "0.20", "0.21", "0.22", "0.23", "0.24", "0.25", "0.26", "0.27"})
-_QUEUE_METRIC_BUNDLE_VERSIONS = frozenset({"0.22", "0.23", "0.24", "0.25", "0.26", "0.27"})
-_RESOURCE_QUEUE_METRIC_BUNDLE_VERSIONS = frozenset({"0.23", "0.24", "0.25", "0.26", "0.27"})
-_QUEUE_ENTRY_EVENT_BUNDLE_VERSIONS = frozenset({"0.24", "0.25", "0.26", "0.27"})
+_CURRENT_BUNDLE_VERSIONS = frozenset({"0.17", "0.18", "0.19", "0.20", "0.21", "0.22", "0.23", "0.24", "0.25", "0.26", "0.27", "0.28"})
+_INFORMATION_DELIVERY_BUNDLE_VERSIONS = frozenset({"0.18", "0.19", "0.20", "0.21", "0.22", "0.23", "0.24", "0.25", "0.26", "0.27", "0.28"})
+_QUEUE_METRIC_BUNDLE_VERSIONS = frozenset({"0.22", "0.23", "0.24", "0.25", "0.26", "0.27", "0.28"})
+_RESOURCE_QUEUE_METRIC_BUNDLE_VERSIONS = frozenset({"0.23", "0.24", "0.25", "0.26", "0.27", "0.28"})
+_QUEUE_ENTRY_EVENT_BUNDLE_VERSIONS = frozenset({"0.24", "0.25", "0.26", "0.27", "0.28"})
+_MOVEMENT_METRIC_BUNDLE_VERSIONS = frozenset({"0.28"})
 _REMAINING_AGENT_STATES = frozenset(
     {
         "moving",
@@ -70,6 +71,7 @@ def summarize(bundle: dict[str, Any]) -> dict[str, Any]:
     remaining_by_state = _count_map(metrics, "remaining_by_state", "state identifiers")
     information_delivery = _information_delivery(metrics)
     queue_metrics = _queue_metrics(bundle, metrics)
+    movement_metrics = _movement_metrics(bundle, metrics)
     clearance_time_s = _optional_time(metrics, "clearance_time_s")
     last_exit_time_s = _optional_time(metrics, "last_exit_time_s")
     _validate_exit_time_semantics(bundle, metrics, clearance_time_s, last_exit_time_s)
@@ -92,6 +94,7 @@ def summarize(bundle: dict[str, Any]) -> dict[str, Any]:
         "remaining_by_state": remaining_by_state,
         "information_delivery": information_delivery,
         "queue_metrics": queue_metrics,
+        "movement_metrics": movement_metrics,
         "clearance_time_s": clearance_time_s,
         "last_exit_time_s": last_exit_time_s,
         "metrics": metrics,
@@ -204,6 +207,56 @@ def _queue_metrics(bundle: dict[str, Any], metrics: dict[str, Any]) -> dict[str,
     if bundle.get("bundle_version") in _QUEUE_ENTRY_EVENT_BUNDLE_VERSIONS:
         _queue_entry_events(bundle, normalized)
     return normalized
+
+
+def _movement_metrics(bundle: dict[str, Any], metrics: dict[str, Any]) -> dict[str, int | float]:
+    """Validate local-clearance audit telemetry without relabeling it as physical data."""
+
+    if bundle.get("bundle_version") not in _MOVEMENT_METRIC_BUNDLE_VERSIONS:
+        return {}
+    value = metrics.get("movement_metrics")
+    expected_fields = {
+        "agents_with_local_clearance_adjustments",
+        "local_clearance_adjustment_steps",
+        "cumulative_local_clearance_adjustment_m",
+        "maximum_local_clearance_adjustment_m",
+    }
+    if not isinstance(value, dict) or set(value) != expected_fields:
+        raise BundleError("current metrics.movement_metrics must contain complete local-clearance telemetry")
+    total_agents, _ = _current_agent_counts(metrics)
+    adjusted_agents = value["agents_with_local_clearance_adjustments"]
+    adjustment_steps = value["local_clearance_adjustment_steps"]
+    cumulative_adjustment = value["cumulative_local_clearance_adjustment_m"]
+    maximum_adjustment = value["maximum_local_clearance_adjustment_m"]
+    if (
+        isinstance(adjusted_agents, bool)
+        or not isinstance(adjusted_agents, int)
+        or adjusted_agents < 0
+        or adjusted_agents > total_agents
+        or isinstance(adjustment_steps, bool)
+        or not isinstance(adjustment_steps, int)
+        or adjustment_steps < adjusted_agents
+        or isinstance(cumulative_adjustment, bool)
+        or not isinstance(cumulative_adjustment, (int, float))
+        or not math.isfinite(cumulative_adjustment)
+        or cumulative_adjustment < 0
+        or isinstance(maximum_adjustment, bool)
+        or not isinstance(maximum_adjustment, (int, float))
+        or not math.isfinite(maximum_adjustment)
+        or maximum_adjustment < 0
+        or maximum_adjustment > cumulative_adjustment
+    ):
+        raise BundleError("metrics.movement_metrics is invalid")
+    if adjustment_steps == 0 and (
+        adjusted_agents != 0 or cumulative_adjustment != 0 or maximum_adjustment != 0
+    ):
+        raise BundleError("zero local-clearance adjustments must have zero-valued telemetry")
+    return {
+        "agents_with_local_clearance_adjustments": adjusted_agents,
+        "local_clearance_adjustment_steps": adjustment_steps,
+        "cumulative_local_clearance_adjustment_m": float(cumulative_adjustment),
+        "maximum_local_clearance_adjustment_m": float(maximum_adjustment),
+    }
 
 
 def _queue_resource_ids(bundle: dict[str, Any]) -> dict[str, set[str]]:

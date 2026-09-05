@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{collections::BTreeMap, fmt::Write};
 
-pub const BUNDLE_VERSION: &str = "0.27";
+pub const BUNDLE_VERSION: &str = "0.28";
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AgentSnapshot {
@@ -107,6 +107,26 @@ pub struct QueueResourceBreakdown {
     pub exits: BTreeMap<String, QueueResourceMetrics>,
 }
 
+/// Discrete audit telemetry for the reference runtime's local-clearance
+/// resolver. These values describe adjustments made by that algorithm; they
+/// are not observed contacts, collision counts, crowd-density measures, or
+/// physical-model calibration data.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MovementMetrics {
+    /// Distinct agents whose planned on-surface or connector-arrival position
+    /// was adjusted or deferred by local clearance at least once.
+    pub agents_with_local_clearance_adjustments: u32,
+    /// Number of individual position attempts altered or deferred by local
+    /// clearance.
+    pub local_clearance_adjustment_steps: u64,
+    /// Sum of Euclidean displacements between each planned and resolved
+    /// position, in metres.
+    pub cumulative_local_clearance_adjustment_m: f64,
+    /// Largest Euclidean displacement between one planned and resolved
+    /// position, in metres.
+    pub maximum_local_clearance_adjustment_m: f64,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RunMetrics {
     pub total_agents: u32,
@@ -141,6 +161,10 @@ pub struct RunMetrics {
     /// Omission preserves inspection of bundles emitted before version 0.22.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub queue_metrics: Option<QueueMetrics>,
+    /// Discrete local-clearance-resolver telemetry. Omission preserves
+    /// inspection of bundles emitted before version 0.28.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub movement_metrics: Option<MovementMetrics>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -193,6 +217,12 @@ impl RunBundle {
                         canonical_number(resource.cumulative_wait_agent_seconds);
                 }
             }
+        }
+        if let Some(movement_metrics) = &mut metrics.movement_metrics {
+            movement_metrics.cumulative_local_clearance_adjustment_m =
+                canonical_number(movement_metrics.cumulative_local_clearance_adjustment_m);
+            movement_metrics.maximum_local_clearance_adjustment_m =
+                canonical_number(movement_metrics.maximum_local_clearance_adjustment_m);
         }
         let scenario_hash = canonical_hash(&scenario);
         let mut bundle = Self {

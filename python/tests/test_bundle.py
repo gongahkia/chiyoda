@@ -163,6 +163,53 @@ class BundleTests(unittest.TestCase):
         with self.assertRaises(BundleError):
             summarize(bundle)
 
+    def test_current_summary_exposes_local_clearance_telemetry(self) -> None:
+        bundle = {
+            "bundle_version": "0.28",
+            "scenario": {
+                "scenario": {
+                    "name": "fixture",
+                    "messages": [],
+                    "countermeasures": [],
+                    "connectors": [],
+                    "gates": [],
+                    "exits": [],
+                }
+            },
+            "events": [],
+            "metrics": {
+                "total_agents": 2,
+                "evacuated_agents": 0,
+                "remaining_by_state": {"moving": 2},
+                "clearance_time_s": None,
+                "last_exit_time_s": None,
+                "queued_for_lift_agents": 0,
+                "queued_for_connector_agents": 0,
+                "queued_for_gate_agents": 0,
+                "queued_for_exit_agents": 0,
+                "queue_metrics": {
+                    "lift": {"ever_queued_agents": 0, "cumulative_wait_agent_seconds": 0.0, "peak_waiting_agents": 0},
+                    "connector": {"ever_queued_agents": 0, "cumulative_wait_agent_seconds": 0.0, "peak_waiting_agents": 0},
+                    "gate": {"ever_queued_agents": 0, "cumulative_wait_agent_seconds": 0.0, "peak_waiting_agents": 0},
+                    "exit": {"ever_queued_agents": 0, "cumulative_wait_agent_seconds": 0.0, "peak_waiting_agents": 0},
+                    "by_resource": {"lifts": {}, "connectors": {}, "gates": {}, "exits": {}},
+                },
+                "movement_metrics": {
+                    "agents_with_local_clearance_adjustments": 1,
+                    "local_clearance_adjustment_steps": 2,
+                    "cumulative_local_clearance_adjustment_m": 0.9,
+                    "maximum_local_clearance_adjustment_m": 0.6,
+                },
+            },
+        }
+
+        summary = summarize(bundle)
+
+        self.assertEqual(summary["movement_metrics"]["local_clearance_adjustment_steps"], 2)
+        bundle["metrics"]["movement_metrics"]["maximum_local_clearance_adjustment_m"] = 1.0
+        with self.assertRaises(BundleError):
+            summarize(bundle)
+
     def test_current_summary_exposes_resource_attributed_queue_telemetry(self) -> None:
         queue_metrics = {
             "lift": {

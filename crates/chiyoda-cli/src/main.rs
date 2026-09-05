@@ -1,7 +1,7 @@
 use anyhow::{Context, Result, bail};
 use chiyoda_core::{
     BenchmarkManifest, BundleVerification, CanonicalScenario, EvidenceCatalog, ExperimentManifest,
-    GeographicPoint, InformationDeliveryMetrics, OpenStreetMapLayoutReport,
+    GeographicPoint, InformationDeliveryMetrics, MovementMetrics, OpenStreetMapLayoutReport,
     OpenStreetMapLocalProjectionReport, OsmInspectionLimits, OsmScenarioAnchorManifest,
     OsmScenarioAnchorReport, QueueMetrics, QueueResourceMetrics, RunBundle, RunOptions,
     SensitivityFactor, SensitivityManifest, anchor_osm_scenario, calibrate_eindhoven_platform,
@@ -415,6 +415,10 @@ struct SweepRun {
     /// it rather than implying a physical or zero-valued queue.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     queue_metrics: Option<QueueMetrics>,
+    /// Local-clearance-resolver telemetry for current bundles. Its absence in
+    /// historical summaries is preserved rather than inferred from traces.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    movement_metrics: Option<MovementMetrics>,
     clearance_time_s: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     last_exit_time_s: Option<f64>,
@@ -441,6 +445,7 @@ struct SweepAnalysis {
     information_delivery: BTreeMap<String, AggregateInformationDelivery>,
     queue_experience: AggregateQueueExperience,
     queue_telemetry: AggregateQueueTelemetry,
+    movement_telemetry: AggregateMovementTelemetry,
     clearance_time_s: Option<DescriptiveRange>,
     last_exit_time_s: Option<DescriptiveRange>,
     claim_boundary: String,
@@ -506,6 +511,18 @@ struct AggregateQueueResourceTelemetry {
     maximum_peak_waiting_agents: u32,
 }
 
+/// Aggregate coverage and totals for structural local-clearance adjustments.
+/// These are runtime-algorithm observations, not physical crowd metrics.
+#[derive(Debug, Clone, Default, Serialize)]
+struct AggregateMovementTelemetry {
+    observed_runs: u32,
+    unobserved_legacy_runs: u32,
+    agents_with_local_clearance_adjustments: u64,
+    local_clearance_adjustment_steps: u64,
+    cumulative_local_clearance_adjustment_m: f64,
+    maximum_local_clearance_adjustment_m: f64,
+}
+
 /// Resource-attributed queue aggregates are separately coverage-labeled because
 /// 0.22 detailed telemetry did not include the resource identity.
 #[derive(Debug, Clone, Default, Serialize)]
@@ -542,6 +559,17 @@ struct QueueResourceTelemetryDelta {
     ever_queued_agents: i64,
     cumulative_wait_agent_seconds: f64,
     maximum_peak_waiting_agents: i64,
+}
+
+/// Candidate-minus-baseline change in local-clearance-resolver telemetry.
+/// The maximum field compares the largest per-attempt adjustment in each arm;
+/// the other fields sum per-run values across paired seed records.
+#[derive(Debug, Clone, Default, Serialize)]
+struct MovementTelemetryDelta {
+    agents_with_local_clearance_adjustments: i64,
+    local_clearance_adjustment_steps: i128,
+    cumulative_local_clearance_adjustment_m: f64,
+    maximum_local_clearance_adjustment_m: f64,
 }
 
 /// Candidate-minus-baseline queue deltas for individual resource identifiers.
@@ -836,6 +864,7 @@ struct SensitivityOutcome {
     candidate_fully_evacuated_runs: u32,
     queue_experience_delta: Option<QueueExperienceDelta>,
     queue_telemetry_delta: Option<QueueTelemetryDelta>,
+    movement_telemetry_delta: Option<MovementTelemetryDelta>,
     clearance_time_s: SensitivityTiming,
     last_exit_time_s: SensitivityTiming,
 }
@@ -910,6 +939,7 @@ struct PairedRunArm {
     remaining_by_state: BTreeMap<String, u32>,
     information_delivery: BTreeMap<String, InformationDeliveryMetrics>,
     queue_metrics: Option<QueueMetrics>,
+    movement_metrics: Option<MovementMetrics>,
     clearance_time_s: Option<f64>,
     last_exit_time_s: Option<f64>,
 }
@@ -941,6 +971,7 @@ struct AggregateDelta {
     information_delivery: BTreeMap<String, InformationDeliveryDelta>,
     queue_experience: Option<QueueExperienceDelta>,
     queue_telemetry: Option<QueueTelemetryDelta>,
+    movement_telemetry: Option<MovementTelemetryDelta>,
 }
 
 #[derive(Debug, Serialize)]
@@ -3175,6 +3206,11 @@ fn sensitivity_outcome(comparison: &SweepComparison) -> SensitivityOutcome {
             .candidate_minus_baseline
             .queue_telemetry
             .clone(),
+        movement_telemetry_delta: comparison
+            .aggregate
+            .candidate_minus_baseline
+            .movement_telemetry
+            .clone(),
         clearance_time_s: sensitivity_timing(&comparison.aggregate.clearance_time_s),
         last_exit_time_s: sensitivity_timing(&comparison.aggregate.last_exit_time_s),
     }
@@ -3241,6 +3277,7 @@ where
             information_delivery: bundle.metrics.information_delivery.clone(),
             queue_experience: Some(queue_experience_from_metrics(&bundle.metrics)),
             queue_metrics: bundle.metrics.queue_metrics.clone(),
+            movement_metrics: bundle.metrics.movement_metrics.clone(),
             clearance_time_s: bundle.metrics.clearance_time_s,
             last_exit_time_s: bundle.metrics.last_exit_time_s,
         });
@@ -3644,6 +3681,19 @@ fn verify_sweep_run(
     record
         .queue_metrics
         .clone_from(&bundle.metrics.queue_metrics);
+    if let Some(persisted_movement_metrics) = &record.movement_metrics
+        && bundle.metrics.movement_metrics.as_ref() != Some(persisted_movement_metrics)
+    {
+        bail!(
+            "summary local-clearance telemetry and run bundle disagree: {}",
+            run_directory.display()
+        );
+    }
+    // Older summaries and bundles may lack resolver telemetry. Preserve that
+    // absence instead of deriving it from an incomplete trace cadence.
+    record
+        .movement_metrics
+        .clone_from(&bundle.metrics.movement_metrics);
     Ok(())
 }
 
@@ -3722,6 +3772,7 @@ fn validate_bundle_metrics(bundle: &RunBundle, directory: &Path) -> Result<()> {
             | "0.25"
             | "0.26"
             | "0.27"
+            | "0.28"
     ) {
         let fully_evacuated = metrics.evacuated_agents == metrics.total_agents;
         if metrics.clearance_time_s.is_some() != fully_evacuated {
@@ -3799,7 +3850,17 @@ fn validate_bundle_metrics(bundle: &RunBundle, directory: &Path) -> Result<()> {
     }
     if matches!(
         bundle.bundle_version.as_str(),
-        "0.18" | "0.19" | "0.20" | "0.21" | "0.22" | "0.23" | "0.24" | "0.25" | "0.26" | "0.27"
+        "0.18"
+            | "0.19"
+            | "0.20"
+            | "0.21"
+            | "0.22"
+            | "0.23"
+            | "0.24"
+            | "0.25"
+            | "0.26"
+            | "0.27"
+            | "0.28"
     ) && !expected_interventions.is_empty()
     {
         bail!(
@@ -3848,7 +3909,7 @@ fn validate_bundle_metrics(bundle: &RunBundle, directory: &Path) -> Result<()> {
     }
     if matches!(
         bundle.bundle_version.as_str(),
-        "0.22" | "0.23" | "0.24" | "0.25" | "0.26" | "0.27"
+        "0.22" | "0.23" | "0.24" | "0.25" | "0.26" | "0.27" | "0.28"
     ) {
         let queue_metrics = metrics.queue_metrics.as_ref().ok_or_else(|| {
             anyhow::anyhow!(
@@ -3885,7 +3946,7 @@ fn validate_bundle_metrics(bundle: &RunBundle, directory: &Path) -> Result<()> {
         }
         if matches!(
             bundle.bundle_version.as_str(),
-            "0.23" | "0.24" | "0.25" | "0.26" | "0.27"
+            "0.23" | "0.24" | "0.25" | "0.26" | "0.27" | "0.28"
         ) {
             let by_resource = queue_metrics.by_resource.as_ref().ok_or_else(|| {
                 anyhow::anyhow!(
@@ -3942,10 +4003,44 @@ fn validate_bundle_metrics(bundle: &RunBundle, directory: &Path) -> Result<()> {
             )?;
             if matches!(
                 bundle.bundle_version.as_str(),
-                "0.24" | "0.25" | "0.26" | "0.27"
+                "0.24" | "0.25" | "0.26" | "0.27" | "0.28"
             ) {
                 validate_queue_entry_events(bundle, directory, by_resource, queue_metrics)?;
             }
+        }
+    }
+    if bundle.bundle_version == "0.28" {
+        let movement = metrics.movement_metrics.as_ref().ok_or_else(|| {
+            anyhow::anyhow!(
+                "current bundle omits local-clearance telemetry: {}",
+                directory.display()
+            )
+        })?;
+        let maximum_possible_steps = chiyoda_core::integration_step_count(
+            bundle.scenario.scenario.duration_s,
+            bundle.scenario.scenario.timestep_s,
+        )
+        .saturating_mul(u64::from(metrics.total_agents));
+        let all_zero = movement.agents_with_local_clearance_adjustments == 0
+            && movement.local_clearance_adjustment_steps == 0
+            && movement.cumulative_local_clearance_adjustment_m == 0.0
+            && movement.maximum_local_clearance_adjustment_m == 0.0;
+        if movement.agents_with_local_clearance_adjustments > metrics.total_agents
+            || movement.local_clearance_adjustment_steps > maximum_possible_steps
+            || movement.local_clearance_adjustment_steps
+                < u64::from(movement.agents_with_local_clearance_adjustments)
+            || !movement.cumulative_local_clearance_adjustment_m.is_finite()
+            || movement.cumulative_local_clearance_adjustment_m < 0.0
+            || !movement.maximum_local_clearance_adjustment_m.is_finite()
+            || movement.maximum_local_clearance_adjustment_m < 0.0
+            || movement.maximum_local_clearance_adjustment_m
+                > movement.cumulative_local_clearance_adjustment_m
+            || (movement.local_clearance_adjustment_steps == 0 && !all_zero)
+        {
+            bail!(
+                "bundle has invalid local-clearance telemetry: {}",
+                directory.display()
+            );
         }
     }
     Ok(())
@@ -4156,6 +4251,7 @@ fn describe_sweep(summary: &SweepSummary) -> SweepAnalysis {
         queued_for_exit_agents: 0,
     };
     let mut queue_telemetry = AggregateQueueTelemetry::default();
+    let mut movement_telemetry = AggregateMovementTelemetry::default();
     let mut clearance_times = Vec::new();
     let mut last_exit_times = Vec::new();
 
@@ -4219,6 +4315,22 @@ fn describe_sweep(summary: &SweepSummary) -> SweepAnalysis {
             queue_telemetry.unobserved_legacy_runs += 1;
             queue_telemetry.by_resource.unobserved_legacy_runs += 1;
         }
+        if let Some(run_movement_metrics) = &run.movement_metrics {
+            movement_telemetry.observed_runs += 1;
+            movement_telemetry.agents_with_local_clearance_adjustments +=
+                u64::from(run_movement_metrics.agents_with_local_clearance_adjustments);
+            movement_telemetry.local_clearance_adjustment_steps +=
+                run_movement_metrics.local_clearance_adjustment_steps;
+            movement_telemetry.cumulative_local_clearance_adjustment_m = canonical_report_number(
+                movement_telemetry.cumulative_local_clearance_adjustment_m
+                    + run_movement_metrics.cumulative_local_clearance_adjustment_m,
+            );
+            movement_telemetry.maximum_local_clearance_adjustment_m = movement_telemetry
+                .maximum_local_clearance_adjustment_m
+                .max(run_movement_metrics.maximum_local_clearance_adjustment_m);
+        } else {
+            movement_telemetry.unobserved_legacy_runs += 1;
+        }
         if let Some(clearance_time_s) = observed_clearance_time(run) {
             clearance_times.push(clearance_time_s);
         }
@@ -4253,6 +4365,7 @@ fn describe_sweep(summary: &SweepSummary) -> SweepAnalysis {
         information_delivery,
         queue_experience,
         queue_telemetry,
+        movement_telemetry,
         clearance_time_s: descriptive_range(&clearance_times),
         last_exit_time_s: descriptive_range(&last_exit_times),
         claim_boundary: "This report aggregates deterministic structural runs. It is not a benchmark score, calibration result, uncertainty estimate, or predictive claim.".to_owned(),
@@ -4420,6 +4533,7 @@ fn compare_sweep_summaries_with_policy(
                 information_delivery: information_delivery_delta,
                 queue_experience: queue_experience_delta(&baseline.runs, &candidate.runs),
                 queue_telemetry: queue_telemetry_delta(&baseline.runs, &candidate.runs),
+                movement_telemetry: movement_telemetry_delta(&baseline.runs, &candidate.runs),
             },
             runs_with_more_candidate_evacuations: more_candidate_evacuations,
             runs_with_fewer_candidate_evacuations: fewer_candidate_evacuations,
@@ -4509,6 +4623,7 @@ fn paired_run_arm(run: &SweepRun) -> PairedRunArm {
         remaining_by_state: run.remaining_by_state.clone(),
         information_delivery: run.information_delivery.clone(),
         queue_metrics: run.queue_metrics.clone(),
+        movement_metrics: run.movement_metrics.clone(),
         clearance_time_s: observed_clearance_time(run),
         last_exit_time_s: observed_last_exit_time(run),
     }
@@ -4796,6 +4911,44 @@ fn queue_telemetry_delta(
         finalize_attributed_queue_resource_delta(&mut resource_delta.exits, &resource_peaks.exits);
         delta.by_resource = Some(resource_delta);
     }
+    Some(delta)
+}
+
+fn movement_telemetry_delta(
+    baseline_runs: &[SweepRun],
+    candidate_runs: &[SweepRun],
+) -> Option<MovementTelemetryDelta> {
+    if baseline_runs.len() != candidate_runs.len() {
+        return None;
+    }
+    let mut delta = MovementTelemetryDelta::default();
+    let mut baseline_maximum_adjustment_m = 0.0_f64;
+    let mut candidate_maximum_adjustment_m = 0.0_f64;
+    for (baseline, candidate) in baseline_runs.iter().zip(candidate_runs) {
+        let (Some(baseline), Some(candidate)) =
+            (&baseline.movement_metrics, &candidate.movement_metrics)
+        else {
+            return None;
+        };
+        delta.agents_with_local_clearance_adjustments += signed_count_delta(
+            candidate.agents_with_local_clearance_adjustments,
+            baseline.agents_with_local_clearance_adjustments,
+        );
+        delta.local_clearance_adjustment_steps +=
+            i128::from(candidate.local_clearance_adjustment_steps)
+                - i128::from(baseline.local_clearance_adjustment_steps);
+        delta.cumulative_local_clearance_adjustment_m = canonical_report_number(
+            delta.cumulative_local_clearance_adjustment_m
+                + candidate.cumulative_local_clearance_adjustment_m
+                - baseline.cumulative_local_clearance_adjustment_m,
+        );
+        baseline_maximum_adjustment_m =
+            baseline_maximum_adjustment_m.max(baseline.maximum_local_clearance_adjustment_m);
+        candidate_maximum_adjustment_m =
+            candidate_maximum_adjustment_m.max(candidate.maximum_local_clearance_adjustment_m);
+    }
+    delta.maximum_local_clearance_adjustment_m =
+        canonical_report_number(candidate_maximum_adjustment_m - baseline_maximum_adjustment_m);
     Some(delta)
 }
 

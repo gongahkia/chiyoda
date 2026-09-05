@@ -2209,6 +2209,18 @@ agents south count 1 on concourse at (1m, 6m, 0m) to street speed 20m/s radius 0
         separation >= 0.6,
         "agents must remain at least the sum of their authored radii apart"
     );
+    let movement = bundle
+        .metrics
+        .movement_metrics
+        .as_ref()
+        .expect("current bundles expose local-clearance telemetry");
+    assert_eq!(movement.agents_with_local_clearance_adjustments, 1);
+    assert_eq!(movement.local_clearance_adjustment_steps, 1);
+    assert!(movement.cumulative_local_clearance_adjustment_m >= 0.6);
+    assert_eq!(
+        movement.cumulative_local_clearance_adjustment_m,
+        movement.maximum_local_clearance_adjustment_m
+    );
 }
 
 #[test]
