@@ -54,7 +54,8 @@ holds deterministic variation constant where the runtime supports it; it does
 not make seeds a sampled population or turn a delta into a causal estimate.
 
 `verify-sensitivity` re-plans the persisted manifest against the baseline
-template, verifies every constituent sweep, reconstructs every comparison, and
+template, verifies every constituent sweep (including deterministic reruns for
+bundles compatible with the installed runtime), reconstructs every comparison, and
 requires the saved comparison files and study report to match that
 reconstruction exactly. It detects inconsistent or accidentally altered study
 artifacts. It does not add a signature, establish an external chain of custody,

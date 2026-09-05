@@ -1,4 +1,5 @@
 use anyhow::{Context, Result, bail};
+use chiyoda_core::bundle::RunMetrics;
 use chiyoda_core::{
     BenchmarkManifest, CanonicalScenario, EvidenceCatalog, ExperimentManifest, GeographicPoint,
     InformationDeliveryMetrics, OpenStreetMapLayoutReport, OpenStreetMapLocalProjectionReport,
@@ -471,8 +472,10 @@ struct CapturedExperimentSourceReport {
     bytes: Vec<u8>,
 }
 
+const EXPERIMENT_REPORT_SCHEMA_VERSION: &str = "0.2";
+
 #[derive(Debug, Serialize)]
-struct ExperimentReport {
+struct ExperimentReportBase {
     schema_version: String,
     experiment_name: String,
     description: String,
@@ -487,6 +490,24 @@ struct ExperimentReport {
     source_report_snapshots: Vec<ExperimentSourceReportSnapshot>,
     author_claim_boundary: String,
     claim_boundary: String,
+}
+
+/// The current report gives readers exact deterministic outcomes without
+/// requiring them to independently parse `run.json`. Verification rebuilds it
+/// from that bundle, so it cannot drift from the authoritative artifact.
+#[derive(Debug, Serialize)]
+struct ExperimentReport {
+    #[serde(flatten)]
+    base: ExperimentReportBase,
+    runtime_metrics: RunMetrics,
+}
+
+/// Version 0.1 reports predate the human-readable metrics mirror. Keep their
+/// reconstruction path so existing artifacts remain independently verifiable.
+#[derive(Debug, Serialize)]
+struct LegacyExperimentReport {
+    #[serde(flatten)]
+    base: ExperimentReportBase,
 }
 
 #[derive(Debug, Serialize)]
@@ -958,7 +979,7 @@ fn verify_experiment(directory: &Path) -> Result<()> {
     if !bundle.verifies_hash() || bundle_hash(&bundle) != bundle.bundle_hash {
         bail!("experiment run bundle integrity check failed");
     }
-    let canonical = CanonicalScenario::from(scenario);
+    let canonical = CanonicalScenario::from(scenario.clone());
     if bundle.scenario != canonical
         || bundle.scenario_hash != chiyoda_core::bundle::canonical_hash(&bundle.scenario)
     {
@@ -967,16 +988,40 @@ fn verify_experiment(directory: &Path) -> Result<()> {
     if bundle.options.get("trace_every_steps") != Some(&manifest.trace_every_steps.to_string()) {
         bail!("experiment run bundle does not use the manifest trace_every_steps");
     }
-    let report = experiment_report(
-        &manifest,
-        &fs::read(directory.join("manifest.json")).context("reading manifest snapshot")?,
-        scenario_source.as_bytes(),
-        &bundle,
-        source_reports,
-    );
+    let reconstructed_bundle = run(
+        &scenario,
+        RunOptions {
+            trace_every_steps: manifest.trace_every_steps,
+        },
+    )?;
+    if bundle != reconstructed_bundle {
+        bail!("experiment run bundle does not match deterministic reconstruction");
+    }
     let persisted_report: serde_json::Value = read_json(&directory.join("report.json"))?;
-    let expected_report =
-        serde_json::to_value(&report).context("serializing reconstructed experiment report")?;
+    let manifest_bytes =
+        fs::read(directory.join("manifest.json")).context("reading manifest snapshot")?;
+    let report_schema = persisted_report
+        .get("schema_version")
+        .and_then(serde_json::Value::as_str)
+        .context("experiment report has no string schema_version")?;
+    let expected_report = match report_schema {
+        "0.1" => serde_json::to_value(legacy_experiment_report(
+            &manifest,
+            &manifest_bytes,
+            scenario_source.as_bytes(),
+            &bundle,
+            source_reports,
+        )),
+        EXPERIMENT_REPORT_SCHEMA_VERSION => serde_json::to_value(experiment_report(
+            &manifest,
+            &manifest_bytes,
+            scenario_source.as_bytes(),
+            &bundle,
+            source_reports,
+        )),
+        version => bail!("unsupported experiment report schema `{version}`"),
+    }
+    .context("serializing reconstructed experiment report")?;
     if persisted_report != expected_report {
         bail!("persisted experiment report does not match reconstruction");
     }
@@ -1145,7 +1190,47 @@ fn experiment_report(
     source_report_snapshots: Vec<ExperimentSourceReportSnapshot>,
 ) -> ExperimentReport {
     ExperimentReport {
-        schema_version: "0.1".to_owned(),
+        base: experiment_report_base(
+            manifest,
+            manifest_bytes,
+            scenario_source,
+            bundle,
+            source_report_snapshots,
+            EXPERIMENT_REPORT_SCHEMA_VERSION,
+        ),
+        runtime_metrics: bundle.metrics.clone(),
+    }
+}
+
+fn legacy_experiment_report(
+    manifest: &ExperimentManifest,
+    manifest_bytes: &[u8],
+    scenario_source: &[u8],
+    bundle: &RunBundle,
+    source_report_snapshots: Vec<ExperimentSourceReportSnapshot>,
+) -> LegacyExperimentReport {
+    LegacyExperimentReport {
+        base: experiment_report_base(
+            manifest,
+            manifest_bytes,
+            scenario_source,
+            bundle,
+            source_report_snapshots,
+            "0.1",
+        ),
+    }
+}
+
+fn experiment_report_base(
+    manifest: &ExperimentManifest,
+    manifest_bytes: &[u8],
+    scenario_source: &[u8],
+    bundle: &RunBundle,
+    source_report_snapshots: Vec<ExperimentSourceReportSnapshot>,
+    schema_version: &str,
+) -> ExperimentReportBase {
+    ExperimentReportBase {
+        schema_version: schema_version.to_owned(),
         experiment_name: manifest.name.clone(),
         description: manifest.description.clone(),
         manifest_snapshot: "manifest.json".to_owned(),
@@ -2158,6 +2243,7 @@ fn load_and_verify_sweep(directory: &Path) -> Result<SweepSummary> {
             Some(template)
         }
     };
+    let trace_every_steps = summary.trace_every_steps;
     for (offset, record) in summary.runs.iter_mut().enumerate() {
         let expected_seed = summary
             .first_seed
@@ -2169,49 +2255,74 @@ fn load_and_verify_sweep(directory: &Path) -> Result<SweepSummary> {
                 record.seed
             );
         }
-        let run_directory = directory.join(format!("seed-{}", record.seed));
-        let bundle: RunBundle = read_json(&run_directory.join("run.json"))?;
-        if !bundle.verifies_hash() || bundle_hash(&bundle) != bundle.bundle_hash {
-            bail!("bundle integrity check failed: {}", run_directory.display());
-        }
-        validate_bundle_metrics(&bundle, &run_directory)?;
-        let source = read_text(&run_directory.join("scenario.chy"))?;
-        let scenario = parse(&source).map_err(|error| anyhow::anyhow!(error))?;
-        validate(&scenario).map_err(|errors| validation_error(&errors))?;
-        if CanonicalScenario::from(scenario) != bundle.scenario {
+        verify_sweep_run(
+            directory,
+            record,
+            trace_every_steps,
+            authored_template.as_ref(),
+        )?;
+    }
+    Ok(summary)
+}
+
+fn verify_sweep_run(
+    directory: &Path,
+    record: &mut SweepRun,
+    trace_every_steps: u32,
+    authored_template: Option<&chiyoda_core::Scenario>,
+) -> Result<()> {
+    let run_directory = directory.join(format!("seed-{}", record.seed));
+    let bundle: RunBundle = read_json(&run_directory.join("run.json"))?;
+    if !bundle.verifies_hash() || bundle_hash(&bundle) != bundle.bundle_hash {
+        bail!("bundle integrity check failed: {}", run_directory.display());
+    }
+    validate_bundle_metrics(&bundle, &run_directory)?;
+    let source = read_text(&run_directory.join("scenario.chy"))?;
+    let scenario = parse(&source).map_err(|error| anyhow::anyhow!(error))?;
+    validate(&scenario).map_err(|errors| validation_error(&errors))?;
+    if CanonicalScenario::from(scenario.clone()) != bundle.scenario {
+        bail!(
+            "source and canonical scenario disagree: {}",
+            run_directory.display()
+        );
+    }
+    let reconstructed_bundle = run(&scenario, RunOptions { trace_every_steps })?;
+    if bundle.bundle_version == reconstructed_bundle.bundle_version
+        && bundle.runtime_version == reconstructed_bundle.runtime_version
+        && bundle != reconstructed_bundle
+    {
+        bail!(
+            "sweep run bundle does not match deterministic reconstruction: {}",
+            run_directory.display()
+        );
+    }
+    if let Some(template) = authored_template {
+        let mut expected = template.clone();
+        expected.seed = record.seed;
+        if CanonicalScenario::from(expected) != bundle.scenario {
             bail!(
-                "source and canonical scenario disagree: {}",
-                run_directory.display()
-            );
-        }
-        if let Some(template) = &authored_template {
-            let mut expected = template.clone();
-            expected.seed = record.seed;
-            if CanonicalScenario::from(expected) != bundle.scenario {
-                bail!(
-                    "replication differs from its authored template: {}",
-                    run_directory.display()
-                );
-            }
-        }
-        reconcile_run_provenance(record, &bundle, &run_directory)?;
-        if record.scenario_name != bundle.scenario.scenario.name
-            || record.bundle_hash != bundle.bundle_hash
-            || record.total_agents != bundle.metrics.total_agents
-            || record.evacuated_agents != bundle.metrics.evacuated_agents
-            || record.evacuated_by_exit != bundle.metrics.evacuated_by_exit
-            || record.remaining_by_state != bundle.metrics.remaining_by_state
-            || record.information_delivery != bundle.metrics.information_delivery
-            || record.clearance_time_s != bundle.metrics.clearance_time_s
-            || record.last_exit_time_s != bundle.metrics.last_exit_time_s
-        {
-            bail!(
-                "summary and run bundle disagree: {}",
+                "replication differs from its authored template: {}",
                 run_directory.display()
             );
         }
     }
-    Ok(summary)
+    reconcile_run_provenance(record, &bundle, &run_directory)?;
+    if record.scenario_name != bundle.scenario.scenario.name
+        || record.bundle_hash != bundle.bundle_hash
+        || record.total_agents != bundle.metrics.total_agents
+        || record.evacuated_agents != bundle.metrics.evacuated_agents
+        || record.evacuated_by_exit != bundle.metrics.evacuated_by_exit
+        || record.remaining_by_state != bundle.metrics.remaining_by_state
+        || record.information_delivery != bundle.metrics.information_delivery
+        || record.clearance_time_s != bundle.metrics.clearance_time_s
+        || record.last_exit_time_s != bundle.metrics.last_exit_time_s
+    {
+        bail!(
+            "summary and run bundle disagree: {}",
+            run_directory.display()
+        );
+    }
+    Ok(())
 }
 
 fn reconcile_run_provenance(
@@ -2946,7 +3057,8 @@ mod tests {
         information_sampling_alignment, validate_bundle_metrics,
     };
     use chiyoda_core::{
-        InformationDeliveryMetrics, InformationInterventionKind, RunOptions, generator, parse, run,
+        InformationDeliveryMetrics, InformationInterventionKind, RunBundle, RunOptions, generator,
+        parse, run,
     };
     use sha2::{Digest, Sha256};
     use std::{
@@ -2980,7 +3092,11 @@ mod tests {
         let directory = test_directory("layout-osm");
         let data_root = directory.0.join("raw");
         fs::create_dir_all(&data_root).expect("creating layout data root");
-        let source = br#"<osm version="0.6"><node id="1" lat="1.3" lon="103.8"><tag k="entrance" v="yes"/></node></osm>"#;
+        let source = br#"<osm version="0.6">
+  <node id="1" lat="1.3" lon="103.8"><tag k="entrance" v="yes"/></node>
+  <node id="2" lat="1.3001" lon="103.8001"/>
+  <way id="9"><nd ref="1"/><nd ref="2"/><tag k="highway" v="steps"/></way>
+</osm>"#;
         let source_path = data_root.join("station.osm");
         fs::write(&source_path, source).expect("writing OSM source");
         let catalog_path = directory.0.join("catalog.json");
@@ -3015,7 +3131,7 @@ mod tests {
         handle_layout(LayoutCommand::Osm {
             catalog: catalog_path.clone(),
             data_root: data_root.clone(),
-            max_nodes: 1,
+            max_nodes: 2,
             max_ways: 1,
             output: output.clone(),
         })
@@ -3053,6 +3169,12 @@ mod tests {
             report["features"][0]["categories"],
             serde_json::json!(["entrance"])
         );
+        assert_eq!(report["schema_version"], "0.2");
+        assert_eq!(
+            report["features"][1]["geometry"]["kind"],
+            "way_node_sequence"
+        );
+        assert_eq!(report["features"][1]["geometry"]["nodes"][0]["node_id"], 1);
         let projection: serde_json::Value =
             serde_json::from_slice(&fs::read(projection).expect("reading projection report"))
                 .expect("parsing projection report");
@@ -3065,9 +3187,14 @@ mod tests {
             projection["features"][0]["geometry"]["coordinate"]["east_m"],
             0.0
         );
+        assert_eq!(
+            projection["features"][1]["geometry"]["kind"],
+            "way_node_sequence"
+        );
     }
 
     #[test]
+    #[allow(clippy::too_many_lines)] // one artifact fixture exercises every independent verification boundary
     fn experiment_snapshots_assumptions_and_source_reports_then_detects_tampering() {
         let directory = test_directory("experiment");
         fs::write(
@@ -3137,6 +3264,48 @@ agents passengers count 1 on concourse at (1m, 1m, 0m) to street speed 1.2m/s ra
             report["source_report_snapshots"][0]["source_id"],
             "fixture_reference"
         );
+        assert_eq!(report["schema_version"], "0.2");
+        assert_eq!(report["runtime_metrics"]["total_agents"], 1);
+
+        let mut altered_metrics = report.clone();
+        altered_metrics["runtime_metrics"]["evacuated_agents"] = serde_json::json!(99);
+        super::write_json(&output.join("report.json"), &altered_metrics)
+            .expect("altering mirrored runtime metrics");
+        let error = handle_experiment(ExperimentCommand::Verify {
+            directory: output.clone(),
+        })
+        .expect_err("altered mirrored metrics must not verify");
+        assert!(format!("{error:#}").contains("persisted experiment report"));
+        super::write_json(&output.join("report.json"), &report).expect("restoring current report");
+
+        let mut legacy_report = report.clone();
+        legacy_report
+            .as_object_mut()
+            .expect("experiment report is an object")
+            .remove("runtime_metrics");
+        legacy_report["schema_version"] = serde_json::json!("0.1");
+        super::write_json(&output.join("report.json"), &legacy_report)
+            .expect("writing legacy report");
+        handle_experiment(ExperimentCommand::Verify {
+            directory: output.clone(),
+        })
+        .expect("legacy experiment artifact verifies");
+        super::write_json(&output.join("report.json"), &report).expect("restoring current report");
+
+        let run_path = output.join("run.json");
+        let original_bundle = fs::read(&run_path).expect("reading original run bundle");
+        let mut fabricated_bundle: RunBundle =
+            super::read_json(&run_path).expect("parsing original run bundle");
+        fabricated_bundle.metrics.queued_for_exit_agents = 99;
+        fabricated_bundle.bundle_hash = chiyoda_core::bundle::bundle_hash(&fabricated_bundle);
+        super::write_json(&run_path, &fabricated_bundle)
+            .expect("writing self-hashed fabricated run bundle");
+        let error = handle_experiment(ExperimentCommand::Verify {
+            directory: output.clone(),
+        })
+        .expect_err("self-hashed fabricated bundle must not verify");
+        assert!(format!("{error:#}").contains("deterministic reconstruction"));
+        fs::write(&run_path, original_bundle).expect("restoring original run bundle");
 
         fs::write(
             output.join("source-reports/fixture_reference.json"),
@@ -3449,6 +3618,22 @@ agents passengers count 1 on concourse at (1m, 1m, 0m) to street speed 1m/s radi
         super::verify_sweep(&output.join("baseline")).expect("baseline verifies");
         super::verify_sweep(&output.join("conditions/case-0001")).expect("condition verifies");
         super::verify_sensitivity(&output).expect("sensitivity study verifies");
+
+        let baseline_run_path = output.join("baseline/seed-10/run.json");
+        let original_bundle = fs::read(&baseline_run_path).expect("reading baseline bundle");
+        let mut fabricated_bundle: RunBundle =
+            super::read_json(&baseline_run_path).expect("parsing baseline bundle");
+        fabricated_bundle.metrics.queued_for_exit_agents = 99;
+        fabricated_bundle.bundle_hash = chiyoda_core::bundle::bundle_hash(&fabricated_bundle);
+        super::write_json(&baseline_run_path, &fabricated_bundle)
+            .expect("writing self-hashed fabricated baseline bundle");
+        let reconstruction_error = super::verify_sweep(&output.join("baseline"))
+            .expect_err("self-hashed fabricated baseline bundle must not verify");
+        assert!(
+            format!("{reconstruction_error:#}").contains("deterministic reconstruction"),
+            "unexpected reconstruction-verification error: {reconstruction_error:#}"
+        );
+        fs::write(&baseline_run_path, original_bundle).expect("restoring baseline bundle");
 
         let mut altered_comparison = comparison.clone();
         altered_comparison["paired_runs"] = serde_json::Value::Array(Vec::new());

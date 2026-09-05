@@ -65,12 +65,14 @@ $ cargo run -p chiyoda -- layout verify-osm my-layout-catalog.json \
 
 `layout osm` verifies the catalog and exact source bytes before XML parsing. It
 uses station-sized resource bounds by default: 250,000 nodes, 50,000 ways,
-10,000 node references per way, and 128 tags per object. A larger reviewed
-extract can raise only the first two with `--max-nodes` and `--max-ways`; a
-regional extract should normally be reduced to the intended station area
-instead.
+10,000 node references per way, and 128 tags per object. Schema `0.2` also
+caps the total selected way-node output at `--max-nodes`, so a reviewed source
+cannot turn a small report into an unbounded duplicated geometry payload. A
+larger reviewed extract can raise only the first two with `--max-nodes` and
+`--max-ways`; a regional extract should normally be reduced to the intended
+station area instead.
 
-`layout verify-osm` reads the report's persisted bounds, rebuilds it from the
+`layout verify-osm` reads the report's persisted inspection limits, rebuilds it from the
 same content-locked extract, and requires an exact match. It catches a modified
 report or a changed source; it still does not establish that the extract is a
 complete or correct facility survey.
@@ -79,8 +81,11 @@ The report content-locks the catalog and source, carries the required OSM
 attribution, and lists recognized `node` and `way` observations. Categories are
 limited to `station`, `platform`, `entrance`, `pedestrian_way`, `steps`,
 `elevator`, `building`, and `indoor_area`. Geographic coordinates are retained
-as WGS84 latitude/longitude only; ways are represented by their geographic
-bounds, not an asserted walkable polygon.
+as WGS84 latitude/longitude only. Current schema `0.2` reports preserve each
+selected way's OSM node identifiers and ordered geographic coordinates. This is
+source geometry, not an asserted walkable polygon, corridor, obstacle, or
+scenario path. Schema `0.1` reports retained only geographic bounds; they
+remain verifiable for audit and are never silently upgraded.
 
 Tag meaning itself remains conditional. OSM's indoor guidance and Simple Indoor
 Tagging define optional conventions for `level`, rooms, corridors, steps, and
@@ -140,14 +145,15 @@ from the source. Its `0 m` ellipsoidal height is a calculation convention, not
 a surveyed ground or floor height. The output intentionally has no vertical
 coordinate, and its metre precision is not an accuracy claim.
 
-Point observations become local points. OSM ways remain source bounds: the
-artifact projects the four geographic bounding-box corners as a corner
-reference. It does **not** assert an OSM way is a line, polygon, corridor,
-walkable area, obstacle, or even a projected extent; an antimeridian-ambiguous
-geographic bound is rejected rather than guessed. `layout verify-projection`
-rebuilds the locked observation report and then reconstructs the projection
-using the persisted origin, so it detects a changed source report, map extract,
-origin, or derived coordinate.
+Point observations become local points. For current schema `0.2` reports, each
+selected OSM way node becomes a local source-node sequence in the same order.
+It does **not** assert that sequence is a usable line, polygon, corridor,
+walkable area, obstacle, or projected extent. Legacy schema `0.1` reports keep
+their four projected geographic-bound corners instead; an
+antimeridian-ambiguous legacy bound is rejected rather than guessed. `layout
+verify-projection` rebuilds the locked observation report and then reconstructs
+the projection using the persisted origin, so it detects a changed source
+report, map extract, origin, or derived coordinate.
 
 This provides a reproducible reference frame for independent authoring. Before
 using any value in `.chy`, still survey or verify the facility and author its

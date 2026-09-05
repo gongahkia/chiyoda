@@ -26,7 +26,9 @@ use xml::{
 
 const OSM_LICENSE: &str = "ODbL-1.0";
 const REQUIRED_OSM_ATTRIBUTION: &str = "OpenStreetMap contributors";
-const OSM_OBSERVATION_SCHEMA_VERSION: &str = "0.1";
+const OSM_OBSERVATION_SCHEMA_VERSION: &str = "0.2";
+const LEGACY_OSM_OBSERVATION_SCHEMA_VERSION: &str = "0.1";
+const SUPPORTED_OSM_OBSERVATION_SCHEMA_VERSIONS: &str = "0.1 or 0.2";
 const OSM_OBSERVATION_STATUS: &str = "source_observation_only";
 const OSM_GEOGRAPHIC_COORDINATE_REFERENCE: &str = "WGS84 geographic latitude/longitude copied from the OSM XML; this adapter does not project coordinates into scenario metres or infer elevations.";
 const WGS84_SEMI_MAJOR_AXIS_M: f64 = 6_378_137.0;
@@ -132,6 +134,8 @@ pub enum OsmLayoutError {
         "layout observation report does not match reconstruction from its catalog and locked source"
     )]
     ReportMismatch,
+    #[error("unsupported OSM source-observation report schema `{version}`")]
+    UnsupportedObservationReportSchema { version: String },
     #[error("local projection origin has an invalid `{field}` value: `{value}`")]
     InvalidProjectionOrigin { field: &'static str, value: f64 },
     #[error("layout observation has an invalid `{field}` value: `{value}`")]
@@ -183,6 +187,15 @@ pub struct GeographicBounds {
     pub maximum_longitude: f64,
 }
 
+/// One node reference preserved in source order from a selected OSM way.
+/// It remains a map observation, not a Chiyoda vertex or a claimed walkable
+/// boundary.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct OsmWayNodeObservation {
+    pub node_id: i64,
+    pub coordinate: GeographicPoint,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum OsmFeatureGeometry {
@@ -192,6 +205,11 @@ pub enum OsmFeatureGeometry {
     Bounds {
         bounds: GeographicBounds,
         referenced_node_count: u64,
+    },
+    /// Source nodes of a selected OSM way in its declared order. This is
+    /// emitted by observation-report schema 0.2 and later.
+    WayNodeSequence {
+        nodes: Vec<OsmWayNodeObservation>,
     },
 }
 
@@ -246,6 +264,14 @@ pub struct LocalMetrePoint {
     pub north_m: f64,
 }
 
+/// One source way node in an explicitly anchored local frame. It retains the
+/// OSM node identifier but is not a Chiyoda geometry vertex.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct ProjectedOsmWayNodeObservation {
+    pub node_id: i64,
+    pub coordinate: LocalMetrePoint,
+}
+
 /// The four local points made by projecting a geographic OSM bounding box's
 /// corners. It is intentionally not a projected bounding envelope, path,
 /// polygon, or walkable boundary.
@@ -267,6 +293,9 @@ pub enum ProjectedOsmFeatureGeometry {
     BoundsCorners {
         corners: LocalMetreBoundsCornerReference,
         referenced_node_count: u64,
+    },
+    WayNodeSequence {
+        nodes: Vec<ProjectedOsmWayNodeObservation>,
     },
 }
 
@@ -332,12 +361,51 @@ struct WayBuilder {
     tag_count: usize,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum OsmObservationSchema {
+    LegacyBounds,
+    WayNodeSequences,
+}
+
+impl OsmObservationSchema {
+    fn version(self) -> &'static str {
+        match self {
+            Self::LegacyBounds => LEGACY_OSM_OBSERVATION_SCHEMA_VERSION,
+            Self::WayNodeSequences => OSM_OBSERVATION_SCHEMA_VERSION,
+        }
+    }
+
+    fn from_version(version: &str) -> Result<Self, OsmLayoutError> {
+        match version {
+            LEGACY_OSM_OBSERVATION_SCHEMA_VERSION => Ok(Self::LegacyBounds),
+            OSM_OBSERVATION_SCHEMA_VERSION => Ok(Self::WayNodeSequences),
+            _ => Err(OsmLayoutError::UnsupportedObservationReportSchema {
+                version: version.to_owned(),
+            }),
+        }
+    }
+}
+
 /// Inspect one content-locked OSM XML extract and write only map observations.
 /// The report is explicitly not an import into Chiyoda's metre-based DSL.
 pub fn inspect_openstreetmap_layout(
     catalog: &EvidenceCatalog,
     data_root: &Path,
     limits: OsmInspectionLimits,
+) -> Result<OpenStreetMapLayoutReport, OsmLayoutError> {
+    inspect_openstreetmap_layout_for_schema(
+        catalog,
+        data_root,
+        limits,
+        OsmObservationSchema::WayNodeSequences,
+    )
+}
+
+fn inspect_openstreetmap_layout_for_schema(
+    catalog: &EvidenceCatalog,
+    data_root: &Path,
+    limits: OsmInspectionLimits,
+    schema: OsmObservationSchema,
 ) -> Result<OpenStreetMapLayoutReport, OsmLayoutError> {
     validate_limits(limits)?;
     validate_catalog(catalog).map_err(|errors| {
@@ -374,10 +442,10 @@ pub fn inspect_openstreetmap_layout(
     let source_path = data_root.join(&source.local_path);
     let catalog_sha256 =
         sha256_bytes(&serde_json::to_vec(catalog).map_err(OsmLayoutError::CatalogSerialization)?);
-    let (counts, features) = inspect_osm_xml(&source_path, limits)?;
+    let (counts, features) = inspect_osm_xml(&source_path, limits, schema)?;
 
     Ok(OpenStreetMapLayoutReport {
-        schema_version: OSM_OBSERVATION_SCHEMA_VERSION.to_owned(),
+        schema_version: schema.version().to_owned(),
         adapter_version: env!("CARGO_PKG_VERSION").to_owned(),
         source: OpenStreetMapLayoutSource {
             catalog_sha256,
@@ -411,6 +479,7 @@ pub fn verify_openstreetmap_layout_report(
     data_root: &Path,
     report: &OpenStreetMapLayoutReport,
 ) -> Result<(), OsmLayoutError> {
+    let schema = OsmObservationSchema::from_version(&report.schema_version)?;
     let limits = OsmInspectionLimits {
         max_nodes: report_limit("max_nodes", report.inspection_limits.max_nodes)?,
         max_ways: report_limit("max_ways", report.inspection_limits.max_ways)?,
@@ -423,7 +492,7 @@ pub fn verify_openstreetmap_layout_report(
             report.inspection_limits.max_tags_per_object,
         )?,
     };
-    let rebuilt = inspect_openstreetmap_layout(catalog, data_root, limits)?;
+    let rebuilt = inspect_openstreetmap_layout_for_schema(catalog, data_root, limits, schema)?;
     if report != &rebuilt {
         return Err(OsmLayoutError::ReportMismatch);
     }
@@ -458,7 +527,7 @@ pub fn project_openstreetmap_layout_report(
         .collect::<Result<Vec<_>, _>>()?;
 
     Ok(OpenStreetMapLocalProjectionReport {
-        schema_version: "0.1".to_owned(),
+        schema_version: report.schema_version.clone(),
         adapter_version: env!("CARGO_PKG_VERSION").to_owned(),
         source_observation_report_sha256,
         source: report.source.clone(),
@@ -467,24 +536,41 @@ pub fn project_openstreetmap_layout_report(
         features,
         status: "source_projection_only".to_owned(),
         claim_boundary: "This report applies one explicitly chosen local WGS84 tangent-plane transformation to a verified map observation. It is not a survey, does not establish map completeness, legal access, indoor connectivity, exact facility geometry, elevation, widths, capacities, accessibility, demand, route choice, runtime validity, or any operational or safety outcome.".to_owned(),
-        required_authoring: vec![
-            "Confirm the source extract, ODbL obligations, and the stated OpenStreetMap attribution before reuse or publication.".to_owned(),
-            "Review whether the chosen tangent-plane origin and the source coordinate reference are suitable for the intended local authoring task.".to_owned(),
-            "Treat projected point coordinates as an authoring reference only; survey or otherwise verify every modeled boundary, obstacle, entrance, connector, elevation, width, direction, and accessibility property.".to_owned(),
-            "Do not treat projected way-bound corners as a walkable polygon, path, or projected extent. Author all scenario geometry, capacities, demand, releases, destinations, and behavioral assumptions explicitly, then run sensitivity studies for material best guesses.".to_owned(),
-        ],
+        required_authoring: projection_required_authoring(
+            OsmObservationSchema::from_version(&report.schema_version)
+                .expect("projection source report was validated"),
+        ),
     })
+}
+
+fn projection_required_authoring(schema: OsmObservationSchema) -> Vec<String> {
+    let final_boundary = match schema {
+        OsmObservationSchema::LegacyBounds => {
+            "Do not treat projected way-bound corners as a walkable polygon, path, or projected extent. Author all scenario geometry, capacities, demand, releases, destinations, and behavioral assumptions explicitly, then run sensitivity studies for material best guesses."
+        }
+        OsmObservationSchema::WayNodeSequences => {
+            "Do not treat a projected OSM way-node sequence as a walkable polygon, path, or projected extent. Author all scenario geometry, capacities, demand, releases, destinations, and behavioral assumptions explicitly, then run sensitivity studies for material best guesses."
+        }
+    };
+    vec![
+        "Confirm the source extract, ODbL obligations, and the stated OpenStreetMap attribution before reuse or publication.".to_owned(),
+        "Review whether the chosen tangent-plane origin and the source coordinate reference are suitable for the intended local authoring task.".to_owned(),
+        "Treat projected point coordinates as an authoring reference only; survey or otherwise verify every modeled boundary, obstacle, entrance, connector, elevation, width, direction, and accessibility property.".to_owned(),
+        final_boundary.to_owned(),
+    ]
 }
 
 fn validate_projection_source_report(
     report: &OpenStreetMapLayoutReport,
 ) -> Result<(), OsmLayoutError> {
+    OsmObservationSchema::from_version(&report.schema_version).map_err(|_| {
+        OsmLayoutError::InvalidProjectionSourceReport {
+            field: "schema_version",
+            expected: SUPPORTED_OSM_OBSERVATION_SCHEMA_VERSIONS,
+            actual: report.schema_version.clone(),
+        }
+    })?;
     for (field, expected, actual) in [
-        (
-            "schema_version",
-            OSM_OBSERVATION_SCHEMA_VERSION,
-            report.schema_version.as_str(),
-        ),
         ("status", OSM_OBSERVATION_STATUS, report.status.as_str()),
         (
             "coordinate_reference",
@@ -549,6 +635,19 @@ fn project_feature(
             corners: project_bounds_corners(*bounds, origin)?,
             referenced_node_count: *referenced_node_count,
         },
+        OsmFeatureGeometry::WayNodeSequence { nodes } => {
+            ProjectedOsmFeatureGeometry::WayNodeSequence {
+                nodes: nodes
+                    .iter()
+                    .map(|node| {
+                        Ok(ProjectedOsmWayNodeObservation {
+                            node_id: node.node_id,
+                            coordinate: project_point(node.coordinate, origin)?,
+                        })
+                    })
+                    .collect::<Result<Vec<_>, OsmLayoutError>>()?,
+            }
+        }
     };
     Ok(ProjectedOsmFeatureObservation {
         object_type: feature.object_type.clone(),
@@ -770,6 +869,7 @@ fn is_osm_xml_path(path: &str) -> bool {
 fn inspect_osm_xml(
     path: &Path,
     limits: OsmInspectionLimits,
+    schema: OsmObservationSchema,
 ) -> Result<(OsmLayoutCounts, Vec<OsmFeatureObservation>), OsmLayoutError> {
     let file = File::open(path).map_err(|source| OsmLayoutError::ReadFile {
         path: path.to_owned(),
@@ -936,6 +1036,7 @@ fn inspect_osm_xml(
     }
 
     let mut seen_ways = BTreeSet::new();
+    let mut selected_way_vertices = 0_u64;
     for (way, categories) in selected_ways {
         if !seen_ways.insert(way.id) {
             return Err(OsmLayoutError::DuplicateIdentifier {
@@ -943,7 +1044,28 @@ fn inspect_osm_xml(
                 id: way.id,
             });
         }
-        let bounds = way_bounds(&way, &nodes)?;
+        let geometry = match schema {
+            OsmObservationSchema::LegacyBounds => OsmFeatureGeometry::Bounds {
+                bounds: way_bounds(&way, &nodes)?,
+                referenced_node_count: u64::try_from(way.node_references.len())
+                    .expect("usize fits u64"),
+            },
+            OsmObservationSchema::WayNodeSequences => {
+                let way_nodes = way_node_sequence(&way, &nodes)?;
+                let node_count = u64::try_from(way_nodes.len()).expect("usize fits u64");
+                let limit = u64::try_from(limits.max_nodes).expect("usize fits u64");
+                selected_way_vertices = selected_way_vertices
+                    .checked_add(node_count)
+                    .expect("u64 overflow");
+                if selected_way_vertices > limit {
+                    return Err(OsmLayoutError::LimitExceeded {
+                        name: "max_selected_way_vertices",
+                        limit: limits.max_nodes,
+                    });
+                }
+                OsmFeatureGeometry::WayNodeSequence { nodes: way_nodes }
+            }
+        };
         counts.selected_way_features = counts
             .selected_way_features
             .checked_add(1)
@@ -954,11 +1076,7 @@ fn inspect_osm_xml(
             object_id: way.id,
             categories,
             relevant_tags: relevant_tags(&way.tags),
-            geometry: OsmFeatureGeometry::Bounds {
-                bounds,
-                referenced_node_count: u64::try_from(way.node_references.len())
-                    .expect("usize fits u64"),
-            },
+            geometry,
         });
     }
     features.sort_by(|left, right| {
@@ -1147,36 +1265,49 @@ fn way_bounds(
     way: &WayBuilder,
     nodes: &BTreeMap<i64, GeographicPoint>,
 ) -> Result<GeographicBounds, OsmLayoutError> {
-    let mut coordinates = way.node_references.iter().map(|node_id| {
-        nodes
-            .get(node_id)
-            .copied()
-            .ok_or(OsmLayoutError::MissingNodeReference {
-                way_id: way.id,
-                node_id: *node_id,
-            })
-    });
-    let first = coordinates
-        .next()
-        .transpose()?
-        .ok_or(OsmLayoutError::MissingNodeReference {
+    let node_sequence = way_node_sequence(way, nodes)?;
+    let first = node_sequence.first().map(|node| node.coordinate).ok_or(
+        OsmLayoutError::MissingNodeReference {
             way_id: way.id,
             node_id: 0,
-        })?;
+        },
+    )?;
     let mut bounds = GeographicBounds {
         minimum_latitude: first.latitude,
         minimum_longitude: first.longitude,
         maximum_latitude: first.latitude,
         maximum_longitude: first.longitude,
     };
-    for coordinate in coordinates {
-        let coordinate = coordinate?;
+    for node in node_sequence.into_iter().skip(1) {
+        let coordinate = node.coordinate;
         bounds.minimum_latitude = bounds.minimum_latitude.min(coordinate.latitude);
         bounds.minimum_longitude = bounds.minimum_longitude.min(coordinate.longitude);
         bounds.maximum_latitude = bounds.maximum_latitude.max(coordinate.latitude);
         bounds.maximum_longitude = bounds.maximum_longitude.max(coordinate.longitude);
     }
     Ok(bounds)
+}
+
+fn way_node_sequence(
+    way: &WayBuilder,
+    nodes: &BTreeMap<i64, GeographicPoint>,
+) -> Result<Vec<OsmWayNodeObservation>, OsmLayoutError> {
+    way.node_references
+        .iter()
+        .map(|node_id| {
+            nodes
+                .get(node_id)
+                .copied()
+                .map(|coordinate| OsmWayNodeObservation {
+                    node_id: *node_id,
+                    coordinate,
+                })
+                .ok_or(OsmLayoutError::MissingNodeReference {
+                    way_id: way.id,
+                    node_id: *node_id,
+                })
+        })
+        .collect()
 }
 
 fn sha256_bytes(bytes: &[u8]) -> String {
@@ -1189,8 +1320,9 @@ fn sha256_bytes(bytes: &[u8]) -> String {
 mod tests {
     use super::{
         EvidenceCatalog, EvidencePurpose, GeographicPoint, OpenStreetMapLayoutReport,
-        OsmInspectionLimits, OsmLayoutError, ProjectedOsmFeatureGeometry,
-        inspect_openstreetmap_layout, project_openstreetmap_layout_report,
+        OsmFeatureGeometry, OsmInspectionLimits, OsmLayoutError, OsmObservationSchema,
+        ProjectedOsmFeatureGeometry, inspect_openstreetmap_layout,
+        inspect_openstreetmap_layout_for_schema, project_openstreetmap_layout_report,
         verify_openstreetmap_layout_report, verify_openstreetmap_local_projection_report,
     };
     use crate::evidence::EvidenceFile;
@@ -1279,10 +1411,19 @@ mod tests {
         assert_eq!(report.counts.parsed_ways, 2);
         assert_eq!(report.counts.selected_node_features, 2);
         assert_eq!(report.counts.selected_way_features, 2);
+        assert_eq!(report.schema_version, "0.2");
         assert_eq!(report.counts.selected_features_by_category["steps"], 1);
         assert_eq!(report.counts.selected_features_by_category["platform"], 1);
         assert_eq!(report.features[2].object_id, 9);
         assert_eq!(report.features[2].relevant_tags["level"], "-1;0");
+        let OsmFeatureGeometry::WayNodeSequence { nodes } = &report.features[2].geometry else {
+            panic!("current reports preserve selected OSM way nodes")
+        };
+        assert_eq!(
+            nodes.iter().map(|node| node.node_id).collect::<Vec<_>>(),
+            [1, 2, 3]
+        );
+        assert!((nodes[2].coordinate.longitude - 103.8001).abs() < f64::EPSILON);
         assert!(report.coordinate_reference.contains("WGS84"));
         assert!(report.claim_boundary.contains("does not establish"));
     }
@@ -1306,6 +1447,34 @@ mod tests {
             OsmLayoutError::MissingNodeReference {
                 way_id: 9,
                 node_id: 5
+            }
+        ));
+    }
+
+    #[test]
+    fn inspection_bounds_total_selected_way_node_output() {
+        let directory = test_directory();
+        let xml = br#"<osm version="0.6">
+  <node id="1" lat="1.3" lon="103.8"/>
+  <node id="2" lat="1.3001" lon="103.8001"/>
+  <way id="9"><nd ref="1"/><nd ref="2"/><tag k="highway" v="steps"/></way>
+  <way id="10"><nd ref="2"/><nd ref="1"/><tag k="highway" v="steps"/></way>
+</osm>"#;
+        let file_name = "station.osm";
+        fs::write(directory.0.join(file_name), xml).expect("writing OSM fixture");
+        let limits = OsmInspectionLimits {
+            max_nodes: 2,
+            max_ways: 2,
+            ..OsmInspectionLimits::default()
+        };
+
+        let error = inspect_openstreetmap_layout(&catalog(file_name, xml), &directory.0, limits)
+            .expect_err("selected way geometry must remain bounded");
+        assert!(matches!(
+            error,
+            OsmLayoutError::LimitExceeded {
+                name: "max_selected_way_vertices",
+                limit: 2
             }
         ));
     }
@@ -1374,7 +1543,7 @@ mod tests {
     }
 
     #[test]
-    fn local_projection_anchors_points_and_preserves_way_bounds_as_corner_references() {
+    fn local_projection_anchors_points_and_preserves_way_node_sequences() {
         let report = report_from_fixture(
             br#"<osm version="0.6">
   <node id="1" lat="1.3000" lon="103.8000"><tag k="railway" v="station"/></node>
@@ -1424,18 +1593,17 @@ mod tests {
             .iter()
             .find(|feature| feature.object_id == 9)
             .expect("way feature exists");
-        let ProjectedOsmFeatureGeometry::BoundsCorners {
-            corners,
-            referenced_node_count,
-        } = &way_feature.geometry
-        else {
-            panic!("way must remain transformed bounds corners")
+        let ProjectedOsmFeatureGeometry::WayNodeSequence { nodes } = &way_feature.geometry else {
+            panic!("way must remain a transformed OSM node sequence")
         };
-        assert_eq!(*referenced_node_count, 3);
-        assert!(corners.southwest.east_m.abs() < f64::EPSILON);
-        assert!(corners.southwest.north_m.abs() < f64::EPSILON);
-        assert!(corners.southeast.east_m > 10.0);
-        assert!(corners.northwest.north_m > 10.0);
+        assert_eq!(
+            nodes.iter().map(|node| node.node_id).collect::<Vec<_>>(),
+            [1, 2, 3]
+        );
+        assert!(nodes[0].coordinate.east_m.abs() < f64::EPSILON);
+        assert!(nodes[0].coordinate.north_m.abs() < f64::EPSILON);
+        assert!(nodes[1].coordinate.north_m > 10.0);
+        assert!(nodes[2].coordinate.east_m > 10.0);
 
         verify_openstreetmap_local_projection_report(&report, &projection)
             .expect("matching projection verifies");
@@ -1496,14 +1664,72 @@ mod tests {
     }
 
     #[test]
-    fn local_projection_rejects_antimeridian_ambiguous_way_bounds() {
-        let report = report_from_fixture(
-            br#"<osm version="0.6">
+    fn legacy_bounds_projection_reports_remain_reconstructible() {
+        let directory = test_directory();
+        let xml = br#"<osm version="0.6">
+  <node id="1" lat="1.3" lon="103.8"><tag k="railway" v="station"/></node>
+  <node id="2" lat="1.3001" lon="103.8001"/>
+  <way id="9"><nd ref="1"/><nd ref="2"/><tag k="highway" v="steps"/></way>
+</osm>"#;
+        let file_name = "station.osm";
+        fs::write(directory.0.join(file_name), xml).expect("writing OSM fixture");
+        let source_catalog = catalog(file_name, xml);
+        let report = inspect_openstreetmap_layout_for_schema(
+            &source_catalog,
+            &directory.0,
+            OsmInspectionLimits::default(),
+            OsmObservationSchema::LegacyBounds,
+        )
+        .expect("legacy source inspection succeeds");
+        let projection = project_openstreetmap_layout_report(
+            &report,
+            GeographicPoint {
+                latitude: 1.3,
+                longitude: 103.8,
+            },
+        )
+        .expect("legacy projection succeeds");
+        assert_eq!(projection.schema_version, "0.1");
+        assert!(
+            projection
+                .required_authoring
+                .last()
+                .is_some_and(|boundary| boundary.contains("way-bound corners"))
+        );
+        let way = projection
+            .features
+            .iter()
+            .find(|feature| feature.object_id == 9)
+            .expect("way feature exists");
+        assert!(matches!(
+            &way.geometry,
+            ProjectedOsmFeatureGeometry::BoundsCorners { .. }
+        ));
+        verify_openstreetmap_local_projection_report(&report, &projection)
+            .expect("legacy projection reconstructs");
+    }
+
+    #[test]
+    fn legacy_bounds_reports_remain_verifiable_and_reject_antimeridian_ambiguity() {
+        let directory = test_directory();
+        let xml = br#"<osm version="0.6">
   <node id="1" lat="0" lon="-179.9"><tag k="railway" v="station"/></node>
   <node id="2" lat="0" lon="179.9"/>
   <way id="9"><nd ref="1"/><nd ref="2"/><tag k="highway" v="steps"/></way>
-</osm>"#,
-        );
+</osm>"#;
+        let file_name = "station.osm";
+        fs::write(directory.0.join(file_name), xml).expect("writing OSM fixture");
+        let source_catalog = catalog(file_name, xml);
+        let report = inspect_openstreetmap_layout_for_schema(
+            &source_catalog,
+            &directory.0,
+            OsmInspectionLimits::default(),
+            OsmObservationSchema::LegacyBounds,
+        )
+        .expect("legacy source inspection succeeds");
+        assert_eq!(report.schema_version, "0.1");
+        verify_openstreetmap_layout_report(&source_catalog, &directory.0, &report)
+            .expect("legacy report reconstructs");
         let error = project_openstreetmap_layout_report(
             &report,
             GeographicPoint {

@@ -36,7 +36,11 @@ manifest. It writes canonical source and a hash-verifiable run bundle under
 `seed-SEED/` for every run, plus `summary.json` listing each bundle hash,
 basic outcome metrics, and evacuations attributed to each final exit.
 `chiyoda verify-sweep DIRECTORY` cross-checks that summary against every
-bundle hash, metric, and canonical source. The supplied output directory must
+bundle hash, metric, and canonical source. For bundles with the installed
+runtime and bundle versions, it also reruns the scenario and rejects a
+self-hashed bundle that differs from deterministic reconstruction. Older
+runtime contracts remain hash-, source-, and metric-checked but cannot be
+reconstructed by an incompatible installed runtime. The supplied output directory must
 be empty so an existing experiment artifact cannot be silently overwritten.
 Each generated case declares a primary exit, an alternative final exit, and a
 scheduled closure of the primary, so a sweep exercises the deterministic

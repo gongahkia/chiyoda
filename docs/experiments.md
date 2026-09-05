@@ -109,12 +109,20 @@ The output directory must be empty. It contains:
 - `run.json` — independently bundle-hash-verifiable runtime artifact;
 - `source-reports/SOURCE.json` — exact derived-report snapshots, when declared;
 - `report.json` — hashes, the bundle/scenario linkage, source-snapshot paths,
-  and both author/product claim boundaries.
+  both author/product claim boundaries, and a directly reconstructed mirror of
+  the run's exact runtime metrics. The current report schema is `0.2`; its
+  metric mirror includes agent and evacuation counts, final-exit and terminal
+  state attribution, intervention delivery counts, timing fields, and queue
+  counts. These are deterministic observations from this one configured run,
+  not estimates, uncertainty measures, or real-world outcomes.
 
 `experiment verify` rejects unexpected files, altered source-report snapshots,
 a changed scenario/run pairing, a bundle hash failure, a trace-frequency mismatch,
-or a report that does not exactly reconstruct. It verifies artifact integrity;
-it does not validate a public source, prove the scenario represents a facility,
+or a report (including its mirrored metrics) that does not exactly reconstruct.
+It reruns the deterministic reference runtime from the scenario snapshot and
+rejects even a self-hashed run bundle that differs from that reconstruction.
+Existing `0.1` reports without the metric mirror remain verifiable for audit.
+It does not validate a public source, prove the scenario represents a facility,
 or elevate the run beyond its uncalibrated boundary.
 
 Use `sensitivity` in addition when material inputs have multiple plausible
