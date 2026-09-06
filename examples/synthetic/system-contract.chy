@@ -1,0 +1,19 @@
+# Deterministic synthetic integration fixture. It exercises authored vertical
+# travel, FIFO queueing, route recomputation, and scheduled operational state.
+# Every number is a structural fixture input, not a station measurement.
+scenario "synthetic-system-contract"
+seed 73
+duration 100s
+timestep 200ms
+
+surface platform at (0m, 0m, 3m) size (24m, 12m)
+surface concourse at (0m, 0m, 0m) size (36m, 12m)
+exit street on concourse at (34m, 8m, 0m) width 2m
+exit plaza on concourse at (34m, 3m, 0m) width 2m capacity 0.5/s
+stair central_stair from platform at (15m, 6m, 3m) to concourse at (15m, 6m, 0m) width 1.5m capacity 0.75/s clearance 2m
+queue-footprint central_stair_queue connector central_stair on platform from (13m, 6m, 3m) to (4m, 6m, 3m) slots 8
+queue-footprint plaza_queue exit plaza on concourse from (30m, 3m, 0m) to (18m, 3m, 0m) slots 8
+exit-state planned_street_closure exit street closed time 18s
+exit-capacity-state reduced_plaza_discharge exit plaza capacity 0.25/s time 30s
+agents platform_passengers count 4 on platform at (2m, 6m, 3m) to street speed 1.1m/s radius 0.3m height 1.7m alternative plaza release 0s every 2s
+agents concourse_passengers count 3 on concourse at (4m, 3m, 0m) to street speed 1.1m/s radius 0.3m height 1.7m alternative plaza release 0s every 3s
