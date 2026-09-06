@@ -365,7 +365,7 @@ fn minimum_pair_distance(positions: &[[f64; 2]]) -> f64 {
 
 #[cfg(test)]
 mod tests {
-    use super::synthetic_avoidance_report;
+    use super::{synthetic_avoidance_report, synthetic_system_report};
 
     #[test]
     fn synthetic_suite_is_deterministic_and_discloses_its_boundary() {
@@ -382,5 +382,41 @@ mod tests {
         );
         assert_eq!(first.status, "synthetic_conformance_only");
         assert!(first.claim_boundary.contains("no observed pedestrians"));
+    }
+
+    #[test]
+    fn synthetic_system_exercises_integrated_semantics_without_claiming_validity() {
+        let report = synthetic_system_report().expect("fixed fixture executes");
+
+        assert_eq!(report.status, "synthetic_integration_conformance_only");
+        assert_eq!(report.self_replay.bundle_verification, "reconstructed");
+        assert!(report.self_replay.exact_self_replay);
+        assert_eq!(report.bundle_hash, report.replay_bundle_hash);
+        assert_eq!(report.metrics.total_agents, 7);
+        assert_eq!(report.metrics.evacuated_agents, 7);
+        assert_eq!(report.observed_surfaces, ["concourse", "platform"]);
+        assert_eq!(report.event_counts.get("connector_boarding"), Some(&4));
+        assert_eq!(report.event_counts.get("connector_arrival"), Some(&4));
+        assert_eq!(report.event_counts.get("exit_state_changed"), Some(&1));
+        assert_eq!(report.event_counts.get("exit_capacity_changed"), Some(&1));
+        assert_eq!(report.event_counts.get("route_recomputed"), Some(&7));
+        assert_eq!(
+            report
+                .queue_resources
+                .get("connector:central_stair")
+                .expect("stair queue telemetry")
+                .ever_queued_agents,
+            2
+        );
+        assert_eq!(
+            report
+                .queue_resources
+                .get("exit:plaza")
+                .expect("exit queue telemetry")
+                .ever_queued_agents,
+            4
+        );
+        assert!(report.claim_boundary.contains("not a future prediction"));
+        assert!(report.claim_boundary.contains("not observations"));
     }
 }
