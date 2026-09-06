@@ -25,7 +25,7 @@ minifb = "0.28.0"
 arrow-array = "59.3.0"
 parquet = "59.3.0"
 flate2 = "1.1.10"
-gif = "0.13.3"
+gif = "0.14.2"
 png = "0.18.1"
 tar = "0.4.44"
 zip = { version = "6.0.0", default-features = false, features = ["deflate-flate2"] }
