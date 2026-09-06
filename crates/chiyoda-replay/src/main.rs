@@ -975,7 +975,7 @@ fn draw_debug_panel(
 ) {
     const PANEL_WIDTH: isize = 344;
     const PANEL_HEIGHT: isize = 236;
-    const PANEL_X: isize = WIDTH as isize - PANEL_WIDTH - 28;
+    const PANEL_X: isize = WIDTH.cast_signed() - PANEL_WIDTH - 28;
     const PANEL_Y: isize = 28;
     const TEXT_X: isize = PANEL_X + 16;
     const TEXT_Y: isize = PANEL_Y + 14;
@@ -992,7 +992,7 @@ fn draw_debug_panel(
         .count();
     let (moving, waiting, in_transit, evacuated) = debug_state_counts(frame);
     let text = format!(
-        "RUN: {}\nFRAME: {}/{}\nSTEP: {}\nTIME: {:.2}S\nSPEED: {:.2}X\nVIEW: {}\nSURFACE: {}\nAGENTS: {}/{}\nSTATE: M{} W{}\n       T{} E{}\nATLAS: {}\nD: CLOSE",
+        "RUN: {}\nFRAME: {}/{}\nSTEP: {}\nTIME: {:.2}S\nSPEED: {:.2}X\nVIEW: {}\nSURFACE: {}\nAGENTS: {}/{}\nSTATE: M{} W{}\n       T{} E{}\nATLAS: {} D: CLOSE",
         if paused { "PAUSED" } else { "RUNNING" },
         index + 1,
         bundle.trace.len(),
@@ -3142,6 +3142,10 @@ agents passengers count 1 on concourse at (1m, 4m, 0m) to street speed 1.2m/s ra
     fn debug_panel_reports_current_frame_without_covering_watch_status_space() {
         let bundle = compile_watch_source(WATCH_SOURCE, 1).expect("watch fixture succeeds");
         let mut buffer = vec![BACKGROUND; WIDTH * HEIGHT];
+        draw_watch_status(
+            &mut buffer,
+            "cannot read draft.chy: No such file or directory (os error 2)",
+        );
         draw_debug_panel(
             &mut buffer,
             &bundle,
@@ -3157,6 +3161,7 @@ agents passengers count 1 on concourse at (1m, 4m, 0m) to street speed 1.2m/s ra
         assert!(buffer.contains(&DEBUG_BORDER));
         assert!(buffer.contains(&DEBUG_LABEL));
         assert!(buffer.contains(&DEBUG_TEXT));
+        assert!(buffer.contains(&WATCH_ERROR));
         assert_eq!(debug_label("abcdefghijklmnop", 14), "abcdefghijklmn...");
         let state_counts = debug_state_counts(&bundle.trace[0]);
         assert_eq!(
