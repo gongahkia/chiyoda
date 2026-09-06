@@ -30,11 +30,11 @@ The current `0.42.0-alpha.1` release establishes the language/runtime contract:
 
 ![Animated replay of the grand interchange showcase](assets/demo/grand-interchange-showcase.gif)
 
-This is one deliberately uncalibrated, authored structural showcase: five
-connector kinds feed a concourse with obstacles, a capacity-limited gate,
-scheduled gate and exit service changes, a primary-exit closure, and
-alternative-exit rerouting. The animation renders only the `concourse` surface
-of its deterministic trace with the optional sprite atlas. Its
+This is one deliberately uncalibrated, authored structural showcase: two
+stairs, an escalator, a lift, and a ramp feed a concourse with obstacles, a
+capacity-limited gate, scheduled gate and exit service changes, a primary-exit
+closure, and alternative-exit rerouting. The animation renders only the
+`concourse` surface of its deterministic trace with the optional sprite atlas. Its
 [source](examples/demos/grand-interchange-showcase.chy) and committed
 [GIF provenance sidecar](assets/demo/grand-interchange-showcase.gif.json)
 make its input and exact rendering contract inspectable. It is not a station
