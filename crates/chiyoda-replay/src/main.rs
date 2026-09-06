@@ -598,9 +598,7 @@ fn replay(
         if let Some(status) = watch.as_ref().map(WatchController::status) {
             draw_watch_status(&mut buffer, status);
         }
-        if debug_panel_open
-            && let Some(current_bundle) = &bundle
-        {
+        if debug_panel_open && let Some(current_bundle) = &bundle {
             draw_debug_panel(
                 &mut buffer,
                 current_bundle,
@@ -1009,7 +1007,11 @@ fn draw_debug_panel(
         waiting,
         in_transit,
         evacuated,
-        if uses_sprite_atlas { "SPRITE" } else { "GEOMETRIC" },
+        if uses_sprite_atlas {
+            "SPRITE"
+        } else {
+            "GEOMETRIC"
+        },
     );
     draw_pixel_rectangle(
         buffer,
@@ -3156,7 +3158,11 @@ agents passengers count 1 on concourse at (1m, 4m, 0m) to street speed 1.2m/s ra
         assert!(buffer.contains(&DEBUG_LABEL));
         assert!(buffer.contains(&DEBUG_TEXT));
         assert_eq!(debug_label("abcdefghijklmnop", 14), "abcdefghijklmn...");
-        assert_eq!(debug_state_counts(&bundle.trace[0]).0, 0);
+        let state_counts = debug_state_counts(&bundle.trace[0]);
+        assert_eq!(
+            state_counts.0 + state_counts.1 + state_counts.2 + state_counts.3,
+            bundle.trace[0].agents.len()
+        );
     }
 
     #[test]

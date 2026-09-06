@@ -54,6 +54,9 @@ Linux display server.
 - Left and right arrows step the trace.
 - Tab cycles surfaces in their authored declaration order.
 - V toggles between the selected-surface 2D view and an all-surface isometric overview.
+- D toggles the top-right debug panel. It starts open and reports playback
+  state, frame/step/time, speed, view, selected surface, agent-state counts,
+  and whether the geometric or sprite renderer is active.
 - P writes the current rendered frame as a PNG under `--snapshot-dir` (default
   `out/chiyoda-replay`). No image is written until P is pressed; existing
   snapshots are never overwritten.
@@ -98,6 +101,10 @@ The included original limited-palette atlas is
 obstacles, connectors, queue positions, markers, and agent states distinct
 top-down pixel forms. It uses static sprites: an agent's recorded position and
 state change, but the renderer does not invent animation frames or behavior.
+Its four human-state tiles are alpha-transparent outside their silhouettes, so
+the authored surface remains visible beneath agents rather than a dark tile
+background. The atlas remains one replaceable RGBA PNG; no separate asset is
+required by the renderer.
 
 An atlas manifest names a relative RGB/RGBA PNG, declares its uniform tile
 dimensions, and maps each required visual role to a grid cell. This makes a
