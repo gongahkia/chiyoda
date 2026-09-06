@@ -1,24 +1,24 @@
 use anyhow::{Context, Result, bail};
+use chiyoda_core::model::Point3;
 use chiyoda_core::{
-    BenchmarkManifest, BundleVerification, CanonicalScenario, EvidenceCatalog,
+    BenchmarkManifest, BundleVerification, CanonicalScenario, CoordinationRoadmap, EvidenceCatalog,
     ExperimentAssumptionTarget, ExperimentManifest, ExperimentSensitivityStudy, GeographicPoint,
     InformationDeliveryMetrics, MovementMetrics, OnSurfaceClearanceMetrics,
     OpenStreetMapLayoutReport, OpenStreetMapLocalProjectionReport, OsmInspectionLimits,
-    OsmScenarioAnchorManifest, OsmScenarioAnchorReport, QueueMetrics, QueueResourceMetrics,
-    QueueGridCoordinationPlan, QueueGridCoordinationRequest, QueueGridRollingCoordinationRequest,
-    QueueGridRollingOutcome, QueueGridServiceAssumption, QueueGridTicketRequest,
-    QueueGridUnresolvedReason, RunBundle, RunOptions, SensitivityFactor, SensitivityManifest,
+    OsmScenarioAnchorManifest, OsmScenarioAnchorReport, QueueGridCoordinationPlan,
+    QueueGridCoordinationRequest, QueueGridRollingCoordinationRequest, QueueGridRollingOutcome,
+    QueueGridServiceAssumption, QueueGridTicketRequest, QueueGridUnresolvedReason, QueueMetrics,
+    QueueResourceMetrics, RunBundle, RunOptions, SensitivityFactor, SensitivityManifest,
     SensitivityTarget, SweptOnSurfaceClearanceMetrics, TimedDiscSegment, TimedDiscTrajectory,
     anchor_osm_scenario, assess_queue_grid_rolling, calibrate_eindhoven_platform,
     estimate_queue_grid_departures, format_scenario, generator, inspect_openstreetmap_layout,
-    parse, plan_sensitivity, project_openstreetmap_layout_report,
-    reference_clearance_epsilon_m, resolve_sensitivity_target_value, run,
-    summarize_crowd_queue_reference, summarize_vru_trajectory_reference, validate,
-    validate_catalog, validate_experiment_manifest, validate_manifest,
-    validate_osm_scenario_anchor_manifest, verify_catalog_files,
-    verify_openstreetmap_layout_catalog_contract, verify_openstreetmap_layout_report,
-    verify_openstreetmap_local_projection_report, verify_osm_scenario_anchor_report,
-    verify_run_bundle, timed_disc_conflicts, CoordinationRoadmap,
+    parse, plan_sensitivity, project_openstreetmap_layout_report, reference_clearance_epsilon_m,
+    resolve_sensitivity_target_value, run, summarize_crowd_queue_reference,
+    summarize_vru_trajectory_reference, timed_disc_conflicts, validate, validate_catalog,
+    validate_experiment_manifest, validate_manifest, validate_osm_scenario_anchor_manifest,
+    verify_catalog_files, verify_openstreetmap_layout_catalog_contract,
+    verify_openstreetmap_layout_report, verify_openstreetmap_local_projection_report,
+    verify_osm_scenario_anchor_report, verify_run_bundle,
 };
 use chiyoda_core::{bundle::RunMetrics, experiment::ExperimentSourceAttestation};
 use clap::{Parser, Subcommand, ValueEnum};
@@ -219,6 +219,87 @@ enum Command {
     },
     /// Reconstruct a current run bundle and require zero reference-disc overlap audits.
     VerifyReferenceClearance { bundle: PathBuf },
+}
+
+const QUEUE_GRID_COORDINATION_ARTIFACT_SCHEMA: &str = "chiyoda.queue-grid-coordination.v1";
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+struct QueueGridCoordinationPolicy {
+    first_departure_at_s: f64,
+    headway_s: f64,
+    roadmap_spacing_m: f64,
+    maximum_roadmap_nodes: usize,
+    planning_timestep_s: f64,
+    maximum_low_level_expansions: u64,
+    maximum_conflict_tree_nodes: u64,
+    maximum_tickets_per_cohort: usize,
+    clearance_epsilon_m: f64,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+struct QueueGridCoordinationArtifact {
+    schema: String,
+    source: String,
+    source_sha256: String,
+    group: String,
+    queue_grid: String,
+    policy: QueueGridCoordinationPolicy,
+    outcome: QueueGridCoordinationArtifactOutcome,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "status", rename_all = "snake_case")]
+enum QueueGridCoordinationArtifactOutcome {
+    Planned {
+        slot_windows: Vec<QueueGridSlotWindowArtifact>,
+        trajectories: Vec<TimedDiscTrajectoryArtifact>,
+        explored_conflict_tree_nodes: u64,
+        low_level_explored_states: u64,
+    },
+    NoPlan {
+        cohort_tickets: Vec<u64>,
+    },
+    Unresolved {
+        cohort_tickets: Vec<u64>,
+        reason: QueueGridUnresolvedReasonArtifact,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+enum QueueGridUnresolvedReasonArtifact {
+    LowLevelSearchBoundExceeded {
+        agent_id: String,
+        target_index: usize,
+        maximum_expansions: u64,
+    },
+    ConflictRepairBoundExceeded {
+        maximum_conflict_tree_nodes: u64,
+    },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+struct QueueGridSlotWindowArtifact {
+    ticket: u64,
+    starts_at_s: f64,
+    ends_at_s: f64,
+    slot_rank: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+struct TimedDiscTrajectoryArtifact {
+    agent_id: String,
+    segments: Vec<TimedDiscSegmentArtifact>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+struct TimedDiscSegmentArtifact {
+    surface: String,
+    starts_at_s: f64,
+    ends_at_s: f64,
+    start: [f64; 3],
+    end: [f64; 3],
+    radius_m: f64,
 }
 
 #[derive(Debug, Subcommand)]
@@ -1263,6 +1344,44 @@ fn main() -> Result<()> {
             );
             print_local_clearance_summary(&bundle.metrics);
         }
+        Command::CoordinateQueueGrid {
+            source,
+            group,
+            queue_grid,
+            first_departure_at_s,
+            headway_s,
+            roadmap_spacing_m,
+            maximum_roadmap_nodes,
+            planning_timestep_s,
+            maximum_low_level_expansions,
+            maximum_conflict_tree_nodes,
+            maximum_tickets_per_cohort,
+            output,
+        } => {
+            let source_text = read_text(&source)?;
+            let policy = QueueGridCoordinationPolicy {
+                first_departure_at_s,
+                headway_s,
+                roadmap_spacing_m,
+                maximum_roadmap_nodes,
+                planning_timestep_s,
+                maximum_low_level_expansions,
+                maximum_conflict_tree_nodes,
+                maximum_tickets_per_cohort,
+                clearance_epsilon_m: reference_clearance_epsilon_m(),
+            };
+            let artifact =
+                build_queue_grid_coordination_artifact(source_text, group, queue_grid, policy)?;
+            write_json(&output, &artifact)?;
+            print_queue_grid_coordination_outcome(&artifact.outcome);
+            println!("coordination artifact: {}", output.display());
+        }
+        Command::VerifyQueueGridCoordination { artifact } => {
+            let artifact: QueueGridCoordinationArtifact = read_json(&artifact)?;
+            verify_queue_grid_coordination_artifact(&artifact)?;
+            print_queue_grid_coordination_outcome(&artifact.outcome);
+            println!("verified coordination artifact: {}", artifact.schema);
+        }
         Command::Generate { seed, output } => {
             let source = generator::source(seed);
             let scenario = generator::scenario(seed)?;
@@ -1380,6 +1499,302 @@ fn require_zero_reference_clearance(bundle: &RunBundle) -> Result<()> {
         );
     }
     Ok(())
+}
+
+fn build_queue_grid_coordination_artifact(
+    source: String,
+    group: String,
+    queue_grid: String,
+    policy: QueueGridCoordinationPolicy,
+) -> Result<QueueGridCoordinationArtifact> {
+    let outcome = coordinate_queue_grid(&source, &group, &queue_grid, &policy)?;
+    Ok(QueueGridCoordinationArtifact {
+        schema: QUEUE_GRID_COORDINATION_ARTIFACT_SCHEMA.to_owned(),
+        source_sha256: sha256_hex(source.as_bytes()),
+        source,
+        group,
+        queue_grid,
+        policy,
+        outcome,
+    })
+}
+
+fn coordinate_queue_grid(
+    source: &str,
+    group_id: &str,
+    queue_grid_id: &str,
+    policy: &QueueGridCoordinationPolicy,
+) -> Result<QueueGridCoordinationArtifactOutcome> {
+    if policy.clearance_epsilon_m != reference_clearance_epsilon_m() {
+        bail!(
+            "queue-grid coordination artifacts must use the reference clearance epsilon {}m",
+            reference_clearance_epsilon_m()
+        );
+    }
+    let scenario = parse(source).map_err(|error| anyhow::anyhow!(error))?;
+    validate(&scenario).map_err(|errors| validation_error(&errors))?;
+    let group = scenario
+        .agents
+        .iter()
+        .find(|group| group.id == group_id)
+        .with_context(|| format!("unknown agent group `{group_id}`"))?;
+    let footprint = scenario
+        .queue_footprints
+        .iter()
+        .find(|footprint| footprint.id == queue_grid_id)
+        .with_context(|| format!("unknown queue grid `{queue_grid_id}`"))?;
+    let surface = scenario
+        .surfaces
+        .iter()
+        .find(|surface| surface.id == footprint.surface)
+        .with_context(|| {
+            format!(
+                "queue grid `{queue_grid_id}` references missing surface `{}`",
+                footprint.surface
+            )
+        })?;
+    let starts = group.spawn_positions().collect::<Vec<_>>();
+    let slots = (0..footprint.slots)
+        .map(|rank| footprint.position(rank))
+        .collect::<Vec<_>>();
+    let anchors = starts.iter().chain(&slots).copied().collect::<Vec<_>>();
+    let lattice = CoordinationRoadmap::lattice(
+        surface,
+        &scenario.obstacles,
+        group.radius_m,
+        policy.roadmap_spacing_m,
+        policy.maximum_roadmap_nodes,
+        &anchors,
+    )?;
+    let tickets = starts
+        .iter()
+        .enumerate()
+        .map(|(index, _)| {
+            Ok(QueueGridTicketRequest {
+                ticket: u64::try_from(index + 1).context("agent ordinal exceeds u64")?,
+                agent_id: format!("{group_id}:{index}"),
+                start_node: lattice.anchor_nodes[index],
+                radius_m: group.radius_m,
+                activation_at_s: group
+                    .release_time_for(u32::try_from(index).context("agent ordinal exceeds u32")?),
+                speed_mps: group.speed_mps,
+            })
+        })
+        .collect::<Result<Vec<_>>>()?;
+    let departures = estimate_queue_grid_departures(
+        &tickets,
+        QueueGridServiceAssumption {
+            first_departure_at_s: policy.first_departure_at_s,
+            headway_s: policy.headway_s,
+        },
+        scenario.duration_s,
+    )?;
+    let outcome = assess_queue_grid_rolling(&QueueGridRollingCoordinationRequest {
+        queue: QueueGridCoordinationRequest {
+            slot_nodes: &lattice.anchor_nodes[starts.len()..],
+            tickets,
+            departures,
+            horizon_s: scenario.duration_s,
+            occupied_trajectories: &[],
+            timestep_s: policy.planning_timestep_s,
+            maximum_low_level_expansions: policy.maximum_low_level_expansions,
+            maximum_conflict_tree_nodes: policy.maximum_conflict_tree_nodes,
+            clearance_epsilon_m: policy.clearance_epsilon_m,
+            roadmap: &lattice.roadmap,
+        },
+        maximum_tickets_per_cohort: policy.maximum_tickets_per_cohort,
+    })?;
+    Ok(outcome.into())
+}
+
+fn verify_queue_grid_coordination_artifact(artifact: &QueueGridCoordinationArtifact) -> Result<()> {
+    if artifact.schema != QUEUE_GRID_COORDINATION_ARTIFACT_SCHEMA {
+        bail!(
+            "unsupported queue-grid coordination artifact schema `{}`",
+            artifact.schema
+        );
+    }
+    let actual_source_sha256 = sha256_hex(artifact.source.as_bytes());
+    if actual_source_sha256 != artifact.source_sha256 {
+        bail!(
+            "queue-grid coordination artifact source hash mismatch: expected {}, found {}",
+            artifact.source_sha256,
+            actual_source_sha256
+        );
+    }
+    let reconstructed = coordinate_queue_grid(
+        &artifact.source,
+        &artifact.group,
+        &artifact.queue_grid,
+        &artifact.policy,
+    )?;
+    if reconstructed != artifact.outcome {
+        bail!("queue-grid coordination artifact does not reproduce its recorded outcome");
+    }
+    if let QueueGridCoordinationArtifactOutcome::Planned { trajectories, .. } = &artifact.outcome {
+        let trajectories = trajectories
+            .iter()
+            .cloned()
+            .map(TimedDiscTrajectory::from)
+            .collect::<Vec<_>>();
+        let conflicts = timed_disc_conflicts(&trajectories, artifact.policy.clearance_epsilon_m)?;
+        if !conflicts.is_empty() {
+            bail!(
+                "queue-grid coordination artifact contains {} exact timed-disc conflicts",
+                conflicts.len()
+            );
+        }
+    }
+    Ok(())
+}
+
+fn print_queue_grid_coordination_outcome(outcome: &QueueGridCoordinationArtifactOutcome) {
+    match outcome {
+        QueueGridCoordinationArtifactOutcome::Planned {
+            trajectories,
+            explored_conflict_tree_nodes,
+            low_level_explored_states,
+            ..
+        } => println!(
+            "queue-grid coordination: planned {} trajectories; {} conflict-tree nodes; {} low-level states",
+            trajectories.len(),
+            explored_conflict_tree_nodes,
+            low_level_explored_states
+        ),
+        QueueGridCoordinationArtifactOutcome::NoPlan { cohort_tickets } => println!(
+            "queue-grid coordination: no plan in the declared rolling policy for cohort {:?}",
+            cohort_tickets
+        ),
+        QueueGridCoordinationArtifactOutcome::Unresolved {
+            cohort_tickets,
+            reason,
+        } => println!(
+            "queue-grid coordination: unresolved cohort {:?}: {reason:?}",
+            cohort_tickets
+        ),
+    }
+}
+
+impl From<QueueGridRollingOutcome> for QueueGridCoordinationArtifactOutcome {
+    fn from(outcome: QueueGridRollingOutcome) -> Self {
+        match outcome {
+            QueueGridRollingOutcome::Planned(plan) => Self::from(plan),
+            QueueGridRollingOutcome::NoPlan { cohort_tickets } => Self::NoPlan { cohort_tickets },
+            QueueGridRollingOutcome::Unresolved {
+                cohort_tickets,
+                reason,
+            } => Self::Unresolved {
+                cohort_tickets,
+                reason: QueueGridUnresolvedReasonArtifact::from(reason),
+            },
+        }
+    }
+}
+
+impl From<QueueGridCoordinationPlan> for QueueGridCoordinationArtifactOutcome {
+    fn from(plan: QueueGridCoordinationPlan) -> Self {
+        Self::Planned {
+            slot_windows: plan
+                .slot_windows
+                .into_iter()
+                .map(|window| QueueGridSlotWindowArtifact {
+                    ticket: window.ticket,
+                    starts_at_s: window.starts_at_s,
+                    ends_at_s: window.ends_at_s,
+                    slot_rank: window.slot_rank,
+                })
+                .collect(),
+            trajectories: plan
+                .repair_plan
+                .trajectories
+                .into_iter()
+                .map(TimedDiscTrajectoryArtifact::from)
+                .collect(),
+            explored_conflict_tree_nodes: plan.repair_plan.explored_conflict_tree_nodes,
+            low_level_explored_states: plan.repair_plan.low_level_explored_states,
+        }
+    }
+}
+
+impl From<QueueGridUnresolvedReason> for QueueGridUnresolvedReasonArtifact {
+    fn from(reason: QueueGridUnresolvedReason) -> Self {
+        match reason {
+            QueueGridUnresolvedReason::LowLevelSearchBoundExceeded {
+                agent_id,
+                target_index,
+                maximum_expansions,
+            } => Self::LowLevelSearchBoundExceeded {
+                agent_id,
+                target_index,
+                maximum_expansions,
+            },
+            QueueGridUnresolvedReason::ConflictRepairBoundExceeded {
+                maximum_conflict_tree_nodes,
+            } => Self::ConflictRepairBoundExceeded {
+                maximum_conflict_tree_nodes,
+            },
+        }
+    }
+}
+
+impl From<TimedDiscTrajectory> for TimedDiscTrajectoryArtifact {
+    fn from(trajectory: TimedDiscTrajectory) -> Self {
+        Self {
+            agent_id: trajectory.agent_id,
+            segments: trajectory
+                .segments
+                .into_iter()
+                .map(TimedDiscSegmentArtifact::from)
+                .collect(),
+        }
+    }
+}
+
+impl From<TimedDiscTrajectoryArtifact> for TimedDiscTrajectory {
+    fn from(trajectory: TimedDiscTrajectoryArtifact) -> Self {
+        Self {
+            agent_id: trajectory.agent_id,
+            segments: trajectory
+                .segments
+                .into_iter()
+                .map(TimedDiscSegment::from)
+                .collect(),
+        }
+    }
+}
+
+impl From<TimedDiscSegment> for TimedDiscSegmentArtifact {
+    fn from(segment: TimedDiscSegment) -> Self {
+        Self {
+            surface: segment.surface,
+            starts_at_s: segment.starts_at_s,
+            ends_at_s: segment.ends_at_s,
+            start: [segment.start.x_m, segment.start.y_m, segment.start.z_m],
+            end: [segment.end.x_m, segment.end.y_m, segment.end.z_m],
+            radius_m: segment.radius_m,
+        }
+    }
+}
+
+impl From<TimedDiscSegmentArtifact> for TimedDiscSegment {
+    fn from(segment: TimedDiscSegmentArtifact) -> Self {
+        Self {
+            surface: segment.surface,
+            starts_at_s: segment.starts_at_s,
+            ends_at_s: segment.ends_at_s,
+            start: Point3 {
+                x_m: segment.start[0],
+                y_m: segment.start[1],
+                z_m: segment.start[2],
+            },
+            end: Point3 {
+                x_m: segment.end[0],
+                y_m: segment.end[1],
+                z_m: segment.end[2],
+            },
+            radius_m: segment.radius_m,
+        }
+    }
 }
 
 fn print_local_clearance_summary(metrics: &RunMetrics) {

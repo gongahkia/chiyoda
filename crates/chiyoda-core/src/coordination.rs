@@ -4156,14 +4156,14 @@ mod tests {
                 clearance_epsilon_m: reference_clearance_epsilon_m(),
                 roadmap: &lattice.roadmap,
             },
-            maximum_tickets_per_cohort: 16,
+            maximum_tickets_per_cohort: 8,
         })
         .expect("bounded rolling stress search does not exhaust");
 
         assert_eq!(
             outcome,
             QueueGridRollingOutcome::NoPlan {
-                cohort_tickets: vec![112, 111, 110, 109, 108, 107, 106, 105],
+                cohort_tickets: vec![144, 143, 142, 141, 140, 139, 138, 137],
             }
         );
     }
