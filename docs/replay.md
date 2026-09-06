@@ -30,8 +30,9 @@ integration step, which affects display smoothness only.
 
 An invalid edit leaves the most recent valid scene and trace on screen. The
 terminal prints the complete compile, validation, or runtime diagnostic; the
-window title identifies the failed revision. Before the first valid source
-revision, the viewer displays an empty debug canvas and its current status.
+window and an in-canvas diagnostic panel identify the failed revision. Before
+the first valid source revision, the viewer displays an empty debug canvas with
+the current status and any read error.
 
 Watch runs are intentionally in-memory, unpersisted debug results. They are
 not hash-verified bundles and cannot be cited as a replayable experiment

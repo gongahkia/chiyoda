@@ -36,6 +36,11 @@ const MOVING: u32 = 0x0065_d1ff;
 const WAITING_TO_DEPART: u32 = 0x008a_94a6;
 const IN_TRANSIT: u32 = 0x00ff_c857;
 const EVACUATED: u32 = 0x004a_de80;
+const WATCH_STATUS_PANEL: u32 = 0x001d_2835;
+const WATCH_STATUS_BORDER: u32 = 0x0045_6078;
+const WATCH_STATUS_TEXT: u32 = 0x00f8_f9fa;
+const WATCH_ERROR: u32 = 0x00ff_6b6b;
+const WATCH_INFO: u32 = 0x0065_d1ff;
 const WATCH_POLL_INTERVAL: Duration = Duration::from_millis(100);
 const WATCH_DEBOUNCE: Duration = Duration::from_millis(150);
 
@@ -266,6 +271,9 @@ fn replay(
                     draw_overview(&mut buffer, current_bundle, index);
                 }
             }
+        }
+        if let Some(status) = watch.as_ref().map(WatchController::status) {
+            draw_watch_status(&mut buffer, status);
         }
         window.set_title(&window_title(
             bundle.as_ref(),
@@ -523,6 +531,314 @@ fn concise_message(message: &str) -> String {
             "{}…",
             one_line.chars().take(MAXIMUM_CHARS - 1).collect::<String>()
         )
+    }
+}
+
+fn draw_watch_status(buffer: &mut [u32], status: &str) {
+    const PANEL_X: isize = 28;
+    const PANEL_Y: isize = 28;
+    const PANEL_WIDTH: isize = 1_144;
+    const PANEL_HEIGHT: isize = 122;
+    const TEXT_X: isize = PANEL_X + 18;
+    const TEXT_Y: isize = PANEL_Y + 16;
+    const TEXT_SCALE: isize = 2;
+    const MAXIMUM_COLUMNS: usize = 88;
+    const MAXIMUM_LINES: usize = 4;
+
+    let error = watch_status_is_error(status);
+    draw_pixel_rectangle(
+        buffer,
+        PANEL_X,
+        PANEL_Y,
+        PANEL_WIDTH,
+        PANEL_HEIGHT,
+        WATCH_STATUS_PANEL,
+    );
+    draw_pixel_rectangle_outline(
+        buffer,
+        PANEL_X,
+        PANEL_Y,
+        PANEL_WIDTH,
+        PANEL_HEIGHT,
+        if error {
+            WATCH_ERROR
+        } else {
+            WATCH_STATUS_BORDER
+        },
+    );
+    draw_bitmap_text(
+        buffer,
+        TEXT_X,
+        TEXT_Y,
+        if error { "WATCH ERROR" } else { "WATCH STATUS" },
+        if error { WATCH_ERROR } else { WATCH_INFO },
+        TEXT_SCALE,
+    );
+    draw_wrapped_bitmap_text(
+        buffer,
+        TEXT_X,
+        TEXT_Y + 22,
+        status,
+        BitmapTextLayout {
+            color: WATCH_STATUS_TEXT,
+            scale: TEXT_SCALE,
+            maximum_columns: MAXIMUM_COLUMNS,
+            maximum_lines: MAXIMUM_LINES,
+        },
+    );
+}
+
+fn watch_status_is_error(status: &str) -> bool {
+    status.starts_with("cannot read") || status.contains(" failed:")
+}
+
+fn draw_pixel_rectangle(
+    buffer: &mut [u32],
+    x: isize,
+    y: isize,
+    width: isize,
+    height: isize,
+    color: u32,
+) {
+    for row in y..y + height {
+        for column in x..x + width {
+            set_pixel(buffer, column, row, color);
+        }
+    }
+}
+
+fn draw_pixel_rectangle_outline(
+    buffer: &mut [u32],
+    x: isize,
+    y: isize,
+    width: isize,
+    height: isize,
+    color: u32,
+) {
+    for column in x..x + width {
+        set_pixel(buffer, column, y, color);
+        set_pixel(buffer, column, y + height - 1, color);
+    }
+    for row in y..y + height {
+        set_pixel(buffer, x, row, color);
+        set_pixel(buffer, x + width - 1, row, color);
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct BitmapTextLayout {
+    color: u32,
+    scale: isize,
+    maximum_columns: usize,
+    maximum_lines: usize,
+}
+
+fn draw_wrapped_bitmap_text(
+    buffer: &mut [u32],
+    x: isize,
+    y: isize,
+    text: &str,
+    layout: BitmapTextLayout,
+) {
+    let mut column = 0_usize;
+    let mut line = 0_usize;
+    let advance_x = 6 * layout.scale;
+    let advance_y = 9 * layout.scale;
+    for character in text.chars() {
+        if character == '\n' || column == layout.maximum_columns {
+            line += 1;
+            column = 0;
+            if line == layout.maximum_lines {
+                return;
+            }
+            if character == '\n' {
+                continue;
+            }
+        }
+        draw_bitmap_glyph(
+            buffer,
+            x + advance_x * column.cast_signed(),
+            y + advance_y * line.cast_signed(),
+            character,
+            layout.color,
+            layout.scale,
+        );
+        column += 1;
+    }
+}
+
+fn draw_bitmap_text(buffer: &mut [u32], x: isize, y: isize, text: &str, color: u32, scale: isize) {
+    for (index, character) in text.chars().enumerate() {
+        draw_bitmap_glyph(
+            buffer,
+            x + 6 * scale * index.cast_signed(),
+            y,
+            character,
+            color,
+            scale,
+        );
+    }
+}
+
+fn draw_bitmap_glyph(
+    buffer: &mut [u32],
+    x: isize,
+    y: isize,
+    character: char,
+    color: u32,
+    scale: isize,
+) {
+    for (row, bits) in bitmap_glyph(character).iter().enumerate() {
+        for column in 0..5 {
+            if *bits & (1 << (4 - column)) != 0 {
+                draw_pixel_rectangle(
+                    buffer,
+                    x + column * scale,
+                    y + row.cast_signed() * scale,
+                    scale,
+                    scale,
+                    color,
+                );
+            }
+        }
+    }
+}
+
+#[allow(clippy::too_many_lines)] // one inspectable table keeps the dependency-free overlay readable
+fn bitmap_glyph(character: char) -> [u8; 7] {
+    match character.to_ascii_uppercase() {
+        'A' => [
+            0b01110, 0b10001, 0b10001, 0b11111, 0b10001, 0b10001, 0b10001,
+        ],
+        'B' => [
+            0b11110, 0b10001, 0b10001, 0b11110, 0b10001, 0b10001, 0b11110,
+        ],
+        'C' => [
+            0b01110, 0b10001, 0b10000, 0b10000, 0b10000, 0b10001, 0b01110,
+        ],
+        'D' => [
+            0b11110, 0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b11110,
+        ],
+        'E' => [
+            0b11111, 0b10000, 0b10000, 0b11110, 0b10000, 0b10000, 0b11111,
+        ],
+        'F' => [
+            0b11111, 0b10000, 0b10000, 0b11110, 0b10000, 0b10000, 0b10000,
+        ],
+        'G' => [
+            0b01110, 0b10001, 0b10000, 0b10111, 0b10001, 0b10001, 0b01110,
+        ],
+        'H' => [
+            0b10001, 0b10001, 0b10001, 0b11111, 0b10001, 0b10001, 0b10001,
+        ],
+        'I' => [
+            0b01110, 0b00100, 0b00100, 0b00100, 0b00100, 0b00100, 0b01110,
+        ],
+        'J' => [
+            0b00001, 0b00001, 0b00001, 0b00001, 0b10001, 0b10001, 0b01110,
+        ],
+        'K' => [
+            0b10001, 0b10010, 0b10100, 0b11000, 0b10100, 0b10010, 0b10001,
+        ],
+        'L' => [
+            0b10000, 0b10000, 0b10000, 0b10000, 0b10000, 0b10000, 0b11111,
+        ],
+        'M' => [
+            0b10001, 0b11011, 0b10101, 0b10101, 0b10001, 0b10001, 0b10001,
+        ],
+        'N' => [
+            0b10001, 0b11001, 0b10101, 0b10011, 0b10001, 0b10001, 0b10001,
+        ],
+        'O' => [
+            0b01110, 0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b01110,
+        ],
+        'P' => [
+            0b11110, 0b10001, 0b10001, 0b11110, 0b10000, 0b10000, 0b10000,
+        ],
+        'Q' => [
+            0b01110, 0b10001, 0b10001, 0b10001, 0b10101, 0b10010, 0b01101,
+        ],
+        'R' => [
+            0b11110, 0b10001, 0b10001, 0b11110, 0b10100, 0b10010, 0b10001,
+        ],
+        'S' => [
+            0b01111, 0b10000, 0b10000, 0b01110, 0b00001, 0b00001, 0b11110,
+        ],
+        'T' => [
+            0b11111, 0b00100, 0b00100, 0b00100, 0b00100, 0b00100, 0b00100,
+        ],
+        'U' => [
+            0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b01110,
+        ],
+        'V' => [
+            0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b01010, 0b00100,
+        ],
+        'W' => [
+            0b10001, 0b10001, 0b10001, 0b10101, 0b10101, 0b10101, 0b01010,
+        ],
+        'X' => [
+            0b10001, 0b10001, 0b01010, 0b00100, 0b01010, 0b10001, 0b10001,
+        ],
+        'Y' => [
+            0b10001, 0b10001, 0b01010, 0b00100, 0b00100, 0b00100, 0b00100,
+        ],
+        'Z' => [
+            0b11111, 0b00001, 0b00010, 0b00100, 0b01000, 0b10000, 0b11111,
+        ],
+        '0' => [
+            0b01110, 0b10001, 0b10011, 0b10101, 0b11001, 0b10001, 0b01110,
+        ],
+        '1' => [
+            0b00100, 0b01100, 0b00100, 0b00100, 0b00100, 0b00100, 0b01110,
+        ],
+        '2' => [
+            0b01110, 0b10001, 0b00001, 0b00010, 0b00100, 0b01000, 0b11111,
+        ],
+        '3' => [
+            0b11110, 0b00001, 0b00001, 0b01110, 0b00001, 0b00001, 0b11110,
+        ],
+        '4' => [
+            0b00010, 0b00110, 0b01010, 0b10010, 0b11111, 0b00010, 0b00010,
+        ],
+        '5' => [
+            0b11111, 0b10000, 0b10000, 0b11110, 0b00001, 0b00001, 0b11110,
+        ],
+        '6' => [
+            0b00110, 0b01000, 0b10000, 0b11110, 0b10001, 0b10001, 0b01110,
+        ],
+        '7' => [
+            0b11111, 0b00001, 0b00010, 0b00100, 0b01000, 0b01000, 0b01000,
+        ],
+        '8' => [
+            0b01110, 0b10001, 0b10001, 0b01110, 0b10001, 0b10001, 0b01110,
+        ],
+        '9' => [
+            0b01110, 0b10001, 0b10001, 0b01111, 0b00001, 0b00010, 0b11100,
+        ],
+        ' ' => [0; 7],
+        ':' => [0, 0b00100, 0b00100, 0, 0b00100, 0b00100, 0],
+        '.' => [0, 0, 0, 0, 0, 0b00100, 0b00100],
+        ',' => [0, 0, 0, 0, 0b00100, 0b00100, 0b01000],
+        '-' => [0, 0, 0, 0b11111, 0, 0, 0],
+        '_' => [0, 0, 0, 0, 0, 0, 0b11111],
+        '/' => [0b00001, 0b00010, 0b00100, 0b01000, 0b10000, 0, 0],
+        '\\' => [0b10000, 0b01000, 0b00100, 0b00010, 0b00001, 0, 0],
+        '(' => [
+            0b00010, 0b00100, 0b01000, 0b01000, 0b01000, 0b00100, 0b00010,
+        ],
+        ')' => [
+            0b01000, 0b00100, 0b00010, 0b00010, 0b00010, 0b00100, 0b01000,
+        ],
+        '[' => [
+            0b01110, 0b01000, 0b01000, 0b01000, 0b01000, 0b01000, 0b01110,
+        ],
+        ']' => [
+            0b01110, 0b00010, 0b00010, 0b00010, 0b00010, 0b00010, 0b01110,
+        ],
+        '=' => [0, 0b11111, 0, 0b11111, 0, 0, 0],
+        '!' => [0b00100, 0b00100, 0b00100, 0b00100, 0b00100, 0, 0b00100],
+        '?' => [0b01110, 0b10001, 0b00001, 0b00010, 0b00100, 0, 0b00100],
+        _ => [0b01110, 0b10001, 0b00010, 0b00100, 0b01000, 0, 0b01000],
     }
 }
 
@@ -1606,6 +1922,22 @@ agents passengers count 1 on concourse at (1m, 4m, 0m) to street speed 1.2m/s ra
         assert!(buffer.contains(&SURFACE));
         assert!(buffer.contains(&SURFACE_BORDER));
         assert!(buffer.contains(&EXIT));
+    }
+
+    #[test]
+    fn watch_error_is_visible_in_the_rendered_canvas() {
+        let mut buffer = vec![BACKGROUND; WIDTH * HEIGHT];
+        draw_watch_status(
+            &mut buffer,
+            "cannot read draft.chy: No such file or directory (os error 2)",
+        );
+
+        assert!(watch_status_is_error(
+            "cannot read draft.chy: No such file or directory"
+        ));
+        assert!(buffer.contains(&WATCH_STATUS_PANEL));
+        assert!(buffer.contains(&WATCH_ERROR));
+        assert!(buffer.contains(&WATCH_STATUS_TEXT));
     }
 
     #[test]
