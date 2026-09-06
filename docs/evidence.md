@@ -191,6 +191,13 @@ comparison, not an acceptance threshold or a claim of free-trajectory,
 population, avoidance, queue, route-choice, connector, station, predictive,
 operational, or safety validity.
 
+The checked-in [profile artifact](../benchmarks/reports/eindhoven-free-walking-speed-profile.json)
+stores 1.065 m/s from 750,141 retained calibration steps; the linked
+[held-out artifact](../benchmarks/reports/eindhoven-free-walking-held-out.json)
+reports a 1.075 m/s held-out P50 from 636,647 retained steps and a 0.010 m/s
+absolute P50 difference. Those are disclosed measurements under the fixed
+screen, not a pass threshold or a claim beyond this scalar input.
+
 The checked-in [calibration descriptive report](../benchmarks/reports/eindhoven-platform-calibration-intake.json)
 was regenerated from the locked days 01–30 files using adapter
 `0.1.0-alpha.1`. It contains 470,779,630 retained consecutive observations;
