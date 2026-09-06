@@ -70,12 +70,23 @@ the eventual runtime policy reviewable: a runtime caller must explicitly own
 how it predicts departures, how often it replans, and what it does when this
 bounded solver returns no plan or exhausts a bound.
 
-`plan_queue_grid_rolling` processes those tasks in deterministic FIFO cohorts.
+`plan_queue_grid_rolling` processes those tasks in deterministic back-to-front
+formation cohorts.
 Each cohort is checked against every earlier accepted trajectory, so this is a
 bounded decomposition rather than an unchecked heuristic. Cohort size is an
 explicit computational policy: smaller cohorts limit each conflict tree but
 can rule out solutions that require revising an earlier accepted trajectory.
 The runtime must report that policy with any result that uses it.
+
+The planner currently chooses a back-to-front *formation* order for rolling
+cohorts; that never alters FIFO service eligibility. `assess_queue_grid_rolling`
+returns the first cohort that cannot be added without reopening earlier paths,
+instead of reducing that result to an unexplained `None`. For example, the
+152-agent stress source reports tickets 112 through 105 as its first
+unformable cohort under the checked exploratory policy: a 0.6 m roadmap, a
+0.5 s planning grid, a first departure at 135 s, and a 4 s headway. This is
+evidence about that finite roadmap, cohort ordering, and assumed schedule—not
+evidence that the authored geometry has no physical solution.
 
 For exploratory work without qualifying service data,
 `estimate_queue_grid_departures` derives those inputs from an explicit

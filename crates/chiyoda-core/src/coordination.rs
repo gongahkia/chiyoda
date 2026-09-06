@@ -965,14 +965,16 @@ pub fn assess_queue_grid_rolling(
         occupied_trajectories.extend(repair_plan.trajectories.iter().cloned());
         trajectories.extend(repair_plan.trajectories);
     }
-    Ok(QueueGridRollingOutcome::Planned(QueueGridCoordinationPlan {
-        slot_windows,
-        repair_plan: ConflictRepairPlan {
-            trajectories,
-            explored_conflict_tree_nodes,
-            low_level_explored_states,
+    Ok(QueueGridRollingOutcome::Planned(
+        QueueGridCoordinationPlan {
+            slot_windows,
+            repair_plan: ConflictRepairPlan {
+                trajectories,
+                explored_conflict_tree_nodes,
+                low_level_explored_states,
+            },
         },
-    }))
+    ))
 }
 
 fn queue_grid_slot_windows_for_request(
@@ -2195,12 +2197,13 @@ mod tests {
         ConflictRepairRequest, CoordinationAgentRequest, CoordinationAgentTask, CoordinationError,
         CoordinationRoadmap, CoordinationRoadmapEdge, CoordinationRoadmapNode,
         MultiStagePlanRequest, QueueGridCoordinationRequest, QueueGridRollingCoordinationRequest,
-        QueueGridServiceAssumption, QueueGridServiceDeparture, QueueGridSlotWindow,
-        QueueGridTicketActivation, QueueGridTicketRequest, TimeExpandedPlanRequest,
-        TimedDiscSegment, TimedDiscTrajectory, TimedRoadmapTarget, estimate_queue_grid_departures,
-        first_timed_disc_conflict, plan_queue_grid, plan_queue_grid_rolling,
-        point_has_static_clearance, queue_grid_slot_windows, queue_grid_timed_targets,
-        reference_clearance_epsilon_m, segment_has_static_clearance, timed_disc_conflicts,
+        QueueGridRollingOutcome, QueueGridServiceAssumption, QueueGridServiceDeparture,
+        QueueGridSlotWindow, QueueGridTicketActivation, QueueGridTicketRequest,
+        TimeExpandedPlanRequest, TimedDiscSegment, TimedDiscTrajectory, TimedRoadmapTarget,
+        assess_queue_grid_rolling, estimate_queue_grid_departures, first_timed_disc_conflict,
+        plan_queue_grid, plan_queue_grid_rolling, point_has_static_clearance,
+        queue_grid_slot_windows, queue_grid_timed_targets, reference_clearance_epsilon_m,
+        segment_has_static_clearance, timed_disc_conflicts,
     };
     use crate::model::{Obstacle, Point3, Surface};
 
@@ -3399,7 +3402,7 @@ mod tests {
 
     #[test]
     #[ignore = "runs the 152-agent queue-grid planning stress case explicitly"]
-    fn queue_grid_stress_source_has_a_bounded_rolling_plan_under_its_stated_assumption() {
+    fn queue_grid_stress_source_reports_its_first_unformable_rolling_cohort() {
         let scenario = crate::parse(include_str!(
             "../../../examples/experiments/queue-grid-stress.chy"
         ))
@@ -3458,7 +3461,7 @@ mod tests {
             scenario.duration_s,
         )
         .expect("valid exploratory service schedule");
-        let plan = plan_queue_grid_rolling(&QueueGridRollingCoordinationRequest {
+        let outcome = assess_queue_grid_rolling(&QueueGridRollingCoordinationRequest {
             queue: QueueGridCoordinationRequest {
                 slot_nodes: &lattice.anchor_nodes[starts.len()..],
                 tickets,
@@ -3476,14 +3479,13 @@ mod tests {
             },
             maximum_tickets_per_cohort: 8,
         })
-        .expect("bounded rolling stress search does not exhaust")
-        .expect("stress source has a rolling plan under this assumption");
+        .expect("bounded rolling stress search does not exhaust");
 
-        assert_eq!(plan.repair_plan.trajectories.len(), 152);
-        assert!(
-            timed_disc_conflicts(&plan.repair_plan.trajectories, 0.0)
-                .expect("valid stress trajectories")
-                .is_empty()
+        assert_eq!(
+            outcome,
+            QueueGridRollingOutcome::NoPlan {
+                cohort_tickets: vec![112, 111, 110, 109, 108, 107, 106, 105],
+            }
         );
     }
 }
