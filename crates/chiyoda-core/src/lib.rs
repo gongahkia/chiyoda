@@ -8,6 +8,7 @@ mod avoidance;
 pub mod benchmark;
 pub mod bundle;
 pub mod calibration;
+pub mod coordination;
 pub mod evidence;
 pub mod experiment;
 pub mod formatter;
@@ -28,6 +29,17 @@ pub use bundle::{
 };
 pub use calibration::{
     CalibrationError, PlatformCalibrationReport, calibrate_eindhoven_platform, verify_catalog_files,
+};
+pub use coordination::{
+    ConflictRepairPlan, ConflictRepairRequest, CoordinationAgentRequest, CoordinationAgentTask,
+    CoordinationError, CoordinationLatticeRoadmap, CoordinationRoadmap, CoordinationRoadmapEdge,
+    CoordinationRoadmapNode, MultiStagePlan, MultiStagePlanRequest, QueueGridCoordinationPlan,
+    QueueGridCoordinationRequest, QueueGridRollingCoordinationRequest, QueueGridServiceAssumption,
+    QueueGridServiceDeparture, QueueGridSlotWindow, QueueGridTicketActivation,
+    QueueGridTicketRequest, TimeExpandedPlan, TimeExpandedPlanRequest, TimedDiscConflict,
+    TimedDiscSegment, TimedDiscTrajectory, TimedRoadmapTarget, estimate_queue_grid_departures,
+    first_timed_disc_conflict, plan_queue_grid, plan_queue_grid_rolling, queue_grid_slot_windows,
+    queue_grid_timed_targets, reference_clearance_epsilon_m, timed_disc_conflicts,
 };
 pub use evidence::{EvidenceCatalog, EvidencePurpose, EvidenceValidationError, validate_catalog};
 pub use experiment::{

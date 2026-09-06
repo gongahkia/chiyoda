@@ -84,6 +84,9 @@ current bundle and then requires both reference-disc overlap audits to be zero.
 The queue-grid stress case intentionally does not pass this check: it is a
 dense failure-finding scenario. Passing the check does not certify a facility,
 contact model, or physical safety.
+The separate [queue-grid coordination architecture](docs/coordination.md)
+documents the bounded continuous-time planning layer under construction; the
+current local FIFO rule is not presented as a complete coordination solver.
 
 ## Start without data
 
