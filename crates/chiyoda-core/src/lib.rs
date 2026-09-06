@@ -28,7 +28,12 @@ pub use bundle::{
     RunBundle, SweptOnSurfaceClearanceMetrics, bundle_hash,
 };
 pub use calibration::{
-    CalibrationError, PlatformCalibrationReport, calibrate_eindhoven_platform, verify_catalog_files,
+    CalibrationError, FreeWalkingFileSummary, FreeWalkingObservationCounts,
+    FreeWalkingPartitionSummary, FreeWalkingScreen, FreeWalkingSpeedHeldOutEvaluation,
+    FreeWalkingSpeedProfile, PlatformCalibrationReport, calibrate_eindhoven_platform,
+    create_eindhoven_free_walking_speed_profile, embedded_free_walking_speed_profile_declaration,
+    evaluate_eindhoven_free_walking_speed_profile, validate_free_walking_speed_evaluation,
+    validate_free_walking_speed_profile, verify_catalog_files,
 };
 pub use coordination::{
     ConflictRepairPlan, ConflictRepairRequest, CoordinationAgentRequest, CoordinationAgentTask,

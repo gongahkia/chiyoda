@@ -11,8 +11,10 @@ use chiyoda_core::{
     QueueResourceMetrics, RunBundle, RunOptions, SensitivityFactor, SensitivityManifest,
     SensitivityTarget, SweptOnSurfaceClearanceMetrics, TimedDiscSegment, TimedDiscTrajectory,
     anchor_osm_scenario, assess_queue_grid_rolling, calibrate_eindhoven_platform,
-    estimate_queue_grid_departures, format_scenario, generator, inspect_openstreetmap_layout,
-    parse, plan_sensitivity, project_openstreetmap_layout_report, reference_clearance_epsilon_m,
+    create_eindhoven_free_walking_speed_profile, embedded_free_walking_speed_profile_declaration,
+    estimate_queue_grid_departures, evaluate_eindhoven_free_walking_speed_profile, format_scenario,
+    generator, inspect_openstreetmap_layout, parse, plan_sensitivity,
+    project_openstreetmap_layout_report, reference_clearance_epsilon_m,
     resolve_sensitivity_target_value, run, summarize_crowd_queue_reference,
     summarize_vru_trajectory_reference, timed_disc_conflicts, validate, validate_catalog,
     validate_experiment_manifest, validate_manifest, validate_osm_scenario_anchor_manifest,
@@ -460,6 +462,33 @@ enum CalibrateCommand {
         /// should be inspected only after a protocol has frozen the model.
         #[arg(long, value_enum, default_value_t = EvidencePartition::Calibration)]
         partition: EvidencePartition,
+        #[arg(short, long)]
+        output: PathBuf,
+    },
+    /// Fit the fixed, opt-in constant horizontal preferred-speed input from days 01–30 only.
+    FreeWalkingSpeedProfile {
+        catalog: PathBuf,
+        #[arg(long, default_value = "data/raw")]
+        data_root: PathBuf,
+        /// Identifier embedded in a later `walking-profile` DSL declaration.
+        #[arg(long, default_value = "eindhoven_platform_free_walking_p50")]
+        profile_id: String,
+        #[arg(short, long)]
+        output: PathBuf,
+    },
+    /// Compare one fixed free-walking profile with the locked days 31–60 partition.
+    EvaluateFreeWalkingSpeedProfile {
+        catalog: PathBuf,
+        profile: PathBuf,
+        #[arg(long, default_value = "data/raw")]
+        data_root: PathBuf,
+        #[arg(short, long)]
+        output: PathBuf,
+    },
+    /// Emit the source declaration that embeds a reviewed free-walking profile's provenance.
+    EmitFreeWalkingSpeedDsl {
+        profile: PathBuf,
+        evaluation: PathBuf,
         #[arg(short, long)]
         output: PathBuf,
     },
@@ -3851,6 +3880,54 @@ fn handle_calibration(command: CalibrateCommand) -> Result<()> {
             println!("descriptive report: {}", output.display());
             println!("status: {}", report.status);
         }
+        CalibrateCommand::FreeWalkingSpeedProfile {
+            catalog,
+            data_root,
+            profile_id,
+            output,
+        } => {
+            let catalog: EvidenceCatalog = read_json(&catalog)?;
+            let profile =
+                create_eindhoven_free_walking_speed_profile(&catalog, &data_root, &profile_id)?;
+            write_json(&output, &profile)?;
+            println!("free-walking speed profile: {}", output.display());
+            println!("profile hash: {}", profile.profile_sha256);
+            println!(
+                "preferred speed: {} m/s (calibration histogram P50)",
+                profile.preferred_speed_mps
+            );
+        }
+        CalibrateCommand::EvaluateFreeWalkingSpeedProfile {
+            catalog,
+            profile,
+            data_root,
+            output,
+        } => {
+            let catalog: EvidenceCatalog = read_json(&catalog)?;
+            let profile = read_json(&profile)?;
+            let evaluation =
+                evaluate_eindhoven_free_walking_speed_profile(&catalog, &data_root, &profile)?;
+            write_json(&output, &evaluation)?;
+            println!("held-out free-walking comparison: {}", output.display());
+            println!("evaluation hash: {}", evaluation.evaluation_sha256);
+            println!(
+                "absolute held-out P50 error: {} m/s",
+                evaluation.absolute_median_error_mps
+            );
+            println!("status: {}", evaluation.status);
+        }
+        CalibrateCommand::EmitFreeWalkingSpeedDsl {
+            profile,
+            evaluation,
+            output,
+        } => {
+            let profile = read_json(&profile)?;
+            let evaluation = read_json(&evaluation)?;
+            let declaration =
+                embedded_free_walking_speed_profile_declaration(&profile, &evaluation)?;
+            write_text(&output, &format!("{declaration}\n"))?;
+            println!("embedded walking-profile declaration: {}", output.display());
+        }
     }
     Ok(())
 }
@@ -7114,6 +7191,16 @@ fn write_json<T: serde::Serialize>(path: &Path, value: &T) -> Result<()> {
     let mut bytes = serde_json::to_vec_pretty(value).context("serializing canonical JSON")?;
     bytes.push(b'\n');
     fs::write(path, bytes).with_context(|| format!("writing {}", path.display()))
+}
+
+fn write_text(path: &Path, text: &str) -> Result<()> {
+    if let Some(parent) = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+    {
+        fs::create_dir_all(parent).with_context(|| format!("creating {}", parent.display()))?;
+    }
+    fs::write(path, text).with_context(|| format!("writing {}", path.display()))
 }
 
 fn validation_error(errors: &[chiyoda_core::ValidationError]) -> anyhow::Error {

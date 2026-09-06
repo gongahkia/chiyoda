@@ -47,6 +47,36 @@ pub fn validate(scenario: &Scenario) -> Result<(), Vec<ValidationError>> {
         errors.push(issue("timestep", "must not exceed duration"));
     }
 
+    for (index, profile) in scenario.walking_profiles.iter().enumerate() {
+        let path = format!("walking_profiles[{index}]");
+        check_unique(&mut ids, &profile.id, &path, &mut errors);
+        check_positive(
+            &format!("{path}.preferred_speed_mps"),
+            profile.preferred_speed_mps,
+            &mut errors,
+        );
+        check_sha256(
+            &format!("{path}.catalog_sha256"),
+            &profile.catalog_sha256,
+            &mut errors,
+        );
+        check_sha256(
+            &format!("{path}.calibration_profile_sha256"),
+            &profile.calibration_profile_sha256,
+            &mut errors,
+        );
+        check_sha256(
+            &format!("{path}.held_out_evaluation_sha256"),
+            &profile.held_out_evaluation_sha256,
+            &mut errors,
+        );
+    }
+    let walking_profiles: HashMap<&str, _> = scenario
+        .walking_profiles
+        .iter()
+        .map(|profile| (profile.id.as_str(), profile))
+        .collect();
+
     for (index, surface) in scenario.surfaces.iter().enumerate() {
         let path = format!("surfaces[{index}]");
         check_unique(&mut ids, &surface.id, &path, &mut errors);
@@ -612,6 +642,26 @@ pub fn validate(scenario: &Scenario) -> Result<(), Vec<ValidationError>> {
             errors.push(issue(&format!("{path}.count"), "must be greater than zero"));
         }
         check_positive(&format!("{path}.speed_mps"), group.speed_mps, &mut errors);
+        if let Some(profile_id) = group.walking_profile_id.as_deref() {
+            match walking_profiles.get(profile_id) {
+                Some(profile)
+                    if profile.preferred_speed_mps.to_bits() != group.speed_mps.to_bits() =>
+                {
+                    errors.push(issue(
+                        &format!("{path}.speed_mps"),
+                        format!(
+                            "must equal walking profile `{profile_id}` preferred speed {} m/s",
+                            profile.preferred_speed_mps
+                        ),
+                    ));
+                }
+                Some(_) => {}
+                None => errors.push(issue(
+                    &format!("{path}.walking_profile_id"),
+                    format!("references unknown walking profile `{profile_id}`"),
+                )),
+            }
+        }
         check_positive(&format!("{path}.radius_m"), group.radius_m, &mut errors);
         check_positive(&format!("{path}.height_m"), group.height_m, &mut errors);
         let mut excluded_connector_kinds = BTreeSet::new();
@@ -1371,6 +1421,15 @@ fn check_unique(
 fn check_positive(path: &str, value: f64, errors: &mut Vec<ValidationError>) {
     if !value.is_finite() || value <= 0.0 {
         errors.push(issue(path, "must be finite and greater than zero"));
+    }
+}
+
+fn check_sha256(path: &str, value: &str, errors: &mut Vec<ValidationError>) {
+    if value.len() != 64 || !value.chars().all(|character| character.is_ascii_hexdigit()) {
+        errors.push(issue(
+            path,
+            "must be a 64-character SHA-256 hexadecimal digest",
+        ));
     }
 }
 

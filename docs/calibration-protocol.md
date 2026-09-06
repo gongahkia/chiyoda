@@ -28,6 +28,55 @@ subsequent parameter change, metric change, source reprocessing, or inspection
 of held-out results invalidates that protocol and requires a new split or a new
 round.
 
+## Implemented narrow protocol: horizontal free-walking speed
+
+The repository now implements one fixed protocol record, rather than allowing
+callers to tune a model after inspecting results. It applies only to an opt-in
+`walking-profile` DSL declaration of kind `horizontal-free-walking`:
+
+1. The tested mechanism is the existing scalar `AgentGroup.speed_mps` preferred
+   speed, with no change to local avoidance, route planning, queues, connectors,
+   releases, or any default runtime parameter.
+2. The profile is fitted only on days 01–30. A retained step must have exactly
+   one tracked object in the full platform frame at both endpoints. This strict,
+   zero-neighbour screen avoids relabeling the publisher's complex platform
+   observations as unconditionally free walking; it does not prove the absence
+   of environmental effects. It also requires speed at least 0.5 m/s, a fixed
+   prospective screen for stationary tracks and tracker jitter rather than a
+   value tuned against either partition. The one parameter is the resulting
+   fixed 0.01 m/s histogram P50, the minimizer of the stated absolute-error
+   objective.
+3. Days 31–60 are processed only by the evaluation command using the same
+   content-locked catalog and unchanged 500 ms / 4 m/s filter. The held-out
+   report gives signed and absolute error between the fitted scalar and the
+   held-out P50, while retaining the full held-out descriptive summary.
+4. There is deliberately no invented pass threshold. A completed temporal
+   comparison receives `held_out_comparison_complete_not_accepted`; it is not a
+   product-acceptance, population, trajectory, or predictive-validity result.
+
+Run the three stages explicitly:
+
+```console
+$ cargo run -p chiyoda -- calibrate free-walking-speed-profile \
+    benchmarks/evidence/eindhoven-centraal-platform-2024.json \
+    -o out/eindhoven-free-walking-profile.json
+$ cargo run -p chiyoda -- calibrate evaluate-free-walking-speed-profile \
+    benchmarks/evidence/eindhoven-centraal-platform-2024.json \
+    out/eindhoven-free-walking-profile.json \
+    -o out/eindhoven-free-walking-held-out.json
+$ cargo run -p chiyoda -- calibrate emit-free-walking-speed-dsl \
+    out/eindhoven-free-walking-profile.json \
+    out/eindhoven-free-walking-held-out.json \
+    -o out/eindhoven-free-walking-profile.chy
+```
+
+Copy the one emitted `walking-profile` line near the top of an authored source,
+then use `speed profile eindhoven_platform_free_walking_p50` for a specifically
+scoped group. The generated profile and evaluation are self-hashed; the emitted
+DSL line carries both artifact hashes and the catalog hash. This makes a bundle
+replayable without a raw-data dependency while leaving the source trail
+inspectable.
+
 ## Split and leakage control
 
 The catalog uses immutable ten-day Parquet source files as split units:

@@ -1,0 +1,140 @@
+{
+  "schema_version": "chiyoda.free-walking-speed-held-out-evaluation.v3",
+  "adapter_version": "0.42.0-alpha.1",
+  "dataset_id": "eindhoven-centraal-platform-2024",
+  "catalog_sha256": "f25fbf0ed6d014cce24015484022a3b0cd0a5d04b0333689d007d73de4d44f66",
+  "profile_id": "eindhoven_platform_free_walking_p50",
+  "profile_sha256": "e0244952eaf485f9bbc048b30865f06bee321940a5d9a24c538be43f4c33f1e7",
+  "held_out_partition": "held_out",
+  "filter": {
+    "max_gap_ms": 500,
+    "max_speed_mps": 4.0,
+    "histogram_bin_width_mps": 0.01
+  },
+  "screen": {
+    "require_singleton_endpoint_frames": true,
+    "minimum_speed_mps": 0.5
+  },
+  "model": "constant_preferred_speed_equals_isolation_screened_calibration_histogram_p50",
+  "held_out_metric": "Signed and absolute error between the calibration-fitted constant preferred speed and the held-out isolation-screened consecutive-sample horizontal-speed P50, using the same locked 0.01 m/s histogram estimator. A retained step requires exactly one tracked platform object in both endpoint frames.",
+  "preferred_speed_mps": 1.065,
+  "held_out_summary": {
+    "files": [
+      {
+        "id": "eindhoven-days-31-40",
+        "role": "held_out",
+        "source_sha256": "a81d2b8a79811d839890250692ddb4d511811a4194150f337c89c9bdd7609ccc",
+        "local_path": "eindhoven-centraal-2024/Eindhoven_centraal_trajectories_days_31_40.parquet",
+        "observations": {
+          "rows": 144307308,
+          "frames": 6492339,
+          "singleton_frames": 509546,
+          "multiple_object_frames": 5982793,
+          "first_observations": 294718,
+          "non_positive_time_steps": 0,
+          "gaps_over_limit": 710,
+          "speeds_over_limit": 138834,
+          "speeds_below_walking_threshold": 91283690,
+          "non_singleton_endpoint_steps": 52361996,
+          "usable_free_walking_steps": 227360
+        },
+        "speed": {
+          "samples": 227360,
+          "mean_mps": 1.1451872682772526,
+          "standard_deviation_mps": 0.5244232408537036,
+          "p05_mps": 0.555,
+          "p50_mps": 1.055,
+          "p95_mps": 2.235,
+          "min_mps": 0.5,
+          "max_mps": 3.993256816184003
+        }
+      },
+      {
+        "id": "eindhoven-days-41-50",
+        "role": "held_out",
+        "source_sha256": "3daef07a9b84559710ca3f2613fd8faea75becca08975ca7b603b77c8083a409",
+        "local_path": "eindhoven-centraal-2024/Eindhoven_centraal_trajectories_days_41_50.parquet",
+        "observations": {
+          "rows": 201763270,
+          "frames": 6524474,
+          "singleton_frames": 426655,
+          "multiple_object_frames": 6097819,
+          "first_observations": 376480,
+          "non_positive_time_steps": 0,
+          "gaps_over_limit": 588,
+          "speeds_over_limit": 220603,
+          "speeds_below_walking_threshold": 132711819,
+          "non_singleton_endpoint_steps": 68248541,
+          "usable_free_walking_steps": 205239
+        },
+        "speed": {
+          "samples": 205239,
+          "mean_mps": 1.171754374313205,
+          "standard_deviation_mps": 0.535073882883837,
+          "p05_mps": 0.555,
+          "p50_mps": 1.095,
+          "p95_mps": 2.275,
+          "min_mps": 0.5,
+          "max_mps": 3.99284359823923
+        }
+      },
+      {
+        "id": "eindhoven-days-51-60",
+        "role": "held_out",
+        "source_sha256": "e48ce5c1124ba9a7f43a91e8b61c85f7ccc7e4422d677ac6a8dc5c935ac60ab0",
+        "local_path": "eindhoven-centraal-2024/Eindhoven_centraal_trajectories_days_51_60.parquet",
+        "observations": {
+          "rows": 161401338,
+          "frames": 6447889,
+          "singleton_frames": 426320,
+          "multiple_object_frames": 6021569,
+          "first_observations": 328664,
+          "non_positive_time_steps": 0,
+          "gaps_over_limit": 718,
+          "speeds_over_limit": 151158,
+          "speeds_below_walking_threshold": 102701954,
+          "non_singleton_endpoint_steps": 58014796,
+          "usable_free_walking_steps": 204048
+        },
+        "speed": {
+          "samples": 204048,
+          "mean_mps": 1.146665601946697,
+          "standard_deviation_mps": 0.529803956220192,
+          "p05_mps": 0.555,
+          "p50_mps": 1.055,
+          "p95_mps": 2.255,
+          "min_mps": 0.5,
+          "max_mps": 3.9934070666537362
+        }
+      }
+    ],
+    "observations": {
+      "rows": 507471916,
+      "frames": 19464702,
+      "singleton_frames": 1362521,
+      "multiple_object_frames": 18102181,
+      "first_observations": 999862,
+      "non_positive_time_steps": 0,
+      "gaps_over_limit": 2016,
+      "speeds_over_limit": 510595,
+      "speeds_below_walking_threshold": 326697463,
+      "non_singleton_endpoint_steps": 178625333,
+      "usable_free_walking_steps": 636647
+    },
+    "speed": {
+      "samples": 636647,
+      "mean_mps": 1.1542256479512252,
+      "standard_deviation_mps": 0.5297377850078047,
+      "p05_mps": 0.555,
+      "p50_mps": 1.075,
+      "p95_mps": 2.255,
+      "min_mps": 0.5,
+      "max_mps": 3.9934070666537362
+    }
+  },
+  "signed_median_error_mps": -0.010000000000000009,
+  "absolute_median_error_mps": 0.010000000000000009,
+  "status": "held_out_comparison_complete_not_accepted",
+  "evaluation_sha256": "9b7f018cc652456faafba7d6dd15620f1e928a8d8197ebee409d0673a9d86830",
+  "claim_boundary": "This comparison reports temporal held-out stability of one constant horizontal preferred-speed input on one Eindhoven platform under the fixed source filter and strict singleton-frame screen. It is not an automatic acceptance threshold or a validation that retained people are unaffected by all environmental factors; it does not validate trajectories, population behavior, avoidance, queues, routing, gates, stairs, lifts, escalators, a station, prediction, operations, or safety."
+}

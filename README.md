@@ -276,6 +276,17 @@ $ cargo run -p chiyoda -- evidence lock \
 $ cargo run -p chiyoda -- calibrate eindhoven-platform \
     benchmarks/evidence/eindhoven-centraal-platform-2024.json \
     -o out/eindhoven-platform-intake.json
+$ cargo run -p chiyoda -- calibrate free-walking-speed-profile \
+    benchmarks/evidence/eindhoven-centraal-platform-2024.json \
+    -o out/eindhoven-free-walking-profile.json
+$ cargo run -p chiyoda -- calibrate evaluate-free-walking-speed-profile \
+    benchmarks/evidence/eindhoven-centraal-platform-2024.json \
+    out/eindhoven-free-walking-profile.json \
+    -o out/eindhoven-free-walking-held-out.json
+$ cargo run -p chiyoda -- calibrate emit-free-walking-speed-dsl \
+    out/eindhoven-free-walking-profile.json \
+    out/eindhoven-free-walking-held-out.json \
+    -o out/eindhoven-free-walking-profile.chy
 $ PYTHONPATH=python/src python3 -m chiyoda_analysis.evidence_cli fetch \
     benchmarks/evidence/vru-trajectory-2022.json
 $ cargo run -p chiyoda -- evidence lock \
@@ -292,10 +303,14 @@ $ cargo run -p chiyoda -- reference crowd-queue \
     -o out/wuppertal-crowdqueue-reference.json
 ```
 
-The Eindhoven report is explicitly `descriptive_only`; it cannot justify
-predictive or operational use. Details, source limits, and the required next
-review gate are in [evidence boundaries](docs/evidence.md) and the [calibration
-protocol](docs/calibration-protocol.md).
+The Eindhoven intake report is explicitly `descriptive_only`. The separate
+three-stage command above implements one opt-in constant horizontal
+free-walking-speed profile and its locked temporal held-out comparison. That
+comparison deliberately ends in `held_out_comparison_complete_not_accepted`:
+it is neither predictive nor operational validation and does not apply to
+queues, avoidance, routing, stairs, or a station. Details, source limits, and
+the fixed review boundary are in [evidence boundaries](docs/evidence.md) and
+the [calibration protocol](docs/calibration-protocol.md).
 
 The VRU catalog is a content-locked `uncalibrated_reference`: it makes a
 CC BY 4.0 urban-intersection trajectory archive available for documented,

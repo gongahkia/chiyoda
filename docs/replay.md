@@ -9,6 +9,7 @@ runtime's recorded state; it is not a simulation engine, a facility survey, a
 $ cargo run -p chiyoda-replay -- out/experiment/run.json --paused
 $ cargo run -p chiyoda-replay -- out/experiment/run.json --surface concourse
 $ cargo run -p chiyoda-replay -- out/experiment/run.json --speed 10
+$ cargo run -p chiyoda-replay -- out/experiment/run.json --surface concourse --export-gif out/experiment/replay.gif --gif-speed 4
 ```
 
 ## Live DSL debugging
@@ -64,6 +65,24 @@ By default it advances according to the recorded simulation-time gaps; use
 `--speed N` to show `N` simulation seconds per wall-clock second. This avoids
 making a trace recorded at a different sampling frequency appear to have a
 different duration.
+
+## Animated GIF export
+
+PNG snapshots remain the smallest and clearest artifact for a single reviewed
+state. Use an animated GIF only when the sequence itself matters—for example,
+to review movement timing, queue-state transitions, or rerouting. `--export-gif
+PATH` verifies and reconstructs the input bundle before rendering every stored
+trace frame of the selected surface, writes `PATH`, then exits without opening a
+window. It never accepts `--watch`, does not re-run or compile source, and does
+not modify the canonical bundle.
+
+`--gif-speed N` means `N` simulation seconds per playback second. GIF timing is
+limited to centiseconds; the companion `PATH.json` records the exact
+per-frame rounded delays, the terminal-delay policy, playback speed,
+`trace_every_steps`, trace-frame count, rendered surface, scenario hash, bundle
+hash, runtime and bundle versions, and a clear derived-artifact boundary. The
+exporter refuses to overwrite either the GIF or its sidecar. The verified JSON
+bundle remains the canonical replay and timing artifact.
 
 ## Rendering contract
 

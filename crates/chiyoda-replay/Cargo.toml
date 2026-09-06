@@ -17,6 +17,7 @@ clap.workspace = true
 flate2.workspace = true
 gif.workspace = true
 minifb.workspace = true
+serde.workspace = true
 serde_json.workspace = true
 chiyoda-core = { path = "../chiyoda-core" }
 

@@ -484,6 +484,11 @@ pub struct AgentGroup {
     /// Additional final exits considered alongside `destination`; declaration
     /// order breaks equal nominal-route costs.
     pub alternative_destinations: Vec<String>,
+    /// Optional source-locked preferred-speed profile selected by this group.
+    /// The resolved value remains explicit in `speed_mps` so the runtime has no
+    /// external artifact dependency during deterministic replay.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub walking_profile_id: Option<String>,
     pub speed_mps: f64,
     pub radius_m: f64,
     pub height_m: f64,
@@ -505,6 +510,35 @@ pub struct AgentGroup {
     /// Connector classes this group must not traverse. This is an authored
     /// route constraint, not an inferred mobility or accessibility profile.
     pub excluded_connector_kinds: Vec<ConnectorKind>,
+}
+
+/// A fully embedded, source-locked speed input for a narrow declared walking
+/// primitive. It records provenance but does not make the runtime load data or
+/// infer behavior outside its explicit scalar preferred-speed parameter.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct WalkingSpeedProfile {
+    pub id: String,
+    pub kind: WalkingSpeedProfileKind,
+    pub preferred_speed_mps: f64,
+    pub catalog_sha256: String,
+    pub calibration_profile_sha256: String,
+    pub held_out_evaluation_sha256: String,
+}
+
+/// The only current evidence-backed walking-profile primitive.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum WalkingSpeedProfileKind {
+    HorizontalFreeWalking,
+}
+
+impl WalkingSpeedProfileKind {
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::HorizontalFreeWalking => "horizontal-free-walking",
+        }
+    }
 }
 
 impl AgentGroup {
@@ -709,6 +743,10 @@ pub struct Scenario {
     pub seed: u64,
     pub duration_s: f64,
     pub timestep_s: f64,
+    /// Optional source-locked profiles embedded in source and canonical IR.
+    /// Omission preserves compatibility with older scenarios and bundles.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub walking_profiles: Vec<WalkingSpeedProfile>,
     pub surfaces: Vec<Surface>,
     pub obstacles: Vec<Obstacle>,
     pub waypoints: Vec<Waypoint>,

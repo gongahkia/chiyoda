@@ -171,6 +171,26 @@ command deliberately does not inspect it.
 The exact pre-registration, leakage, and acceptance rules are in the
 [calibration protocol](calibration-protocol.md).
 
+## Opt-in free-walking speed profile
+
+The descriptive intake remains separate from the runtime default. The only
+implemented evidence-to-runtime bridge is an explicit three-stage
+`free-walking-speed-profile` workflow defined in the
+[calibration protocol](calibration-protocol.md): it fits a constant
+`AgentGroup.speed_mps` input from days 01–30 after a strict endpoint screen
+requiring exactly one tracked platform object per source frame and a fixed
+0.5 m/s minimum walking speed, compares that scalar with the equivalently
+screened locked days 31–60 P50, then emits a provenance-complete DSL
+declaration. The result is opt-in, self-hashed, and embedded in canonical
+scenario IR; a normal scenario continues to use its authored `speed SPEED`
+literal.
+
+The held-out status is intentionally
+`held_out_comparison_complete_not_accepted`. It records a reproducible temporal
+comparison, not an acceptance threshold or a claim of free-trajectory,
+population, avoidance, queue, route-choice, connector, station, predictive,
+operational, or safety validity.
+
 The checked-in [calibration descriptive report](../benchmarks/reports/eindhoven-platform-calibration-intake.json)
 was regenerated from the locked days 01–30 files using adapter
 `0.1.0-alpha.1`. It contains 470,779,630 retained consecutive observations;
