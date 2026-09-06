@@ -7297,9 +7297,10 @@ fn dataset_role(partition: EvidencePartition) -> chiyoda_core::benchmark::Datase
 mod tests {
     use super::{
         ExperimentCommand, InformationSamplingAlignment, LayoutCommand, QueueExperience, SweepRun,
-        SweepSource, SweepSummary, compare_sweep_summaries, describe_sweep, handle_experiment,
-        handle_layout, information_sampling_alignment, require_zero_reference_clearance,
-        validate_bundle_metrics, validate_queue_service_reservation_events,
+        SweepSource, SweepSummary, SyntheticCommand, compare_sweep_summaries, describe_sweep,
+        handle_experiment, handle_layout, handle_synthetic, information_sampling_alignment,
+        require_zero_reference_clearance, validate_bundle_metrics,
+        validate_queue_service_reservation_events,
     };
     use chiyoda_core::{
         InformationDeliveryMetrics, InformationInterventionKind, MovementMetrics,
@@ -7332,6 +7333,25 @@ mod tests {
             std::env::temp_dir().join(format!("chiyoda-{name}-{}-{nonce}", std::process::id()));
         fs::create_dir_all(&directory).expect("creating temporary test directory");
         TestDirectory(directory)
+    }
+
+    #[test]
+    fn synthetic_system_command_writes_an_integrated_conformance_report() {
+        let directory = test_directory("synthetic-system");
+        let output = directory.0.join("report.json");
+
+        handle_synthetic(SyntheticCommand::System {
+            output: output.clone(),
+        })
+        .expect("fixed synthetic system fixture executes");
+
+        let report: chiyoda_core::SyntheticSystemReport = serde_json::from_slice(
+            &fs::read(&output).expect("synthetic system report was written"),
+        )
+        .expect("synthetic system report is valid JSON");
+        assert_eq!(report.status, "synthetic_integration_conformance_only");
+        assert!(report.self_replay.exact_self_replay);
+        assert_eq!(report.event_counts.get("route_recomputed"), Some(&7));
     }
 
     fn test_queue_metrics(

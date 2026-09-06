@@ -1,11 +1,7 @@
-# Deterministic synthetic integration fixture. It exercises authored vertical
-# travel, FIFO queueing, route recomputation, and scheduled operational state.
-# Every number is a structural fixture input, not a station measurement.
 scenario "synthetic-system-contract"
 seed 73
 duration 100s
-timestep 200ms
-
+timestep 0.2s
 surface platform at (0m, 0m, 3m) size (24m, 12m)
 surface concourse at (0m, 0m, 0m) size (36m, 12m)
 exit street on concourse at (34m, 8m, 0m) width 2m

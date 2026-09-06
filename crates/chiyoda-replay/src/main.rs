@@ -44,6 +44,10 @@ const WATCH_STATUS_BORDER: u32 = 0x0045_6078;
 const WATCH_STATUS_TEXT: u32 = 0x00f8_f9fa;
 const WATCH_ERROR: u32 = 0x00ff_6b6b;
 const WATCH_INFO: u32 = 0x0065_d1ff;
+const DEBUG_PANEL: u32 = 0x0014_202b;
+const DEBUG_BORDER: u32 = 0x0065_d1ff;
+const DEBUG_LABEL: u32 = 0x00c6_8cff;
+const DEBUG_TEXT: u32 = 0x00f8_f9fa;
 const WATCH_POLL_INTERVAL: Duration = Duration::from_millis(100);
 const WATCH_DEBOUNCE: Duration = Duration::from_millis(150);
 const ATLAS_TERRAIN_PIXELS: usize = 32;
@@ -494,6 +498,7 @@ fn replay(
     let mut last_advance = Instant::now();
     let mut view_mode = ViewMode::Surface;
     let mut snapshot_number = 0_u64;
+    let mut debug_panel_open = true;
 
     while window.is_open() && !window.is_key_down(Key::Escape) {
         if let Some(controller) = &mut watch
@@ -564,6 +569,9 @@ fn replay(
         if window.is_key_pressed(Key::V, KeyRepeat::No) {
             view_mode = view_mode.toggle();
         }
+        if window.is_key_pressed(Key::D, KeyRepeat::No) {
+            debug_panel_open = !debug_panel_open;
+        }
         if manually_advanced {
             last_advance = Instant::now();
         }
@@ -589,6 +597,20 @@ fn replay(
         }
         if let Some(status) = watch.as_ref().map(WatchController::status) {
             draw_watch_status(&mut buffer, status);
+        }
+        if debug_panel_open
+            && let Some(current_bundle) = &bundle
+        {
+            draw_debug_panel(
+                &mut buffer,
+                current_bundle,
+                index,
+                surface_index,
+                view_mode,
+                paused,
+                speed,
+                sprite_atlas.is_some(),
+            );
         }
         window.set_title(&window_title(
             bundle.as_ref(),
@@ -689,7 +711,8 @@ fn window_title(
     view_mode: ViewMode,
     watch_status: Option<&str>,
 ) -> String {
-    let controls = "space: pause, arrows: step, tab: surface, V: view, P: PNG, escape: quit";
+    let controls =
+        "space: pause, arrows: step, tab: surface, V: view, D: debug, P: PNG, escape: quit";
     let status = watch_status.unwrap_or("verified bundle replay");
     match bundle {
         Some(bundle) => {
@@ -890,12 +913,12 @@ fn concise_message(message: &str) -> String {
 fn draw_watch_status(buffer: &mut [u32], status: &str) {
     const PANEL_X: isize = 28;
     const PANEL_Y: isize = 28;
-    const PANEL_WIDTH: isize = 1_144;
+    const PANEL_WIDTH: isize = 750;
     const PANEL_HEIGHT: isize = 122;
     const TEXT_X: isize = PANEL_X + 18;
     const TEXT_Y: isize = PANEL_Y + 16;
     const TEXT_SCALE: isize = 2;
-    const MAXIMUM_COLUMNS: usize = 88;
+    const MAXIMUM_COLUMNS: usize = 55;
     const MAXIMUM_LINES: usize = 4;
 
     let error = watch_status_is_error(status);
@@ -939,6 +962,114 @@ fn draw_watch_status(buffer: &mut [u32], status: &str) {
             maximum_lines: MAXIMUM_LINES,
         },
     );
+}
+
+#[allow(clippy::too_many_arguments)] // the panel reports the independent current replay inputs
+fn draw_debug_panel(
+    buffer: &mut [u32],
+    bundle: &RunBundle,
+    index: usize,
+    surface_index: usize,
+    view_mode: ViewMode,
+    paused: bool,
+    speed: f64,
+    uses_sprite_atlas: bool,
+) {
+    const PANEL_WIDTH: isize = 344;
+    const PANEL_HEIGHT: isize = 236;
+    const PANEL_X: isize = WIDTH as isize - PANEL_WIDTH - 28;
+    const PANEL_Y: isize = 28;
+    const TEXT_X: isize = PANEL_X + 16;
+    const TEXT_Y: isize = PANEL_Y + 14;
+    const TEXT_SCALE: isize = 2;
+    const MAXIMUM_COLUMNS: usize = 26;
+    const MAXIMUM_LINES: usize = 11;
+
+    let frame = &bundle.trace[index];
+    let surface = &bundle.scenario.scenario.surfaces[surface_index];
+    let on_selected_surface = frame
+        .agents
+        .iter()
+        .filter(|agent| agent.surface == surface.id)
+        .count();
+    let (moving, waiting, in_transit, evacuated) = debug_state_counts(frame);
+    let text = format!(
+        "RUN: {}\nFRAME: {}/{}\nSTEP: {}\nTIME: {:.2}S\nSPEED: {:.2}X\nVIEW: {}\nSURFACE: {}\nAGENTS: {}/{}\nSTATE: M{} W{}\n       T{} E{}\nATLAS: {}\nD: CLOSE",
+        if paused { "PAUSED" } else { "RUNNING" },
+        index + 1,
+        bundle.trace.len(),
+        frame.step,
+        frame.time_s,
+        speed,
+        view_mode.label(),
+        debug_label(&surface.id, 14),
+        on_selected_surface,
+        frame.agents.len(),
+        moving,
+        waiting,
+        in_transit,
+        evacuated,
+        if uses_sprite_atlas { "SPRITE" } else { "GEOMETRIC" },
+    );
+    draw_pixel_rectangle(
+        buffer,
+        PANEL_X,
+        PANEL_Y,
+        PANEL_WIDTH,
+        PANEL_HEIGHT,
+        DEBUG_PANEL,
+    );
+    draw_pixel_rectangle_outline(
+        buffer,
+        PANEL_X,
+        PANEL_Y,
+        PANEL_WIDTH,
+        PANEL_HEIGHT,
+        DEBUG_BORDER,
+    );
+    draw_bitmap_text(buffer, TEXT_X, TEXT_Y, "DEBUG", DEBUG_LABEL, TEXT_SCALE);
+    draw_wrapped_bitmap_text(
+        buffer,
+        TEXT_X,
+        TEXT_Y + 22,
+        &text,
+        BitmapTextLayout {
+            color: DEBUG_TEXT,
+            scale: TEXT_SCALE,
+            maximum_columns: MAXIMUM_COLUMNS,
+            maximum_lines: MAXIMUM_LINES,
+        },
+    );
+}
+
+fn debug_state_counts(frame: &TraceFrame) -> (usize, usize, usize, usize) {
+    let mut moving = 0;
+    let mut waiting = 0;
+    let mut in_transit = 0;
+    let mut evacuated = 0;
+    for agent in &frame.agents {
+        match &agent.state {
+            AgentState::Moving => moving += 1,
+            AgentState::WaitingToDepart
+            | AgentState::WaitingAtWaypoint
+            | AgentState::WaitingForRoute
+            | AgentState::WaitingForLift
+            | AgentState::WaitingForConnector
+            | AgentState::WaitingForGate
+            | AgentState::WaitingForExit => waiting += 1,
+            AgentState::InTransit => in_transit += 1,
+            AgentState::Evacuated => evacuated += 1,
+        }
+    }
+    (moving, waiting, in_transit, evacuated)
+}
+
+fn debug_label(value: &str, maximum_characters: usize) -> String {
+    let mut label = value.chars().take(maximum_characters).collect::<String>();
+    if value.chars().count() > maximum_characters {
+        label.push_str("...");
+    }
+    label
 }
 
 fn watch_status_is_error(status: &str) -> bool {
@@ -2982,7 +3113,50 @@ agents passengers count 1 on concourse at (1m, 4m, 0m) to street speed 1.2m/s ra
 
         assert_eq!(sprite_atlas.tile_width_pixels, 128);
         assert_eq!(sprite_atlas.tile_height_pixels, 128);
+        for role in [
+            AtlasRole::Moving,
+            AtlasRole::Waiting,
+            AtlasRole::InTransit,
+            AtlasRole::Evacuated,
+        ] {
+            let tile = sprite_atlas.tile(role);
+            let source_left = tile.column * sprite_atlas.tile_width_pixels;
+            let source_top = tile.row * sprite_atlas.tile_height_pixels;
+            let has_transparent_background = (0..sprite_atlas.tile_height_pixels).any(|offset_y| {
+                (0..sprite_atlas.tile_width_pixels).any(|offset_x| {
+                    sprite_atlas.pixels[(source_top + offset_y) * sprite_atlas.image_width_pixels
+                        + source_left
+                        + offset_x]
+                        .alpha
+                        == 0
+                })
+            });
+            assert!(has_transparent_background, "{role:?} tile has no alpha");
+        }
         assert_ne!(default_buffer, atlas_buffer);
+    }
+
+    #[test]
+    fn debug_panel_reports_current_frame_without_covering_watch_status_space() {
+        let bundle = compile_watch_source(WATCH_SOURCE, 1).expect("watch fixture succeeds");
+        let mut buffer = vec![BACKGROUND; WIDTH * HEIGHT];
+        draw_debug_panel(
+            &mut buffer,
+            &bundle,
+            0,
+            0,
+            ViewMode::Surface,
+            true,
+            1.0,
+            true,
+        );
+
+        assert!(buffer.contains(&DEBUG_PANEL));
+        assert!(buffer.contains(&DEBUG_BORDER));
+        assert!(buffer.contains(&DEBUG_LABEL));
+        assert!(buffer.contains(&DEBUG_TEXT));
+        assert_eq!(debug_label("abcdefghijklmnop", 14), "abcdefghijklmn...");
+        assert_eq!(debug_state_counts(&bundle.trace[0]).0, 0);
     }
 
     #[test]
