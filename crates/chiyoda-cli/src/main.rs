@@ -5,16 +5,20 @@ use chiyoda_core::{
     InformationDeliveryMetrics, MovementMetrics, OnSurfaceClearanceMetrics,
     OpenStreetMapLayoutReport, OpenStreetMapLocalProjectionReport, OsmInspectionLimits,
     OsmScenarioAnchorManifest, OsmScenarioAnchorReport, QueueMetrics, QueueResourceMetrics,
-    RunBundle, RunOptions, SensitivityFactor, SensitivityManifest, SensitivityTarget,
-    SweptOnSurfaceClearanceMetrics, anchor_osm_scenario, calibrate_eindhoven_platform,
-    format_scenario, generator, inspect_openstreetmap_layout, parse, plan_sensitivity,
-    project_openstreetmap_layout_report, resolve_sensitivity_target_value, run,
+    QueueGridCoordinationPlan, QueueGridCoordinationRequest, QueueGridRollingCoordinationRequest,
+    QueueGridRollingOutcome, QueueGridServiceAssumption, QueueGridTicketRequest,
+    QueueGridUnresolvedReason, RunBundle, RunOptions, SensitivityFactor, SensitivityManifest,
+    SensitivityTarget, SweptOnSurfaceClearanceMetrics, TimedDiscSegment, TimedDiscTrajectory,
+    anchor_osm_scenario, assess_queue_grid_rolling, calibrate_eindhoven_platform,
+    estimate_queue_grid_departures, format_scenario, generator, inspect_openstreetmap_layout,
+    parse, plan_sensitivity, project_openstreetmap_layout_report,
+    reference_clearance_epsilon_m, resolve_sensitivity_target_value, run,
     summarize_crowd_queue_reference, summarize_vru_trajectory_reference, validate,
     validate_catalog, validate_experiment_manifest, validate_manifest,
     validate_osm_scenario_anchor_manifest, verify_catalog_files,
     verify_openstreetmap_layout_catalog_contract, verify_openstreetmap_layout_report,
     verify_openstreetmap_local_projection_report, verify_osm_scenario_anchor_report,
-    verify_run_bundle,
+    verify_run_bundle, timed_disc_conflicts, CoordinationRoadmap,
 };
 use chiyoda_core::{bundle::RunMetrics, experiment::ExperimentSourceAttestation};
 use clap::{Parser, Subcommand, ValueEnum};
@@ -65,6 +69,44 @@ enum Command {
         #[arg(long, default_value_t = 10)]
         trace_every: u32,
     },
+    /// Produce a replayable, bounded coordination artifact for one authored queue grid.
+    CoordinateQueueGrid {
+        source: PathBuf,
+        /// Authored agent-group identifier to coordinate.
+        #[arg(long)]
+        group: String,
+        /// Authored queue-grid identifier to coordinate.
+        #[arg(long)]
+        queue_grid: String,
+        /// Explicit uncalibrated time of the first service completion, in seconds.
+        #[arg(long)]
+        first_departure_at_s: f64,
+        /// Explicit uncalibrated active-queue service headway, in seconds.
+        #[arg(long)]
+        headway_s: f64,
+        /// Static lattice spacing for the planner, in metres.
+        #[arg(long, default_value_t = 0.6)]
+        roadmap_spacing_m: f64,
+        /// Maximum statically clear roadmap nodes.
+        #[arg(long, default_value_t = 3_000)]
+        maximum_roadmap_nodes: usize,
+        /// Time grid used only by the bounded planner, in seconds.
+        #[arg(long, default_value_t = 0.5)]
+        planning_timestep_s: f64,
+        /// Maximum low-level search states per route stage.
+        #[arg(long, default_value_t = 100_000)]
+        maximum_low_level_expansions: u64,
+        /// Maximum nodes in a per-cohort conflict tree.
+        #[arg(long, default_value_t = 1_000)]
+        maximum_conflict_tree_nodes: u64,
+        /// Maximum tickets admitted to one bounded formation cohort.
+        #[arg(long, default_value_t = 8)]
+        maximum_tickets_per_cohort: usize,
+        #[arg(short, long)]
+        output: PathBuf,
+    },
+    /// Reconstruct a queue-grid coordination artifact and verify its exact conflict result.
+    VerifyQueueGridCoordination { artifact: PathBuf },
     /// Generate a constraint-preserving scenario candidate from a seed.
     Generate {
         #[arg(long)]

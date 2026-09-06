@@ -858,6 +858,7 @@ impl CoordinationRoadmap {
         let mut nodes = vec![ConflictRepairNode {
             trajectories: initial_trajectories,
             conflicts: initial_conflicts,
+            constraints: vec![Vec::new(); request.agents.len()],
         }];
         let mut frontier = BinaryHeap::new();
         frontier.push((Reverse(nodes[0].conflicts.len()), Reverse(0_usize)));
@@ -889,19 +890,39 @@ impl CoordinationRoadmap {
                     // pretend that the immutable participant can be repaired.
                     return Ok(None);
                 };
-                let mut occupied_trajectories = request.occupied_trajectories.to_vec();
-                occupied_trajectories.extend(
-                    node.trajectories
-                        .iter()
-                        .enumerate()
-                        .filter(|(index, _)| *index != agent_index)
-                        .map(|(_, trajectory)| trajectory.clone()),
-                );
-                let Some(replanned) = plan_coordination_agent(
+                let (other_agent_id, other_segment_index) = if agent_id == conflict.first_agent_id {
+                    (
+                        conflict.second_agent_id.as_str(),
+                        conflict.second_segment_index,
+                    )
+                } else {
+                    (
+                        conflict.first_agent_id.as_str(),
+                        conflict.first_segment_index,
+                    )
+                };
+                let Some(other_agent_index) = request
+                    .agents
+                    .iter()
+                    .position(|agent| agent.agent_id == other_agent_id)
+                else {
+                    return Ok(None);
+                };
+                let Some(forbidden_segment) = node.trajectories[other_agent_index]
+                    .segments
+                    .get(other_segment_index)
+                    .cloned()
+                else {
+                    return Ok(None);
+                };
+                let mut constraints = node.constraints.clone();
+                constraints[agent_index].push(forbidden_segment);
+                let Some(replanned) = plan_coordination_agent_with_constraints(
                     self,
                     request,
                     &request.agents[agent_index],
-                    &occupied_trajectories,
+                    request.occupied_trajectories,
+                    &constraints[agent_index],
                 )?
                 else {
                     continue;
@@ -934,6 +955,7 @@ impl CoordinationRoadmap {
                 nodes.push(ConflictRepairNode {
                     trajectories,
                     conflicts,
+                    constraints,
                 });
                 frontier.push((
                     Reverse(nodes[new_node_index].conflicts.len()),
@@ -1006,11 +1028,7 @@ pub fn assess_queue_grid_rolling(
     }
     let slot_windows = queue_grid_slot_windows_for_request(&request.queue)?;
     let mut tickets = request.queue.tickets.clone();
-    tickets.sort_by(|left, right| {
-        left.activation_at_s
-            .total_cmp(&right.activation_at_s)
-            .then_with(|| left.ticket.cmp(&right.ticket))
-    });
+    tickets.sort_by_key(|ticket| Reverse(ticket.ticket));
     let agents = queue_grid_agents(&tickets, &slot_windows, request.queue.slot_nodes)?;
     let mut occupied_trajectories = request.queue.occupied_trajectories.to_vec();
     let mut trajectories = Vec::with_capacity(agents.len());
@@ -1138,6 +1156,7 @@ struct TimeExpandedState {
 struct ConflictRepairNode {
     trajectories: Vec<TimedDiscTrajectory>,
     conflicts: Vec<TimedDiscConflict>,
+    constraints: Vec<Vec<TimedDiscSegment>>,
 }
 
 #[derive(Debug, Clone)]
@@ -1787,6 +1806,31 @@ fn plan_coordination_agent(
     }
 }
 
+/// Replan one CBS participant against immutable historical trajectories and
+/// only the segment-level prohibitions accumulated for that participant. Peer
+/// trajectories remain unconstrained until a concrete conflict introduces the
+/// next branch; treating all of them as permanent occupancy would turn this
+/// back into priority planning rather than conflict-based search.
+fn plan_coordination_agent_with_constraints(
+    roadmap: &CoordinationRoadmap,
+    request: &ConflictRepairRequest<'_>,
+    agent: &CoordinationAgentRequest,
+    occupied_trajectories: &[TimedDiscTrajectory],
+    constraints: &[TimedDiscSegment],
+) -> Result<Option<CoordinationAgentPlan>, CoordinationError> {
+    if constraints.is_empty() {
+        return plan_coordination_agent(roadmap, request, agent, occupied_trajectories);
+    }
+    let mut constrained_occupancy = occupied_trajectories.to_vec();
+    constrained_occupancy.extend(constraints.iter().enumerate().map(
+        |(constraint_index, segment)| TimedDiscTrajectory {
+            agent_id: format!("constraint:{}:{constraint_index}", agent.agent_id),
+            segments: vec![segment.clone()],
+        },
+    ));
+    plan_coordination_agent(roadmap, request, agent, &constrained_occupancy)
+}
+
 /// Seed a repair solve with deterministic priority formation. Unlike the
 /// independent seed, every later agent sees the trajectories accepted earlier
 /// in this cohort. This is not complete, so [`CoordinationRoadmap::repair_conflicts`]
@@ -2036,6 +2080,7 @@ fn static_stage_plan(
 /// Every stationary interval, move, and target reservation remains checked by
 /// the exact continuous disc kernel. The full time-expanded search remains a
 /// bounded fallback for a case this safe-interval formulation cannot express.
+#[allow(clippy::too_many_lines)]
 fn reservation_aware_stage_plan(
     roadmap: &CoordinationRoadmap,
     request: &TimeExpandedPlanRequest<'_>,
@@ -4111,7 +4156,7 @@ mod tests {
                 clearance_epsilon_m: reference_clearance_epsilon_m(),
                 roadmap: &lattice.roadmap,
             },
-            maximum_tickets_per_cohort: 8,
+            maximum_tickets_per_cohort: 16,
         })
         .expect("bounded rolling stress search does not exhaust");
 

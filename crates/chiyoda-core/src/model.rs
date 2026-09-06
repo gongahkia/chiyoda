@@ -519,7 +519,7 @@ impl AgentGroup {
     }
 
     /// Return the deterministic row-major positions used to instantiate this group.
-    pub(crate) fn spawn_positions(&self) -> impl Iterator<Item = Point3> + '_ {
+    pub fn spawn_positions(&self) -> impl Iterator<Item = Point3> + '_ {
         let columns = spawn_grid_columns(self.count);
         let spacing = self.radius_m * 2.1;
         (0..self.count).map(move |ordinal| {
@@ -540,7 +540,7 @@ impl AgentGroup {
     /// batch size; the `max` keeps this helper total for programmatic callers
     /// before validation has run.
     #[must_use]
-    pub(crate) fn release_time_for(&self, ordinal: u32) -> f64 {
+    pub fn release_time_for(&self, ordinal: u32) -> f64 {
         let batch_size = self.release_batch_size.unwrap_or(1).max(1);
         let batch_ordinal = ordinal / batch_size;
         self.release_at_s + self.release_interval_s.unwrap_or(0.0) * f64::from(batch_ordinal)
