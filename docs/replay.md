@@ -1,14 +1,42 @@
 # Native replay viewer
 
-`chiyoda-replay` is a local Linux viewer for a hash-valid `run.json` artifact.
-It visualizes the reference runtime's recorded state; it is not a simulation
-engine, a facility survey, a 3D renderer, or an operational display.
+`chiyoda-replay` is a local Linux viewer for either a hash-valid `run.json`
+artifact or an in-memory live DSL debug run. It visualizes the reference
+runtime's recorded state; it is not a simulation engine, a facility survey, a
+3D renderer, or an operational display.
 
 ```console
 $ cargo run -p chiyoda-replay -- out/experiment/run.json --paused
 $ cargo run -p chiyoda-replay -- out/experiment/run.json --surface concourse
 $ cargo run -p chiyoda-replay -- out/experiment/run.json --speed 10
 ```
+
+## Live DSL debugging
+
+For the editing loop, pass a source file through `--watch` instead of a run
+bundle:
+
+```console
+$ cargo run -p chiyoda-replay -- --watch examples/experiments/uncalibrated-interchange.chy
+$ cargo run -p chiyoda-replay -- --watch draft.chy --paused --surface platform --trace-every 1
+```
+
+The viewer polls saved source text, waits 150 ms for writes to settle, then
+compiles, validates, and executes the complete deterministic scenario on a
+background worker. A newer save supersedes a stale worker result. A successful
+revision atomically replaces the displayed trace at simulation time zero; it
+does not mutate a running simulation. The default watch trace cadence is one
+integration step, which affects display smoothness only.
+
+An invalid edit leaves the most recent valid scene and trace on screen. The
+terminal prints the complete compile, validation, or runtime diagnostic; the
+window title identifies the failed revision. Before the first valid source
+revision, the viewer displays an empty debug canvas and its current status.
+
+Watch runs are intentionally in-memory, unpersisted debug results. They are
+not hash-verified bundles and cannot be cited as a replayable experiment
+artifact. Run `chiyoda run SOURCE -o DIRECTORY` separately when a durable,
+hash-verified JSON bundle is needed.
 
 For a bundle made by the installed runtime, the viewer checks the bundle hash
 and reconstructs the complete deterministic run before opening a window. It
@@ -22,6 +50,10 @@ Linux display server.
 - Space toggles playback.
 - Left and right arrows step the trace.
 - Tab cycles surfaces in their authored declaration order.
+- V toggles between the selected-surface 2D view and an all-surface isometric overview.
+- P writes the current rendered frame as a PNG under `--snapshot-dir` (default
+  `out/chiyoda-replay`). No image is written until P is pressed; existing
+  snapshots are never overwritten.
 - Escape closes the viewer.
 
 The window title identifies the selected surface and current trace time. The
@@ -58,3 +90,9 @@ connectivity, elevations, widths, density, hazards, visibility, accessibility,
 capacity, behavior, or any empirical outcome from an OSM observation or a run.
 Use the [layout-source workflow](layout-sources.md) for the separate,
 source-observation-only authoring reference boundary.
+
+The isometric overview is a fixed projection of authored surface elevations,
+static geometry, connectors, and recorded agent positions. It is a debugging
+aid, not a general 3D camera, a physical view of a station, or a new rendering
+engine. The selected-surface 2D view remains the detailed rendering of queues,
+portal lanes, obstacles, and resource markers.

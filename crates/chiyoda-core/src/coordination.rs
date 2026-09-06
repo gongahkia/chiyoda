@@ -859,7 +859,12 @@ impl CoordinationRoadmap {
             }));
         }
 
-        if let Some(sequential_plan) = plan_agents_sequentially(self, request)? {
+        // The independent root consumes the first conflict-tree node. Treat
+        // deterministic sequential formation as a second candidate so a
+        // one-node bound remains a genuine root-only unknown result.
+        if request.maximum_conflict_tree_nodes > 1
+            && let Some(sequential_plan) = plan_agents_sequentially(self, request)?
+        {
             return Ok(Some(sequential_plan));
         }
 

@@ -268,6 +268,7 @@ enum QueueGridCoordinationArtifactOutcome {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 enum QueueGridUnresolvedReasonArtifact {
+    NoPlanWithoutReopeningEarlierCohort,
     LowLevelSearchBoundExceeded {
         agent_id: String,
         target_index: usize,
@@ -1772,7 +1773,10 @@ impl From<QueueGridRollingOutcome> for QueueGridCoordinationArtifactOutcome {
     fn from(outcome: QueueGridRollingOutcome) -> Self {
         match outcome {
             QueueGridRollingOutcome::Planned(plan) => Self::from(plan),
-            QueueGridRollingOutcome::NoPlan { cohort_tickets } => Self::NoPlan { cohort_tickets },
+            QueueGridRollingOutcome::NoPlan { cohort_tickets } => Self::Unresolved {
+                cohort_tickets,
+                reason: QueueGridUnresolvedReasonArtifact::NoPlanWithoutReopeningEarlierCohort,
+            },
             QueueGridRollingOutcome::Unresolved {
                 cohort_tickets,
                 reason,
@@ -9820,8 +9824,9 @@ agents passenger count 1 on concourse at (1m, 1m, 0m) to street speed 1m/s radiu
 
         assert!(matches!(
             artifact.outcome,
-            super::QueueGridCoordinationArtifactOutcome::NoPlan {
-                cohort_tickets: ref tickets
+            super::QueueGridCoordinationArtifactOutcome::Unresolved {
+                cohort_tickets: ref tickets,
+                reason: super::QueueGridUnresolvedReasonArtifact::NoPlanWithoutReopeningEarlierCohort,
             } if tickets == &[144, 143, 142, 141, 140, 139, 138, 137]
         ));
         super::verify_queue_grid_coordination_artifact(&artifact)

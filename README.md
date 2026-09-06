@@ -171,6 +171,7 @@ $ cargo run -p chiyoda -- layout anchor-osm my-layout-catalog.json out/layout-ob
 $ cargo run -p chiyoda -- layout verify-anchor-osm my-layout-catalog.json out/layout-observations.json out/layout-local-reference.json my-scenario-anchors.json out/layout-scenario-anchors.json
 $ cargo run -p chiyoda -- replay out/example/run.json
 $ cargo run -p chiyoda-replay -- out/example/run.json
+$ cargo run -p chiyoda-replay -- --watch example.chy --paused
 ```
 
 The first replay command reconstructs a compatible bundle before printing a
@@ -181,6 +182,10 @@ endpoints, portal lanes, and line/grid queue slots and paths behind the agents. 
 `--surface <id>` to choose its initial floor
 or press Tab to cycle floors. Its visual scope and trace-position boundary are
 documented in the [native replay viewer guide](docs/replay.md).
+`chiyoda-replay --watch` is the local visual-debug loop: after each saved valid
+DSL revision it recompiles and reruns the scenario in memory, then replaces the
+displayed trace. It neither writes a run bundle nor upgrades the result to a
+verified artifact; use `chiyoda run` when a durable JSON bundle is required.
 `sweep` is an
 uncalibrated structural experiment: it generates and
 runs a contiguous seed range, writes one independently hash-verifiable bundle

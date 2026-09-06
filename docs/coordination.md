@@ -88,6 +88,9 @@ completion, 4 s headway, and cohorts of eight—the 152-agent stress source
 reports tickets 144 through 137 as the first cohort with no plan. This is
 evidence about that finite roadmap, rolling decomposition, and assumed
 schedule—not evidence that the authored geometry has no physical solution.
+The CLI records this rolling result as an explicit unresolved outcome whose
+reason is that it would require reopening an earlier cohort; it does not label
+the authored geometry infeasible.
 
 For exploratory work without qualifying service data,
 `estimate_queue_grid_departures` derives those inputs from an explicit
@@ -101,7 +104,8 @@ The explicit `chiyoda coordinate-queue-grid` command writes a self-contained
 coordination artifact. It embeds the source and its SHA-256 hash, selected group
 and queue-grid IDs, every planning bound, the deliberately uncalibrated service
 assumption, and either exact trajectories or the first bounded no-plan/unresolved
-cohort. Trajectory coordinates are serialized canonically to nine decimal places;
+cohort. A rolling no-plan result is represented as unresolved when it depends
+on retaining earlier cohorts. Trajectory coordinates are serialized canonically to nine decimal places;
 the verifier audits those serialized trajectories, rather than an in-memory
 precursor. `chiyoda verify-queue-grid-coordination` verifies the source hash,
 reconstructs the same outcome, and, for a planned artifact, runs the exact
