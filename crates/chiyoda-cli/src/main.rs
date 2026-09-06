@@ -222,7 +222,6 @@ enum Command {
 }
 
 const QUEUE_GRID_COORDINATION_ARTIFACT_SCHEMA: &str = "chiyoda.queue-grid-coordination.v1";
-const QUEUE_GRID_COORDINATION_COORDINATE_QUANTUM_M: f64 = 1e-9;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 struct QueueGridCoordinationPolicy {
@@ -1879,8 +1878,9 @@ impl From<TimedDiscSegment> for TimedDiscSegmentArtifact {
 }
 
 fn canonical_coordination_coordinate(value_m: f64) -> f64 {
-    (value_m / QUEUE_GRID_COORDINATION_COORDINATE_QUANTUM_M).round()
-        * QUEUE_GRID_COORDINATION_COORDINATE_QUANTUM_M
+    format!("{value_m:.9}")
+        .parse()
+        .expect("planned coordination coordinates are finite")
 }
 
 impl From<TimedDiscSegmentArtifact> for TimedDiscSegment {
@@ -9826,6 +9826,38 @@ agents passenger count 1 on concourse at (1m, 1m, 0m) to street speed 1m/s radiu
         ));
         super::verify_queue_grid_coordination_artifact(&artifact)
             .expect("stress coordination artifact reconstructs");
+    }
+
+    #[test]
+    fn queue_grid_coordination_artifact_verifies_a_planned_fixture() {
+        let artifact = super::build_queue_grid_coordination_artifact(
+            include_str!("../../../examples/experiments/queue-grid-reference-clearance.chy")
+                .to_owned(),
+            "passengers".to_owned(),
+            "fare_gate_queue".to_owned(),
+            super::QueueGridCoordinationPolicy {
+                first_departure_at_s: 60.0,
+                headway_s: 10.0,
+                roadmap_spacing_m: 0.6,
+                maximum_roadmap_nodes: 3_000,
+                planning_timestep_s: 0.5,
+                maximum_low_level_expansions: 100_000,
+                maximum_conflict_tree_nodes: 1_000,
+                maximum_tickets_per_cohort: 8,
+                clearance_epsilon_m: super::reference_clearance_epsilon_m(),
+            },
+        )
+        .expect("planned coordination artifact builds");
+
+        assert!(matches!(
+            artifact.outcome,
+            super::QueueGridCoordinationArtifactOutcome::Planned {
+                ref trajectories,
+                ..
+            } if trajectories.len() == 4
+        ));
+        super::verify_queue_grid_coordination_artifact(&artifact)
+            .expect("planned coordination artifact reconstructs and clears");
     }
 
     #[test]

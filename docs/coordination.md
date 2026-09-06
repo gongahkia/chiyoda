@@ -101,7 +101,9 @@ The explicit `chiyoda coordinate-queue-grid` command writes a self-contained
 coordination artifact. It embeds the source and its SHA-256 hash, selected group
 and queue-grid IDs, every planning bound, the deliberately uncalibrated service
 assumption, and either exact trajectories or the first bounded no-plan/unresolved
-cohort. `chiyoda verify-queue-grid-coordination` verifies the source hash,
+cohort. Trajectory coordinates are serialized canonically to nine decimal places;
+the verifier audits those serialized trajectories, rather than an in-memory
+precursor. `chiyoda verify-queue-grid-coordination` verifies the source hash,
 reconstructs the same outcome, and, for a planned artifact, runs the exact
 continuous conflict check again. For example:
 
