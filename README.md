@@ -87,6 +87,12 @@ contact model, or physical safety.
 The separate [queue-grid coordination architecture](docs/coordination.md)
 documents the bounded continuous-time planning layer under construction; the
 current local FIFO rule is not presented as a complete coordination solver.
+Use `coordinate-queue-grid` only when you explicitly want that separate
+planner: it writes an embedded-source artifact containing either exact-model
+clear timed trajectories or a precise bounded no-plan/unresolved result.
+`verify-queue-grid-coordination` reconstructs that result. Neither command
+changes the default `run` runtime or turns an audit failure into a clearance
+claim.
 
 ## Start without data
 

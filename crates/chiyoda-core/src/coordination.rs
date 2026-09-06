@@ -504,10 +504,20 @@ impl CoordinationRoadmap {
             surface.origin.y_m + surface.depth_m - clearance_radius_m,
         );
         if horizontal_limits.0 <= horizontal_limits.1 && vertical_limits.0 <= vertical_limits.1 {
-            let mut y_m = vertical_limits.0;
-            while y_m <= vertical_limits.1 + NAVIGATION_CLEARANCE_EPSILON_M {
-                let mut x_m = horizontal_limits.0;
-                while x_m <= horizontal_limits.1 + NAVIGATION_CLEARANCE_EPSILON_M {
+            let mut row = 0_u64;
+            loop {
+                #[allow(clippy::cast_precision_loss)]
+                let y_m = spacing_m.mul_add(row as f64, vertical_limits.0);
+                if y_m > vertical_limits.1 + NAVIGATION_CLEARANCE_EPSILON_M {
+                    break;
+                }
+                let mut column = 0_u64;
+                loop {
+                    #[allow(clippy::cast_precision_loss)]
+                    let x_m = spacing_m.mul_add(column as f64, horizontal_limits.0);
+                    if x_m > horizontal_limits.1 + NAVIGATION_CLEARANCE_EPSILON_M {
+                        break;
+                    }
                     let point = Point3 {
                         x_m: x_m.min(horizontal_limits.1),
                         y_m: y_m.min(vertical_limits.1),
@@ -516,17 +526,15 @@ impl CoordinationRoadmap {
                     if point_has_static_clearance(point, surface, obstacles, clearance_radius_m) {
                         push_roadmap_node(&mut nodes, surface, point, maximum_nodes)?;
                     }
-                    let next_x_m = x_m + spacing_m;
-                    if next_x_m <= x_m {
+                    let Some(next_column) = column.checked_add(1) else {
                         return Err(CoordinationError::InvalidRoadmapSpacing);
-                    }
-                    x_m = next_x_m;
+                    };
+                    column = next_column;
                 }
-                let next_y_m = y_m + spacing_m;
-                if next_y_m <= y_m {
+                let Some(next_row) = row.checked_add(1) else {
                     return Err(CoordinationError::InvalidRoadmapSpacing);
-                }
-                y_m = next_y_m;
+                };
+                row = next_row;
             }
         }
         let mut anchor_nodes = Vec::with_capacity(anchors.len());

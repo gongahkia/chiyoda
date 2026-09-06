@@ -15,13 +15,13 @@ and maximum reference-disc overlap. It uses the runtime's clearance epsilon,
 not a separate endpoint-only rule. It excludes portal, lift, and other transit
 geometry unless a future model explicitly represents those intervals.
 
-The same module now also provides a bounded time-expanded search over an
-explicitly supplied static roadmap. Its every wait and move action is checked
-continuously against declared occupied trajectories, and it distinguishes an
-infeasible result within that roadmap/time horizon from a search-bound
-exhaustion. It is a low-level planning primitive, not yet an automatic
-queue-grid executor. The initial state enumeration is intentionally explicit;
-safe-interval compression remains a future optimisation.
+The same module now provides a bounded planner over an explicitly supplied
+static roadmap. It first tries a shortest spatial route, then represents each
+roadmap node as continuous safe time intervals rather than enumerating every
+`(node, time)` wait state. Its every candidate wait and move is still checked
+continuously against declared occupied trajectories. The original fully
+time-expanded search remains a bounded fallback, so a search-bound exhaustion
+remains distinct from a result with no plan in the declared finite model.
 
 `CoordinationRoadmap::lattice` derives one such bounded roadmap from a declared
 surface, the declared obstacles, a reference-disc radius, a spacing, and exact
@@ -31,20 +31,21 @@ caller must choose the lattice spacing and node bound; neither is calibrated or
 derived from a facility.
 
 A bounded deterministic conflict-repair tree is now layered over that search.
-It begins with individual roadmap plans, selects the earliest remaining
-continuous-time conflict, and branches by replanning either participant against
-the other currently declared trajectories. A result is returned only after the
-same exact conflict kernel finds no remaining conflicts. The finite roadmap,
-time horizon, low-level bound, and conflict-tree bound mean this is not a
-complete solver; bound exhaustion is an explicit unknown result.
+It begins with individual plans and a deterministic sequential-formation seed,
+then selects the earliest remaining continuous-time conflict. Each branch adds
+the other participant's exact conflicting segment as a prohibition for one
+agent and replans only that agent; it does not freeze every peer trajectory as
+permanent occupancy. A result is returned only after the same exact conflict
+kernel finds no remaining conflicts. The finite roadmap, time horizon,
+low-level bound, and conflict-tree bound mean this is not a complete solver;
+bound exhaustion is an explicit unknown result.
 
 The repair request can also carry prior accepted trajectories. This is the
 handoff contract for rolling windows: each new cohort plans against all earlier
 accepted reservations, and the request rejects an already-conflicted handoff
 instead of trying to hide it. It now accepts either a conventional permanent
 goal or a sequence of queue-rank windows through one shared repair tree, so
-the two objective forms cannot acquire different conflict semantics. Runtime
-integration still has to define cohort size and replanning cadence.
+the two objective forms cannot acquire different conflict semantics.
 
 Queue-grid targets are not permanent per-ticket goals. When the FIFO head takes
 service, all remaining active tickets advance one authored rank. The module now
@@ -81,12 +82,12 @@ The runtime must report that policy with any result that uses it.
 The planner currently chooses a back-to-front *formation* order for rolling
 cohorts; that never alters FIFO service eligibility. `assess_queue_grid_rolling`
 returns the first cohort that cannot be added without reopening earlier paths,
-instead of reducing that result to an unexplained `None`. For example, the
-152-agent stress source reports tickets 112 through 105 as its first
-unformable cohort under the checked exploratory policy: a 0.6 m roadmap, a
-0.5 s planning grid, a first departure at 135 s, and a 4 s headway. This is
-evidence about that finite roadmap, cohort ordering, and assumed schedule—not
-evidence that the authored geometry has no physical solution.
+instead of reducing that result to an unexplained `None`. Under the checked
+exploratory policy—a 0.6 m roadmap, 0.5 s planning grid, 135 s first
+completion, 4 s headway, and cohorts of eight—the 152-agent stress source
+reports tickets 144 through 137 as the first cohort with no plan. This is
+evidence about that finite roadmap, rolling decomposition, and assumed
+schedule—not evidence that the authored geometry has no physical solution.
 
 For exploratory work without qualifying service data,
 `estimate_queue_grid_departures` derives those inputs from an explicit
@@ -96,10 +97,26 @@ capacity model or an observed service claim. If its schedule makes a physical
 formation impossible, `plan_queue_grid` returns no plan rather than extending
 or rewriting the assumed headway.
 
-These primitives are not yet an execution policy or a safety certificate. They
-must not silently turn an audit failure into a movement clamp: once two planned
-segments are already incompatible, clamping only one after the other has
-committed can create a deadlock or preserve an existing overlap.
+The explicit `chiyoda coordinate-queue-grid` command writes a self-contained
+coordination artifact. It embeds the source and its SHA-256 hash, selected group
+and queue-grid IDs, every planning bound, the deliberately uncalibrated service
+assumption, and either exact trajectories or the first bounded no-plan/unresolved
+cohort. `chiyoda verify-queue-grid-coordination` verifies the source hash,
+reconstructs the same outcome, and, for a planned artifact, runs the exact
+continuous conflict check again. For example:
+
+```console
+$ chiyoda coordinate-queue-grid examples/experiments/queue-grid-stress.chy \
+    --group passengers --queue-grid fare_gate_queue \
+    --first-departure-at-s 135 --headway-s 4 -o out/coordination.json
+$ chiyoda verify-queue-grid-coordination out/coordination.json
+```
+
+This is deliberately separate from `chiyoda run`: the default local-motion
+runtime and existing run-bundle format do not silently consume a coordination
+artifact. Runtime execution must be a later explicit policy with a defined
+replanning cutover. The artifact is replayable as a planning result, not a
+physical-safety certificate.
 
 ## Chosen architecture
 
@@ -109,10 +126,10 @@ queue grid, separate from generic ORCA:
 1. Construct a statically clear roadmap for the affected surface, including
    release positions, authored grid slots, and obstacle-aware transitions.
 2. Translate queue ticket activation and service-departure events into
-   rank-window tasks, then use the time-expanded roadmap planner to produce a
-   timed trajectory for each disc while respecting already declared trajectory
-   constraints. Replace its explicit wait-state enumeration with safe-interval
-   compression only after preserving the same window and conflict semantics.
+   rank-window tasks, then use the spatial-route and safe-interval roadmap
+   planner to produce a timed trajectory for each disc while respecting
+   already declared trajectory constraints. Retain the fully time-expanded
+   search only as a bounded fallback with the same conflict semantics.
 3. Detect conflicts with the continuous-time kernel rather than comparing only
    waypoint or integration-boundary occupancy.
 4. Resolve a conflict through a bounded conflict tree: branch on a prohibition

@@ -222,6 +222,7 @@ enum Command {
 }
 
 const QUEUE_GRID_COORDINATION_ARTIFACT_SCHEMA: &str = "chiyoda.queue-grid-coordination.v1";
+const QUEUE_GRID_COORDINATION_COORDINATE_QUANTUM_M: f64 = 1e-9;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 struct QueueGridCoordinationPolicy {
@@ -1508,6 +1509,7 @@ fn build_queue_grid_coordination_artifact(
     policy: QueueGridCoordinationPolicy,
 ) -> Result<QueueGridCoordinationArtifact> {
     let outcome = coordinate_queue_grid(&source, &group, &queue_grid, &policy)?;
+    verify_queue_grid_coordination_trajectories(&outcome, policy.clearance_epsilon_m)?;
     Ok(QueueGridCoordinationArtifact {
         schema: QUEUE_GRID_COORDINATION_ARTIFACT_SCHEMA.to_owned(),
         source_sha256: sha256_hex(source.as_bytes()),
@@ -1525,7 +1527,9 @@ fn coordinate_queue_grid(
     queue_grid_id: &str,
     policy: &QueueGridCoordinationPolicy,
 ) -> Result<QueueGridCoordinationArtifactOutcome> {
-    if policy.clearance_epsilon_m != reference_clearance_epsilon_m() {
+    if !policy.clearance_epsilon_m.is_finite()
+        || (policy.clearance_epsilon_m - reference_clearance_epsilon_m()).abs() > 0.0
+    {
         bail!(
             "queue-grid coordination artifacts must use the reference clearance epsilon {}m",
             reference_clearance_epsilon_m()
@@ -1629,15 +1633,30 @@ fn verify_queue_grid_coordination_artifact(artifact: &QueueGridCoordinationArtif
         &artifact.policy,
     )?;
     if reconstructed != artifact.outcome {
-        bail!("queue-grid coordination artifact does not reproduce its recorded outcome");
+        let difference =
+            queue_grid_coordination_outcome_difference(&artifact.outcome, &reconstructed);
+        bail!(
+            "queue-grid coordination artifact does not reproduce its recorded outcome: {difference}"
+        );
     }
-    if let QueueGridCoordinationArtifactOutcome::Planned { trajectories, .. } = &artifact.outcome {
+    verify_queue_grid_coordination_trajectories(
+        &artifact.outcome,
+        artifact.policy.clearance_epsilon_m,
+    )?;
+    Ok(())
+}
+
+fn verify_queue_grid_coordination_trajectories(
+    outcome: &QueueGridCoordinationArtifactOutcome,
+    clearance_epsilon_m: f64,
+) -> Result<()> {
+    if let QueueGridCoordinationArtifactOutcome::Planned { trajectories, .. } = outcome {
         let trajectories = trajectories
             .iter()
             .cloned()
             .map(TimedDiscTrajectory::from)
             .collect::<Vec<_>>();
-        let conflicts = timed_disc_conflicts(&trajectories, artifact.policy.clearance_epsilon_m)?;
+        let conflicts = timed_disc_conflicts(&trajectories, clearance_epsilon_m)?;
         if !conflicts.is_empty() {
             bail!(
                 "queue-grid coordination artifact contains {} exact timed-disc conflicts",
@@ -1646,6 +1665,85 @@ fn verify_queue_grid_coordination_artifact(artifact: &QueueGridCoordinationArtif
         }
     }
     Ok(())
+}
+
+fn queue_grid_coordination_outcome_difference(
+    recorded: &QueueGridCoordinationArtifactOutcome,
+    reconstructed: &QueueGridCoordinationArtifactOutcome,
+) -> String {
+    let (
+        QueueGridCoordinationArtifactOutcome::Planned {
+            slot_windows: recorded_windows,
+            trajectories: recorded_trajectories,
+            explored_conflict_tree_nodes: recorded_tree_nodes,
+            low_level_explored_states: recorded_low_level_states,
+        },
+        QueueGridCoordinationArtifactOutcome::Planned {
+            slot_windows: reconstructed_windows,
+            trajectories: reconstructed_trajectories,
+            explored_conflict_tree_nodes: reconstructed_tree_nodes,
+            low_level_explored_states: reconstructed_low_level_states,
+        },
+    ) = (recorded, reconstructed)
+    else {
+        return format!("recorded {recorded:?}, reconstructed {reconstructed:?}");
+    };
+    if recorded_windows != reconstructed_windows {
+        return "slot windows differ".to_owned();
+    }
+    if recorded_trajectories.len() != reconstructed_trajectories.len() {
+        return format!(
+            "trajectory count differs: recorded {}, reconstructed {}",
+            recorded_trajectories.len(),
+            reconstructed_trajectories.len()
+        );
+    }
+    for (trajectory_index, (recorded_trajectory, reconstructed_trajectory)) in recorded_trajectories
+        .iter()
+        .zip(reconstructed_trajectories)
+        .enumerate()
+    {
+        if recorded_trajectory.agent_id != reconstructed_trajectory.agent_id {
+            return format!(
+                "trajectory {trajectory_index} agent differs: recorded `{}`, reconstructed `{}`",
+                recorded_trajectory.agent_id, reconstructed_trajectory.agent_id
+            );
+        }
+        if recorded_trajectory.segments.len() != reconstructed_trajectory.segments.len() {
+            return format!(
+                "trajectory {trajectory_index} (`{}`) segment count differs: recorded {}, reconstructed {}",
+                recorded_trajectory.agent_id,
+                recorded_trajectory.segments.len(),
+                reconstructed_trajectory.segments.len()
+            );
+        }
+        if let Some(segment_index) = recorded_trajectory
+            .segments
+            .iter()
+            .zip(&reconstructed_trajectory.segments)
+            .position(|(recorded_segment, reconstructed_segment)| {
+                recorded_segment != reconstructed_segment
+            })
+        {
+            return format!(
+                "trajectory {trajectory_index} (`{}`) segment {segment_index} differs: recorded {:?}, reconstructed {:?}",
+                recorded_trajectory.agent_id,
+                recorded_trajectory.segments[segment_index],
+                reconstructed_trajectory.segments[segment_index]
+            );
+        }
+    }
+    if recorded_tree_nodes != reconstructed_tree_nodes {
+        return format!(
+            "conflict-tree node count differs: recorded {recorded_tree_nodes}, reconstructed {reconstructed_tree_nodes}"
+        );
+    }
+    if recorded_low_level_states != reconstructed_low_level_states {
+        return format!(
+            "low-level state count differs: recorded {recorded_low_level_states}, reconstructed {reconstructed_low_level_states}"
+        );
+    }
+    "outcome equality failed without an identified field difference".to_owned()
 }
 
 fn print_queue_grid_coordination_outcome(outcome: &QueueGridCoordinationArtifactOutcome) {
@@ -1662,16 +1760,12 @@ fn print_queue_grid_coordination_outcome(outcome: &QueueGridCoordinationArtifact
             low_level_explored_states
         ),
         QueueGridCoordinationArtifactOutcome::NoPlan { cohort_tickets } => println!(
-            "queue-grid coordination: no plan in the declared rolling policy for cohort {:?}",
-            cohort_tickets
+            "queue-grid coordination: no plan in the declared rolling policy for cohort {cohort_tickets:?}"
         ),
         QueueGridCoordinationArtifactOutcome::Unresolved {
             cohort_tickets,
             reason,
-        } => println!(
-            "queue-grid coordination: unresolved cohort {:?}: {reason:?}",
-            cohort_tickets
-        ),
+        } => println!("queue-grid coordination: unresolved cohort {cohort_tickets:?}: {reason:?}"),
     }
 }
 
@@ -1769,11 +1863,24 @@ impl From<TimedDiscSegment> for TimedDiscSegmentArtifact {
             surface: segment.surface,
             starts_at_s: segment.starts_at_s,
             ends_at_s: segment.ends_at_s,
-            start: [segment.start.x_m, segment.start.y_m, segment.start.z_m],
-            end: [segment.end.x_m, segment.end.y_m, segment.end.z_m],
+            start: [
+                canonical_coordination_coordinate(segment.start.x_m),
+                canonical_coordination_coordinate(segment.start.y_m),
+                canonical_coordination_coordinate(segment.start.z_m),
+            ],
+            end: [
+                canonical_coordination_coordinate(segment.end.x_m),
+                canonical_coordination_coordinate(segment.end.y_m),
+                canonical_coordination_coordinate(segment.end.z_m),
+            ],
             radius_m: segment.radius_m,
         }
     }
+}
+
+fn canonical_coordination_coordinate(value_m: f64) -> f64 {
+    (value_m / QUEUE_GRID_COORDINATION_COORDINATE_QUANTUM_M).round()
+        * QUEUE_GRID_COORDINATION_COORDINATE_QUANTUM_M
 }
 
 impl From<TimedDiscSegmentArtifact> for TimedDiscSegment {
@@ -9689,5 +9796,65 @@ agents passenger count 1 on concourse at (1m, 1m, 0m) to street speed 1m/s radiu
                 .to_string()
                 .contains("reference-clearance audits are nonzero")
         );
+    }
+
+    #[test]
+    fn queue_grid_coordination_artifact_reconstructs_the_stress_outcome() {
+        let artifact = super::build_queue_grid_coordination_artifact(
+            include_str!("../../../examples/experiments/queue-grid-stress.chy").to_owned(),
+            "passengers".to_owned(),
+            "fare_gate_queue".to_owned(),
+            super::QueueGridCoordinationPolicy {
+                first_departure_at_s: 135.0,
+                headway_s: 4.0,
+                roadmap_spacing_m: 0.6,
+                maximum_roadmap_nodes: 3_000,
+                planning_timestep_s: 0.5,
+                maximum_low_level_expansions: 100_000,
+                maximum_conflict_tree_nodes: 1_000,
+                maximum_tickets_per_cohort: 8,
+                clearance_epsilon_m: super::reference_clearance_epsilon_m(),
+            },
+        )
+        .expect("stress coordination artifact builds");
+
+        assert!(matches!(
+            artifact.outcome,
+            super::QueueGridCoordinationArtifactOutcome::NoPlan {
+                cohort_tickets: ref tickets
+            } if tickets == &[144, 143, 142, 141, 140, 139, 138, 137]
+        ));
+        super::verify_queue_grid_coordination_artifact(&artifact)
+            .expect("stress coordination artifact reconstructs");
+    }
+
+    #[test]
+    fn queue_grid_coordination_artifact_rejects_a_tampered_embedded_source() {
+        let mut artifact = super::QueueGridCoordinationArtifact {
+            schema: super::QUEUE_GRID_COORDINATION_ARTIFACT_SCHEMA.to_owned(),
+            source: "scenario \"tampered\"".to_owned(),
+            source_sha256: "not-the-source-hash".to_owned(),
+            group: "passengers".to_owned(),
+            queue_grid: "fare_gate_queue".to_owned(),
+            policy: super::QueueGridCoordinationPolicy {
+                first_departure_at_s: 1.0,
+                headway_s: 1.0,
+                roadmap_spacing_m: 0.6,
+                maximum_roadmap_nodes: 1,
+                planning_timestep_s: 0.5,
+                maximum_low_level_expansions: 1,
+                maximum_conflict_tree_nodes: 1,
+                maximum_tickets_per_cohort: 1,
+                clearance_epsilon_m: super::reference_clearance_epsilon_m(),
+            },
+            outcome: super::QueueGridCoordinationArtifactOutcome::NoPlan {
+                cohort_tickets: Vec::new(),
+            },
+        };
+        artifact.source.push('\n');
+
+        let error = super::verify_queue_grid_coordination_artifact(&artifact)
+            .expect_err("artifact source hash mismatch is rejected");
+        assert!(error.to_string().contains("source hash mismatch"));
     }
 }
