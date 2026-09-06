@@ -19,6 +19,7 @@ pub mod parser;
 pub mod reference;
 pub mod runtime;
 pub mod sensitivity;
+pub mod synthetic;
 pub mod validate;
 
 pub use benchmark::{BenchmarkManifest, BenchmarkValidationError, validate_manifest};
@@ -78,6 +79,10 @@ pub use sensitivity::{
     AssumptionBasis, SensitivityCondition, SensitivityDerivedReport, SensitivityDesign,
     SensitivityError, SensitivityFactor, SensitivityManifest, SensitivityReference,
     SensitivityStudy, SensitivityTarget, plan_sensitivity, resolve_sensitivity_target_value,
+};
+pub use synthetic::{
+    SyntheticAvoidanceAgent, SyntheticAvoidanceCase, SyntheticAvoidanceDecision,
+    SyntheticAvoidanceReport, synthetic_avoidance_report,
 };
 pub use validate::{ValidationError, validate};
 

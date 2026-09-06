@@ -16,11 +16,12 @@ use chiyoda_core::{
     generator, inspect_openstreetmap_layout, parse, plan_sensitivity,
     project_openstreetmap_layout_report, reference_clearance_epsilon_m,
     resolve_sensitivity_target_value, run, summarize_crowd_queue_reference,
-    summarize_vru_trajectory_reference, timed_disc_conflicts, validate, validate_catalog,
-    validate_experiment_manifest, validate_manifest, validate_osm_scenario_anchor_manifest,
-    verify_catalog_files, verify_openstreetmap_layout_catalog_contract,
-    verify_openstreetmap_layout_report, verify_openstreetmap_local_projection_report,
-    verify_osm_scenario_anchor_report, verify_run_bundle,
+    summarize_vru_trajectory_reference, synthetic_avoidance_report, timed_disc_conflicts, validate,
+    validate_catalog, validate_experiment_manifest, validate_manifest,
+    validate_osm_scenario_anchor_manifest, verify_catalog_files,
+    verify_openstreetmap_layout_catalog_contract, verify_openstreetmap_layout_report,
+    verify_openstreetmap_local_projection_report, verify_osm_scenario_anchor_report,
+    verify_run_bundle,
 };
 use chiyoda_core::{bundle::RunMetrics, experiment::ExperimentSourceAttestation};
 use clap::{Parser, Subcommand, ValueEnum};
@@ -206,6 +207,11 @@ enum Command {
     Reference {
         #[command(subcommand)]
         command: ReferenceCommand,
+    },
+    /// Execute fixed synthetic mechanism exercises; this is not empirical evidence.
+    Synthetic {
+        #[command(subcommand)]
+        command: SyntheticCommand,
     },
     /// Produce a descriptive, source-locked calibration intake report.
     Calibrate {
@@ -509,6 +515,15 @@ enum ReferenceCommand {
         catalog: PathBuf,
         #[arg(long, default_value = "data/raw")]
         data_root: PathBuf,
+        #[arg(short, long)]
+        output: PathBuf,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum SyntheticCommand {
+    /// Render deterministic one-step local-avoidance exercises at fixed horizons.
+    Avoidance {
         #[arg(short, long)]
         output: PathBuf,
     },
@@ -1453,6 +1468,7 @@ fn main() -> Result<()> {
         Command::Evidence { command } => handle_evidence(command)?,
         Command::Layout { command } => handle_layout(command)?,
         Command::Reference { command } => handle_reference(command)?,
+        Command::Synthetic { command } => handle_synthetic(command)?,
         Command::Calibrate { command } => handle_calibration(command)?,
         Command::Replay {
             bundle: bundle_path,
@@ -3954,6 +3970,18 @@ fn handle_reference(command: ReferenceCommand) -> Result<()> {
             let report = summarize_crowd_queue_reference(&catalog, &data_root)?;
             write_json(&output, &report)?;
             println!("uncalibrated reference report: {}", output.display());
+            println!("status: {}", report.status);
+        }
+    }
+    Ok(())
+}
+
+fn handle_synthetic(command: SyntheticCommand) -> Result<()> {
+    match command {
+        SyntheticCommand::Avoidance { output } => {
+            let report = synthetic_avoidance_report();
+            write_json(&output, &report)?;
+            println!("synthetic avoidance report: {}", output.display());
             println!("status: {}", report.status);
         }
     }

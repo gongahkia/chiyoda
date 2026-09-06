@@ -111,6 +111,23 @@ attribution reported separately rather than silently assigned a cause.
 This command supports structural exploration and regression investigation. It
 does not produce a benchmark score, calibration result, or predictive claim.
 
+## Synthetic local-avoidance exercises
+
+For a compact, reproducible check of the local ORCA implementation without
+mistaking generated motion for data, run:
+
+```console
+$ chiyoda synthetic avoidance -o out/synthetic-avoidance.json
+```
+
+The report evaluates fixed head-on, perpendicular-crossing, and deliberately
+co-located identifier-tie cases for four fixed horizons. It records each one
+step velocity decision and next-step center distance. It is a deterministic
+conformance trace of the installed kernel, not a parameter fit, held-out score,
+pedestrian observation, collision/safety result, routing test, or operational
+simulation. In particular, it does not select or modify the runtime's 2.5 s
+ORCA horizon.
+
 ## Uncalibrated sensitivity studies
 
 `chiyoda sensitivity MANIFEST -o DIRECTORY` is a separate structural workflow

@@ -260,6 +260,7 @@ impl SpriteAtlas {
     }
 }
 
+#[allow(clippy::too_many_lines)] // manifest, image, grid, and role validation need distinct user-facing errors
 fn load_sprite_atlas(manifest_path: &Path) -> Result<SpriteAtlas> {
     let manifest_bytes = fs::read(manifest_path)
         .with_context(|| format!("reading sprite atlas manifest {}", manifest_path.display()))?;
@@ -296,19 +297,19 @@ fn load_sprite_atlas(manifest_path: &Path) -> Result<SpriteAtlas> {
         .with_context(|| format!("reading sprite atlas image {}", image_path.display()))?;
     let file = fs::File::open(&image_path)
         .with_context(|| format!("opening sprite atlas image {}", image_path.display()))?;
-    let mut decoder = png::Decoder::new(BufReader::new(file));
-    decoder.set_transformations(png::Transformations::EXPAND | png::Transformations::STRIP_16);
-    let mut reader = decoder
+    let mut png_decoder = png::Decoder::new(BufReader::new(file));
+    png_decoder.set_transformations(png::Transformations::EXPAND | png::Transformations::STRIP_16);
+    let mut reader = png_decoder
         .read_info()
         .with_context(|| format!("decoding sprite atlas image {}", image_path.display()))?;
-    let mut decoded = vec![
+    let mut pixel_bytes = vec![
         0;
         reader
             .output_buffer_size()
             .context("sprite atlas output image size overflowed")?
     ];
     let output = reader
-        .next_frame(&mut decoded)
+        .next_frame(&mut pixel_bytes)
         .with_context(|| format!("reading sprite atlas image {}", image_path.display()))?;
     let image_width_pixels =
         usize::try_from(output.width).context("sprite atlas width overflowed")?;
@@ -341,14 +342,14 @@ fn load_sprite_atlas(manifest_path: &Path) -> Result<SpriteAtlas> {
             image_path.display()
         ),
     };
-    let decoded = &decoded[..output.buffer_size()];
-    if decoded.len() != pixel_count * channels {
+    let pixel_bytes = &pixel_bytes[..output.buffer_size()];
+    if pixel_bytes.len() != pixel_count * channels {
         bail!(
             "sprite atlas image {} decoded to an unexpected byte count",
             image_path.display()
         );
     }
-    let pixels = decoded
+    let pixels = pixel_bytes
         .chunks_exact(channels)
         .map(|pixel| SpritePixel {
             red: pixel[0],
@@ -470,7 +471,7 @@ fn load_bundle(
     Ok((bundle, verification))
 }
 
-#[allow(clippy::too_many_lines)] // UI input, hot-reload state, and framebuffer presentation share one event loop
+#[allow(clippy::too_many_lines, clippy::too_many_arguments)] // UI input, hot-reload state, and framebuffer presentation share one event loop
 fn replay(
     mut bundle: Option<RunBundle>,
     mut paused: bool,
@@ -1495,6 +1496,7 @@ fn extent_for_surface(surface: &Surface) -> (f64, f64, f64, f64) {
     )
 }
 
+#[allow(clippy::too_many_lines)] // every authored static layer is deliberately visible in one ordered draw pass
 fn draw_scene(
     buffer: &mut [u32],
     scenario: &Scenario,
@@ -1845,6 +1847,7 @@ struct OverviewExtent {
     span_v: f64,
 }
 
+#[allow(clippy::too_many_lines)] // overview draws the same authored layers in their projection order
 fn draw_overview(
     buffer: &mut [u32],
     bundle: &RunBundle,
@@ -2268,6 +2271,7 @@ fn draw_rectangle_outline(
     }
 }
 
+#[allow(clippy::too_many_arguments)] // world and framebuffer coordinates plus atlas role are all required at this boundary
 fn draw_tiled_world_rectangle(
     buffer: &mut [u32],
     x_m: f64,
@@ -2296,6 +2300,7 @@ fn draw_tiled_world_rectangle(
     );
 }
 
+#[allow(clippy::too_many_arguments)] // world and framebuffer coordinates plus atlas role are all required at this boundary
 fn draw_tiled_world_rectangle_outline(
     buffer: &mut [u32],
     x_m: f64,
@@ -2366,6 +2371,7 @@ fn draw_tiled_world_rectangle_outline(
     }
 }
 
+#[allow(clippy::too_many_arguments)] // a clipped rectangle needs its framebuffer, atlas, role, and explicit tile scale
 fn draw_tiled_screen_rectangle(
     buffer: &mut [u32],
     left: isize,

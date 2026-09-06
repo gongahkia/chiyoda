@@ -117,6 +117,7 @@ impl std::error::Error for EvidenceValidationError {}
 
 /// Validate that a catalog is specific enough to lock acquired files. It does
 /// not judge measurement quality and does not make a source an empirical round.
+#[allow(clippy::too_many_lines)] // one complete field-level validation pass keeps catalog errors accumulative
 pub fn validate_catalog(catalog: &EvidenceCatalog) -> Result<(), Vec<EvidenceValidationError>> {
     let mut errors = Vec::new();
     if catalog.schema_version != "0.1" {
