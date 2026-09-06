@@ -242,7 +242,27 @@ pub struct QueueGridRollingCoordinationRequest<'a> {
 #[derive(Debug, Clone, PartialEq)]
 pub enum QueueGridRollingOutcome {
     Planned(QueueGridCoordinationPlan),
-    NoPlan { cohort_tickets: Vec<u64> },
+    NoPlan {
+        cohort_tickets: Vec<u64>,
+    },
+    Unresolved {
+        cohort_tickets: Vec<u64>,
+        reason: QueueGridUnresolvedReason,
+    },
+}
+
+/// The explicit finite resource that prevented a rolling solve from reaching
+/// either a plan or a bounded no-plan result.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum QueueGridUnresolvedReason {
+    LowLevelSearchBoundExceeded {
+        agent_id: String,
+        target_index: usize,
+        maximum_expansions: u64,
+    },
+    ConflictRepairBoundExceeded {
+        maximum_conflict_tree_nodes: u64,
+    },
 }
 
 /// An explicit, uncalibrated assumption used to construct a provisional FIFO
@@ -363,6 +383,14 @@ pub enum CoordinationError {
     SelfOccupiedTrajectory { agent_id: String },
     #[error("time-expanded roadmap search exceeded its {maximum_expansions}-state bound")]
     SearchBoundExceeded { maximum_expansions: u64 },
+    #[error(
+        "multi-stage plan for `{agent_id}` target {target_index} exceeded its {maximum_expansions}-state bound"
+    )]
+    MultiStageSearchBoundExceeded {
+        agent_id: String,
+        target_index: usize,
+        maximum_expansions: u64,
+    },
     #[error("coordination request must include at least one agent")]
     EmptyCoordinationRequest,
     #[error("conflict-repair request needs at least one conflict-tree node")]
@@ -577,6 +605,25 @@ impl CoordinationRoadmap {
         request: &TimeExpandedPlanRequest<'_>,
         occupied_index: &TimedDiscSegmentIndex<'_>,
     ) -> Result<Option<TimeExpandedPlan>, CoordinationError> {
+        if let Some(plan) = static_stage_plan(self, request, occupied_index)? {
+            return Ok(Some(plan));
+        }
+        if let Some(plan) = reservation_aware_stage_plan(self, request, occupied_index)? {
+            return Ok(Some(plan));
+        }
+        self.plan_time_expanded_lattice(request, occupied_index)
+    }
+
+    /// Fall back to a full time-expanded search only when both the shortest
+    /// static route and an earliest-arrival reservation-aware route fail. In
+    /// an unoccupied open surface, enumerating every node at every possible
+    /// wait time is needless and can exhaust the bounded search before a
+    /// spatial route is found.
+    fn plan_time_expanded_lattice(
+        &self,
+        request: &TimeExpandedPlanRequest<'_>,
+        occupied_index: &TimedDiscSegmentIndex<'_>,
+    ) -> Result<Option<TimeExpandedPlan>, CoordinationError> {
         let horizon_steps = duration_to_horizon_steps(
             request.reserve_until_s - request.earliest_start_s,
             request.timestep_s,
@@ -706,7 +753,7 @@ impl CoordinationRoadmap {
             trajectory.segments.push(wait);
         }
 
-        for target in &request.targets {
+        for (target_index, target) in request.targets.iter().enumerate() {
             let stage_request = TimeExpandedPlanRequest {
                 agent_id: request.agent_id.clone(),
                 start_node: current_node,
@@ -724,8 +771,18 @@ impl CoordinationRoadmap {
                 if let Some(plan) = direct_stage_plan(self, &stage_request, &occupied_index)? {
                     plan
                 } else {
-                    let Some(plan) =
-                        self.plan_time_expanded_indexed(&stage_request, &occupied_index)?
+                    let Some(plan) = self
+                        .plan_time_expanded_indexed(&stage_request, &occupied_index)
+                        .map_err(|error| match error {
+                            CoordinationError::SearchBoundExceeded { maximum_expansions } => {
+                                CoordinationError::MultiStageSearchBoundExceeded {
+                                    agent_id: request.agent_id.clone(),
+                                    target_index,
+                                    maximum_expansions,
+                                }
+                            }
+                            other => other,
+                        })?
                     else {
                         return Ok(None);
                     };
@@ -734,6 +791,13 @@ impl CoordinationRoadmap {
             explored_states = explored_states.saturating_add(stage_plan.explored_states);
             trajectory.segments.extend(stage_plan.trajectory.segments);
             current_node = target.node;
+        }
+
+        let mut all_trajectories = request.occupied_trajectories.to_vec();
+        all_trajectories.push(trajectory.clone());
+        let final_conflicts = timed_disc_conflicts(&all_trajectories, request.clearance_epsilon_m)?;
+        if !final_conflicts.is_empty() {
+            return Ok(None);
         }
 
         Ok(Some(MultiStagePlan {
@@ -787,6 +851,10 @@ impl CoordinationRoadmap {
             }));
         }
 
+        if let Some(sequential_plan) = plan_agents_sequentially(self, request)? {
+            return Ok(Some(sequential_plan));
+        }
+
         let mut nodes = vec![ConflictRepairNode {
             trajectories: initial_trajectories,
             conflicts: initial_conflicts,
@@ -810,11 +878,17 @@ impl CoordinationRoadmap {
             ];
             branch_agent_ids.sort_unstable();
             for agent_id in branch_agent_ids {
-                let agent_index = request
+                let Some(agent_index) = request
                     .agents
                     .iter()
                     .position(|agent| agent.agent_id == agent_id)
-                    .expect("conflict trajectories come from requested agents");
+                else {
+                    // A rolling cohort cannot revise an earlier accepted
+                    // trajectory. If a candidate conflicts with one, this
+                    // finite decomposition has no plan; it must not panic or
+                    // pretend that the immutable participant can be repaired.
+                    return Ok(None);
+                };
                 let mut occupied_trajectories = request.occupied_trajectories.to_vec();
                 occupied_trajectories.extend(
                     node.trajectories
@@ -916,13 +990,14 @@ pub fn plan_queue_grid_rolling(
 ) -> Result<Option<QueueGridCoordinationPlan>, CoordinationError> {
     assess_queue_grid_rolling(request).map(|outcome| match outcome {
         QueueGridRollingOutcome::Planned(plan) => Some(plan),
-        QueueGridRollingOutcome::NoPlan { .. } => None,
+        QueueGridRollingOutcome::NoPlan { .. } | QueueGridRollingOutcome::Unresolved { .. } => None,
     })
 }
 
-/// Run a rolling queue-grid solve while retaining the first bounded cohort
-/// that lacks a plan. Use [`plan_queue_grid_rolling`] when only the ordinary
-/// `Some`/`None` result is needed.
+/// Run a rolling queue-grid solve while retaining the first cohort that lacks
+/// a plan or exhausts an explicit planning bound. Use
+/// [`plan_queue_grid_rolling`] when only the ordinary `Some`/`None` result is
+/// needed.
 pub fn assess_queue_grid_rolling(
     request: &QueueGridRollingCoordinationRequest<'_>,
 ) -> Result<QueueGridRollingOutcome, CoordinationError> {
@@ -931,16 +1006,26 @@ pub fn assess_queue_grid_rolling(
     }
     let slot_windows = queue_grid_slot_windows_for_request(&request.queue)?;
     let mut tickets = request.queue.tickets.clone();
-    tickets.sort_by_key(|ticket| Reverse(ticket.ticket));
+    tickets.sort_by(|left, right| {
+        left.activation_at_s
+            .total_cmp(&right.activation_at_s)
+            .then_with(|| left.ticket.cmp(&right.ticket))
+    });
     let agents = queue_grid_agents(&tickets, &slot_windows, request.queue.slot_nodes)?;
     let mut occupied_trajectories = request.queue.occupied_trajectories.to_vec();
     let mut trajectories = Vec::with_capacity(agents.len());
     let mut explored_conflict_tree_nodes = 0_u64;
     let mut low_level_explored_states = 0_u64;
-    for (cohort_index, cohort) in agents
-        .chunks(request.maximum_tickets_per_cohort)
-        .enumerate()
-    {
+    for cohort in agents.chunks(request.maximum_tickets_per_cohort) {
+        let cohort_tickets = cohort
+            .iter()
+            .filter_map(|agent| {
+                tickets
+                    .iter()
+                    .find(|ticket| ticket.agent_id == agent.agent_id)
+                    .map(|ticket| ticket.ticket)
+            })
+            .collect::<Vec<_>>();
         let repair_request = ConflictRepairRequest {
             agents: cohort.to_vec(),
             occupied_trajectories: &occupied_trajectories,
@@ -950,13 +1035,36 @@ pub fn assess_queue_grid_rolling(
             clearance_epsilon_m: request.queue.clearance_epsilon_m,
             roadmap: request.queue.roadmap,
         };
-        let Some(repair_plan) = request.queue.roadmap.repair_conflicts(&repair_request)? else {
-            let first_ticket_index = cohort_index * request.maximum_tickets_per_cohort;
-            let cohort_tickets = tickets[first_ticket_index..first_ticket_index + cohort.len()]
-                .iter()
-                .map(|ticket| ticket.ticket)
-                .collect();
-            return Ok(QueueGridRollingOutcome::NoPlan { cohort_tickets });
+        let repair_plan = match request.queue.roadmap.repair_conflicts(&repair_request) {
+            Ok(Some(plan)) => plan,
+            Ok(None) => {
+                return Ok(QueueGridRollingOutcome::NoPlan { cohort_tickets });
+            }
+            Err(CoordinationError::MultiStageSearchBoundExceeded {
+                agent_id,
+                target_index,
+                maximum_expansions,
+            }) => {
+                return Ok(QueueGridRollingOutcome::Unresolved {
+                    cohort_tickets,
+                    reason: QueueGridUnresolvedReason::LowLevelSearchBoundExceeded {
+                        agent_id,
+                        target_index,
+                        maximum_expansions,
+                    },
+                });
+            }
+            Err(CoordinationError::ConflictRepairBoundExceeded {
+                maximum_conflict_tree_nodes,
+            }) => {
+                return Ok(QueueGridRollingOutcome::Unresolved {
+                    cohort_tickets,
+                    reason: QueueGridUnresolvedReason::ConflictRepairBoundExceeded {
+                        maximum_conflict_tree_nodes,
+                    },
+                });
+            }
+            Err(error) => return Err(error),
         };
         explored_conflict_tree_nodes =
             explored_conflict_tree_nodes.saturating_add(repair_plan.explored_conflict_tree_nodes);
@@ -1038,6 +1146,31 @@ struct CoordinationAgentPlan {
     explored_states: u64,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct StaticRoadmapRoute {
+    nodes: Vec<usize>,
+    explored_nodes: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct SafeStepInterval {
+    starts_at_step: u64,
+    ends_at_step: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+struct SafeIntervalState {
+    node: usize,
+    interval_index: usize,
+    arrival_step: u64,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct SafeIntervalPredecessor {
+    state: SafeIntervalState,
+    departure_step: u64,
+}
+
 /// A read-only temporal index for one low-level plan. It preserves the exact
 /// segment kernel while avoiding scans of reservations that begin after a
 /// candidate action ends or live on another surface.
@@ -1070,8 +1203,7 @@ impl<'a> TimedDiscSegmentIndex<'a> {
         let ending_index = segments
             .partition_point(|segment| segment.starts_at_s.total_cmp(&candidate.ends_at_s).is_lt());
         segments[..ending_index].iter().all(|occupied| {
-            occupied.ends_at_s <= candidate.starts_at_s
-                || !segments_may_overlap(candidate, occupied, clearance_epsilon_m)
+            !segments_may_overlap(candidate, occupied, clearance_epsilon_m)
                 || segment_unsafe_interval(candidate, occupied, clearance_epsilon_m).is_none()
         })
     }
@@ -1655,6 +1787,36 @@ fn plan_coordination_agent(
     }
 }
 
+/// Seed a repair solve with deterministic priority formation. Unlike the
+/// independent seed, every later agent sees the trajectories accepted earlier
+/// in this cohort. This is not complete, so [`CoordinationRoadmap::repair_conflicts`]
+/// retains its conflict tree when the seed cannot form the cohort.
+fn plan_agents_sequentially(
+    roadmap: &CoordinationRoadmap,
+    request: &ConflictRepairRequest<'_>,
+) -> Result<Option<ConflictRepairPlan>, CoordinationError> {
+    let mut occupied_trajectories = request.occupied_trajectories.to_vec();
+    let mut trajectories = Vec::with_capacity(request.agents.len());
+    let mut low_level_explored_states = 0_u64;
+    for agent in &request.agents {
+        let Some(plan) = plan_coordination_agent(roadmap, request, agent, &occupied_trajectories)?
+        else {
+            return Ok(None);
+        };
+        low_level_explored_states = low_level_explored_states.saturating_add(plan.explored_states);
+        occupied_trajectories.push(plan.trajectory.clone());
+        trajectories.push(plan.trajectory);
+    }
+    if !timed_disc_conflicts(&occupied_trajectories, request.clearance_epsilon_m)?.is_empty() {
+        return Ok(None);
+    }
+    Ok(Some(ConflictRepairPlan {
+        trajectories,
+        explored_conflict_tree_nodes: 1,
+        low_level_explored_states,
+    }))
+}
+
 fn push_roadmap_node(
     nodes: &mut Vec<CoordinationRoadmapNode>,
     surface: &Surface,
@@ -1745,6 +1907,478 @@ fn segment_intersects_expanded_obstacle(
 
 fn point_xy_distance(first: Point3, second: Point3) -> f64 {
     (first.x_m - second.x_m).hypot(first.y_m - second.y_m)
+}
+
+/// Find the shortest quantised-duration route without enumerating time states.
+///
+/// The route is only a candidate: [`static_stage_plan`] still validates every
+/// continuous move and target wait against the timed occupancy index. If any
+/// reservation blocks it, the caller falls back to the time-expanded planner,
+/// which may select another route or insert waits.
+fn shortest_static_route(
+    roadmap: &CoordinationRoadmap,
+    request: &TimeExpandedPlanRequest<'_>,
+) -> Result<Option<StaticRoadmapRoute>, CoordinationError> {
+    let mut frontier = BinaryHeap::new();
+    frontier.push((
+        Reverse(search_priority(
+            roadmap,
+            request,
+            TimeExpandedState {
+                node: request.start_node,
+                step: 0,
+            },
+        )?),
+        Reverse(0_u64),
+        Reverse(request.start_node),
+    ));
+    let mut best_steps = HashMap::from([(request.start_node, 0_u64)]);
+    let mut predecessors = HashMap::new();
+    let mut explored_nodes = 0_u64;
+
+    while let Some((Reverse(_), Reverse(steps), Reverse(node))) = frontier.pop() {
+        if best_steps.get(&node).is_none_or(|best| *best != steps) {
+            continue;
+        }
+        explored_nodes = explored_nodes.saturating_add(1);
+        if explored_nodes > request.maximum_expansions {
+            return Err(CoordinationError::SearchBoundExceeded {
+                maximum_expansions: request.maximum_expansions,
+            });
+        }
+        if node == request.goal_node {
+            let mut nodes = vec![node];
+            let mut current = node;
+            while let Some(previous) = predecessors.get(&current).copied() {
+                nodes.push(previous);
+                current = previous;
+            }
+            nodes.reverse();
+            return Ok(Some(StaticRoadmapRoute {
+                nodes,
+                explored_nodes,
+            }));
+        }
+        for &neighbour in &roadmap.adjacency[node] {
+            let edge_steps = movement_steps(roadmap, request, node, neighbour)?;
+            let candidate_steps = steps.saturating_add(edge_steps);
+            if best_steps
+                .get(&neighbour)
+                .is_some_and(|best| *best <= candidate_steps)
+            {
+                continue;
+            }
+            best_steps.insert(neighbour, candidate_steps);
+            predecessors.insert(neighbour, node);
+            frontier.push((
+                Reverse(search_priority(
+                    roadmap,
+                    request,
+                    TimeExpandedState {
+                        node: neighbour,
+                        step: candidate_steps,
+                    },
+                )?),
+                Reverse(candidate_steps),
+                Reverse(neighbour),
+            ));
+        }
+    }
+    Ok(None)
+}
+
+/// Turn the shortest spatial route into the earliest continuous trajectory
+/// that follows it. A failed occupancy check deliberately returns no candidate
+/// rather than treating a static route as a reservation-aware solution.
+fn static_stage_plan(
+    roadmap: &CoordinationRoadmap,
+    request: &TimeExpandedPlanRequest<'_>,
+    occupied_index: &TimedDiscSegmentIndex<'_>,
+) -> Result<Option<TimeExpandedPlan>, CoordinationError> {
+    let Some(route) = shortest_static_route(roadmap, request)? else {
+        return Ok(None);
+    };
+    let mut predecessors = HashMap::new();
+    let mut current = TimeExpandedState {
+        node: request.start_node,
+        step: 0,
+    };
+    for &next_node in route.nodes.iter().skip(1) {
+        let movement_steps = movement_steps(roadmap, request, current.node, next_node)?;
+        let Some(next_step) = current.step.checked_add(movement_steps) else {
+            return Ok(None);
+        };
+        let next = TimeExpandedState {
+            node: next_node,
+            step: next_step,
+        };
+        if time_for_step(request, next.step) > request.reserve_until_s
+            || !action_is_clear(roadmap, request, current, next, occupied_index)
+        {
+            return Ok(None);
+        }
+        predecessors.insert(next, current);
+        current = next;
+    }
+    if !final_wait_is_clear(roadmap, request, current, occupied_index) {
+        return Ok(None);
+    }
+    Ok(Some(TimeExpandedPlan {
+        trajectory: reconstruct_trajectory(roadmap, request, current, &predecessors),
+        explored_states: route.explored_nodes,
+    }))
+}
+
+/// Search one earliest-arrival label per continuous safe interval at a roadmap
+/// node. This represents a temporary reservation as a finite number of safe
+/// intervals instead of repeatedly expanding every `(node, time)` wait state.
+///
+/// Every stationary interval, move, and target reservation remains checked by
+/// the exact continuous disc kernel. The full time-expanded search remains a
+/// bounded fallback for a case this safe-interval formulation cannot express.
+fn reservation_aware_stage_plan(
+    roadmap: &CoordinationRoadmap,
+    request: &TimeExpandedPlanRequest<'_>,
+    occupied_index: &TimedDiscSegmentIndex<'_>,
+) -> Result<Option<TimeExpandedPlan>, CoordinationError> {
+    let horizon_steps = duration_to_horizon_steps(
+        request.reserve_until_s - request.earliest_start_s,
+        request.timestep_s,
+    )?;
+    let mut safe_intervals_by_node = HashMap::new();
+    let start_intervals = safe_intervals_by_node
+        .entry(request.start_node)
+        .or_insert_with(|| {
+            safe_step_intervals_for_node(
+                roadmap,
+                request,
+                request.start_node,
+                horizon_steps,
+                occupied_index,
+            )
+        });
+    let Some(start_interval_index) = start_intervals
+        .iter()
+        .position(|interval| interval.starts_at_step == 0)
+    else {
+        return Ok(None);
+    };
+    let start = SafeIntervalState {
+        node: request.start_node,
+        interval_index: start_interval_index,
+        arrival_step: 0,
+    };
+    let mut frontier = BinaryHeap::new();
+    frontier.push((
+        Reverse(search_priority(
+            roadmap,
+            request,
+            TimeExpandedState {
+                node: start.node,
+                step: start.arrival_step,
+            },
+        )?),
+        Reverse(0_u64),
+        Reverse(start.node),
+        start,
+    ));
+    let mut earliest_arrival = HashMap::from([((start.node, start.interval_index), 0_u64)]);
+    let mut predecessors = HashMap::new();
+    let mut explored_states = 0_u64;
+
+    while let Some((Reverse(_), Reverse(_), Reverse(_), state)) = frontier.pop() {
+        if earliest_arrival
+            .get(&(state.node, state.interval_index))
+            .is_none_or(|earliest| *earliest != state.arrival_step)
+        {
+            continue;
+        }
+        explored_states = explored_states.saturating_add(1);
+        if explored_states > request.maximum_expansions {
+            return Err(CoordinationError::SearchBoundExceeded {
+                maximum_expansions: request.maximum_expansions,
+            });
+        }
+        let Some(current_interval) = safe_intervals_by_node
+            .get(&state.node)
+            .and_then(|intervals| intervals.get(state.interval_index))
+            .copied()
+        else {
+            return Ok(None);
+        };
+        if state.node == request.goal_node
+            && final_wait_is_clear(
+                roadmap,
+                request,
+                TimeExpandedState {
+                    node: state.node,
+                    step: state.arrival_step,
+                },
+                occupied_index,
+            )
+        {
+            return Ok(Some(TimeExpandedPlan {
+                trajectory: reconstruct_safe_interval_trajectory(
+                    roadmap,
+                    request,
+                    state,
+                    &predecessors,
+                ),
+                explored_states,
+            }));
+        }
+        for &neighbour in &roadmap.adjacency[state.node] {
+            let movement_duration_steps = movement_steps(roadmap, request, state.node, neighbour)?;
+            let Some(latest_departure_step) = horizon_steps.checked_sub(movement_duration_steps)
+            else {
+                continue;
+            };
+            let latest_departure_step = latest_departure_step.min(current_interval.ends_at_step);
+            if state.arrival_step > latest_departure_step {
+                continue;
+            }
+            let mut departure_step = state.arrival_step;
+            while departure_step <= latest_departure_step {
+                let Some(next_step) = departure_step.checked_add(movement_duration_steps) else {
+                    break;
+                };
+                let move_from = TimeExpandedState {
+                    node: state.node,
+                    step: departure_step,
+                };
+                let move_to = TimeExpandedState {
+                    node: neighbour,
+                    step: next_step,
+                };
+                let neighbour_intervals =
+                    safe_intervals_by_node.entry(neighbour).or_insert_with(|| {
+                        safe_step_intervals_for_node(
+                            roadmap,
+                            request,
+                            neighbour,
+                            horizon_steps,
+                            occupied_index,
+                        )
+                    });
+                let next_interval_index = neighbour_intervals.iter().position(|interval| {
+                    interval.starts_at_step <= next_step && next_step <= interval.ends_at_step
+                });
+                let reaches_reservable_goal = neighbour != request.goal_node
+                    || final_wait_is_clear(roadmap, request, move_to, occupied_index);
+                if let Some(next_interval_index) = next_interval_index
+                    && reaches_reservable_goal
+                    && action_is_clear(roadmap, request, move_from, move_to, occupied_index)
+                {
+                    let next = SafeIntervalState {
+                        node: neighbour,
+                        interval_index: next_interval_index,
+                        arrival_step: next_step,
+                    };
+                    if earliest_arrival
+                        .get(&(next.node, next.interval_index))
+                        .is_none_or(|earliest| next.arrival_step < *earliest)
+                    {
+                        earliest_arrival
+                            .insert((next.node, next.interval_index), next.arrival_step);
+                        predecessors.insert(
+                            next,
+                            SafeIntervalPredecessor {
+                                state,
+                                departure_step,
+                            },
+                        );
+                        frontier.push((
+                            Reverse(search_priority(
+                                roadmap,
+                                request,
+                                TimeExpandedState {
+                                    node: next.node,
+                                    step: next.arrival_step,
+                                },
+                            )?),
+                            Reverse(next.arrival_step),
+                            Reverse(next.node),
+                            next,
+                        ));
+                    }
+                    break;
+                }
+                departure_step = departure_step.saturating_add(1);
+            }
+        }
+    }
+    Ok(None)
+}
+
+fn reconstruct_safe_interval_trajectory(
+    roadmap: &CoordinationRoadmap,
+    request: &TimeExpandedPlanRequest<'_>,
+    goal: SafeIntervalState,
+    predecessors: &HashMap<SafeIntervalState, SafeIntervalPredecessor>,
+) -> TimedDiscTrajectory {
+    let mut transitions = Vec::new();
+    let mut current = goal;
+    while let Some(predecessor) = predecessors.get(&current).copied() {
+        transitions.push((current, predecessor));
+        current = predecessor.state;
+    }
+    transitions.reverse();
+    let mut segments = Vec::new();
+    for (next, predecessor) in transitions {
+        if predecessor.departure_step > predecessor.state.arrival_step {
+            segments.push(segment_for_action(
+                roadmap,
+                request,
+                TimeExpandedState {
+                    node: predecessor.state.node,
+                    step: predecessor.state.arrival_step,
+                },
+                TimeExpandedState {
+                    node: predecessor.state.node,
+                    step: predecessor.departure_step,
+                },
+            ));
+        }
+        segments.push(segment_for_action(
+            roadmap,
+            request,
+            TimeExpandedState {
+                node: predecessor.state.node,
+                step: predecessor.departure_step,
+            },
+            TimeExpandedState {
+                node: next.node,
+                step: next.arrival_step,
+            },
+        ));
+    }
+    let goal_time_s = time_for_step(request, goal.arrival_step);
+    if goal_time_s < request.reserve_until_s {
+        let node = &roadmap.nodes[goal.node];
+        segments.push(TimedDiscSegment {
+            surface: node.surface.clone(),
+            starts_at_s: goal_time_s,
+            ends_at_s: request.reserve_until_s,
+            start: node.position,
+            end: node.position,
+            radius_m: request.radius_m,
+        });
+    }
+    TimedDiscTrajectory {
+        agent_id: request.agent_id.clone(),
+        segments,
+    }
+}
+
+/// Derive discrete time-lattice points that belong to each continuously clear
+/// stationary interval for one roadmap node. The interval boundaries come from
+/// the exact continuous conflict kernel; discretisation only limits departure
+/// choices to the request's declared planning grid.
+fn safe_step_intervals_for_node(
+    roadmap: &CoordinationRoadmap,
+    request: &TimeExpandedPlanRequest<'_>,
+    node_index: usize,
+    horizon_steps: u64,
+    occupied_index: &TimedDiscSegmentIndex<'_>,
+) -> Vec<SafeStepInterval> {
+    let node = &roadmap.nodes[node_index];
+    let stationary = TimedDiscSegment {
+        surface: node.surface.clone(),
+        starts_at_s: request.earliest_start_s,
+        ends_at_s: request.reserve_until_s,
+        start: node.position,
+        end: node.position,
+        radius_m: request.radius_m,
+    };
+    let Some(occupied_segments) = occupied_index.by_surface.get(node.surface.as_str()) else {
+        return vec![SafeStepInterval {
+            starts_at_step: 0,
+            ends_at_step: horizon_steps,
+        }];
+    };
+    let mut unsafe_intervals = occupied_segments
+        .iter()
+        .filter_map(|occupied| {
+            (segments_may_overlap(&stationary, occupied, request.clearance_epsilon_m))
+                .then(|| {
+                    segment_unsafe_interval(&stationary, occupied, request.clearance_epsilon_m)
+                })
+                .flatten()
+                .map(|(starts_at_s, ends_at_s, _)| (starts_at_s, ends_at_s))
+        })
+        .collect::<Vec<_>>();
+    unsafe_intervals.sort_by(|left, right| left.0.total_cmp(&right.0));
+    let mut merged_unsafe_intervals: Vec<(f64, f64)> = Vec::new();
+    for (starts_at_s, ends_at_s) in unsafe_intervals {
+        if let Some((_, previous_ends_at_s)) = merged_unsafe_intervals.last_mut()
+            && starts_at_s <= *previous_ends_at_s
+        {
+            *previous_ends_at_s = previous_ends_at_s.max(ends_at_s);
+            continue;
+        }
+        merged_unsafe_intervals.push((starts_at_s, ends_at_s));
+    }
+
+    let mut safe_intervals = Vec::new();
+    let mut safe_starts_at_s = request.earliest_start_s;
+    for (unsafe_starts_at_s, unsafe_ends_at_s) in merged_unsafe_intervals {
+        let unsafe_starts_at_s = unsafe_starts_at_s.max(request.earliest_start_s);
+        let unsafe_ends_at_s = unsafe_ends_at_s.min(request.reserve_until_s);
+        if safe_starts_at_s <= unsafe_starts_at_s {
+            append_safe_step_interval(
+                &mut safe_intervals,
+                request,
+                horizon_steps,
+                safe_starts_at_s,
+                unsafe_starts_at_s,
+            );
+        }
+        safe_starts_at_s = safe_starts_at_s.max(unsafe_ends_at_s);
+    }
+    if safe_starts_at_s <= request.reserve_until_s {
+        append_safe_step_interval(
+            &mut safe_intervals,
+            request,
+            horizon_steps,
+            safe_starts_at_s,
+            request.reserve_until_s,
+        );
+    }
+    safe_intervals
+}
+
+#[allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_precision_loss,
+    clippy::cast_sign_loss
+)]
+fn append_safe_step_interval(
+    intervals: &mut Vec<SafeStepInterval>,
+    request: &TimeExpandedPlanRequest<'_>,
+    horizon_steps: u64,
+    starts_at_s: f64,
+    ends_at_s: f64,
+) {
+    let starts_at_step = ((starts_at_s - request.earliest_start_s) / request.timestep_s)
+        .ceil()
+        .max(0.0);
+    let ends_at_step = ((ends_at_s - request.earliest_start_s) / request.timestep_s)
+        .floor()
+        .min(horizon_steps as f64);
+    if starts_at_step > ends_at_step {
+        return;
+    }
+    let interval = SafeStepInterval {
+        starts_at_step: starts_at_step as u64,
+        ends_at_step: ends_at_step as u64,
+    };
+    if let Some(previous) = intervals.last_mut()
+        && interval.starts_at_step <= previous.ends_at_step.saturating_add(1)
+    {
+        previous.ends_at_step = previous.ends_at_step.max(interval.ends_at_step);
+        return;
+    }
+    intervals.push(interval);
 }
 
 /// Return the exact direct transition when the roadmap already contains the
@@ -3474,7 +4108,7 @@ mod tests {
                 timestep_s: 0.5,
                 maximum_low_level_expansions: 100_000,
                 maximum_conflict_tree_nodes: 1_000,
-                clearance_epsilon_m: 0.0,
+                clearance_epsilon_m: reference_clearance_epsilon_m(),
                 roadmap: &lattice.roadmap,
             },
             maximum_tickets_per_cohort: 8,
