@@ -16,7 +16,8 @@ use chiyoda_core::{
     generator, inspect_openstreetmap_layout, parse, plan_sensitivity,
     project_openstreetmap_layout_report, reference_clearance_epsilon_m,
     resolve_sensitivity_target_value, run, summarize_crowd_queue_reference,
-    summarize_vru_trajectory_reference, synthetic_avoidance_report, timed_disc_conflicts, validate,
+    summarize_vru_trajectory_reference, synthetic_avoidance_report, synthetic_system_report,
+    timed_disc_conflicts, validate,
     validate_catalog, validate_experiment_manifest, validate_manifest,
     validate_osm_scenario_anchor_manifest, verify_catalog_files,
     verify_openstreetmap_layout_catalog_contract, verify_openstreetmap_layout_report,
@@ -524,6 +525,11 @@ enum ReferenceCommand {
 enum SyntheticCommand {
     /// Render deterministic one-step local-avoidance exercises at fixed horizons.
     Avoidance {
+        #[arg(short, long)]
+        output: PathBuf,
+    },
+    /// Execute a fixed multi-surface queue, stair, rerouting, and operations fixture.
+    System {
         #[arg(short, long)]
         output: PathBuf,
     },
@@ -3982,6 +3988,12 @@ fn handle_synthetic(command: SyntheticCommand) -> Result<()> {
             let report = synthetic_avoidance_report();
             write_json(&output, &report)?;
             println!("synthetic avoidance report: {}", output.display());
+            println!("status: {}", report.status);
+        }
+        SyntheticCommand::System { output } => {
+            let report = synthetic_system_report()?;
+            write_json(&output, &report)?;
+            println!("synthetic system report: {}", output.display());
             println!("status: {}", report.status);
         }
     }

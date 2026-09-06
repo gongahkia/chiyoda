@@ -82,7 +82,8 @@ pub use sensitivity::{
 };
 pub use synthetic::{
     SyntheticAvoidanceAgent, SyntheticAvoidanceCase, SyntheticAvoidanceDecision,
-    SyntheticAvoidanceReport, synthetic_avoidance_report,
+    SyntheticAvoidanceReport, SyntheticQueueObservation, SyntheticSelfReplay, SyntheticSystemError,
+    SyntheticSystemReport, synthetic_avoidance_report, synthetic_system_report,
 };
 pub use validate::{ValidationError, validate};
 
