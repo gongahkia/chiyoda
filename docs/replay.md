@@ -10,6 +10,7 @@ $ cargo run -p chiyoda-replay -- out/experiment/run.json --paused
 $ cargo run -p chiyoda-replay -- out/experiment/run.json --surface concourse
 $ cargo run -p chiyoda-replay -- out/experiment/run.json --speed 10
 $ cargo run -p chiyoda-replay -- out/experiment/run.json --surface concourse --export-gif out/experiment/replay.gif --gif-speed 4
+$ cargo run -p chiyoda-replay -- out/experiment/run.json --sprite-atlas assets/replay/undercity-atlas.json
 ```
 
 ## Live DSL debugging
@@ -84,6 +85,29 @@ hash, runtime and bundle versions, and a clear derived-artifact boundary. The
 exporter refuses to overwrite either the GIF or its sidecar. The verified JSON
 bundle remains the canonical replay and timing artifact.
 
+## Optional sprite atlas
+
+The default renderer is intentionally geometric: a direct 1200×800 software
+framebuffer with flat rectangles, lines, and small square agent markers. It has
+no texture dependency. Supplying `--sprite-atlas PATH.json` is an opt-in visual
+treatment only; omitting the flag restores that default renderer without
+changing the scenario, trace, bundle verification, or simulation.
+
+The included original limited-palette atlas is
+`assets/replay/undercity-atlas.json`. It gives walkable surfaces, walls,
+obstacles, connectors, queue positions, markers, and agent states distinct
+top-down pixel forms. It uses static sprites: an agent's recorded position and
+state change, but the renderer does not invent animation frames or behavior.
+
+An atlas manifest names a relative RGB/RGBA PNG, declares its uniform tile
+dimensions, and maps each required visual role to a grid cell. This makes a
+sheet replaceable without code changes. The loader rejects an unsupported
+schema, path traversal, oversized images, non-divisible dimensions, unsupported
+PNG colour forms, and cells outside the sheet. PNG snapshots use the selected
+atlas. GIF exports record SHA-256 hashes of both the manifest and image in their
+sidecar, because those files affect the derived pixels but never the canonical
+JSON bundle.
+
 ## Rendering contract
 
 For the selected surface the viewer draws its rectangular walkable boundary,
@@ -97,6 +121,10 @@ distinguish waypoints, exits, gates, connector class, portal-lane centres, and
 queue geometry. The queue path and slots are authored placement
 geometry, not a measured queue, a claimed standing obstruction, or a density
 visualization.
+
+With an optional atlas those same authored and recorded elements are drawn with
+the manifest's tiles. The atlas does not add geometry, hide invalid source,
+interpret identities, or turn the viewer into a 3D or empirical visualization.
 
 Connector endpoints are visual cues, not surveyed shapes or a claim that the
 space between floors is visible from above. During a connector traversal the

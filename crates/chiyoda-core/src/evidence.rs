@@ -49,6 +49,28 @@ pub struct EvidenceFile {
     pub transformation: String,
 }
 
+/// A content-locked logical source stored inside a content-locked ZIP archive.
+///
+/// Keeping the archive itself in `files` lets acquisition remain one immutable
+/// HTTPS transfer. Locking named members separately permits disjoint published
+/// trials to carry calibration and held-out roles without pretending that the
+/// entire archive belongs to both partitions.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EvidenceArchiveMember {
+    pub id: String,
+    /// The `EvidenceFile.id` of the ZIP archive containing this member.
+    pub archive_file_id: String,
+    /// A relative ZIP entry name. It is never extracted by the lock verifier.
+    pub member_path: String,
+    /// Required only for an empirical-evaluation catalog.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub role: Option<DatasetRole>,
+    pub sha256: String,
+    pub size_bytes: u64,
+    /// A concise, reproducible description of how this member is interpreted.
+    pub transformation: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EvidenceCatalog {
     pub schema_version: String,
@@ -67,6 +89,10 @@ pub struct EvidenceCatalog {
     pub attribution: Option<String>,
     pub citation: String,
     pub files: Vec<EvidenceFile>,
+    /// Optional logical source locks for named ZIP members. The absent/empty
+    /// form is preserved for historical catalog hashes.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub archive_members: Vec<EvidenceArchiveMember>,
     pub supported_primitives: String,
     pub exclusions: String,
     /// Required for empirical evaluation, where it explains the split unit and
@@ -112,10 +138,13 @@ pub fn validate_catalog(catalog: &EvidenceCatalog) -> Result<(), Vec<EvidenceVal
     if !is_https_url(&catalog.landing_page) {
         errors.push(issue("landing_page", "must be an HTTPS URL"));
     }
-    if !matches!(catalog.license.as_str(), "CC-BY-4.0" | "ODbL-1.0") {
+    if !matches!(
+        catalog.license.as_str(),
+        "CC-BY-4.0" | "CC0-1.0" | "ODbL-1.0"
+    ) {
         errors.push(issue(
             "license",
-            "must be the normalized, redistributable license identifier `CC-BY-4.0` or `ODbL-1.0`",
+            "must be the normalized, redistributable license identifier `CC-BY-4.0`, `CC0-1.0`, or `ODbL-1.0`",
         ));
     }
     if catalog.license == "ODbL-1.0"
@@ -178,6 +207,51 @@ pub fn validate_catalog(catalog: &EvidenceCatalog) -> Result<(), Vec<EvidenceVal
             ));
         }
     }
+    let file_ids = catalog
+        .files
+        .iter()
+        .map(|file| file.id.as_str())
+        .collect::<HashSet<_>>();
+    let mut archive_paths = HashSet::new();
+    for (index, member) in catalog.archive_members.iter().enumerate() {
+        let path = format!("archive_members[{index}]");
+        if member.id.trim().is_empty() || member.transformation.trim().is_empty() {
+            errors.push(issue(&path, "id and transformation are required"));
+        }
+        if !ids.insert(member.id.as_str()) {
+            errors.push(issue(
+                &format!("{path}.id"),
+                "must be unique across files and archive members",
+            ));
+        }
+        if !file_ids.contains(member.archive_file_id.as_str()) {
+            errors.push(issue(
+                &format!("{path}.archive_file_id"),
+                "must identify a declared source file",
+            ));
+        }
+        if !is_safe_relative_path(&member.member_path) {
+            errors.push(issue(
+                &format!("{path}.member_path"),
+                "must be a non-empty relative path without `.` or `..` components",
+            ));
+        }
+        if !archive_paths.insert((member.archive_file_id.as_str(), member.member_path.as_str())) {
+            errors.push(issue(
+                &format!("{path}.member_path"),
+                "must be unique within its declared archive",
+            ));
+        }
+        if !is_sha256(&member.sha256) {
+            errors.push(issue(
+                &format!("{path}.sha256"),
+                "must be a SHA-256 hexadecimal digest",
+            ));
+        }
+        if member.size_bytes == 0 {
+            errors.push(issue(&format!("{path}.size_bytes"), "must be non-zero"));
+        }
+    }
     validate_catalog_purpose(catalog, &mut errors);
 
     if errors.is_empty() {
@@ -190,10 +264,10 @@ pub fn validate_catalog(catalog: &EvidenceCatalog) -> Result<(), Vec<EvidenceVal
 fn validate_catalog_purpose(catalog: &EvidenceCatalog, errors: &mut Vec<EvidenceValidationError>) {
     match catalog.purpose {
         EvidencePurpose::EmpiricalEvaluation => {
-            if catalog.license != "CC-BY-4.0" {
+            if !matches!(catalog.license.as_str(), "CC-BY-4.0" | "CC0-1.0") {
                 errors.push(issue(
                     "license",
-                    "empirical evaluation requires `CC-BY-4.0`; `ODbL-1.0` is limited to uncalibrated source observation",
+                    "empirical evaluation requires `CC-BY-4.0` or `CC0-1.0`; `ODbL-1.0` is limited to uncalibrated source observation",
                 ));
             }
             if catalog
@@ -208,13 +282,31 @@ fn validate_catalog_purpose(catalog: &EvidenceCatalog, errors: &mut Vec<Evidence
             }
             let mut has_calibration = false;
             let mut has_held_out = false;
+            let archive_file_ids = catalog
+                .archive_members
+                .iter()
+                .map(|member| member.archive_file_id.as_str())
+                .collect::<HashSet<_>>();
             for file in &catalog.files {
                 match file.role {
                     Some(DatasetRole::Calibration) => has_calibration = true,
                     Some(DatasetRole::HeldOut) => has_held_out = true,
+                    None if !archive_file_ids.contains(file.id.as_str()) => {
+                        errors.push(issue(
+                            "files",
+                            "each empirical-evaluation source must designate calibration or held_out unless it is a declared archive backing file",
+                        ));
+                    }
+                    None => {}
+                }
+            }
+            for member in &catalog.archive_members {
+                match member.role {
+                    Some(DatasetRole::Calibration) => has_calibration = true,
+                    Some(DatasetRole::HeldOut) => has_held_out = true,
                     None => errors.push(issue(
-                        "files",
-                        "each empirical-evaluation source must designate calibration or held_out",
+                        "archive_members",
+                        "each empirical-evaluation archive member must designate calibration or held_out",
                     )),
                 }
             }
@@ -226,10 +318,15 @@ fn validate_catalog_purpose(catalog: &EvidenceCatalog, errors: &mut Vec<Evidence
             }
         }
         EvidencePurpose::UncalibratedReference => {
-            if catalog.files.iter().any(|file| file.role.is_some()) {
+            if catalog.files.iter().any(|file| file.role.is_some())
+                || catalog
+                    .archive_members
+                    .iter()
+                    .any(|member| member.role.is_some())
+            {
                 errors.push(issue(
                     "files",
-                    "uncalibrated reference sources must not declare calibration or held_out roles",
+                    "uncalibrated reference sources and archive members must not declare calibration or held_out roles",
                 ));
             }
         }
@@ -244,6 +341,7 @@ fn is_safe_relative_path(value: &str) -> bool {
     let path = Path::new(value);
     !value.is_empty()
         && !path.is_absolute()
+        && !value.contains('\\')
         && path
             .components()
             .all(|component| matches!(component, std::path::Component::Normal(_)))
@@ -262,7 +360,9 @@ fn issue(path: &str, message: impl Into<String>) -> EvidenceValidationError {
 
 #[cfg(test)]
 mod tests {
-    use super::{EvidenceCatalog, EvidenceFile, EvidencePurpose, validate_catalog};
+    use super::{
+        EvidenceArchiveMember, EvidenceCatalog, EvidenceFile, EvidencePurpose, validate_catalog,
+    };
     use crate::benchmark::DatasetRole;
 
     fn catalog() -> EvidenceCatalog {
@@ -299,6 +399,7 @@ mod tests {
                     transformation: "retain source values".to_owned(),
                 },
             ],
+            archive_members: Vec::new(),
             supported_primitives: "horizontal walking".to_owned(),
             exclusions: "all other primitives".to_owned(),
             split_rationale: Some("files are disjoint".to_owned()),
@@ -338,6 +439,7 @@ mod tests {
                 upstream_checksum: None,
                 transformation: "retain source values".to_owned(),
             }],
+            archive_members: Vec::new(),
             supported_primitives: "descriptive trajectories".to_owned(),
             exclusions: "empirical evaluation".to_owned(),
             split_rationale: None,
@@ -366,6 +468,41 @@ mod tests {
             source.role = Some(DatasetRole::Calibration);
         }
         catalog.split_rationale = Some("fixture split".to_owned());
+        assert!(validate_catalog(&catalog).is_err());
+    }
+
+    #[test]
+    fn archive_members_can_form_a_content_locked_empirical_split() {
+        let mut catalog = catalog();
+        catalog.license = "CC0-1.0".to_owned();
+        catalog.files.truncate(1);
+        catalog.files[0].id = "archive".to_owned();
+        catalog.files[0].role = None;
+        catalog.files[0].local_path = "trials.zip".to_owned();
+        catalog.archive_members = vec![
+            EvidenceArchiveMember {
+                id: "trial-calibration".to_owned(),
+                archive_file_id: "archive".to_owned(),
+                member_path: "trials/one.txt".to_owned(),
+                role: Some(DatasetRole::Calibration),
+                sha256: "b".repeat(64),
+                size_bytes: 1,
+                transformation: "read source trajectory rows unchanged".to_owned(),
+            },
+            EvidenceArchiveMember {
+                id: "trial-held-out".to_owned(),
+                archive_file_id: "archive".to_owned(),
+                member_path: "trials/two.txt".to_owned(),
+                role: Some(DatasetRole::HeldOut),
+                sha256: "c".repeat(64),
+                size_bytes: 1,
+                transformation: "read source trajectory rows unchanged".to_owned(),
+            },
+        ];
+
+        assert!(validate_catalog(&catalog).is_ok());
+
+        catalog.archive_members[1].member_path = "trials/one.txt".to_owned();
         assert!(validate_catalog(&catalog).is_err());
     }
 }

@@ -5,7 +5,11 @@
 //! Keeping that distinction in code prevents a descriptive fit from silently
 //! becoming a predictive or operational claim.
 
-use crate::{EvidenceCatalog, EvidencePurpose, benchmark::DatasetRole, evidence::validate_catalog};
+use crate::{
+    EvidenceCatalog, EvidencePurpose,
+    benchmark::DatasetRole,
+    evidence::{EvidenceArchiveMember, validate_catalog},
+};
 use arrow_array::{
     Array, Float32Array, Float64Array, Int32Array, Int64Array, UInt32Array, UInt64Array,
 };
@@ -19,6 +23,7 @@ use std::{
     path::{Path, PathBuf},
 };
 use thiserror::Error;
+use zip::ZipArchive;
 
 const TIME_COLUMN: &str = "time_ms";
 const ID_COLUMN: &str = "object_identifier";
@@ -49,6 +54,29 @@ pub enum CalibrationError {
     #[error("{path}: SHA-256 mismatch; expected {expected}, calculated {actual}")]
     HashMismatch {
         path: PathBuf,
+        expected: String,
+        actual: String,
+    },
+    #[error("{path}: invalid ZIP archive: {message}")]
+    Archive { path: PathBuf, message: String },
+    #[error("{archive_path}: required archive member `{member_path}` is missing")]
+    ArchiveMemberMissing {
+        archive_path: PathBuf,
+        member_path: String,
+    },
+    #[error("{archive_path}:{member_path}: expected {expected} bytes, found {actual}")]
+    ArchiveMemberSizeMismatch {
+        archive_path: PathBuf,
+        member_path: String,
+        expected: u64,
+        actual: u64,
+    },
+    #[error(
+        "{archive_path}:{member_path}: SHA-256 mismatch; expected {expected}, calculated {actual}"
+    )]
+    ArchiveMemberHashMismatch {
+        archive_path: PathBuf,
+        member_path: String,
         expected: String,
         actual: String,
     },
@@ -610,6 +638,79 @@ pub fn verify_catalog_files(
             source.size_bytes,
             &source.sha256,
         )?;
+    }
+    for member in &catalog.archive_members {
+        let source = catalog
+            .files
+            .iter()
+            .find(|source| source.id == member.archive_file_id)
+            .ok_or_else(|| {
+                CalibrationError::InvalidCatalog(format!(
+                    "archive member `{}` references absent source `{}`",
+                    member.id, member.archive_file_id
+                ))
+            })?;
+        lock_archive_member(&data_root.join(&source.local_path), member)?;
+    }
+    Ok(())
+}
+
+fn lock_archive_member(
+    archive_path: &Path,
+    member: &EvidenceArchiveMember,
+) -> Result<(), CalibrationError> {
+    let file = File::open(archive_path).map_err(|source| CalibrationError::ReadFile {
+        path: archive_path.to_owned(),
+        source,
+    })?;
+    let mut archive = ZipArchive::new(file).map_err(|error| CalibrationError::Archive {
+        path: archive_path.to_owned(),
+        message: error.to_string(),
+    })?;
+    let mut entry = archive.by_name(&member.member_path).map_err(|error| {
+        if matches!(error, zip::result::ZipError::FileNotFound) {
+            CalibrationError::ArchiveMemberMissing {
+                archive_path: archive_path.to_owned(),
+                member_path: member.member_path.clone(),
+            }
+        } else {
+            CalibrationError::Archive {
+                path: archive_path.to_owned(),
+                message: error.to_string(),
+            }
+        }
+    })?;
+    let actual_size = entry.size();
+    if actual_size != member.size_bytes {
+        return Err(CalibrationError::ArchiveMemberSizeMismatch {
+            archive_path: archive_path.to_owned(),
+            member_path: member.member_path.clone(),
+            expected: member.size_bytes,
+            actual: actual_size,
+        });
+    }
+    let mut hasher = Sha256::new();
+    let mut buffer = vec![0_u8; 128 * 1024];
+    loop {
+        let read = entry
+            .read(&mut buffer)
+            .map_err(|source| CalibrationError::ReadFile {
+                path: archive_path.to_owned(),
+                source,
+            })?;
+        if read == 0 {
+            break;
+        }
+        hasher.update(&buffer[..read]);
+    }
+    let actual_hash = format!("{:x}", hasher.finalize());
+    if !actual_hash.eq_ignore_ascii_case(&member.sha256) {
+        return Err(CalibrationError::ArchiveMemberHashMismatch {
+            archive_path: archive_path.to_owned(),
+            member_path: member.member_path.clone(),
+            expected: member.sha256.clone(),
+            actual: actual_hash,
+        });
     }
     Ok(())
 }
@@ -1347,12 +1448,15 @@ mod tests {
         catalog_hash, embedded_free_walking_speed_profile_declaration,
         free_walking_speed_evaluation_hash, free_walking_speed_profile_hash,
         validate_free_walking_speed_evaluation, validate_free_walking_speed_profile,
+        verify_catalog_files,
     };
     use crate::{
-        EvidenceCatalog, EvidencePurpose, benchmark::DatasetRole, evidence::EvidenceFile, parse,
-        validate,
+        EvidenceArchiveMember, EvidenceCatalog, EvidencePurpose, benchmark::DatasetRole,
+        evidence::EvidenceFile, parse, validate,
     };
-    use std::path::Path;
+    use sha2::{Digest, Sha256};
+    use std::{fs, io::Write, path::Path};
+    use zip::{ZipWriter, write::SimpleFileOptions};
 
     #[test]
     fn observation_filter_counts_gaps_and_outliers_without_hiding_them() {
@@ -1514,6 +1618,7 @@ mod tests {
                 upstream_checksum: Some("md5:fixture".to_owned()),
                 transformation: "retain source values".to_owned(),
             }],
+            archive_members: Vec::new(),
             supported_primitives: "fixture only".to_owned(),
             exclusions: "empirical evaluation".to_owned(),
             split_rationale: None,
@@ -1526,6 +1631,82 @@ mod tests {
         assert!(
             matches!(error, CalibrationError::InvalidCatalog(message) if message.contains("empirical_evaluation"))
         );
+    }
+
+    #[test]
+    fn archive_member_locks_verify_the_published_split_members() {
+        let directory = std::env::temp_dir().join(format!(
+            "chiyoda-archive-lock-{}-{}",
+            std::process::id(),
+            std::thread::current().name().unwrap_or("test")
+        ));
+        fs::create_dir_all(&directory).expect("creating temporary directory");
+        let archive_path = directory.join("trials.zip");
+        let calibration = b"calibration trial";
+        let held_out = b"held-out trial";
+        let archive_file = fs::File::create(&archive_path).expect("creating archive");
+        let mut archive = ZipWriter::new(archive_file);
+        archive
+            .start_file("trials/calibration.txt", SimpleFileOptions::default())
+            .expect("starting calibration member");
+        archive
+            .write_all(calibration)
+            .expect("writing calibration member");
+        archive
+            .start_file("trials/held-out.txt", SimpleFileOptions::default())
+            .expect("starting held-out member");
+        archive
+            .write_all(held_out)
+            .expect("writing held-out member");
+        archive.finish().expect("finishing archive");
+        let archive_bytes = fs::read(&archive_path).expect("reading archive");
+        let catalog = EvidenceCatalog {
+            schema_version: "0.1".to_owned(),
+            purpose: EvidencePurpose::EmpiricalEvaluation,
+            dataset_id: "archive-fixture".to_owned(),
+            title: "Archive fixture".to_owned(),
+            landing_page: "https://example.test/archive".to_owned(),
+            license: "CC0-1.0".to_owned(),
+            redistributable: true,
+            attribution: None,
+            citation: "Fixture (2026)".to_owned(),
+            files: vec![EvidenceFile {
+                id: "archive".to_owned(),
+                role: None,
+                source_url: "https://example.test/trials.zip".to_owned(),
+                local_path: "trials.zip".to_owned(),
+                sha256: format!("{:x}", Sha256::digest(&archive_bytes)),
+                size_bytes: u64::try_from(archive_bytes.len()).expect("usize fits u64"),
+                upstream_checksum: None,
+                transformation: "retain the publisher ZIP unchanged".to_owned(),
+            }],
+            archive_members: vec![
+                EvidenceArchiveMember {
+                    id: "calibration".to_owned(),
+                    archive_file_id: "archive".to_owned(),
+                    member_path: "trials/calibration.txt".to_owned(),
+                    role: Some(DatasetRole::Calibration),
+                    sha256: format!("{:x}", Sha256::digest(calibration)),
+                    size_bytes: u64::try_from(calibration.len()).expect("usize fits u64"),
+                    transformation: "read the source trial unchanged".to_owned(),
+                },
+                EvidenceArchiveMember {
+                    id: "held-out".to_owned(),
+                    archive_file_id: "archive".to_owned(),
+                    member_path: "trials/held-out.txt".to_owned(),
+                    role: Some(DatasetRole::HeldOut),
+                    sha256: format!("{:x}", Sha256::digest(held_out)),
+                    size_bytes: u64::try_from(held_out.len()).expect("usize fits u64"),
+                    transformation: "read the source trial unchanged".to_owned(),
+                },
+            ],
+            supported_primitives: "fixture horizontal avoidance".to_owned(),
+            exclusions: "all other primitives".to_owned(),
+            split_rationale: Some("named archive members are disjoint trials".to_owned()),
+        };
+
+        verify_catalog_files(&catalog, &directory).expect("archive and members lock");
+        fs::remove_dir_all(directory).expect("removing temporary directory");
     }
 
     #[test]

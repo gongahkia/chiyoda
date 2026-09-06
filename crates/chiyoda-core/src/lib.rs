@@ -47,7 +47,10 @@ pub use coordination::{
     first_timed_disc_conflict, plan_queue_grid, plan_queue_grid_rolling, queue_grid_slot_windows,
     queue_grid_timed_targets, reference_clearance_epsilon_m, timed_disc_conflicts,
 };
-pub use evidence::{EvidenceCatalog, EvidencePurpose, EvidenceValidationError, validate_catalog};
+pub use evidence::{
+    EvidenceArchiveMember, EvidenceCatalog, EvidencePurpose, EvidenceValidationError,
+    validate_catalog,
+};
 pub use experiment::{
     ExperimentAssumption, ExperimentAssumptionTarget, ExperimentManifest,
     ExperimentSensitivityStudy, ExperimentSourceAttestation, ExperimentValidationError,

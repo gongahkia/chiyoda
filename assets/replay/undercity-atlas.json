@@ -1,0 +1,25 @@
+{
+  "schema_version": "chiyoda.replay-sprite-atlas.v1",
+  "image": "undercity-atlas.png",
+  "tile_width_pixels": 128,
+  "tile_height_pixels": 128,
+  "tiles": {
+    "background": { "column": 0, "row": 0 },
+    "surface": { "column": 1, "row": 0 },
+    "surface_border": { "column": 3, "row": 0 },
+    "obstacle": { "column": 4, "row": 0 },
+    "waypoint": { "column": 6, "row": 1 },
+    "exit": { "column": 7, "row": 1 },
+    "gate": { "column": 0, "row": 2 },
+    "portal_lane": { "column": 5, "row": 1 },
+    "queue_footprint": { "column": 5, "row": 2 },
+    "stair": { "column": 1, "row": 2 },
+    "ramp": { "column": 2, "row": 2 },
+    "escalator": { "column": 3, "row": 2 },
+    "lift": { "column": 4, "row": 2 },
+    "moving": { "column": 0, "row": 1 },
+    "waiting": { "column": 1, "row": 1 },
+    "in_transit": { "column": 2, "row": 1 },
+    "evacuated": { "column": 3, "row": 1 }
+  }
+}

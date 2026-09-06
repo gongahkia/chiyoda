@@ -1949,6 +1949,7 @@ mod tests {
                 upstream_checksum: None,
                 transformation: "inspect OSM XML as geographic map observations only".to_owned(),
             }],
+            archive_members: Vec::new(),
             supported_primitives: "Mapped station, entrance, pedestrian-way, step, elevator, platform, building, and indoor tags only.".to_owned(),
             exclusions: "No geometry, elevation, capacity, connectivity, or behavioral inference.".to_owned(),
             split_rationale: None,

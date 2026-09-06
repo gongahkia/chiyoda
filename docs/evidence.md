@@ -13,8 +13,11 @@ publisher's license and any checksum it exposes, an exact local byte size and
 SHA-256 content lock, and a transformation statement. A catalog has one of two explicit
 purposes:
 
-- `empirical_evaluation` is the strict historical contract: every file has a
-  calibration or held-out role and the catalog explains the leakage boundary.
+- `empirical_evaluation` requires every logical source to have a calibration
+  or held-out role and the catalog explains the leakage boundary. A single
+  immutable ZIP may be its backing file when each named, independently hashed
+  archive member carries that role; this supports a publisher's disjoint trial
+  files without treating the whole ZIP as both partitions.
 - `uncalibrated_reference` content-locks an open source without pretending it
   has an evaluation split. It cannot be passed to a calibration adapter or used
   as benchmark evidence.
@@ -23,11 +26,16 @@ Raw sources live under `data/raw/`, which is intentionally ignored by Git.
 Derived reports name every source digest and must be reproducible from that
 catalog.
 
-The catalog accepts redistributable `CC-BY-4.0` and `ODbL-1.0` source metadata.
+The catalog accepts redistributable `CC-BY-4.0`, `CC0-1.0`, and `ODbL-1.0`
+source metadata. `CC-BY-4.0` and `CC0-1.0` can support an empirical catalog;
 `ODbL-1.0` is limited to `uncalibrated_reference` and must state the required
-attribution; it cannot become an empirical-evaluation catalog. This supports
-source-linked map observation without weakening the public empirical evidence
-contract. See [open-layout source observations](layout-sources.md).
+attribution. This supports source-linked map observation without weakening the
+public empirical evidence contract. See [open-layout source observations](layout-sources.md).
+
+For an archive-member catalog, both the outer archive and every named member
+are independently size- and SHA-256-locked by the Python fetcher and the Rust
+`evidence lock` command. Members are verified in place, never extracted, and
+their names cannot traverse outside the archive contract.
 
 For a one-off uncalibrated scenario informed by any acquired source, use an
 [experiment artifact](experiments.md) to snapshot the scenario, assumptions,

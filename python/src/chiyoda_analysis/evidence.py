@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import zipfile
 from pathlib import Path, PurePosixPath
 from typing import Any
 from urllib.error import URLError
@@ -62,6 +63,7 @@ def fetch_catalog(catalog: dict[str, Any], data_root: str | Path) -> list[Path]:
             temporary.unlink(missing_ok=True)
             raise
         written.append(destination)
+    verify_catalog_files(catalog, root)
     return written
 
 
@@ -75,6 +77,10 @@ def verify_catalog_files(catalog: dict[str, Any], data_root: str | Path) -> list
         path = _destination(root, source["local_path"])
         _verify_file(path, source)
         paths.append(path)
+    sources_by_id = {source["id"]: source for source in _files(catalog)}
+    for member in _archive_members(catalog):
+        source = sources_by_id[member["archive_file_id"]]
+        _verify_archive_member(_destination(root, source["local_path"]), member)
     return paths
 
 
@@ -93,9 +99,9 @@ def _validate_catalog(catalog: dict[str, Any]) -> None:
         if not isinstance(catalog.get(key), str) or not catalog[key].strip():
             raise EvidenceError(f"catalog field `{key}` must be a non-empty string")
     license_id = catalog.get("license")
-    if license_id not in {"CC-BY-4.0", "ODbL-1.0"} or catalog.get("redistributable") is not True:
+    if license_id not in {"CC-BY-4.0", "CC0-1.0", "ODbL-1.0"} or catalog.get("redistributable") is not True:
         raise EvidenceError(
-            "catalog must declare a redistributable CC-BY-4.0 or ODbL-1.0 source"
+            "catalog must declare a redistributable CC-BY-4.0, CC0-1.0, or ODbL-1.0 source"
         )
     landing_page = catalog.get("landing_page")
     if not isinstance(landing_page, str) or not landing_page.startswith("https://"):
@@ -110,22 +116,36 @@ def _validate_catalog(catalog: dict[str, Any]) -> None:
         if not isinstance(attribution, str) or not attribution.strip():
             raise EvidenceError("attribution must be a non-empty string for an ODbL-1.0 source")
     files = _files(catalog)
+    archive_members = _archive_members(catalog)
     if purpose == "empirical_evaluation":
-        if license_id != "CC-BY-4.0":
+        if license_id not in {"CC-BY-4.0", "CC0-1.0"}:
             raise EvidenceError(
-                "empirical evaluation requires CC-BY-4.0; ODbL-1.0 is limited to uncalibrated source observation"
+                "empirical evaluation requires CC-BY-4.0 or CC0-1.0; ODbL-1.0 is limited to uncalibrated source observation"
             )
         split_rationale = catalog.get("split_rationale")
         if not isinstance(split_rationale, str) or not split_rationale.strip():
             raise EvidenceError(
                 "split_rationale is required for empirical evaluation and must not be empty"
             )
-        roles = {source.get("role") for source in files}
+        archive_file_ids = {member["archive_file_id"] for member in archive_members}
+        unpartitioned_files = [
+            source for source in files
+            if source.get("role") is None and source["id"] not in archive_file_ids
+        ]
+        if unpartitioned_files:
+            raise EvidenceError(
+                "each empirical-evaluation source must designate calibration and held_out unless it is an archive backing file"
+            )
+        roles = {
+            source.get("role") for source in files if source.get("role") is not None
+        } | {member.get("role") for member in archive_members}
         if roles != {"calibration", "held_out"}:
             raise EvidenceError(
-                "empirical-evaluation catalog must contain calibration and held_out source files"
+                "empirical-evaluation catalog must contain calibration and held_out source files or archive members"
             )
-    elif any(source.get("role") is not None for source in files):
+    elif any(source.get("role") is not None for source in files) or any(
+        member.get("role") is not None for member in archive_members
+    ):
         raise EvidenceError(
             "uncalibrated reference sources must not declare calibration or held_out roles"
         )
@@ -153,6 +173,34 @@ def _validate_catalog(catalog: dict[str, Any]) -> None:
         seen_ids.add(source["id"])
         seen_paths.add(source["local_path"])
         _safe_relative_path(source["local_path"])
+    source_ids = {source["id"] for source in files}
+    seen_archive_paths: set[tuple[str, str]] = set()
+    for member in archive_members:
+        for key in ("id", "archive_file_id", "member_path", "sha256", "transformation"):
+            if not isinstance(member.get(key), str) or not member[key].strip():
+                raise EvidenceError(f"archive member field `{key}` must be a non-empty string")
+        if member["id"] in seen_ids:
+            raise EvidenceError("source and archive-member ids must be unique")
+        if member["archive_file_id"] not in source_ids:
+            raise EvidenceError(
+                f"archive member `{member['id']}` references an undeclared source file"
+            )
+        if member.get("role") not in {None, "calibration", "held_out"}:
+            raise EvidenceError(
+                f"archive member `{member['id']}` has an invalid partition role"
+            )
+        if len(member["sha256"]) != 64 or any(
+            character not in "0123456789abcdefABCDEF" for character in member["sha256"]
+        ):
+            raise EvidenceError(f"archive member `{member['id']}` has an invalid SHA-256 digest")
+        if not isinstance(member.get("size_bytes"), int) or member["size_bytes"] <= 0:
+            raise EvidenceError(f"archive member `{member['id']}` must have a positive byte size")
+        _safe_relative_path(member["member_path"])
+        archive_path = (member["archive_file_id"], member["member_path"])
+        if archive_path in seen_archive_paths:
+            raise EvidenceError("archive member paths must be unique within an archive")
+        seen_ids.add(member["id"])
+        seen_archive_paths.add(archive_path)
 
 
 def _files(catalog: dict[str, Any]) -> list[dict[str, Any]]:
@@ -162,6 +210,13 @@ def _files(catalog: dict[str, Any]) -> list[dict[str, Any]]:
     return files
 
 
+def _archive_members(catalog: dict[str, Any]) -> list[dict[str, Any]]:
+    members = catalog.get("archive_members", [])
+    if not isinstance(members, list) or not all(isinstance(member, dict) for member in members):
+        raise EvidenceError("archive_members must be a list of objects when provided")
+    return members
+
+
 def _destination(root: Path, local_path: str) -> Path:
     safe_path = _safe_relative_path(local_path)
     return root.joinpath(*safe_path.parts)
@@ -169,7 +224,12 @@ def _destination(root: Path, local_path: str) -> Path:
 
 def _safe_relative_path(value: str) -> PurePosixPath:
     path = PurePosixPath(value)
-    if not value or path.is_absolute() or any(part in {"", ".", ".."} for part in path.parts):
+    if (
+        not value
+        or "\\" in value
+        or path.is_absolute()
+        or any(part in {"", ".", ".."} for part in path.parts)
+    ):
         raise EvidenceError("local_path must be a non-empty relative path without traversal")
     return path
 
@@ -202,4 +262,30 @@ def _verify_file(path: Path, source: dict[str, Any]) -> None:
     if actual.lower() != source["sha256"].lower():
         raise EvidenceError(
             f"{path}: expected {source['sha256']}, calculated {actual}"
+        )
+
+
+def _verify_archive_member(archive_path: Path, member: dict[str, Any]) -> None:
+    try:
+        with zipfile.ZipFile(archive_path) as archive:
+            try:
+                info = archive.getinfo(member["member_path"])
+            except KeyError as error:
+                raise EvidenceError(
+                    f"{archive_path}: required archive member `{member['member_path']}` is missing"
+                ) from error
+            if info.file_size != member["size_bytes"]:
+                raise EvidenceError(
+                    f"{archive_path}:{member['member_path']}: expected {member['size_bytes']} bytes, found {info.file_size}"
+                )
+            digest = hashlib.sha256()
+            with archive.open(info) as handle:
+                while chunk := handle.read(128 * 1024):
+                    digest.update(chunk)
+    except (OSError, zipfile.BadZipFile) as error:
+        raise EvidenceError(f"cannot read archive {archive_path}: {error}") from error
+    actual = digest.hexdigest()
+    if actual.lower() != member["sha256"].lower():
+        raise EvidenceError(
+            f"{archive_path}:{member['member_path']}: expected {member['sha256']}, calculated {actual}"
         )
