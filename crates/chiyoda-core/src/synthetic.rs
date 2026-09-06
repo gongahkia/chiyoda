@@ -5,10 +5,12 @@
 //! validity.
 
 use crate::{
-    BundleVerification, ParseError, RunError, RunOptions,
+    BundleVerification, ParseError, RunOptions,
     avoidance::{AvoidanceAgent, Vec2, choose_velocity},
     bundle::{RunBundle, RunMetrics},
-    parse, run, verify_run_bundle,
+    parse, run,
+    runtime::RunError,
+    verify_run_bundle,
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -182,7 +184,10 @@ pub fn synthetic_system_report() -> Result<SyntheticSystemReport, SyntheticSyste
     if bundle != replay {
         return Err(SyntheticSystemError::NonDeterministicSelfReplay);
     }
-    if !matches!(verify_run_bundle(&bundle)?, BundleVerification::Reconstructed) {
+    if !matches!(
+        verify_run_bundle(&bundle)?,
+        BundleVerification::Reconstructed
+    ) {
         return Err(SyntheticSystemError::LegacyVerification);
     }
 

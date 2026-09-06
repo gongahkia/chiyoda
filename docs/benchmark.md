@@ -128,6 +128,30 @@ pedestrian observation, collision/safety result, routing test, or operational
 simulation. In particular, it does not select or modify the runtime's 2.5 s
 ORCA horizon.
 
+## Synthetic integrated-semantics exercise
+
+For an end-to-end regression artifact covering the existing queue, rerouting,
+staircase, multi-surface, and scheduled operational-state semantics, run:
+
+```console
+$ chiyoda synthetic system -o out/synthetic-system.json
+```
+
+The fixed source is also readable at
+[`examples/synthetic/system-contract.chy`](../examples/synthetic/system-contract.chy).
+It uses generated agents and deliberately structural geometry, release cadence,
+service limits, an exit closure, and an exit-capacity change. The JSON report
+embeds that source and its SHA-256 hash; records event counts, per-resource
+timestep-level queue telemetry, reached surfaces, and run metrics; then requires
+both an immediate exact rerun and standard bundle reconstruction.
+
+This is integration conformance for the installed reference runtime. It is
+useful for detecting a semantic regression across the complete authored path,
+but it does **not** validate real queues, routing choices, stair use,
+station-wide movement, operational outcomes, or predictions. Exact self-replay
+is model self-consistency, not evidence that the model forecasts people or a
+facility.
+
 ## Uncalibrated sensitivity studies
 
 `chiyoda sensitivity MANIFEST -o DIRECTORY` is a separate structural workflow
