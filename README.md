@@ -26,6 +26,31 @@ The current `0.42.0-alpha.1` release establishes the language/runtime contract:
 - a deterministic, constraint-preserving scenario generator; and
 - a native Linux trace replay application.
 
+## Replay showcase
+
+![Animated replay of the grand interchange showcase](assets/demo/grand-interchange-showcase.gif)
+
+This is one deliberately uncalibrated, authored structural showcase: five
+connector kinds feed a concourse with obstacles, a capacity-limited gate,
+scheduled gate and exit service changes, a primary-exit closure, and
+alternative-exit rerouting. The animation renders only the `concourse` surface
+of its deterministic trace with the optional sprite atlas. Its
+[source](examples/demos/grand-interchange-showcase.chy) and committed
+[GIF provenance sidecar](assets/demo/grand-interchange-showcase.gif.json)
+make its input and exact rendering contract inspectable. It is not a station
+layout, demand profile, capacity estimate, behavioural model, or prediction.
+
+Regenerate the showcased GIF with:
+
+```console
+$ cargo run -p chiyoda -- run examples/demos/grand-interchange-showcase.chy \
+    -o out/grand-interchange-showcase --trace-every 20
+$ cargo run -p chiyoda-replay -- out/grand-interchange-showcase/run.json \
+    --surface concourse --sprite-atlas assets/replay/undercity-atlas.json \
+    --export-gif out/grand-interchange-showcase/grand-interchange-showcase.gif \
+    --gif-speed 10
+```
+
 ## Research boundary
 
 Chiyoda is **not** suitable for regulatory approval, emergency dispatch,
