@@ -1,0 +1,41 @@
+scenario "grand-interchange-showcase"
+seed 601
+duration 84s
+timestep 0.2s
+surface platform_north at (0m, 0m, 6m) size (48m, 14m)
+surface platform_south at (0m, 0m, 3m) size (48m, 14m)
+surface concourse at (0m, 0m, 0m) size (64m, 24m)
+obstacle ticket_bank on concourse at (24m, 10m, 0m) size (5m, 3m)
+obstacle cafe_island on concourse at (35m, 11m, 0m) size (8m, 4m)
+obstacle column_bank on concourse at (45m, 9m, 0m) size (3m, 7m)
+waypoint central_hall on concourse at (31m, 12m, 0m) dwell 1s
+exit boulevard on concourse at (62m, 6m, 0m) width 3m capacity 1.5/s
+exit plaza on concourse at (62m, 19m, 0m) width 3m capacity 1.1/s
+stair north_stair from platform_north at (36m, 7m, 6m) to concourse at (36m, 7m, 0m) width 2m capacity 1/s clearance 2m
+escalator north_escalator from platform_north at (23m, 7m, 6m) to concourse at (23m, 7m, 0m) width 2m belt 0.7m/s capacity 1.3/s clearance 2m
+lift north_lift from platform_north at (8m, 7m, 6m) to concourse at (8m, 7m, 0m) cabin 2m 2m capacity 6 cycle 10s clearance 2m
+stair south_stair from platform_south at (34m, 7m, 3m) to concourse at (34m, 7m, 0m) width 2m capacity 1.1/s clearance 2m
+ramp south_ramp from platform_south at (14m, 7m, 3m) to concourse at (14m, 7m, 0m) width 2.5m capacity 1/s clearance 2m
+portal-lanes north_stair_portal connector north_stair axis y count 3
+portal-lanes north_escalator_portal connector north_escalator axis y count 3
+portal-lanes north_lift_portal connector north_lift axis y count 2
+portal-lanes south_stair_portal connector south_stair axis y count 3
+portal-lanes south_ramp_portal connector south_ramp axis y count 3
+portal-lanes boulevard_portal exit boulevard axis y count 3
+portal-lanes plaza_portal exit plaza axis y count 3
+portal-lanes east_gate_portal gate east_gate axis y count 3
+queue-footprint north_stair_queue connector north_stair on platform_north from (33m, 7m, 6m) to (1m, 7m, 6m) slots 52
+queue-footprint south_stair_queue connector south_stair on platform_south from (31m, 7m, 3m) to (0.4m, 7m, 3m) slots 52
+queue-footprint boulevard_queue exit boulevard on concourse from (59m, 6m, 0m) to (13m, 6m, 0m) slots 52
+queue-footprint plaza_queue exit plaza on concourse from (59m, 19m, 0m) to (13m, 19m, 0m) slots 52
+queue-footprint east_gate_queue gate east_gate on concourse from (49m, 6m, 0m) to (13m, 6m, 0m) slots 52
+exit-state boulevard_closure exit boulevard closed time 42s
+exit-capacity-state plaza_reduced exit plaza capacity 0.75/s time 60s
+gate east_gate on concourse at (52m, 6m, 0m) width 3m capacity 1.2/s to boulevard
+gate-capacity-state east_gate_reduced gate east_gate capacity 0.7/s time 24s
+agents north_stair_arrivals count 16 on platform_north at (3m, 3m, 6m) to boulevard speed 1.25m/s radius 0.3m height 1.7m via central_hall alternative plaza exclude ramp exclude escalator exclude lift release 0s every 1s batch 2
+agents north_escalator_arrivals count 12 on platform_north at (3m, 10m, 6m) to boulevard speed 1.35m/s radius 0.3m height 1.7m via central_hall alternative plaza exclude stair exclude ramp exclude lift release 4s every 1s batch 2
+agents north_lift_arrivals count 4 on platform_north at (8m, 3m, 6m) to boulevard speed 1.1m/s radius 0.3m height 1.7m via central_hall alternative plaza exclude stair exclude ramp exclude escalator release 8s every 2s batch 1
+agents south_stair_arrivals count 12 on platform_south at (3m, 3m, 3m) to boulevard speed 1.2m/s radius 0.3m height 1.7m via central_hall alternative plaza exclude ramp exclude escalator exclude lift release 2s every 1s batch 2
+agents south_ramp_arrivals count 4 on platform_south at (4m, 10m, 3m) to boulevard speed 1.05m/s radius 0.3m height 1.7m via central_hall alternative plaza exclude stair exclude escalator exclude lift release 10s every 2s batch 1
+agents concourse_arrivals count 4 on concourse at (5m, 14m, 0m) to boulevard speed 1.3m/s radius 0.3m height 1.7m via central_hall alternative plaza release 12s every 2s batch 1
