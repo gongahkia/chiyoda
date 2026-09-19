@@ -39,7 +39,11 @@ exit street on concourse at (9m, 1m, 0m) width 1m
 agents passengers count 1 on concourse at (1m, 1m, 0m) to street speed 1.2m/s radius 0.3m height 1.7m
 "#;
     let error = parse(source).expect_err("walking profiles are no longer part of the language");
-    assert!(error.message.contains("unknown declaration `walking-profile`"));
+    assert!(
+        error
+            .message
+            .contains("unknown declaration `walking-profile`")
+    );
 }
 
 #[test]
