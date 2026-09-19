@@ -2,51 +2,36 @@
 
 # `Chiyoda` 🚇
 
-Deterministic 2D/3D [pedestrian-flow](https://www.researchgate.net/figure/Examples-of-pedestrian-flow-data_tbl1_366989142) simulator built atop a typed [DSL](https://en.wikipedia.org/wiki/Domain-specific_language) for scenario source specification.
+[Deterministic](#features) 2D/3D [pedestrian-flow](https://www.researchgate.net/figure/Examples-of-pedestrian-flow-data_tbl1_366989142) simulator built atop a typed [DSL](https://en.wikipedia.org/wiki/Domain-specific_language) for [scenario source specification](#the-chiyoda-dsl).
 
-## Highlights
+## Features
 
-- Deterministic // Run the same valid scenario with the same runtime and get
-  the same result.
-- Text-first // Author geometry, demand, routes, capacities, and state changes
-  in a small DSL with explicit SI units.
-- Inspectable // Format, validate, compile, run, and replay from the command
-  line.
-- Reproducible // Runs include their source and a hash-verifiable `run.json`
-  bundle.
+* **Text-first**: Author geometry, demand, routes, capacities, and state changes in a small DSL with explicit SI units
+* **Deterministic**: Run the same valid scenario with the same runtime and get the same result
+* **Inspectable**: Format, validate, compile, run, and replay from the command line
+* **Reproducible**: Runs include their source and a hash-verifiable `run.json` bundle
 
-## Table of Contents
+## Usage
 
-- [Installation](#installation)
-  - [Build from source](#build-from-source)
-- [Usage](#usage)
-  - [Create and run a scenario](#create-and-run-a-scenario)
-  - [The scenario language](#the-scenario-language)
-- [Replay](#replay)
-- [Documentation](#documentation)
-- [Development](#development)
-- [Scope](#scope)
+> [!NOTE]  
+> `Chiyoda` uses [Rust 1.98.0](https://releases.rs/docs/1.98.0/) through `rust-toolchain.toml`.
 
-## Installation
+The below instructions are for running `Chiyoda` locally.
 
-### Build from source
-
-The checkout selects Rust 1.98.0 through `rust-toolchain.toml`.
+1. First clone `Chiyoda` to your machine.
 
 ```console
-$ git clone https://github.com/gongahkia/chiyoda.git
-$ cd chiyoda
+$ git clone https://github.com/gongahkia/chiyoda.git && cd chiyoda
+```
+
+2. Next execute the below to build `Chiyoda`'s scenario CLI and its native replay viewer *(currently only supported on Linux Display Servers)*.
+
+```console
 $ cargo build --release --workspace --locked
 $ export PATH="$PWD/target/release:$PATH"
 ```
 
-This builds `chiyoda`, the scenario CLI, and `chiyoda-replay`, the native
-viewer. Opening the viewer requires an available Linux display server; the
-other commands are command-line only.
-
-## Usage
-
-### Create and run a scenario
+3. Finally, run any of below commands to use `Chiyoda`'s functionality.
 
 ```console
 $ chiyoda generate --seed 73 -o example.chy
@@ -57,10 +42,7 @@ $ chiyoda run example.formatted.chy -o out/example
 $ chiyoda replay out/example/run.json
 ```
 
-`run` writes a verified bundle. `replay` reconstructs that bundle with the
-installed runtime and prints its summary.
-
-### The scenario language
+## The `Chiyoda` DSL
 
 ```chy
 scenario "concourse-transfer"
