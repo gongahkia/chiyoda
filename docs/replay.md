@@ -6,11 +6,11 @@ runtime's recorded state; it is not a simulation engine, a facility survey, a
 3D renderer, or an operational display.
 
 ```console
-$ cargo run -p chiyoda-replay -- out/experiment/run.json --paused
-$ cargo run -p chiyoda-replay -- out/experiment/run.json --surface concourse
-$ cargo run -p chiyoda-replay -- out/experiment/run.json --speed 10
-$ cargo run -p chiyoda-replay -- out/experiment/run.json --surface concourse --export-gif out/experiment/replay.gif --gif-speed 4
-$ cargo run -p chiyoda-replay -- out/experiment/run.json --sprite-atlas assets/replay/undercity-atlas.json
+$ cargo run -p chiyoda-replay -- out/showcase/run.json --paused
+$ cargo run -p chiyoda-replay -- out/showcase/run.json --surface concourse
+$ cargo run -p chiyoda-replay -- out/showcase/run.json --speed 10
+$ cargo run -p chiyoda-replay -- out/showcase/run.json --surface concourse --export-gif out/showcase/replay.gif --gif-speed 4
+$ cargo run -p chiyoda-replay -- out/showcase/run.json --sprite-atlas assets/replay/undercity-atlas.json
 ```
 
 ## Live DSL debugging
@@ -19,7 +19,7 @@ For the editing loop, pass a source file through `--watch` instead of a run
 bundle:
 
 ```console
-$ cargo run -p chiyoda-replay -- --watch examples/experiments/uncalibrated-interchange.chy
+$ cargo run -p chiyoda-replay -- --watch examples/demos/grand-interchange-showcase.chy
 $ cargo run -p chiyoda-replay -- --watch draft.chy --paused --surface platform --trace-every 1
 ```
 
@@ -142,9 +142,7 @@ that origin surface. This is trace provenance, not a physical 3D position.
 The viewer renders only values explicitly authored in the scenario and recorded
 in the bundle. It does not infer floor plans, building boundaries, indoor
 connectivity, elevations, widths, density, hazards, visibility, accessibility,
-capacity, behavior, or any empirical outcome from an OSM observation or a run.
-Use the [layout-source workflow](layout-sources.md) for the separate,
-source-observation-only authoring reference boundary.
+capacity, or behavior from a run.
 
 The isometric overview is a fixed projection of authored surface elevations,
 static geometry, connectors, and recorded agent positions. It is a debugging
