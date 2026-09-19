@@ -1,4 +1,4 @@
-# Chiyoda language reference 0.28
+# Chiyoda language reference 0.29
 
 Each non-empty line is one declaration. Lines beginning with `#` are comments.
 Quoted strings are supported only where explicitly shown. All lengths use
@@ -16,8 +16,6 @@ scenario "NAME"
 seed UNSIGNED_INTEGER
 duration DURATION
 timestep DURATION
-walking-profile ID horizontal-free-walking speed SPEED catalog-sha256 SHA256 calibration-profile-sha256 SHA256 held-out-evaluation-sha256 SHA256
-
 surface ID at (LENGTH, LENGTH, LENGTH) size (LENGTH, LENGTH)
 obstacle ID on SURFACE at (LENGTH, LENGTH, LENGTH) size (LENGTH, LENGTH)
 waypoint ID on SURFACE at (LENGTH, LENGTH, LENGTH) [dwell DURATION]
@@ -37,7 +35,7 @@ gate ID on SURFACE at (LENGTH, LENGTH, LENGTH) width LENGTH capacity RATE to EXI
 gate-state ID gate GATE (open|closed) time DURATION
 gate-capacity-state ID gate GATE capacity RATE time DURATION
 
-agents ID count UNSIGNED_INTEGER on SURFACE at (LENGTH, LENGTH, LENGTH) to EXIT speed (SPEED|profile ID) radius LENGTH height LENGTH [via WAYPOINT]... [alternative EXIT]... [exclude (stair|ramp|escalator|lift)]... [release DURATION [every DURATION [batch UNSIGNED_INTEGER]]]
+agents ID count UNSIGNED_INTEGER on SURFACE at (LENGTH, LENGTH, LENGTH) to EXIT speed SPEED radius LENGTH height LENGTH [via WAYPOINT]... [alternative EXIT]... [exclude (stair|ramp|escalator|lift)]... [release DURATION [every DURATION [batch UNSIGNED_INTEGER]]]
 
 message ID source (peer|official|signage|staff) on SURFACE at (LENGTH, LENGTH, LENGTH) claim (connector CONNECTOR|exit EXIT|gate GATE) (open|closed) truth (true|false) time DURATION reach LENGTH trust PROBABILITY [sample ID]
 countermeasure ID corrects MESSAGE source (official|signage|staff) on SURFACE at (LENGTH, LENGTH, LENGTH) time DURATION reach LENGTH trust PROBABILITY [sample ID]
@@ -45,20 +43,7 @@ countermeasure ID corrects MESSAGE source (official|signage|staff) on SURFACE at
 
 `LENGTH` is a finite number with an `m` suffix. `DURATION` is a finite number
 with an `s` or `ms` suffix. `SPEED` has an `m/s` suffix. `RATE` has a `/s`
-suffix. `PROBABILITY` is a finite decimal in `[0, 1]`. `SHA256` is a
-64-character hexadecimal digest.
-
-`walking-profile` is an optional, fully embedded provenance declaration for the
-current narrow `horizontal-free-walking` primitive. The declaration must appear
-before an agent group selects it with `speed profile ID`. Its speed becomes that
-group's explicit deterministic `speed_mps`; raw data is never read at runtime.
-The three SHA-256 values are respectively the content-locked evidence catalog,
-the calibration-profile artifact, and its linked held-out evaluation artifact.
-The compiler checks their syntax, profile identity, and that the resolved speed
-is preserved in canonical IR. It cannot re-read external sources from a DSL
-file, so authors should generate this declaration only through the calibration
-workflow. This declaration does not make an agent a measured person or make a
-scenario empirically valid.
+suffix. `PROBABILITY` is a finite decimal in `[0, 1]`.
 
 `release` is optional and defaults to `0s`. It schedules the earliest time when
 a declared group may become active; it is an authored demand input rather than
@@ -217,14 +202,14 @@ messaging effects are empirically validated.
 ## Canonical IR
 
 Successful compilation emits a JSON `CanonicalScenario` with
-`language_version: "0.27"`. Declaration order is preserved and forms part of
+`language_version: "0.29"`. Declaration order is preserved and forms part of
 the deterministic execution contract. The canonical IR is the public boundary
 between conforming compilers and runtimes; direct use of parser internals is
 not a stable API.
 
 ## Current geometry boundary
 
-Version 0.27 supports axis-aligned rectangular walkable surfaces with
+Version 0.29 supports axis-aligned rectangular walkable surfaces with
 axis-aligned rectangular no-go zones, joined by directed 3D stairs, ramps,
 escalators, and lifts. The runtime expands no-go zones by each agent radius
 and finds a deterministic Euclidean shortest path through the resulting

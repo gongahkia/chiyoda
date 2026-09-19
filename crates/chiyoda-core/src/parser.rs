@@ -530,11 +530,11 @@ fn parse_declaration(
                 speed_mps,
                 radius_m: parse_length(
                     line,
-                    required(line, tokens, radius_index, "agent radius")?,
+                    required(line, tokens, 15, "agent radius")?,
                 )?,
                 height_m: parse_length(
                     line,
-                    required(line, tokens, height_index, "agent height")?,
+                    required(line, tokens, 17, "agent height")?,
                 )?,
                 release_at_s: agent_options.release_at_s,
                 release_interval_s: agent_options.release_interval_s,

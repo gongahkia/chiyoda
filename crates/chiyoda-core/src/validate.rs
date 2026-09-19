@@ -1374,15 +1374,6 @@ fn check_positive(path: &str, value: f64, errors: &mut Vec<ValidationError>) {
     }
 }
 
-fn check_sha256(path: &str, value: &str, errors: &mut Vec<ValidationError>) {
-    if value.len() != 64 || !value.chars().all(|character| character.is_ascii_hexdigit()) {
-        errors.push(issue(
-            path,
-            "must be a 64-character SHA-256 hexadecimal digest",
-        ));
-    }
-}
-
 fn check_nonnegative(path: &str, value: f64, errors: &mut Vec<ValidationError>) {
     if !value.is_finite() || value < 0.0 {
         errors.push(issue(path, "must be finite and non-negative"));

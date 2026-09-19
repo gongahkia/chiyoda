@@ -1,9 +1,6 @@
 use chiyoda_core::{
-    BenchmarkManifest, EvidenceCatalog, RunBundle, RunOptions, benchmark::DatasetEvidence,
-    benchmark::DatasetRole, benchmark::GeneratorRound, bundle_hash, format_scenario, generator,
-    parse, run, validate, validate_catalog, validate_manifest,
+    RunBundle, RunOptions, bundle_hash, format_scenario, generator, parse, run, validate,
 };
-use std::path::PathBuf;
 
 #[test]
 fn generated_source_is_parseable_and_valid() {
@@ -2867,55 +2864,4 @@ agents passengers count 1 on upper at (1m, 1m, 6m) to street speed 1m/s radius 0
             .iter()
             .any(|error| error.message.contains("unreachable"))
     );
-}
-
-#[test]
-fn benchmark_requires_open_calibration_and_holdout_evidence() {
-    let digest = "a".repeat(64);
-    let manifest = BenchmarkManifest {
-        schema_version: "0.1".to_owned(),
-        round_id: "alpha-1".to_owned(),
-        generator: GeneratorRound {
-            version: "0.1".to_owned(),
-            public_fixture_seeds: vec![1, 2],
-            evaluation_seed_commitment: digest.clone(),
-            release_after_round: true,
-        },
-        datasets: vec![
-            DatasetEvidence {
-                id: "calibration".to_owned(),
-                role: DatasetRole::Calibration,
-                source_url: "https://example.invalid/calibration".to_owned(),
-                license: "CC-BY-4.0".to_owned(),
-                sha256: digest.clone(),
-                redistributable: true,
-                transformation: "documented projection".to_owned(),
-            },
-            DatasetEvidence {
-                id: "holdout".to_owned(),
-                role: DatasetRole::HeldOut,
-                source_url: "https://example.invalid/holdout".to_owned(),
-                license: "CC-BY-4.0".to_owned(),
-                sha256: digest,
-                redistributable: true,
-                transformation: "documented projection".to_owned(),
-            },
-        ],
-        claim_boundary: "Only the declared primitives and populations are supported.".to_owned(),
-    };
-    validate_manifest(&manifest).expect("public two-way evidence validates");
-    let mut private = manifest;
-    private.datasets[1].redistributable = false;
-    assert!(validate_manifest(&private).is_err());
-}
-
-#[test]
-fn checked_in_eindhoven_catalog_is_a_valid_pre_benchmark_source_lock() {
-    let catalog_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../benchmarks/evidence/eindhoven-centraal-platform-2024.json");
-    let catalog: EvidenceCatalog = serde_json::from_str(
-        &std::fs::read_to_string(&catalog_path).expect("checked-in catalog is readable"),
-    )
-    .expect("checked-in catalog is JSON");
-    validate_catalog(&catalog).expect("checked-in catalog follows the source-lock contract");
 }
