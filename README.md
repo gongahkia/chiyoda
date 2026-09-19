@@ -70,4 +70,8 @@ $ chiyoda replay out/example/run.json
 
 ## Reference
 
-...
+The name `Chiyoda` is in reference to the [Tokyo Metro Chiyoda Line](https://en.wikipedia.org/wiki/Tokyo_Metro_Chiyoda_Line) and the [1995 Tokyo Subway Sarin Attack](https://en.wikipedia.org/wiki/Tokyo_subway_sarin_attack) enacted by the [Aum Shinrikyo](https://en.wikipedia.org/wiki/Aum_Shinrikyo) Cult.
+
+<div align="center">
+    <img src="./assets/logo/map.webp" width="65%">
+</div>
