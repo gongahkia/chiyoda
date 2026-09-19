@@ -1,36 +1,68 @@
 # Chiyoda
 
 Chiyoda is a deterministic 3D pedestrian-flow simulator for authored transit
-interchange scenarios. It provides a typed textual DSL, static validation, a
-Rust reference runtime, reproducible JSON run bundles, a deterministic example
-generator, and a native Linux trace viewer.
+interchange scenarios.
 
-The simulator is useful for inspecting the consequences of explicitly authored
-geometry, demand, routes, capacities, and state changes. A valid scenario or
-reproducible trace is not a prediction of a facility or population, and is not
-appropriate for life-safety, emergency, or regulatory decisions.
+It turns typed scenario source into a validated canonical representation, a
+reproducible run bundle, and an optional native Linux replay.
 
-## Quick start
+## Highlights
 
-Fedora Linux 43 with the pinned Rust toolchain is the supported environment.
+- Deterministic // Run the same valid scenario with the same runtime and get
+  the same result.
+- Text-first // Author geometry, demand, routes, capacities, and state changes
+  in a small DSL with explicit SI units.
+- Inspectable // Format, validate, compile, run, and replay from the command
+  line.
+- Reproducible // Runs include their source and a hash-verifiable `run.json`
+  bundle.
+
+## Table of Contents
+
+- [Installation](#installation)
+  - [Build from source](#build-from-source)
+- [Usage](#usage)
+  - [Create and run a scenario](#create-and-run-a-scenario)
+  - [The scenario language](#the-scenario-language)
+- [Replay](#replay)
+- [Documentation](#documentation)
+- [Development](#development)
+- [Scope](#scope)
+
+## Installation
+
+### Build from source
+
+The checkout selects Rust 1.98.0 through `rust-toolchain.toml`.
 
 ```console
-$ cargo run -p chiyoda -- generate --seed 73 -o example.chy
-$ cargo run -p chiyoda -- format example.chy -o example.formatted.chy
-$ cargo run -p chiyoda -- check example.formatted.chy
-$ cargo run -p chiyoda -- compile example.formatted.chy -o out/example.ir.json
-$ cargo run -p chiyoda -- run example.formatted.chy -o out/example
-$ cargo run -p chiyoda -- replay out/example/run.json
-$ cargo run -p chiyoda-replay -- out/example/run.json
+$ git clone https://github.com/gongahkia/chiyoda.git
+$ cd chiyoda
+$ cargo build --release --workspace --locked
+$ export PATH="$PWD/target/release:$PATH"
 ```
 
-`run` writes the source and a hash-verifiable `run.json` bundle. `replay`
-reconstructs that bundle with the installed runtime before printing a summary.
-`chiyoda-replay` opens the native viewer and requires an available Linux display
-server. Pass `--surface ID` to choose its initial surface, or use `--watch
-SOURCE` for a local edit-and-rerun loop that does not write a bundle.
+This builds `chiyoda`, the scenario CLI, and `chiyoda-replay`, the native
+viewer. Opening the viewer requires an available Linux display server; the
+other commands are command-line only.
 
-## Language at a glance
+## Usage
+
+### Create and run a scenario
+
+```console
+$ chiyoda generate --seed 73 -o example.chy
+$ chiyoda format example.chy -o example.formatted.chy
+$ chiyoda check example.formatted.chy
+$ chiyoda compile example.formatted.chy -o out/example.ir.json
+$ chiyoda run example.formatted.chy -o out/example
+$ chiyoda replay out/example/run.json
+```
+
+`run` writes a verified bundle. `replay` reconstructs that bundle with the
+installed runtime and prints its summary.
+
+### The scenario language
 
 ```chy
 scenario "concourse-transfer"
@@ -48,30 +80,38 @@ gate fare_gate on concourse at (32m, 8m, 0m) width 2m capacity 18/s to street
 agents passengers count 120 on platform at (8m, 8m, 6m) to street speed 1.2m/s radius 0.3m height 1.7m via fare_hall release 0s
 ```
 
-The compiler accepts only explicit SI units and rejects unknown identifiers,
-invalid spatial references, unreachable exits, invalid capacity declarations,
-and nondeterministic scenario structure. The [language reference](docs/language.md)
-and [executable semantics](docs/semantics.md) define the current contract.
+The compiler rejects unknown identifiers, invalid spatial references,
+unreachable exits, invalid capacities, and nondeterministic structure. See the
+[language reference](docs/language.md) for the complete grammar and static
+checks.
 
-## Replay showcase
+## Replay
 
 ![Animated replay of the grand interchange showcase](assets/demo/grand-interchange-showcase.gif)
 
-The [showcase source](examples/demos/grand-interchange-showcase.chy) exercises
-multi-surface movement, obstacles, capacities, state changes, alternative exits,
-and information events. Its [GIF provenance sidecar](assets/demo/grand-interchange-showcase.gif.json)
-records the exact rendering inputs.
-
-Regenerate the animation with:
+The [showcase source](examples/demos/grand-interchange-showcase.chy) includes
+multi-surface movement, obstacles, capacities, state changes, and alternative
+exits. Run it locally, then open its replay:
 
 ```console
-$ cargo run -p chiyoda -- run examples/demos/grand-interchange-showcase.chy \
+$ chiyoda run examples/demos/grand-interchange-showcase.chy \
     -o out/grand-interchange-showcase --trace-every 20
-$ cargo run -p chiyoda-replay -- out/grand-interchange-showcase/run.json \
-    --surface concourse --sprite-atlas assets/replay/undercity-atlas.json \
-    --export-gif out/grand-interchange-showcase/grand-interchange-showcase.gif \
-    --gif-speed 10
+$ chiyoda-replay out/grand-interchange-showcase/run.json --surface concourse
 ```
+
+For an edit-and-rerun loop without writing a bundle, use
+`chiyoda-replay --watch scenario.chy`. The [replay guide](docs/replay.md)
+covers controls, snapshots, GIF export, and sprite atlases. The showcase's
+[GIF provenance sidecar](assets/demo/grand-interchange-showcase.gif.json)
+records its rendering inputs.
+
+## Documentation
+
+- [Language reference](docs/language.md) — grammar, validation, canonical IR,
+  and geometry boundary.
+- [Executable semantics](docs/semantics.md) — runtime state, step order, and
+  reproducibility contract.
+- [Native replay viewer](docs/replay.md) — live debugging, controls, and export.
 
 ## Development
 
@@ -79,15 +119,13 @@ $ cargo run -p chiyoda-replay -- out/grand-interchange-showcase/run.json \
 $ make verify
 ```
 
-This formats, lints, tests, smoke-tests the shipped scenario, and builds every
-workspace member. The GitHub Actions workflow runs the same target for pull
-requests and pushes to `main`.
+This formats, lints, tests, smoke-tests the shipped showcase, and builds the
+workspace. GitHub Actions runs the same target for pull requests and pushes to
+`main`.
 
-## Project structure
+## Scope
 
-- `crates/chiyoda-core` — DSL parser, validator, canonical IR, deterministic
-  runtime, run bundles, and generator.
-- `crates/chiyoda-cli` — scenario authoring, execution, and bundle inspection.
-- `crates/chiyoda-replay` — native Linux trace viewer.
-- `examples` and `assets` — a replayable showcase and its rendering assets.
-- `docs` — language, runtime, and replay contracts.
+Chiyoda is for inspecting consequences of explicitly authored inputs. A valid
+scenario or reproducible trace is not a prediction of a real facility or
+population, and it is not appropriate for life-safety, emergency, or regulatory
+decisions.
