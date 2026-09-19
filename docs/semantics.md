@@ -220,10 +220,10 @@ agents that appeared in at least one overlapping pair at a completed
 integration boundary; `disc_overlap_pair_steps` counts the unordered pairs at
 those boundaries, so the same pair may contribute repeatedly; and
 `maximum_disc_overlap_m` is the largest positive sum-of-radii minus horizontal
-centre-distance. The independent CLI and Python bundle readers require all
-three fields, zero them together when no pair-step exists, and bound them by
-the declared agent population, radii, and integration schedule. Current-runtime
-bundle verification also deterministically reconstructs the run. The audit is
+centre-distance. Bundle verification requires all three fields, zeroes them
+together when no pair-step exists, and bounds them by the declared agent
+population, radii, and integration schedule. Current-runtime bundle
+verification also deterministically reconstructs the run. The audit is
 reference-runtime provenance, not swept-time collision detection, observed
 contact, a density measurement, or a physical-safety claim. It is omitted from
 earlier bundles rather than backfilled as zero.
@@ -239,17 +239,9 @@ approach from the two linear paths rather than sampling intermediate times. It
 is an audit of the discrete reference trajectory, not continuous physical
 collision detection: it does not model motion within a step beyond linear
 interpolation, transitions between surfaces, contact, density, physical safety,
-or calibration. The independent CLI and Python readers require complete,
-population-, radius-, and step-schedule-bounded telemetry, and earlier bundles
-omit it rather than backfill zeroes.
-
-`chiyoda verify-reference-clearance BUNDLE` is an optional engineering
-acceptance gate for a current, reconstructible bundle. It requires zero
-pair-steps and zero maximum overlap in both reference-disc audits. It rejects
-missing, legacy, or non-reconstructible telemetry. This gate is deliberately
-stricter than ordinary bundle verification, but it remains a condition on the
-discrete reference model, not evidence of physical contact avoidance or
-operational safety.
+or calibration. Bundle verification requires complete, population-, radius-,
+and step-schedule-bounded telemetry, and earlier bundles omit it rather than
+backfill zeroes.
 
 Current bundles also retain discrete `queue_metrics` for lift, non-lift
 connector, gate, and exit capacity queues. `ever_queued_agents` is the number

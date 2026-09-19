@@ -27,6 +27,22 @@ fn generated_source_is_valid_across_a_seed_range() {
 }
 
 #[test]
+fn parser_rejects_removed_walking_profile_declarations() {
+    let source = r#"
+scenario "profile"
+seed 7
+duration 10s
+timestep 1s
+walking-profile legacy horizontal-free-walking speed 1.2m/s catalog-sha256 a calibration-profile-sha256 b held-out-evaluation-sha256 c
+surface concourse at (0m, 0m, 0m) size (10m, 10m)
+exit street on concourse at (9m, 1m, 0m) width 1m
+agents passengers count 1 on concourse at (1m, 1m, 0m) to street speed 1.2m/s radius 0.3m height 1.7m
+"#;
+    let error = parse(source).expect_err("walking profiles are no longer part of the language");
+    assert!(error.message.contains("unknown declaration `walking-profile`"));
+}
+
+#[test]
 fn fractional_final_step_ends_exactly_at_the_authored_duration() {
     let scenario = parse(
         r#"

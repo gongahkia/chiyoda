@@ -528,14 +528,8 @@ fn parse_declaration(
                 destination: tokens[11].clone(),
                 alternative_destinations: agent_options.alternative_destinations,
                 speed_mps,
-                radius_m: parse_length(
-                    line,
-                    required(line, tokens, 15, "agent radius")?,
-                )?,
-                height_m: parse_length(
-                    line,
-                    required(line, tokens, 17, "agent height")?,
-                )?,
+                radius_m: parse_length(line, required(line, tokens, 15, "agent radius")?)?,
+                height_m: parse_length(line, required(line, tokens, 17, "agent height")?)?,
                 release_at_s: agent_options.release_at_s,
                 release_interval_s: agent_options.release_interval_s,
                 release_batch_size: agent_options.release_batch_size,

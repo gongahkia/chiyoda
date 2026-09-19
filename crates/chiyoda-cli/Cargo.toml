@@ -5,7 +5,7 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "CLI for compiling, running, and benchmarking Chiyoda experiments"
+description = "CLI for authoring, running, and inspecting deterministic Chiyoda scenarios"
 
 [[bin]]
 name = "chiyoda"

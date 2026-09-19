@@ -4,7 +4,10 @@ use chiyoda_core::{
     parse, run, validate, verify_run_bundle,
 };
 use clap::{Parser, Subcommand};
-use std::{fs, path::{Path, PathBuf}};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+};
 
 #[derive(Debug, Parser)]
 #[command(
@@ -121,7 +124,9 @@ fn main() -> Result<()> {
             write_text(&output, &source)?;
             println!("generated: {} ({})", output.display(), scenario.name);
         }
-        Command::Replay { bundle: bundle_path } => {
+        Command::Replay {
+            bundle: bundle_path,
+        } => {
             let bundle: RunBundle = read_json(&bundle_path)?;
             if verify_run_bundle(&bundle)? != BundleVerification::Reconstructed {
                 bail!("bundle uses an incompatible runtime contract and cannot be reconstructed");
@@ -168,7 +173,10 @@ fn write_text(path: &Path, text: &str) -> Result<()> {
 }
 
 fn ensure_parent(path: &Path) -> Result<()> {
-    if let Some(parent) = path.parent().filter(|parent| !parent.as_os_str().is_empty()) {
+    if let Some(parent) = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+    {
         fs::create_dir_all(parent).with_context(|| format!("creating {}", parent.display()))?;
     }
     Ok(())
