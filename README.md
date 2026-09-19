@@ -1,10 +1,8 @@
-# Chiyoda
+[![](https://img.shields.io/badge/chiyoda_1.0.0-passing-light_green)](https://github.com/gongahkia/chiyoda/releases/tag/1.0.0) 
 
-Chiyoda is a deterministic 3D pedestrian-flow simulator for authored transit
-interchange scenarios.
+# `Chiyoda` 🚇
 
-It turns typed scenario source into a validated canonical representation, a
-reproducible run bundle, and an optional native Linux replay.
+Deterministic 2D/3D [pedestrian-flow](https://www.researchgate.net/figure/Examples-of-pedestrian-flow-data_tbl1_366989142) simulator built atop a typed [DSL](https://en.wikipedia.org/wiki/Domain-specific_language) for scenario source specification.
 
 ## Highlights
 
