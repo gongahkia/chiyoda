@@ -1,4 +1,5 @@
 [![](https://img.shields.io/badge/chiyoda_1.0.0-passing-light_green)](https://github.com/gongahkia/chiyoda/releases/tag/1.0.0) 
+![https://github.com/gongahkia/chiyoda/actions/workflows/verify.yml/](https://github.com/gongahkia/chiyoda/actions/workflows/verify.yml/badge.svg)
 
 # `Chiyoda` 🚇
 
