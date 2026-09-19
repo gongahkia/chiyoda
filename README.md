@@ -11,10 +11,6 @@
 * **Inspectable**: Format, validate, compile, run, and replay from the command line
 * **Reproducible**: Runs include their source and a hash-verifiable `run.json` bundle
 
-## GIFs
-
-![](assets/demo/grand-interchange-showcase.gif)
-
 ## The `Chiyoda` DSL
 
 Below is a simple example of the statically checked DSL in action. See [`docs/language.md`](./docs/language.md) for a more detailed language specificaton.
@@ -36,6 +32,9 @@ stair north_stair from platform at (24m, 8m, 6m) to concourse at (24m, 8m, 0m) w
 gate fare_gate on concourse at (32m, 8m, 0m) width 2m capacity 18/s to street
 agents passengers count 120 on platform at (8m, 8m, 6m) to street speed 1.2m/s radius 0.3m height 1.7m via fare_hall release 0s
 ```
+## GIFs
+
+![](assets/demo/grand-interchange-showcase.gif)
 
 ## Usage
 
@@ -67,14 +66,6 @@ $ chiyoda compile example.formatted.chy -o out/example.ir.json
 $ chiyoda run example.formatted.chy -o out/example
 $ chiyoda replay out/example/run.json
 ```
-
-## Documentation
-
-- [Language reference](docs/language.md) — grammar, validation, canonical IR,
-  and geometry boundary.
-- [Executable semantics](docs/semantics.md) — runtime state, step order, and
-  reproducibility contract.
-- [Native replay viewer](docs/replay.md) — live debugging, controls, and export.
 
 ## Reference
 
