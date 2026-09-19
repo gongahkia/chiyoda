@@ -2842,7 +2842,6 @@ agents passengers count 1 on concourse at (1m, 4m, 0m) to street speed 1.2m/s ra
             seed: 0,
             duration_s: 1.0,
             timestep_s: 1.0,
-            walking_profiles: Vec::new(),
             surfaces: vec![surface.clone()],
             obstacles: vec![Obstacle {
                 id: "column".to_owned(),

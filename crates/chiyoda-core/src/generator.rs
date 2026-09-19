@@ -4,9 +4,7 @@ use crate::{ParseError, Scenario, parse, validate};
 
 /// Generate a small multi-level transit scenario from a stable seed.
 ///
-/// The generated source is an input candidate, not benchmark evidence. A
-/// benchmark round must still pin the generator version, seed, constraints,
-/// and evaluation protocol.
+/// The generated source is a structural example, not a facility model.
 #[must_use]
 pub fn source(seed: u64) -> String {
     let mut random = SplitMix64::new(seed);

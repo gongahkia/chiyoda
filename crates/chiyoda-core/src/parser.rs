@@ -2,8 +2,7 @@ use crate::model::{
     AgentGroup, Connector, ConnectorCapacityChange, ConnectorKind, ConnectorStateChange,
     Countermeasure, Exit, ExitCapacityChange, ExitStateChange, Gate, GateCapacityChange,
     GateStateChange, InformationSource, Message, Obstacle, Point3, PortalAxis, PortalLanes,
-    PortalResource, QueueFootprint, Scenario, Surface, WalkingSpeedProfile,
-    WalkingSpeedProfileKind, Waypoint,
+    PortalResource, QueueFootprint, Scenario, Surface, Waypoint,
 };
 use std::{fmt, str::FromStr};
 
@@ -27,7 +26,6 @@ struct ScenarioBuilder {
     seed: Option<u64>,
     duration_s: Option<f64>,
     timestep_s: Option<f64>,
-    walking_profiles: Vec<WalkingSpeedProfile>,
     surfaces: Vec<Surface>,
     obstacles: Vec<Obstacle>,
     waypoints: Vec<Waypoint>,
@@ -72,7 +70,6 @@ impl ScenarioBuilder {
             timestep_s: self
                 .timestep_s
                 .ok_or_else(|| error(line, "missing `timestep` declaration"))?,
-            walking_profiles: self.walking_profiles,
             surfaces: self.surfaces,
             obstacles: self.obstacles,
             waypoints: self.waypoints,
@@ -147,24 +144,6 @@ fn parse_declaration(
             reject_duplicate(line, builder.timestep_s.is_some(), "timestep")?;
             require_exact_count(line, tokens, 2)?;
             builder.timestep_s = Some(parse_duration(line, &tokens[1])?);
-        }
-        "walking-profile" => {
-            require_exact_count(line, tokens, 11)?;
-            expect(line, tokens, 3, "speed")?;
-            expect(line, tokens, 5, "catalog-sha256")?;
-            expect(line, tokens, 7, "calibration-profile-sha256")?;
-            expect(line, tokens, 9, "held-out-evaluation-sha256")?;
-            builder.walking_profiles.push(WalkingSpeedProfile {
-                id: tokens[1].clone(),
-                kind: parse_walking_speed_profile_kind(line, &tokens[2])?,
-                preferred_speed_mps: parse_speed(
-                    line,
-                    required(line, tokens, 4, "walking profile speed")?,
-                )?,
-                catalog_sha256: tokens[6].clone(),
-                calibration_profile_sha256: tokens[8].clone(),
-                held_out_evaluation_sha256: tokens[10].clone(),
-            });
         }
         "surface" => {
             require_exact_count(line, tokens, 9)?;
@@ -533,43 +512,10 @@ fn parse_declaration(
             expect(line, tokens, 6, "at")?;
             expect(line, tokens, 10, "to")?;
             expect(line, tokens, 12, "speed")?;
-            let (speed_mps, walking_profile_id, radius_index, height_index, options_start) =
-                if tokens.get(13).is_some_and(|token| token == "profile") {
-                    require_count(line, tokens, 19)?;
-                    let profile_id = required(line, tokens, 14, "walking profile identifier")?;
-                    let profile = builder
-                        .walking_profiles
-                        .iter()
-                        .find(|profile| profile.id == profile_id)
-                        .ok_or_else(|| {
-                            error(
-                                line,
-                                format!(
-                                    "unknown walking profile `{profile_id}`; declare it before the agent group"
-                                ),
-                            )
-                        })?;
-                    expect(line, tokens, 15, "radius")?;
-                    expect(line, tokens, 17, "height")?;
-                    (
-                        profile.preferred_speed_mps,
-                        Some(profile.id.clone()),
-                        16,
-                        18,
-                        19,
-                    )
-                } else {
-                    expect(line, tokens, 14, "radius")?;
-                    expect(line, tokens, 16, "height")?;
-                    (
-                        parse_speed(line, required(line, tokens, 13, "agent speed")?)?,
-                        None,
-                        15,
-                        17,
-                        18,
-                    )
-                };
-            let agent_options = agent_options(line, tokens, &tokens[11], options_start)?;
+            expect(line, tokens, 14, "radius")?;
+            expect(line, tokens, 16, "height")?;
+            let speed_mps = parse_speed(line, required(line, tokens, 13, "agent speed")?)?;
+            let agent_options = agent_options(line, tokens, &tokens[11], 18)?;
             builder.agents.push(AgentGroup {
                 id: tokens[1].clone(),
                 count: parse_plain(
@@ -581,7 +527,6 @@ fn parse_declaration(
                 at: point(line, tokens, 7)?,
                 destination: tokens[11].clone(),
                 alternative_destinations: agent_options.alternative_destinations,
-                walking_profile_id,
                 speed_mps,
                 radius_m: parse_length(
                     line,
@@ -985,19 +930,6 @@ fn parse_portal_axis(line: usize, value: &str) -> Result<PortalAxis, ParseError>
     }
 }
 
-fn parse_walking_speed_profile_kind(
-    line: usize,
-    value: &str,
-) -> Result<WalkingSpeedProfileKind, ParseError> {
-    match value {
-        "horizontal-free-walking" => Ok(WalkingSpeedProfileKind::HorizontalFreeWalking),
-        _ => Err(error(
-            line,
-            format!("unknown walking profile kind `{value}`; use horizontal-free-walking"),
-        )),
-    }
-}
-
 fn parse_plain<T>(line: usize, value: &str, label: &str) -> Result<T, ParseError>
 where
     T: FromStr,
@@ -1088,57 +1020,5 @@ fn error(line: usize, message: impl Into<String>) -> ParseError {
     ParseError {
         line,
         message: message.into(),
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::parse;
-    use crate::{format_scenario, validate};
-
-    const HASH: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
-
-    #[test]
-    fn embedded_walking_profile_resolves_to_a_replayable_agent_speed() {
-        let source = format!(
-            r#"scenario "profile fixture"
-seed 7
-duration 10s
-timestep 1s
-walking-profile ecp_free horizontal-free-walking speed 1.25m/s catalog-sha256 {HASH} calibration-profile-sha256 {HASH} held-out-evaluation-sha256 {HASH}
-surface platform at (0m, 0m, 0m) size (20m, 10m)
-exit street on platform at (18m, 5m, 0m) width 2m
-agents passengers count 1 on platform at (1m, 5m, 0m) to street speed profile ecp_free radius 0.3m height 1.7m
-"#
-        );
-        let scenario = parse(&source).expect("profile fixture parses");
-        validate(&scenario).expect("resolved profile scenario validates");
-
-        assert_eq!(scenario.walking_profiles.len(), 1);
-        assert_eq!(
-            scenario.agents[0].walking_profile_id.as_deref(),
-            Some("ecp_free")
-        );
-        assert_eq!(scenario.agents[0].speed_mps.to_bits(), 1.25_f64.to_bits());
-
-        let formatted = format_scenario(&scenario);
-        assert_eq!(
-            parse(&formatted).expect("formatted profile parses"),
-            scenario
-        );
-    }
-
-    #[test]
-    fn walking_profile_must_be_declared_before_an_agent_uses_it() {
-        let source = r#"scenario "profile order"
-seed 7
-duration 10s
-timestep 1s
-surface platform at (0m, 0m, 0m) size (20m, 10m)
-exit street on platform at (18m, 5m, 0m) width 2m
-agents passengers count 1 on platform at (1m, 5m, 0m) to street speed profile missing radius 0.3m height 1.7m
-"#;
-        let error = parse(source).expect_err("missing profile must fail at the declaration");
-        assert!(error.message.contains("unknown walking profile `missing`"));
     }
 }

@@ -15,20 +15,6 @@ pub fn format_scenario(scenario: &Scenario) -> String {
     writeln!(source, "timestep {}", duration(scenario.timestep_s))
         .expect("writing to a string cannot fail");
 
-    for profile in &scenario.walking_profiles {
-        writeln!(
-            source,
-            "walking-profile {} {} speed {} catalog-sha256 {} calibration-profile-sha256 {} held-out-evaluation-sha256 {}",
-            profile.id,
-            profile.kind.as_str(),
-            speed(profile.preferred_speed_mps),
-            profile.catalog_sha256,
-            profile.calibration_profile_sha256,
-            profile.held_out_evaluation_sha256,
-        )
-        .expect("writing to a string cannot fail");
-    }
-
     for surface in &scenario.surfaces {
         writeln!(
             source,
@@ -286,7 +272,7 @@ pub fn format_scenario(scenario: &Scenario) -> String {
             group.surface,
             point(group.at),
             group.destination,
-            walking_speed(group),
+            speed(group.speed_mps),
             length(group.radius_m),
             length(group.height_m),
             journey_waypoints(&group.via),
@@ -331,13 +317,6 @@ pub fn format_scenario(scenario: &Scenario) -> String {
         .expect("writing to a string cannot fail");
     }
     source
-}
-
-fn walking_speed(group: &crate::model::AgentGroup) -> String {
-    group.walking_profile_id.as_ref().map_or_else(
-        || speed(group.speed_mps),
-        |profile_id| format!("profile {profile_id}"),
-    )
 }
 
 fn sampling_key(sampling_key: Option<&str>) -> String {

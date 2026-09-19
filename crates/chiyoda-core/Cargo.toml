@@ -12,12 +12,6 @@ serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
 thiserror.workspace = true
-arrow-array.workspace = true
-parquet.workspace = true
-flate2.workspace = true
-tar.workspace = true
-zip.workspace = true
-xml-rs.workspace = true
 
 [lints]
 workspace = true
