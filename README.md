@@ -1,9 +1,17 @@
-[![](https://img.shields.io/badge/chiyoda_1.0.0-passing-light_green)](https://github.com/gongahkia/chiyoda/releases/tag/1.0.0) 
-![https://github.com/gongahkia/chiyoda/actions/workflows/verify.yml/](https://github.com/gongahkia/chiyoda/actions/workflows/verify.yml/badge.svg)
+<h1 align="center"><code>Chiyoda</code></h1>
 
-# `Chiyoda` 🚇
+<p align="center"><img src="./assets/logo/chiyoda-logo.png" width="40%" height="40%" alt="Yuho mascot"></p>
 
-[Deterministic](#features) 2D/3D [pedestrian-flow](https://www.researchgate.net/figure/Examples-of-pedestrian-flow-data_tbl1_366989142) simulator built atop a typed [DSL](https://en.wikipedia.org/wiki/Domain-specific_language) for [scenario source specification](#the-chiyoda-dsl).
+<p align="center"><em>A Domain-specific Language for simulating Pedestrian-flow</em></p>
+
+<p align="center">
+  <a href="https://github.com/gongahkia/chiyoda/releases/tag/1.0.0"><img src="https://img.shields.io/badge/chiyoda_1.0.0-passing-light_green"></a>
+  <a href="https://github.com/gongahkia/chiyoda/actions/workflows/verify.yml/"><img src="https://github.com/gongahkia/chiyoda/actions/workflows/verify.yml/badge.svg" alt="CI"></a>
+</p>
+
+## What is Chiyoda?
+
+`Chiyoda` is a [deterministic](#features) 2D/3D [pedestrian-flow](https://www.researchgate.net/figure/Examples-of-pedestrian-flow-data_tbl1_366989142) simulator built atop a typed [DSL](https://en.wikipedia.org/wiki/Domain-specific_language) for [scenario source specification](#the-chiyoda-dsl).
 
 ## Features
 
