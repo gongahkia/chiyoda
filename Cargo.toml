@@ -22,7 +22,7 @@ sha2 = "0.10.9"
 thiserror = "2.0.17"
 clap = { version = "4.5.54", features = ["derive"] }
 anyhow = "1.0.100"
-minifb = "0.28.0"
+minifb = "0.29.0"
 gif = "0.13.3"
 png = "0.18.1"
 flate2 = "1.1.10"
